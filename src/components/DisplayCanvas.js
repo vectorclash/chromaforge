@@ -680,7 +680,7 @@ export default class DisplayCanvas extends React.Component {
             </div>
             <div className="row">
               <h1>
-                VECTOR<b>FORGE</b>
+                CHROMA<b>FORGE</b>
               </h1>
               <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
                 <SettingsButton />
