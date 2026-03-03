@@ -1,8 +1,8 @@
 {
-  "name": "vectorforge",
+  "name": "chromaforge",
   "version": "2.0.0",
   "private": false,
-  "homepage": ".",
+  "homepage": "/",
   "dependencies": {
     "@jaames/iro": "^5.5.2",
     "@testing-library/jest-dom": "^6.6.3",

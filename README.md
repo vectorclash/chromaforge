@@ -1,10 +1,10 @@
-# VectorForge
+# ChromaForge
 
 A generative art application that creates stunning, unique space-themed vector graphics using HTML5 Canvas and procedural generation techniques.
 
-## What is VectorForge?
+## What is ChromaForge?
 
-VectorForge is an interactive web application that generates beautiful, abstract space-themed images by combining procedurally generated elements including:
+ChromaForge is an interactive web application that generates beautiful, abstract space-themed images by combining procedurally generated elements including:
 
 - **Linear & Radial Gradients** - Dynamic color blending with customizable palettes
 - **Star Fields** - Thousands of procedurally placed stars in varying sizes
@@ -49,10 +49,10 @@ Each generated image is unique, created using randomized parameters, blend modes
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/vectorforge.git
+git clone https://github.com/yourusername/chromaforge.git
 
 # Navigate to the project directory
-cd vectorforge
+cd chromaforge
 
 # Install dependencies
 npm install
@@ -103,7 +103,7 @@ Launches the test runner in interactive watch mode.
 
 ### URL Configuration System
 
-When you save an image, VectorForge:
+When you save an image, ChromaForge:
 1. Serializes the entire configuration to JSON
 2. Encodes it to base64 and makes it URL-safe
 3. Checks the URL length:
@@ -134,7 +134,7 @@ When you save an image, VectorForge:
 ## Project Structure
 
 ```
-vectorforge/
+chromaforge/
 ├── public/              # Static assets
 ├── src/
 │   ├── assets/         # Images (star sprites)
@@ -160,7 +160,7 @@ vectorforge/
 
 ## Browser Support
 
-VectorForge works in all modern browsers that support:
+ChromaForge works in all modern browsers that support:
 - HTML5 Canvas API
 - ES6+ JavaScript
 - CSS3 Transitions and Animations

@@ -43,7 +43,7 @@ export function getConfigFromUrl() {
   // Check for short ID first (localStorage reference)
   const shortId = urlParams.get('id');
   if (shortId) {
-    const stored = localStorage.getItem(`vectorforge_${shortId}`);
+    const stored = localStorage.getItem(`chromaforge_${shortId}`);
     if (stored) {
       try {
         return JSON.parse(stored);
@@ -73,7 +73,7 @@ export function generateShareUrl(config) {
   if (testUrl.length > MAX_URL_LENGTH) {
     const shortId = generateShortId();
     try {
-      localStorage.setItem(`vectorforge_${shortId}`, JSON.stringify(config));
+      localStorage.setItem(`chromaforge_${shortId}`, JSON.stringify(config));
       return `${baseUrl}?id=${shortId}`;
     } catch (error) {
       console.error('localStorage not available, URL may be too long:', error);
