@@ -2,12 +2,14 @@ import React from 'react';
 import { gsap, Quad, Back, Bounce } from 'gsap';
 import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 import './DisplayCanvas.scss';
 import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
+import AnimationPreview from './AnimationPreview';
 import CloseButton from './buttons/CloseButton';
 import LinearGradient from './Canvas/LinearGradient';
 import GenerateLinearGradient from './Canvas/GenerateLinearGradient';
@@ -37,7 +39,12 @@ export default class DisplayCanvas extends React.Component {
       controlsBlurred: false,
       saveVisible: false,
       colors: [],
-      linkCopied: false
+      linkCopied: false,
+      animationMode: false,
+      animationFrames: [],
+      animationProgress: 0,
+      isExporting: false,
+      exportProgress: 0
     };
     this.nextColorId = 0;
   }
@@ -56,11 +63,19 @@ export default class DisplayCanvas extends React.Component {
   init() {
     const config = getConfigFromUrl();
     if (config) {
-      this.setState({
-        isLoading: true,
-        isSaved: true
-      });
-      this.loadImageFromUrl(config);
+      if (config.animation && config.frames) {
+        this.setState({
+          animationMode: true,
+          isLoading: true,
+          isSaved: true,
+          generateDisabled: true,
+          animationProgress: 0
+        });
+        this.loadAnimationFromConfigs(config.frames);
+      } else {
+        this.setState({ isLoading: true, isSaved: true });
+        this.loadImageFromUrl(config);
+      }
     } else {
       this.onGenerateButtonClick();
     }
@@ -134,7 +149,7 @@ export default class DisplayCanvas extends React.Component {
       this.mainConfig.overlayConfig = overlayConfig;
     }
 
-    this.buildImage(this.mainConfig);
+    return this.mainConfig;
   }
 
   buildImage(config) {
@@ -199,6 +214,92 @@ export default class DisplayCanvas extends React.Component {
     element = null;
   }
 
+  buildImageAsBlob(config) {
+    return new Promise(resolve => {
+      let canvas = document.createElement('canvas');
+      let context = canvas.getContext('2d');
+      canvas.width = config.width;
+      canvas.height = config.height;
+
+      let gradientBackground = LinearGradient(config.gradientBackgroundConfig);
+      context.drawImage(gradientBackground, 0, 0);
+      this.clearElement(gradientBackground);
+
+      if (config.radialFieldConfig) {
+        context.globalCompositeOperation = config.firstBlend;
+        let radialField = LargeRadialField(config.radialFieldConfig);
+        context.drawImage(radialField, 0, 0);
+        this.clearElement(radialField);
+      }
+
+      context.globalCompositeOperation = config.secondBlend;
+      let starField = StarField(config.starFieldConfig, this.queue);
+      context.drawImage(starField, 0, 0);
+      this.clearElement(starField);
+
+      if (config.geometryConfig) {
+        context.globalCompositeOperation = config.thirdBlend;
+        let geometry = GeometricShape(config.geometryConfig);
+        context.drawImage(geometry, 0, 0);
+        this.clearElement(geometry);
+      }
+
+      if (config.overlayConfig) {
+        context.globalCompositeOperation = config.overlayBlend;
+        context.globalAlpha = config.overlayAlpha;
+        let gradientOverlay = LinearGradient(config.overlayConfig);
+        context.drawImage(gradientOverlay, 0, 0);
+        this.clearElement(gradientOverlay);
+      }
+
+      canvas.toBlob(blob => {
+        this.clearElement(canvas);
+        resolve(URL.createObjectURL(blob));
+      }, 'image/jpeg', 0.98);
+    });
+  }
+
+  async buildAnimationFrames() {
+    const FRAME_COUNT = 6;
+    const frames = [];
+    this.animationConfigs = [];
+
+    for (let i = 0; i < FRAME_COUNT; i++) {
+      const config = this.buildConfig();
+      this.animationConfigs.push(config);
+      const blobUrl = await this.buildImageAsBlob(config);
+      frames.push(blobUrl);
+      this.setState({ animationProgress: i + 1 });
+    }
+
+    this.changeGradient(this.mainConfig.gradientBackgroundConfig.colors);
+
+    this.setState({
+      animationFrames: frames,
+      generateDisabled: false,
+      isLoading: false
+    });
+  }
+
+  async loadAnimationFromConfigs(configs) {
+    this.animationConfigs = configs;
+    const frames = [];
+
+    for (let i = 0; i < configs.length; i++) {
+      const blobUrl = await this.buildImageAsBlob(configs[i]);
+      frames.push(blobUrl);
+      this.setState({ animationProgress: i + 1 });
+    }
+
+    this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
+
+    this.setState({
+      animationFrames: frames,
+      generateDisabled: false,
+      isLoading: false
+    });
+  }
+
   changeGradient(colors) {
     let buttonGradient =
       'linear-gradient(42deg, ' + colors[0] + ', ' + colors[colors.length - 1] + ')';
@@ -220,6 +321,19 @@ export default class DisplayCanvas extends React.Component {
     gsap.set('.button-small, .button-medium,  input', {
       borderColor: borderColor
     });
+  }
+
+  saveAnimationToUrl() {
+    const shareUrl = generateShareUrl({ animation: true, frames: this.animationConfigs });
+
+    if (shareUrl) {
+      this.shareUrl = shareUrl;
+      this.setState({ isSaved: true, isSaving: false, isLoading: false });
+      this.openSavePanel();
+    } else {
+      this.setState({ isSaved: false, isSaving: false });
+      console.error('Failed to generate animation share URL');
+    }
   }
 
   saveImageToUrl() {
@@ -380,49 +494,224 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onSaveButtonClick(e) {
-    const { isSaving, isSaved } = this.state;
-
-    if (this.mainConfig && !isSaved && !isSaving) {
-      this.setState({
-        isSaving: true,
-        isLoading: true
-      });
-
-      this.saveImageToUrl();
-    }
+    const { isSaving, isSaved, animationMode } = this.state;
 
     if (isSaved) {
       this.openSavePanel();
+      return;
+    }
+
+    if (animationMode) {
+      if (this.animationConfigs && this.animationConfigs.length > 0 && !isSaving) {
+        this.setState({ isSaving: true });
+        this.saveAnimationToUrl();
+      }
+    } else {
+      if (this.mainConfig && !isSaving) {
+        this.setState({ isSaving: true, isLoading: true });
+        this.saveImageToUrl();
+      }
     }
   }
 
   onDownloadButtonClick(e) {
-    if (this.blob) {
+    const { animationMode, animationFrames, isExporting } = this.state;
+
+    if (animationMode) {
+      if (animationFrames.length > 0 && !isExporting) {
+        this.exportAnimationVideo();
+      }
+    } else if (this.blob) {
       const filename = FileName();
       saveAs(this.blob, filename + '.jpg');
     }
   }
 
+  async exportAnimationVideo() {
+    const { animationFrames } = this.state;
+    this.setState({ isExporting: true, exportProgress: 0 });
+
+    const images = await Promise.all(
+      animationFrames.map(
+        src =>
+          new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.src = src;
+          })
+      )
+    );
+
+    const width = this.props.width;
+    const height = this.props.height;
+    const FADE    = 3.0;
+    const SPACING = 2.0; // must match AnimationPreview.js
+    const SCALE_END = 1.45;
+    const TOTAL_VISIBLE = 2 * FADE;
+    // Ends when frame 0's return reaches full opacity — mirrors the opening state
+    const CYCLE_DURATION = images.length * SPACING + FADE;
+    const FPS = 30;
+    const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
+    const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    const easeInOut = t => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+
+    // Append frame 0 at the end so the last crossfade loops back to the first image
+    const exportFrames = [...images, images[0]];
+
+    const drawAt = elapsed => {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+      exportFrames.forEach((img, i) => {
+        // Frame 0 (first appearance) is already at full opacity — no fade from black.
+        // Its fade-out starts at FADE seconds. Every other frame uses SPACING-based starts.
+        const fadeOutStart = i === 0 ? FADE : i * SPACING + FADE;
+        const fadeInStart  = fadeOutStart - FADE;
+        const endTime      = fadeOutStart + FADE;
+
+        if (elapsed >= endTime) return;
+        if (elapsed < fadeInStart) return;
+
+        let opacity;
+        if (i === 0 && elapsed < FADE) {
+          opacity = 1; // starts fully visible
+        } else if (elapsed < fadeOutStart) {
+          opacity = easeInOut((elapsed - fadeInStart) / FADE);
+        } else {
+          opacity = easeInOut(1 - (elapsed - fadeOutStart) / FADE);
+        }
+
+        const scaleElapsed = elapsed - fadeInStart;
+        const scale = 1 + (SCALE_END - 1) * Math.min(1, scaleElapsed / TOTAL_VISIBLE);
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+        ctx.translate(width / 2, height / 2);
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        ctx.restore();
+      });
+    };
+
+    // mp4-muxer + WebCodecs VideoEncoder — guarantees real H.264 MP4
+    const target = new ArrayBufferTarget();
+    const muxer = new Muxer({
+      target,
+      video: { codec: 'avc', width, height },
+      fastStart: 'in-memory'
+    });
+
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => {
+        const data = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(data);
+        muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, FRAME_DURATION_US, meta);
+      },
+      error: e => console.error('VideoEncoder error:', e)
+    });
+
+    encoder.configure({
+      codec: 'avc1.4d0034', // H.264 Main Profile Level 5.2
+      width,
+      height,
+      bitrate: 12_000_000,
+      framerate: FPS
+    });
+
+    // Encode frame by frame at a fixed timestep (no rAF timing jitter)
+    for (let f = 0; f < TOTAL_FRAMES; f++) {
+      const elapsed = f / FPS;
+      drawAt(elapsed);
+
+      const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });
+      encoder.encode(frame, { keyFrame: f % FPS === 0 });
+      frame.close();
+
+      // Yield to browser every 10 frames — scale render phase to 0–90%
+      if (f % 10 === 0) {
+        this.setState({ exportProgress: Math.round((f / TOTAL_FRAMES) * 90) });
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    // encoder.flush() has no progress callbacks — animate the bar from 90→99%
+    // so it keeps visibly moving while we wait
+    let fakeProgress = 90;
+    const crawl = setInterval(() => {
+      fakeProgress += (99 - fakeProgress) * 0.15; // asymptotic: approaches 99 but never reaches it
+      this.setState({ exportProgress: Math.round(fakeProgress) });
+    }, 200);
+
+    await encoder.flush();
+    clearInterval(crawl);
+
+    muxer.finalize();
+
+    this.setState({ exportProgress: 100 });
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    saveAs(blob, `${FileName()}-animation.mp4`);
+    this.setState({ isExporting: false, exportProgress: 0 });
+  }
+
   onGenerateButtonClick(e) {
-    const { generateDisabled } = this.state;
+    const { generateDisabled, animationMode, animationFrames } = this.state;
 
     if (!generateDisabled) {
-      gsap.to('.image-container', {
-        duration: 0.2,
-        alpha: 0,
-        ease: Quad.easeInOut
-      });
-
-      this.setState({
-        isLoading: true,
-        isSaved: false
-      });
-
       // Clear URL when generating new image
       window.history.pushState({}, '', window.location.pathname);
 
-      this.buildConfig();
+      if (animationMode) {
+        // Revoke existing blob URLs to free memory
+        animationFrames.forEach(url => URL.revokeObjectURL(url));
+
+        this.setState({
+          generateDisabled: true,
+          isLoading: true,
+          isSaved: false,
+          animationFrames: [],
+          animationProgress: 0
+        });
+
+        this.buildAnimationFrames();
+      } else {
+        gsap.to('.image-container', {
+          duration: 0.2,
+          alpha: 0,
+          ease: Quad.easeInOut
+        });
+
+        this.setState({
+          isLoading: true,
+          isSaved: false
+        });
+
+        const config = this.buildConfig();
+        this.buildImage(config);
+      }
     }
+  }
+
+  onModeToggle(mode) {
+    const { animationFrames } = this.state;
+
+    // Revoke blob URLs when leaving animation mode
+    if (!mode && animationFrames.length > 0) {
+      animationFrames.forEach(url => URL.revokeObjectURL(url));
+    }
+
+    this.animationConfigs = null;
+
+    this.setState({
+      animationMode: mode,
+      animationFrames: [],
+      animationProgress: 0,
+      isSaved: false
+    });
   }
 
   onCloseButtonClick(e) {
@@ -634,7 +923,12 @@ export default class DisplayCanvas extends React.Component {
       controlsBlurred,
       colors,
       saveVisible,
-      linkCopied
+      linkCopied,
+      animationMode,
+      animationFrames,
+      animationProgress,
+      isExporting,
+      exportProgress
     } = this.state;
 
     return (
@@ -644,11 +938,17 @@ export default class DisplayCanvas extends React.Component {
           this.mount = mount;
         }}
       >
-        {isLoading ? <HexagonLoader /> : ''}
+        {isLoading && !animationMode ? <HexagonLoader /> : ''}
         <div className="controls-open" onClick={this.onCloseButtonClick.bind(this)}>
           <CloseButton isOpen={controlsAreOpen} />
         </div>
         <div className="image-container" onClick={this.onCloseButtonClick.bind(this)}></div>
+        {animationFrames.length > 0 && (
+          <AnimationPreview
+            frames={animationFrames}
+            onClick={this.onCloseButtonClick.bind(this)}
+          />
+        )}
         <div className="controls-container">
           {controlsAreOpen ? (
             <div
@@ -663,19 +963,63 @@ export default class DisplayCanvas extends React.Component {
             className={'controls-inner' + (controlsBlurred ? ' controls-blurred' : '')}
           >
             <div className="row">
+              <div className="mode-toggle">
+                <button
+                  className={'mode-toggle-btn' + (!animationMode ? ' active' : '')}
+                  onClick={() => this.onModeToggle(false)}
+                >
+                  Image
+                </button>
+                <button
+                  className={'mode-toggle-btn' + (animationMode ? ' active' : '')}
+                  onClick={() => this.onModeToggle(true)}
+                >
+                  Animation
+                </button>
+              </div>
+            </div>
+            <div className="row">
               <button
                 onClick={this.onGenerateButtonClick.bind(this)}
                 className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
               >
-                {generateDisabled ? 'Generating' : 'Generate'}
+                {generateDisabled
+                  ? animationMode
+                    ? `Building ${animationProgress} / 6`
+                    : 'Generating'
+                  : 'Generate'}
               </button>
             </div>
+            {animationMode && (generateDisabled || isExporting) && (
+              <div className="animation-progress">
+                <div
+                  className="animation-progress-bar"
+                  style={{
+                    width: isExporting
+                      ? `${exportProgress}%`
+                      : `${(animationProgress / 6) * 100}%`
+                  }}
+                />
+              </div>
+            )}
             <div className="row">
-              <button onClick={this.onSaveButtonClick.bind(this)} className="button-small">
+              <button
+                onClick={this.onSaveButtonClick.bind(this)}
+                className="button-small"
+              >
                 {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
               </button>
-              <button onClick={this.onDownloadButtonClick.bind(this)} className="button-small">
-                Download
+              <button
+                onClick={this.onDownloadButtonClick.bind(this)}
+                className="button-small"
+                disabled={isExporting || (animationMode && animationFrames.length === 0)}
+                style={
+                  isExporting || (animationMode && animationFrames.length === 0)
+                    ? { opacity: 0.4, cursor: 'not-allowed' }
+                    : {}
+                }
+              >
+                {isExporting ? 'Exporting...' : animationMode ? 'Export MP4' : 'Download'}
               </button>
             </div>
             <div className="row">
