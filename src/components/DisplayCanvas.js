@@ -783,6 +783,12 @@ export default class DisplayCanvas extends React.Component {
         animationFrames.forEach(url => URL.revokeObjectURL(url));
         animationStarFrames.forEach(url => URL.revokeObjectURL(url));
 
+        gsap.to('.image-container', {
+          duration: 0.2,
+          alpha: 0,
+          ease: Quad.easeInOut
+        });
+
         this.setState({
           generateDisabled: true,
           isLoading: true,
@@ -1057,7 +1063,7 @@ export default class DisplayCanvas extends React.Component {
           this.mount = mount;
         }}
       >
-        {isLoading && !animationMode ? <HexagonLoader /> : ''}
+        {isLoading ? <HexagonLoader /> : ''}
         <div className="controls-open" onClick={this.onCloseButtonClick.bind(this)}>
           <CloseButton isOpen={controlsAreOpen} />
         </div>
