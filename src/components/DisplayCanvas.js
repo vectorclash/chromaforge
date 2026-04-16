@@ -528,6 +528,14 @@ export default class DisplayCanvas extends React.Component {
   }
 
   async exportAnimationVideo() {
+    // WebCodecs (VideoEncoder / VideoFrame) is required for MP4 export.
+    // It is unavailable in all iOS browsers on iOS < 17.4, and in Firefox on iOS
+    // (which is WebKit-based and shares Safari's feature set).
+    if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
+      alert('MP4 export requires WebCodecs, which is not supported in this browser.\n\nTry Chrome or Edge on a desktop/laptop to export MP4.');
+      return;
+    }
+
     const { animationFrames } = this.state;
     this.setState({ isExporting: true, exportProgress: 0 });
 
@@ -542,15 +550,22 @@ export default class DisplayCanvas extends React.Component {
       )
     );
 
-    const width = this.props.width;
-    const height = this.props.height;
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    );
+
+    // Use a smaller export resolution on mobile to stay within iOS memory limits.
+    // Full 4K encoding requires ~500 MB+ of GPU/RAM which iOS WebViews don't allow.
+    const width  = isMobile ? 1080 : this.props.width;
+    const height = isMobile ? 1080 : this.props.height;
+
     const FADE    = 3.0;
     const SPACING = 2.0; // must match AnimationPreview.js
     const SCALE_END = 1.45;
     const TOTAL_VISIBLE = 2 * FADE;
     // Ends when frame 0's return reaches full opacity — mirrors the opening state
     const CYCLE_DURATION = images.length * SPACING + FADE;
-    const FPS = 30;
+    const FPS = 24;
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
@@ -563,6 +578,9 @@ export default class DisplayCanvas extends React.Component {
 
     // Append frame 0 at the end so the last crossfade loops back to the first image
     const exportFrames = [...images, images[0]];
+
+    const srcWidth  = this.props.width;
+    const srcHeight = this.props.height;
 
     const drawAt = elapsed => {
       ctx.fillStyle = '#000';
@@ -593,7 +611,8 @@ export default class DisplayCanvas extends React.Component {
         ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
         ctx.translate(width / 2, height / 2);
         ctx.scale(scale, scale);
-        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        // Draw source image scaled to the export canvas size
+        ctx.drawImage(img, 0, 0, srcWidth, srcHeight, -width / 2, -height / 2, width, height);
         ctx.restore();
       });
     };
@@ -606,24 +625,34 @@ export default class DisplayCanvas extends React.Component {
       fastStart: 'in-memory'
     });
 
-    const encoder = new VideoEncoder({
-      output: (chunk, meta) => {
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, FRAME_DURATION_US, meta);
-      },
-      error: e => console.error('VideoEncoder error:', e)
-    });
+    let encoder;
+    try {
+      encoder = new VideoEncoder({
+        output: (chunk, meta) => {
+          const data = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(data);
+          muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, FRAME_DURATION_US, meta);
+        },
+        error: e => console.error('VideoEncoder error:', e)
+      });
 
-    encoder.configure({
-      codec: 'avc1.4d0034', // H.264 Main Profile Level 5.2
-      width,
-      height,
-      bitrate: 12_000_000,
-      framerate: FPS
-    });
+      encoder.configure({
+        codec: 'avc1.4d0034', // H.264 Main Profile Level 5.2
+        width,
+        height,
+        bitrate: isMobile ? 6_000_000 : 12_000_000,
+        framerate: FPS
+      });
+    } catch (e) {
+      console.error('VideoEncoder configure failed:', e);
+      this.setState({ isExporting: false, exportProgress: 0 });
+      alert('MP4 export is not supported in this browser. Try Chrome or Edge on a desktop.');
+      return;
+    }
 
-    // Encode frame by frame at a fixed timestep (no rAF timing jitter)
+    // Encode frame by frame at a fixed timestep (no rAF timing jitter).
+    // Back-pressure: if the encoder queue grows too deep, yield until it drains —
+    // this prevents unbounded memory buildup that kills iOS tabs.
     for (let f = 0; f < TOTAL_FRAMES; f++) {
       const elapsed = f / FPS;
       drawAt(elapsed);
@@ -632,12 +661,20 @@ export default class DisplayCanvas extends React.Component {
       encoder.encode(frame, { keyFrame: f % FPS === 0 });
       frame.close();
 
+      // Drain the encoder queue before it grows too large
+      while (encoder.encodeQueueSize > 5) {
+        await new Promise(r => setTimeout(r, 0));
+      }
+
       // Yield to browser every 10 frames — scale render phase to 0–90%
       if (f % 10 === 0) {
         this.setState({ exportProgress: Math.round((f / TOTAL_FRAMES) * 90) });
         await new Promise(r => setTimeout(r, 0));
       }
     }
+
+    canvas.width = 0;
+    canvas.height = 0;
 
     // encoder.flush() has no progress callbacks — animate the bar from 90→99%
     // so it keeps visibly moving while we wait
