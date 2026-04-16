@@ -42,6 +42,7 @@ export default class DisplayCanvas extends React.Component {
       linkCopied: false,
       animationMode: false,
       animationFrames: [],
+      animationStarFrames: [],
       animationProgress: 0,
       isExporting: false,
       exportProgress: 0
@@ -259,9 +260,35 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
+  // Builds a star-only frame: near-black background with the star field composited
+  // in screen mode. When used with CSS mix-blend-mode:screen the dark background
+  // disappears and only the coloured stars float on top of the gradient layers.
+  buildStarOnlyBlob(starFieldConfig) {
+    return new Promise(resolve => {
+      let canvas = document.createElement('canvas');
+      let context = canvas.getContext('2d');
+      canvas.width = this.props.width;
+      canvas.height = this.props.height;
+
+      context.fillStyle = '#060608';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      context.globalCompositeOperation = 'screen';
+      let starField = StarField(starFieldConfig, this.queue);
+      context.drawImage(starField, 0, 0);
+
+      canvas.toBlob(blob => {
+        this.clearElement(canvas);
+        resolve(URL.createObjectURL(blob));
+      }, 'image/jpeg', 0.92);
+    });
+  }
+
   async buildAnimationFrames() {
     const FRAME_COUNT = 6;
+    const STAR_COUNT = 3;
     const frames = [];
+    const starFrames = [];
     this.animationConfigs = [];
 
     for (let i = 0; i < FRAME_COUNT; i++) {
@@ -274,8 +301,18 @@ export default class DisplayCanvas extends React.Component {
 
     this.changeGradient(this.mainConfig.gradientBackgroundConfig.colors);
 
+    // Generate star-only overlay frames using the animation's colour palette.
+    // Each one gets a freshly randomised star layout for variety.
+    const colorValues = this.mainConfig.gradientBackgroundConfig.colors.slice();
+    for (let i = 0; i < STAR_COUNT; i++) {
+      const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
+      const blobUrl = await this.buildStarOnlyBlob(starConfig);
+      starFrames.push(blobUrl);
+    }
+
     this.setState({
       animationFrames: frames,
+      animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false
     });
@@ -284,6 +321,7 @@ export default class DisplayCanvas extends React.Component {
   async loadAnimationFromConfigs(configs) {
     this.animationConfigs = configs;
     const frames = [];
+    const starFrames = [];
 
     for (let i = 0; i < configs.length; i++) {
       const blobUrl = await this.buildImageAsBlob(configs[i]);
@@ -293,8 +331,16 @@ export default class DisplayCanvas extends React.Component {
 
     this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
 
+    const colorValues = configs[0].gradientBackgroundConfig.colors.slice();
+    for (let i = 0; i < 3; i++) {
+      const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
+      const blobUrl = await this.buildStarOnlyBlob(starConfig);
+      starFrames.push(blobUrl);
+    }
+
     this.setState({
       animationFrames: frames,
+      animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false
     });
@@ -536,19 +582,19 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
-    const { animationFrames } = this.state;
+    const { animationFrames, animationStarFrames } = this.state;
     this.setState({ isExporting: true, exportProgress: 0 });
 
-    const images = await Promise.all(
-      animationFrames.map(
-        src =>
-          new Promise(resolve => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.src = src;
-          })
-      )
-    );
+    const loadImg = src => new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.src = src;
+    });
+
+    const [images, starImages] = await Promise.all([
+      Promise.all(animationFrames.map(loadImg)),
+      Promise.all(animationStarFrames.map(loadImg)),
+    ]);
 
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
@@ -559,12 +605,22 @@ export default class DisplayCanvas extends React.Component {
     const width  = isMobile ? 1080 : this.props.width;
     const height = isMobile ? 1080 : this.props.height;
 
-    const FADE    = 3.0;
-    const SPACING = 2.0; // must match AnimationPreview.js
+    const FADE    = 5.0;
+    const SPACING = 3.5;   // must match AnimationPreview.js — 6 × 3.5s = 21s cycle
     const SCALE_END = 1.45;
     const TOTAL_VISIBLE = 2 * FADE;
-    // Ends when frame 0's return reaches full opacity — mirrors the opening state
-    const CYCLE_DURATION = images.length * SPACING + FADE;
+
+    const STAR_FADE      = 8.0;
+    const STAR_SPACING   = 7.0;   // 3 × 7s = 21s = PERIOD, seamless loop guaranteed
+    const STAR_SCALE_END = 1.15;
+    const STAR_TOTAL_VISIBLE = 2 * STAR_FADE;
+
+    // One full cycle — each frame appears every N * SPACING seconds.
+    // STAR_PERIOD = starCount * STAR_SPACING must divide PERIOD for seamless looping.
+    const PERIOD      = images.length * SPACING;    // 12s for 6 frames
+    // Export exactly one cycle, starting one period in so start and end states are identical
+    const CYCLE_DURATION = PERIOD;
+    const OFFSET = PERIOD;
     const FPS = 24;
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
@@ -576,36 +632,27 @@ export default class DisplayCanvas extends React.Component {
 
     const easeInOut = t => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
 
-    // Append frame 0 at the end so the last crossfade loops back to the first image
-    const exportFrames = [...images, images[0]];
-
     const srcWidth  = this.props.width;
     const srcHeight = this.props.height;
 
     const drawAt = elapsed => {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
-      exportFrames.forEach((img, i) => {
-        // Frame 0 (first appearance) is already at full opacity — no fade from black.
-        // Its fade-out starts at FADE seconds. Every other frame uses SPACING-based starts.
-        const fadeOutStart = i === 0 ? FADE : i * SPACING + FADE;
-        const fadeInStart  = fadeOutStart - FADE;
-        const endTime      = fadeOutStart + FADE;
+      images.forEach((img, i) => {
+        // Each frame repeats every PERIOD seconds. Find how far into its current
+        // cycle window this frame is, using modular arithmetic so the animation
+        // is perfectly periodic — start and end frames are identical for seamless looping.
+        const rawElapsed = elapsed - i * SPACING;
+        const k = Math.floor(rawElapsed / PERIOD);
+        const localElapsed = rawElapsed - k * PERIOD;
 
-        if (elapsed >= endTime) return;
-        if (elapsed < fadeInStart) return;
+        if (localElapsed < 0 || localElapsed >= TOTAL_VISIBLE) return;
 
-        let opacity;
-        if (i === 0 && elapsed < FADE) {
-          opacity = 1; // starts fully visible
-        } else if (elapsed < fadeOutStart) {
-          opacity = easeInOut((elapsed - fadeInStart) / FADE);
-        } else {
-          opacity = easeInOut(1 - (elapsed - fadeOutStart) / FADE);
-        }
+        const opacity = localElapsed < FADE
+          ? easeInOut(localElapsed / FADE)
+          : easeInOut(1 - (localElapsed - FADE) / FADE);
 
-        const scaleElapsed = elapsed - fadeInStart;
-        const scale = 1 + (SCALE_END - 1) * Math.min(1, scaleElapsed / TOTAL_VISIBLE);
+        const scale = 1 + (SCALE_END - 1) * Math.min(1, localElapsed / TOTAL_VISIBLE);
 
         ctx.save();
         ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
@@ -615,6 +662,34 @@ export default class DisplayCanvas extends React.Component {
         ctx.drawImage(img, 0, 0, srcWidth, srcHeight, -width / 2, -height / 2, width, height);
         ctx.restore();
       });
+
+      // Star overlay — composited with screen blend so the near-black background
+      // disappears and the coloured stars add light on top of the gradients.
+      if (starImages.length > 0) {
+        const starPeriod = starImages.length * STAR_SPACING;
+        ctx.globalCompositeOperation = 'screen';
+        starImages.forEach((img, i) => {
+          const rawElapsed = elapsed - i * STAR_SPACING;
+          const k = Math.floor(rawElapsed / starPeriod);
+          const localElapsed = rawElapsed - k * starPeriod;
+
+          if (localElapsed < 0 || localElapsed >= STAR_TOTAL_VISIBLE) return;
+
+          const opacity = (localElapsed < STAR_FADE
+            ? easeInOut(localElapsed / STAR_FADE)
+            : easeInOut(1 - (localElapsed - STAR_FADE) / STAR_FADE)) * 0.75;
+
+          const scale = 1 + (STAR_SCALE_END - 1) * Math.min(1, localElapsed / STAR_TOTAL_VISIBLE);
+
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+          ctx.translate(width / 2, height / 2);
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0, srcWidth, srcHeight, -width / 2, -height / 2, width, height);
+          ctx.restore();
+        });
+        ctx.globalCompositeOperation = 'source-over';
+      }
     };
 
     // mp4-muxer + WebCodecs VideoEncoder — guarantees real H.264 MP4
@@ -654,7 +729,7 @@ export default class DisplayCanvas extends React.Component {
     // Back-pressure: if the encoder queue grows too deep, yield until it drains —
     // this prevents unbounded memory buildup that kills iOS tabs.
     for (let f = 0; f < TOTAL_FRAMES; f++) {
-      const elapsed = f / FPS;
+      const elapsed = OFFSET + f / FPS;
       drawAt(elapsed);
 
       const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });
@@ -704,13 +779,16 @@ export default class DisplayCanvas extends React.Component {
 
       if (animationMode) {
         // Revoke existing blob URLs to free memory
+        const { animationStarFrames } = this.state;
         animationFrames.forEach(url => URL.revokeObjectURL(url));
+        animationStarFrames.forEach(url => URL.revokeObjectURL(url));
 
         this.setState({
           generateDisabled: true,
           isLoading: true,
           isSaved: false,
           animationFrames: [],
+          animationStarFrames: [],
           animationProgress: 0
         });
 
@@ -737,8 +815,10 @@ export default class DisplayCanvas extends React.Component {
     const { animationFrames } = this.state;
 
     // Revoke blob URLs when leaving animation mode
-    if (!mode && animationFrames.length > 0) {
-      animationFrames.forEach(url => URL.revokeObjectURL(url));
+    if (!mode) {
+      const { animationStarFrames } = this.state;
+      if (animationFrames.length > 0) animationFrames.forEach(url => URL.revokeObjectURL(url));
+      if (animationStarFrames.length > 0) animationStarFrames.forEach(url => URL.revokeObjectURL(url));
     }
 
     this.animationConfigs = null;
@@ -746,6 +826,7 @@ export default class DisplayCanvas extends React.Component {
     this.setState({
       animationMode: mode,
       animationFrames: [],
+      animationStarFrames: [],
       animationProgress: 0,
       isSaved: false
     });
@@ -963,6 +1044,7 @@ export default class DisplayCanvas extends React.Component {
       linkCopied,
       animationMode,
       animationFrames,
+      animationStarFrames,
       animationProgress,
       isExporting,
       exportProgress
@@ -983,6 +1065,7 @@ export default class DisplayCanvas extends React.Component {
         {animationFrames.length > 0 && (
           <AnimationPreview
             frames={animationFrames}
+            starFrames={animationStarFrames}
             onClick={this.onCloseButtonClick.bind(this)}
           />
         )}
