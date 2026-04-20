@@ -46,8 +46,8 @@
     position: absolute;
     top: 25px;
     left: 25px;
-    width: 3.5em;
-    height: 3.5em;
+    width: 5em;
+    height: 5em;
     cursor: pointer;
     z-index: 10;
     display: flex;
@@ -364,6 +364,12 @@
         border: 1px solid rgba(#a6e000, 0.25);
         border-radius: 6px;
         overflow: hidden;
+        transition: all 0.2s ease-out;
+
+        &:hover {
+          transform: translateY(-2px);
+          box-shadow: inset 0px 0px 5px rgba(#59069a, 0.6), 0px 0px 10px rgba(#2cd8fe, 0.5);
+        }
 
         .mode-toggle-btn {
           flex: 1;
@@ -379,16 +385,22 @@
           border: none;
           border-radius: 0;
           cursor: pointer;
-          transition: all 0.25s ease;
+          transition: color 0.3s ease, opacity 0.3s ease;
 
           &.active {
             background: linear-gradient(90deg, #a6e000, #2cd8fe);
             color: #0d1a0d;
+            transition: color 0.3s ease, opacity 0.3s ease;
+          }
+
+          &:hover {
+            transform: none;
+            box-shadow: none;
           }
 
           &:hover:not(.active) {
-            color: rgba(#fafafa, 0.65);
-            background: rgba(#fafafa, 0.05);
+            color: rgba(#fafafa, 0.8);
+            background: rgba(#fafafa, 0.08);
           }
         }
       }

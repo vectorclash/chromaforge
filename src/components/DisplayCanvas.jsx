@@ -403,6 +403,7 @@ export default class DisplayCanvas extends React.Component {
       color: buttonColor
     });
 
+
     let borderColor = colors[Math.floor(Math.random() * colors.length)];
 
     gsap.set('.button-small, .button-medium,  input', {
@@ -893,12 +894,17 @@ export default class DisplayCanvas extends React.Component {
       } else {
         this.animationConfigs = null;
         this.shareUrl = null;
+        gsap.to('.image-container', { duration: 0.2, alpha: 0, ease: Quad.easeInOut });
         this.setState({
           animationMode: true,
           animationFrames: [],
           animationStarFrames: [],
           animationProgress: 0,
-          isSaved: false
+          isSaved: false,
+          generateDisabled: true,
+          isLoading: true
+        }, () => {
+          this.buildAnimationFrames();
         });
       }
     } else {
@@ -950,6 +956,14 @@ export default class DisplayCanvas extends React.Component {
         });
       }
     }
+
+    // Pulse the newly active button after React re-renders
+    gsap.delayedCall(0.05, () => {
+      gsap.fromTo('.mode-toggle-btn.active',
+        { opacity: 0.3, scale: 0.94 },
+        { duration: 0.35, opacity: 1, scale: 1, ease: Back.easeOut }
+      );
+    });
   }
 
   onCloseButtonClick(e) {
