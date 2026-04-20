@@ -21,6 +21,7 @@ import GenerateGeometricShape from './Canvas/GenerateGeometricShape';
 import GeometricShape from './Canvas/GeometricShape';
 import FileName from './FileNameGenerator';
 import SettingsButton from './buttons/SettingsButton';
+import PlayPauseButton from './buttons/PlayPauseButton';
 import AddColorButton from './buttons/AddColorButton';
 import ColorField from './ColorField';
 
@@ -38,16 +39,27 @@ export default class DisplayCanvas extends React.Component {
       controlsAreOpen: true,
       controlsBlurred: false,
       saveVisible: false,
-      colors: [],
+      colors: [
+        { id: 0, value: '#ff0059' },
+        { id: 1, value: '#ffbb00' },
+        { id: 2, value: '#ccff00' },
+        { id: 3, value: '#00e5ff' },
+        { id: 4, value: '#4c00ff' }
+      ],
       linkCopied: false,
       animationMode: false,
       animationFrames: [],
       animationStarFrames: [],
       animationProgress: 0,
       isExporting: false,
-      exportProgress: 0
+      exportProgress: 0,
+      // Animation configuration — wire these to UI controls later
+      frameCount: 20,
+      cycleDuration: 10,  // seconds for one full seamless loop
+      starFrameCount: 10, // set to frameCount / 2 by default
+      animationPaused: false
     };
-    this.nextColorId = 0;
+    this.nextColorId = 5;
   }
 
   componentDidMount() {
@@ -82,6 +94,20 @@ export default class DisplayCanvas extends React.Component {
     }
 
     window.addEventListener('keyup', this.onKeyUp.bind(this));
+  }
+
+  // Derives all animation timing constants from the two top-level settings.
+  // starCount is always ceil(frameCount/2) so both layers share the same period.
+  // Spacing ratios are preserved from the original design at any frameCount/duration.
+  getAnimTiming(frameCount = null) {
+    const { cycleDuration, starFrameCount } = this.state;
+    const fc = frameCount ?? this.state.frameCount;
+    const starCount = starFrameCount ?? Math.max(1, Math.ceil(fc / 2));
+    const spacing = cycleDuration / fc;
+    const fade = spacing * (5.0 / 3.5);
+    const starSpacing = cycleDuration / starCount;
+    const starFade = starSpacing * (8.0 / 7.0);
+    return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
   }
 
   buildConfig() {
@@ -215,44 +241,51 @@ export default class DisplayCanvas extends React.Component {
     element = null;
   }
 
-  buildImageAsBlob(config) {
+  async buildImageAsBlob(config) {
+    const tick = () => new Promise(r => setTimeout(r, 0));
+
+    let canvas = document.createElement('canvas');
+    let context = canvas.getContext('2d');
+    canvas.width = config.width;
+    canvas.height = config.height;
+
+    let gradientBackground = LinearGradient(config.gradientBackgroundConfig);
+    context.drawImage(gradientBackground, 0, 0);
+    this.clearElement(gradientBackground);
+    await tick();
+
+    if (config.radialFieldConfig) {
+      context.globalCompositeOperation = config.firstBlend;
+      let radialField = LargeRadialField(config.radialFieldConfig);
+      context.drawImage(radialField, 0, 0);
+      this.clearElement(radialField);
+      await tick();
+    }
+
+    context.globalCompositeOperation = config.secondBlend;
+    let starField = StarField(config.starFieldConfig, this.queue);
+    context.drawImage(starField, 0, 0);
+    this.clearElement(starField);
+    await tick();
+
+    if (config.geometryConfig) {
+      context.globalCompositeOperation = config.thirdBlend;
+      let geometry = GeometricShape(config.geometryConfig);
+      context.drawImage(geometry, 0, 0);
+      this.clearElement(geometry);
+      await tick();
+    }
+
+    if (config.overlayConfig) {
+      context.globalCompositeOperation = config.overlayBlend;
+      context.globalAlpha = config.overlayAlpha;
+      let gradientOverlay = LinearGradient(config.overlayConfig);
+      context.drawImage(gradientOverlay, 0, 0);
+      this.clearElement(gradientOverlay);
+      await tick();
+    }
+
     return new Promise(resolve => {
-      let canvas = document.createElement('canvas');
-      let context = canvas.getContext('2d');
-      canvas.width = config.width;
-      canvas.height = config.height;
-
-      let gradientBackground = LinearGradient(config.gradientBackgroundConfig);
-      context.drawImage(gradientBackground, 0, 0);
-      this.clearElement(gradientBackground);
-
-      if (config.radialFieldConfig) {
-        context.globalCompositeOperation = config.firstBlend;
-        let radialField = LargeRadialField(config.radialFieldConfig);
-        context.drawImage(radialField, 0, 0);
-        this.clearElement(radialField);
-      }
-
-      context.globalCompositeOperation = config.secondBlend;
-      let starField = StarField(config.starFieldConfig, this.queue);
-      context.drawImage(starField, 0, 0);
-      this.clearElement(starField);
-
-      if (config.geometryConfig) {
-        context.globalCompositeOperation = config.thirdBlend;
-        let geometry = GeometricShape(config.geometryConfig);
-        context.drawImage(geometry, 0, 0);
-        this.clearElement(geometry);
-      }
-
-      if (config.overlayConfig) {
-        context.globalCompositeOperation = config.overlayBlend;
-        context.globalAlpha = config.overlayAlpha;
-        let gradientOverlay = LinearGradient(config.overlayConfig);
-        context.drawImage(gradientOverlay, 0, 0);
-        this.clearElement(gradientOverlay);
-      }
-
       canvas.toBlob(blob => {
         this.clearElement(canvas);
         resolve(URL.createObjectURL(blob));
@@ -260,9 +293,8 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  // Builds a star-only frame: near-black background with the star field composited
-  // in screen mode. When used with CSS mix-blend-mode:screen the dark background
-  // disappears and only the coloured stars float on top of the gradient layers.
+  // Builds a star-only frame as a transparent PNG — stars composite naturally
+  // over whatever gradient frame is showing without any blend mode tricks.
   buildStarOnlyBlob(starFieldConfig) {
     return new Promise(resolve => {
       let canvas = document.createElement('canvas');
@@ -270,33 +302,34 @@ export default class DisplayCanvas extends React.Component {
       canvas.width = this.props.width;
       canvas.height = this.props.height;
 
-      context.fillStyle = '#060608';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-
-      context.globalCompositeOperation = 'screen';
       let starField = StarField(starFieldConfig, this.queue);
       context.drawImage(starField, 0, 0);
 
       canvas.toBlob(blob => {
         this.clearElement(canvas);
         resolve(URL.createObjectURL(blob));
-      }, 'image/jpeg', 0.92);
+      }, 'image/png');
     });
   }
 
   async buildAnimationFrames() {
-    const FRAME_COUNT = 6;
-    const STAR_COUNT = 3;
+    const { frameCount, starCount } = this.getAnimTiming();
     const frames = [];
     const starFrames = [];
     this.animationConfigs = [];
 
-    for (let i = 0; i < FRAME_COUNT; i++) {
+    const breathe = () => new Promise(r => setTimeout(r, 100));
+
+    // Initial pause so the loader animation has time to settle before heavy work starts
+    await breathe();
+
+    for (let i = 0; i < frameCount; i++) {
       const config = this.buildConfig();
       this.animationConfigs.push(config);
       const blobUrl = await this.buildImageAsBlob(config);
       frames.push(blobUrl);
       this.setState({ animationProgress: i + 1 });
+      if (i < frameCount - 1) await breathe();
     }
 
     this.changeGradient(this.mainConfig.gradientBackgroundConfig.colors);
@@ -304,7 +337,8 @@ export default class DisplayCanvas extends React.Component {
     // Generate star-only overlay frames using the animation's colour palette.
     // Each one gets a freshly randomised star layout for variety.
     const colorValues = this.mainConfig.gradientBackgroundConfig.colors.slice();
-    for (let i = 0; i < STAR_COUNT; i++) {
+    for (let i = 0; i < starCount; i++) {
+      await breathe();
       const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
       const blobUrl = await this.buildStarOnlyBlob(starConfig);
       starFrames.push(blobUrl);
@@ -323,16 +357,23 @@ export default class DisplayCanvas extends React.Component {
     const frames = [];
     const starFrames = [];
 
+    const breathe = () => new Promise(r => setTimeout(r, 700));
+
+    await breathe();
+
     for (let i = 0; i < configs.length; i++) {
       const blobUrl = await this.buildImageAsBlob(configs[i]);
       frames.push(blobUrl);
       this.setState({ animationProgress: i + 1 });
+      if (i < configs.length - 1) await breathe();
     }
 
     this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
 
+    const { starCount } = this.getAnimTiming(configs.length);
     const colorValues = configs[0].gradientBackgroundConfig.colors.slice();
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < starCount; i++) {
+      await breathe();
       const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
       const blobUrl = await this.buildStarOnlyBlob(starConfig);
       starFrames.push(blobUrl);
@@ -422,6 +463,7 @@ export default class DisplayCanvas extends React.Component {
   setImage(blob) {
     this.blob = blob;
     let url = URL.createObjectURL(blob);
+    this.imageBlobUrl = url;
     let imageLoader = document.createElement('img');
     imageLoader.src = url;
 
@@ -605,21 +647,14 @@ export default class DisplayCanvas extends React.Component {
     const width  = isMobile ? 1080 : this.props.width;
     const height = isMobile ? 1080 : this.props.height;
 
-    const FADE    = 5.0;
-    const SPACING = 3.5;   // must match AnimationPreview.js — 6 × 3.5s = 21s cycle
+    const { spacing: SPACING, fade: FADE, starSpacing: STAR_SPACING, starFade: STAR_FADE, cycleDuration: CYCLE_DURATION } =
+      this.getAnimTiming(images.length);
     const SCALE_END = 1.45;
     const TOTAL_VISIBLE = 2 * FADE;
-
-    const STAR_FADE      = 8.0;
-    const STAR_SPACING   = 7.0;   // 3 × 7s = 21s = PERIOD, seamless loop guaranteed
     const STAR_SCALE_END = 1.15;
     const STAR_TOTAL_VISIBLE = 2 * STAR_FADE;
-
-    // One full cycle — each frame appears every N * SPACING seconds.
-    // STAR_PERIOD = starCount * STAR_SPACING must divide PERIOD for seamless looping.
-    const PERIOD      = images.length * SPACING;    // 12s for 6 frames
+    const PERIOD = CYCLE_DURATION;
     // Export exactly one cycle, starting one period in so start and end states are identical
-    const CYCLE_DURATION = PERIOD;
     const OFFSET = PERIOD;
     const FPS = 24;
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
@@ -712,10 +747,10 @@ export default class DisplayCanvas extends React.Component {
       });
 
       encoder.configure({
-        codec: 'avc1.4d0034', // H.264 Main Profile Level 5.2
+        codec: 'avc1.640034', // H.264 High Profile Level 5.2
         width,
         height,
-        bitrate: isMobile ? 6_000_000 : 12_000_000,
+        bitrate: isMobile ? 15_000_000 : 40_000_000,
         framerate: FPS
       });
     } catch (e) {
@@ -782,6 +817,12 @@ export default class DisplayCanvas extends React.Component {
         const { animationStarFrames } = this.state;
         animationFrames.forEach(url => URL.revokeObjectURL(url));
         animationStarFrames.forEach(url => URL.revokeObjectURL(url));
+        // Clear any previously saved animation state — new generation replaces it
+        if (this.animationModeState) {
+          this.animationModeState.frames.forEach(url => URL.revokeObjectURL(url));
+          this.animationModeState.starFrames.forEach(url => URL.revokeObjectURL(url));
+          this.animationModeState = null;
+        }
 
         gsap.to('.image-container', {
           duration: 0.2,
@@ -795,7 +836,8 @@ export default class DisplayCanvas extends React.Component {
           isSaved: false,
           animationFrames: [],
           animationStarFrames: [],
-          animationProgress: 0
+          animationProgress: 0,
+          animationPaused: false
         });
 
         this.buildAnimationFrames();
@@ -818,24 +860,96 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onModeToggle(mode) {
-    const { animationFrames } = this.state;
+    const { animationMode, animationFrames, animationStarFrames, isSaved } = this.state;
 
-    // Revoke blob URLs when leaving animation mode
-    if (!mode) {
-      const { animationStarFrames } = this.state;
-      if (animationFrames.length > 0) animationFrames.forEach(url => URL.revokeObjectURL(url));
-      if (animationStarFrames.length > 0) animationStarFrames.forEach(url => URL.revokeObjectURL(url));
+    if (mode === animationMode) return;
+
+    if (mode) {
+      // Switching TO animation — snapshot image mode state
+      this.imageModeState = {
+        blob: this.blob,
+        blobUrl: this.imageBlobUrl,
+        config: this.mainConfig,
+        isSaved,
+        shareUrl: this.shareUrl
+      };
+
+      // Restore previous animation state if available
+      if (this.animationModeState) {
+        const { frames, starFrames, configs, isSaved: wasSaved, shareUrl } = this.animationModeState;
+        this.animationModeState = null;
+        this.animationConfigs = configs;
+        this.shareUrl = shareUrl || null;
+        this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
+        this.setState({
+          animationMode: true,
+          animationFrames: frames,
+          animationStarFrames: starFrames,
+          animationProgress: frames.length,
+          isSaved: wasSaved || false,
+          generateDisabled: false,
+          isLoading: false
+        });
+      } else {
+        this.animationConfigs = null;
+        this.shareUrl = null;
+        this.setState({
+          animationMode: true,
+          animationFrames: [],
+          animationStarFrames: [],
+          animationProgress: 0,
+          isSaved: false
+        });
+      }
+    } else {
+      // Switching TO image — snapshot animation mode state (don't revoke URLs)
+      if (animationFrames.length > 0) {
+        this.animationModeState = {
+          frames: animationFrames,
+          starFrames: animationStarFrames,
+          configs: this.animationConfigs,
+          isSaved,
+          shareUrl: this.shareUrl
+        };
+      }
+      this.animationConfigs = null;
+
+      // Restore previous image state if available
+      if (this.imageModeState && this.imageModeState.blobUrl) {
+        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl } = this.imageModeState;
+        this.imageModeState = null;
+        this.blob = blob;
+        this.imageBlobUrl = blobUrl;
+        this.mainConfig = config;
+        this.shareUrl = shareUrl || null;
+        this.changeGradient(config.gradientBackgroundConfig.colors);
+
+        const imageContainer = document.querySelector('.image-container');
+        if (imageContainer) {
+          imageContainer.style.backgroundImage = `url(${blobUrl})`;
+          gsap.set('.image-container', { alpha: 1 });
+        }
+
+        this.setState({
+          animationMode: false,
+          animationFrames: [],
+          animationStarFrames: [],
+          animationProgress: 0,
+          isSaved: wasSaved || false,
+          generateDisabled: false,
+          isLoading: false
+        });
+      } else {
+        this.shareUrl = null;
+        this.setState({
+          animationMode: false,
+          animationFrames: [],
+          animationStarFrames: [],
+          animationProgress: 0,
+          isSaved: false
+        });
+      }
     }
-
-    this.animationConfigs = null;
-
-    this.setState({
-      animationMode: mode,
-      animationFrames: [],
-      animationStarFrames: [],
-      animationProgress: 0,
-      isSaved: false
-    });
   }
 
   onCloseButtonClick(e) {
@@ -915,6 +1029,8 @@ export default class DisplayCanvas extends React.Component {
       ease: Back.easeOut
     });
 
+    this.animateColors();
+
     this.setState({
       controlsBlurred: true
     });
@@ -937,6 +1053,25 @@ export default class DisplayCanvas extends React.Component {
       saveVisible: false,
       linkCopied: false
     });
+  }
+
+  onClearColors() {
+    this.setState({ colors: [] });
+    this.nextColorId = 0;
+  }
+
+  onRainbowColors() {
+    this.setState({
+      colors: [
+        { id: 0, value: '#ff0059' },
+        { id: 1, value: '#ffbb00' },
+        { id: 2, value: '#eaff00' },
+        { id: 3, value: '#00e5ff' },
+        { id: 4, value: '#4c00ff' }
+      ]
+    });
+    this.nextColorId = 5;
+    gsap.delayedCall(0.05, () => this.animateColors());
   }
 
   onAddColorButtonClick(e) {
@@ -1053,8 +1188,12 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames,
       animationProgress,
       isExporting,
-      exportProgress
+      exportProgress,
+      frameCount,
+      animationPaused
     } = this.state;
+
+    const { spacing, fade, starSpacing, starFade } = this.getAnimTiming();
 
     return (
       <div
@@ -1073,7 +1212,21 @@ export default class DisplayCanvas extends React.Component {
             frames={animationFrames}
             starFrames={animationStarFrames}
             onClick={this.onCloseButtonClick.bind(this)}
+            fade={fade}
+            spacing={spacing}
+            starFade={starFade}
+            starSpacing={starSpacing}
+            paused={animationPaused}
           />
+        )}
+        {animationFrames.length > 0 && (
+          <button
+            className="animation-pause"
+            onClick={e => { e.stopPropagation(); this.setState({ animationPaused: !animationPaused }); }}
+            aria-label={animationPaused ? 'Play' : 'Pause'}
+          >
+            <PlayPauseButton paused={animationPaused} />
+          </button>
         )}
         <div className="controls-container">
           {controlsAreOpen ? (
@@ -1111,7 +1264,7 @@ export default class DisplayCanvas extends React.Component {
               >
                 {generateDisabled
                   ? animationMode
-                    ? `Building ${animationProgress} / 6`
+                    ? `Building ${animationProgress} / ${frameCount}`
                     : 'Generating'
                   : 'Generate'}
               </button>
@@ -1123,7 +1276,7 @@ export default class DisplayCanvas extends React.Component {
                   style={{
                     width: isExporting
                       ? `${exportProgress}%`
-                      : `${(animationProgress / 6) * 100}%`
+                      : `${(animationProgress / frameCount) * 100}%`
                   }}
                 />
               </div>
@@ -1181,6 +1334,14 @@ export default class DisplayCanvas extends React.Component {
               ) : (
                 ''
               )}
+            </div>
+            <div className="row">
+              <button onClick={this.onClearColors.bind(this)} className="button-small">
+                CLEAR
+              </button>
+              <button onClick={this.onRainbowColors.bind(this)} className="button-small">
+                🌈
+              </button>
             </div>
             <div className="row">
               <button

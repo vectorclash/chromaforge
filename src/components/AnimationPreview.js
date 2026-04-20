@@ -2,17 +2,16 @@ import React, { useRef, useEffect } from 'react';
 import { gsap } from 'gsap';
 import './AnimationPreview.scss';
 
-const FADE      = 5.0;   // seconds for each opacity transition (in or out)
-const SPACING   = 3.5;   // seconds between frame starts — 6 frames × 3.5s = 21s cycle
-const SCALE_END = 1.45;
+// Visual constants — not timing, so they stay fixed regardless of frame count / duration
+const SCALE_END        = 1.45;
+const STAR_SCALE_END   = 1.15;
+const STAR_MAX_OPACITY = 0.8;
 
-// Star overlay — STAR_PERIOD = 3 × 7s = 21s, aligns exactly with the main cycle
-// so both layers loop seamlessly. Each star is visible for 16s, spanning ~4 background
-// transitions, acting as persistent connective tissue between scenes.
-const STAR_FADE      = 8.0;
-const STAR_SPACING   = 7.0;
-const STAR_SCALE_END = 1.15;
-const STAR_MAX_OPACITY = 0.6;
+// Default timing — matches getAnimTiming() output for frameCount=6, cycleDuration=21
+const DEFAULT_FADE        = 5.0;
+const DEFAULT_SPACING     = 3.5;
+const DEFAULT_STAR_FADE   = 8.0;
+const DEFAULT_STAR_SPACING = 7.0;
 
 const ORIGINS = [
   'center center',
@@ -28,7 +27,16 @@ const STAR_ORIGINS = [
   '52% 48%',
 ];
 
-export default function AnimationPreview({ frames, starFrames = [], onClick }) {
+export default function AnimationPreview({
+  frames,
+  starFrames = [],
+  onClick,
+  fade        = DEFAULT_FADE,
+  spacing     = DEFAULT_SPACING,
+  starFade    = DEFAULT_STAR_FADE,
+  starSpacing = DEFAULT_STAR_SPACING,
+  paused      = false
+}) {
   const imgRefs   = useRef([]);
   const starRefs  = useRef([]);
   const killRef   = useRef(false);
@@ -43,8 +51,8 @@ export default function AnimationPreview({ frames, starFrames = [], onClick }) {
 
     killRef.current = false;
 
-    const totalVisible     = 2 * FADE;
-    const starTotalVisible = 2 * STAR_FADE;
+    const totalVisible     = 2 * fade;
+    const starTotalVisible = 2 * starFade;
 
     // ── Main frames ──────────────────────────────────────────────────────────
     gsap.set(imgs, { opacity: 0, scale: 1, transformOrigin: 'center center' });
@@ -60,17 +68,17 @@ export default function AnimationPreview({ frames, starFrames = [], onClick }) {
       gsap.to(img, { scale: SCALE_END, duration: totalVisible, ease: 'none' });
 
       if (!skipFadeIn) {
-        gsap.to(img, { opacity: 1, duration: FADE, ease: 'power1.inOut' });
+        gsap.to(img, { opacity: 1, duration: fade, ease: 'power1.inOut' });
       }
 
-      const t1 = gsap.delayedCall(SPACING, () => {
+      const t1 = gsap.delayedCall(spacing, () => {
         if (killRef.current) return;
         showFrame((i + 1) % imgs.length);
       });
 
-      const t2 = gsap.delayedCall(FADE, () => {
+      const t2 = gsap.delayedCall(fade, () => {
         if (killRef.current) return;
-        gsap.to(img, { opacity: 0, duration: FADE, ease: 'power1.inOut' });
+        gsap.to(img, { opacity: 0, duration: fade, ease: 'power1.inOut' });
       });
 
       timersRef.current.push(t1, t2);
@@ -93,17 +101,17 @@ export default function AnimationPreview({ frames, starFrames = [], onClick }) {
         gsap.to(img, { scale: STAR_SCALE_END, duration: starTotalVisible, ease: 'none' });
 
         if (!skipFadeIn) {
-          gsap.to(img, { opacity: STAR_MAX_OPACITY, duration: STAR_FADE, ease: 'power1.inOut' });
+          gsap.to(img, { opacity: STAR_MAX_OPACITY, duration: starFade, ease: 'power1.inOut' });
         }
 
-        const t1 = gsap.delayedCall(STAR_SPACING, () => {
+        const t1 = gsap.delayedCall(starSpacing, () => {
           if (killRef.current) return;
           showStar((i + 1) % starImgs.length);
         });
 
-        const t2 = gsap.delayedCall(STAR_FADE, () => {
+        const t2 = gsap.delayedCall(starFade, () => {
           if (killRef.current) return;
-          gsap.to(img, { opacity: 0, duration: STAR_FADE, ease: 'power1.inOut' });
+          gsap.to(img, { opacity: 0, duration: starFade, ease: 'power1.inOut' });
         });
 
         timersRef.current.push(t1, t2);
@@ -118,7 +126,21 @@ export default function AnimationPreview({ frames, starFrames = [], onClick }) {
       timersRef.current = [];
       gsap.killTweensOf([...imgs, ...starImgs]);
     };
-  }, [frames, starFrames]);
+  }, [frames, starFrames, fade, spacing, starFade, starSpacing]);
+
+  useEffect(() => {
+    const imgs     = imgRefs.current.filter(Boolean);
+    const starImgs = starRefs.current.filter(Boolean);
+    const allImgs  = [...imgs, ...starImgs];
+
+    if (paused) {
+      gsap.getTweensOf(allImgs).forEach(t => t.pause());
+      timersRef.current.forEach(t => t.pause());
+    } else {
+      gsap.getTweensOf(allImgs).forEach(t => t.resume());
+      timersRef.current.forEach(t => t.resume());
+    }
+  }, [paused]);
 
   return (
     <div className="animation-preview" onClick={onClick}>

@@ -42,6 +42,41 @@
     }
   }
 
+  .animation-pause {
+    position: absolute;
+    top: 25px;
+    left: 25px;
+    width: 3.5em;
+    height: 3.5em;
+    cursor: pointer;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    mix-blend-mode: hard-light;
+    background: transparent;
+    border: none;
+    padding: 0;
+    transition: all 0.3s ease;
+
+    svg {
+      width: 100%;
+      height: 100%;
+      fill: white;
+      opacity: 0.5;
+      transition: opacity 0.3s ease;
+    }
+
+    &:hover {
+      transform: scale(1.15);
+      filter: drop-shadow(0 0 15px rgba(#2cd8fe, 0.8)) drop-shadow(0 0 25px rgba(#a6e000, 0.4));
+
+      svg {
+        opacity: 1;
+      }
+    }
+  }
+
   .image-container {
     position: absolute;
     top: 0;
