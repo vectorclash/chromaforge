@@ -88,7 +88,7 @@ Configurations are serialised to JSON, base64-encoded, and embedded in the URL (
 
 | Layer | Libraries |
 |---|---|
-| UI | React 18, GSAP 3.13 (MorphSVGPlugin, DrawSVGPlugin) |
+| UI | React 18, GSAP 3.15 (MorphSVGPlugin, DrawSVGPlugin) |
 | Rendering | HTML5 Canvas, CreateJS (preload + shape drawing) |
 | MP4 export | WebCodecs API, mp4-muxer |
 | Color | TinyColor2, jscolor |

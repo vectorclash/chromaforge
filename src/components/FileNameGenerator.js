@@ -4,53 +4,111 @@ const astroNouns = [
   'Aperture',
   'Chromosphere',
   'Comet',
+  'Corona',
+  'Cosmos',
+  'Cryosphere',
   'Eclipse',
   'Element',
   'Energy',
+  'Entropy',
   'Filament',
+  'Flux',
   'Gravity',
   'Cluster',
   'Heliopause',
+  'Horizon',
+  'Hypernova',
   'Field',
+  'Magnetar',
+  'Magnitude',
+  'Mantle',
+  'Nebula',
+  'Neutrino',
+  'Nucleus',
+  'Orbit',
+  'Parallax',
+  'Perihelion',
   'Planet',
+  'Plasma',
   'Photosphere',
   'Prominence',
+  'Pulsar',
+  'Quantum',
   'Quasar',
+  'Radiance',
+  'Singularity',
+  'Solstice',
+  'Spectrum',
   'Star',
   'Umbra',
-  'Wavelength'
+  'Vacuum',
+  'Void',
+  'Vortex',
+  'Wavelength',
+  'Zenith'
 ];
 
 const astroAdj = [
+  'Absolute',
   'Binary',
   'Blueshift',
+  'Baryonic',
   'Cavus',
+  'Celestial',
+  'Chromatic',
   'Circumpolar',
+  'Collapsed',
   'Cosmic',
+  'Cryogenic',
   'Dark',
+  'Degenerate',
   'Electromagnetic',
+  'Elliptical',
   'Extragalactic',
+  'Fused',
   'Galactic',
+  'Geodesic',
   'Geosynchronous',
+  'Hyperbolic',
+  'Infrared',
+  'Interstellar',
+  'Ionized',
+  'Jovian',
+  'Kinetic',
   'Molecular',
   'Globular',
   'Gravitational',
   'Lenticular',
   'Magnetic',
+  'Nebular',
+  'Neutron',
+  'Nuclear',
+  'Orbital',
+  'Photonic',
+  'Prismatic',
+  'Quantum',
+  'Radiant',
+  'Relativistic',
   'Retrograde',
   'Sidereal',
+  'Solar',
+  'Spectral',
+  'Stellar',
+  'Subatomic',
   'Supergiant',
-  'Terrestrial'
+  'Superluminal',
+  'Terrestrial',
+  'Thermal',
+  'Ultraviolet'
 ];
 
 export default function FileName() {
   let name =
     astroAdj[Math.floor(Math.random() * astroAdj.length)] +
     astroNouns[Math.floor(Math.random() * astroNouns.length)];
-  // let d = Date.now()
-  let d1 = Math.floor(1000000 + Math.random() * 9000000);
+  const hex = Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
 
-  name += '_' + d1;
+  name += '-' + hex;
 
   return name;
 }

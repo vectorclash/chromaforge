@@ -39,13 +39,7 @@ export default class DisplayCanvas extends React.Component {
       controlsAreOpen: true,
       controlsBlurred: false,
       saveVisible: false,
-      colors: [
-        { id: 0, value: '#ff0059' },
-        { id: 1, value: '#ffbb00' },
-        { id: 2, value: '#ccff00' },
-        { id: 3, value: '#00e5ff' },
-        { id: 4, value: '#4c00ff' }
-      ],
+      colors: [],
       linkCopied: false,
       animationMode: false,
       animationFrames: [],
@@ -59,7 +53,7 @@ export default class DisplayCanvas extends React.Component {
       starFrameCount: 10, // set to frameCount / 2 by default
       animationPaused: false
     };
-    this.nextColorId = 5;
+    this.nextColorId = 0;
   }
 
   componentDidMount() {
@@ -1278,7 +1272,7 @@ export default class DisplayCanvas extends React.Component {
               >
                 {generateDisabled
                   ? animationMode
-                    ? `Building ${animationProgress} / ${frameCount}`
+                    ? `Generating ${animationProgress} / ${frameCount}`
                     : 'Generating'
                   : 'Generate'}
               </button>
