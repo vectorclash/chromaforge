@@ -468,6 +468,17 @@ export default class DisplayCanvas extends React.Component {
         let imageContainer = document.querySelector('.image-container');
         imageContainer.style.backgroundImage = 'url(' + url + ')';
 
+        // Mobile Safari caches the backdrop-filter snapshot when the layer is created.
+        // Toggling it off and back on (before the image fades in) forces a re-composite
+        // so the blur reflects the new background instead of the initial grey state.
+        const panel = document.querySelector('#controls-main');
+        if (panel) {
+          panel.style.backdropFilter = 'none';
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            panel.style.backdropFilter = '';
+          }));
+        }
+
         gsap.to('.image-container', {
           duration: 0.2,
           alpha: 1,

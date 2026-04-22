@@ -139,6 +139,12 @@
       border-radius: 16px;
       box-shadow: 0 4px 40px rgba(0, 0, 0, 0.4);
 
+      @media (max-width: 480px) {
+        min-width: auto;
+        width: calc(100% - 40px);
+        padding: 5vw 5vw 0vw;
+      }
+
       .row {
         display: flex;
         justify-content: space-between;
