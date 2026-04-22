@@ -47,8 +47,6 @@ export default class DisplayCanvas extends React.Component {
       animationProgress: 0,
       isExporting: false,
       exportProgress: 0,
-      toggleGradient: null,
-      toggleColor: '#FAFAFA',
       // Animation configuration — wire these to UI controls later
       frameCount: 20,
       cycleDuration: 10,  // seconds for one full seamless loop
@@ -70,6 +68,8 @@ export default class DisplayCanvas extends React.Component {
   }
 
   init() {
+    gsap.to('.controls-open', { opacity: 1, duration: 0.4, delay: 0.2 });
+
     const config = getConfigFromUrl();
     if (config) {
       if (config.animation && config.frames) {
@@ -380,8 +380,6 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
-      toggleGradient: this.toggleGradient,
-      toggleColor: this.toggleColor,
     });
   }
 
@@ -400,11 +398,6 @@ export default class DisplayCanvas extends React.Component {
       backgroundImage: buttonGradient,
       color: buttonColor
     });
-
-    const compColor0 = tinycolor(colors[0]).spin(180).toHexString();
-    const compColorLast = tinycolor(colors[colors.length - 1]).spin(180).toHexString();
-    this.toggleGradient = 'linear-gradient(90deg, ' + compColor0 + ', ' + compColorLast + ')';
-    this.toggleColor = (tinycolor(compColor0).isLight() && tinycolor(compColorLast).isLight()) ? '#333333' : '#FAFAFA';
 
     let borderColor = colors[Math.floor(Math.random() * colors.length)];
 
@@ -981,57 +974,67 @@ export default class DisplayCanvas extends React.Component {
 
     if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
       if (controlsAreOpen) {
-        this.setState({
-          controlsAreOpen: false
-        });
+        this.setState({ controlsAreOpen: false });
 
-        gsap.to('#copyright', {
-          duration: 0.3,
-          alpha: 0.2,
-          scale: 0.9,
-          ease: Quad.easeInOut
-        });
+        gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: Quad.easeInOut });
+        gsap.to('.row, .logo', { duration: 0.2, alpha: 0, ease: Quad.easeInOut });
 
-        gsap.to('.controls-container', {
-          duration: 0.3,
-          alpha: 0,
+        const panelOut = { blur: 12, brightness: 0.95, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4 };
+        gsap.to(panelOut, {
+          blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0,
+          duration: 0.2,
           ease: Quad.easeInOut,
+          onUpdate: () => {
+            const el = document.querySelector('.controls-inner');
+            if (el) {
+              el.style.backdropFilter = `blur(${panelOut.blur}px) brightness(${panelOut.brightness})`;
+              el.style.background = `rgba(0, 0, 0, ${panelOut.bgAlpha})`;
+              el.style.boxShadow = `0 4px ${panelOut.shadow}px rgba(0, 0, 0, ${panelOut.shadowAlpha})`;
+            }
+          },
           onComplete: () => {
-            gsap.set('.controls-container', {
-              display: 'none'
-            });
+            gsap.set('.controls-container', { display: 'none' });
+            const el = document.querySelector('.controls-inner');
+            if (el) {
+              el.style.backdropFilter = '';
+              el.style.background = '';
+              el.style.boxShadow = '';
+            }
           }
         });
       } else {
-        this.setState({
-          controlsAreOpen: true
-        });
+        this.setState({ controlsAreOpen: true });
 
-        gsap.to('#copyright', {
-          duration: 1,
-          alpha: 0.5,
-          scale: 1,
-          ease: Back.easeOut
-        });
+        gsap.to('#copyright', { duration: 1, alpha: 0.5, scale: 1, ease: Back.easeOut });
+        gsap.set('.controls-container', { display: 'flex' });
 
-        gsap.to('.controls-container', {
-          duration: 0.3,
-          alpha: 1,
+        const panelIn = { blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0 };
+        gsap.to(panelIn, {
+          blur: 12, brightness: 0.95, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4,
+          duration: 0.4,
           ease: Quad.easeInOut,
-          onStart: () => {
-            gsap.set('.controls-container', {
-              display: 'flex'
-            });
+          onUpdate: () => {
+            const el = document.querySelector('.controls-inner');
+            if (el) {
+              el.style.backdropFilter = `blur(${panelIn.blur}px) brightness(${panelIn.brightness})`;
+              el.style.background = `rgba(0, 0, 0, ${panelIn.bgAlpha})`;
+              el.style.boxShadow = `0 4px ${panelIn.shadow}px rgba(0, 0, 0, ${panelIn.shadowAlpha})`;
+            }
+          },
+          onComplete: () => {
+            const el = document.querySelector('.controls-inner');
+            if (el) {
+              el.style.backdropFilter = '';
+              el.style.background = '';
+              el.style.boxShadow = '';
+            }
           }
         });
 
-        gsap.from('.row, .logo', {
-          duration: 0.5,
-          alpha: 0,
-          y: 42,
-          stagger: 0.05,
-          ease: Back.easeOut
-        });
+        gsap.fromTo('.row, .logo',
+          { alpha: 0, y: 42 },
+          { duration: 0.5, alpha: 1, y: 0, stagger: 0.05, ease: Back.easeOut }
+        );
       }
     }
   }
@@ -1214,8 +1217,6 @@ export default class DisplayCanvas extends React.Component {
       exportProgress,
       frameCount,
       animationPaused,
-      toggleGradient,
-      toggleColor,
     } = this.state;
 
     const { spacing, fade, starSpacing, starFade } = this.getAnimTiming();
@@ -1270,14 +1271,12 @@ export default class DisplayCanvas extends React.Component {
               <div className="mode-toggle">
                 <button
                   className={'mode-toggle-btn' + (!animationMode ? ' active' : '')}
-                  style={!animationMode && toggleGradient ? { backgroundImage: toggleGradient, color: toggleColor } : {}}
                   onClick={() => this.onModeToggle(false)}
                 >
                   Image
                 </button>
                 <button
                   className={'mode-toggle-btn' + (animationMode ? ' active' : '')}
-                  style={animationMode && toggleGradient ? { backgroundImage: toggleGradient, color: toggleColor } : {}}
                   onClick={() => this.onModeToggle(true)}
                 >
                   Animation
