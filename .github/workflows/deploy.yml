@@ -26,6 +26,20 @@ jobs:
         run: npm run build
 
       - name: Deploy to Hostinger via FTP
+        id: deploy
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        continue-on-error: true
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ${{ secrets.FTP_PATH }}
+          protocol: ftps
+          timeout: 60000
+
+      - name: Retry deploy if failed
+        if: steps.deploy.outcome == 'failure'
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
