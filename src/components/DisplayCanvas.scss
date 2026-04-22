@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&family=Exo:wght@400;700;900&display=swap');
 
 .display-canvas {
   position: fixed;
@@ -149,16 +149,18 @@
           font-size: 20px;
           margin-bottom: 30px;
           font-weight: 400;
+          font-family: 'Exo', sans-serif;
 
           b {
             color: #cdf29c;
+            font-weight: 900;
           }
         }
 
         button,
         input {
           display: inline-block;
-          font-family: 'Lato', sans-serif;
+          font-family: 'Quicksand', sans-serif;
           margin-bottom: 10px;
           height: 60px;
           box-shadow:
@@ -377,7 +379,7 @@
           margin-bottom: 0;
           background: transparent;
           color: rgba(#fafafa, 0.35);
-          font-family: 'Lato', sans-serif;
+          font-family: 'Quicksand', sans-serif;
           font-size: 10px;
           font-weight: 700;
           letter-spacing: 2px;

@@ -47,6 +47,8 @@ export default class DisplayCanvas extends React.Component {
       animationProgress: 0,
       isExporting: false,
       exportProgress: 0,
+      toggleGradient: null,
+      toggleColor: '#FAFAFA',
       // Animation configuration — wire these to UI controls later
       frameCount: 20,
       cycleDuration: 10,  // seconds for one full seamless loop
@@ -377,7 +379,9 @@ export default class DisplayCanvas extends React.Component {
       animationFrames: frames,
       animationStarFrames: starFrames,
       generateDisabled: false,
-      isLoading: false
+      isLoading: false,
+      toggleGradient: this.toggleGradient,
+      toggleColor: this.toggleColor,
     });
   }
 
@@ -397,6 +401,10 @@ export default class DisplayCanvas extends React.Component {
       color: buttonColor
     });
 
+    const compColor0 = tinycolor(colors[0]).spin(180).toHexString();
+    const compColorLast = tinycolor(colors[colors.length - 1]).spin(180).toHexString();
+    this.toggleGradient = 'linear-gradient(90deg, ' + compColor0 + ', ' + compColorLast + ')';
+    this.toggleColor = (tinycolor(compColor0).isLight() && tinycolor(compColorLast).isLight()) ? '#333333' : '#FAFAFA';
 
     let borderColor = colors[Math.floor(Math.random() * colors.length)];
 
@@ -475,7 +483,9 @@ export default class DisplayCanvas extends React.Component {
 
         this.setState({
           generateDisabled: false,
-          isLoading: false
+          isLoading: false,
+          toggleGradient: this.toggleGradient,
+          toggleColor: this.toggleColor,
         });
       });
     });
@@ -845,6 +855,7 @@ export default class DisplayCanvas extends React.Component {
 
         this.setState({
           isLoading: true,
+          generateDisabled: true,
           isSaved: false
         });
 
@@ -883,7 +894,9 @@ export default class DisplayCanvas extends React.Component {
           animationProgress: frames.length,
           isSaved: wasSaved || false,
           generateDisabled: false,
-          isLoading: false
+          isLoading: false,
+          toggleGradient: this.toggleGradient,
+          toggleColor: this.toggleColor,
         });
       } else {
         this.animationConfigs = null;
@@ -937,7 +950,9 @@ export default class DisplayCanvas extends React.Component {
           animationProgress: 0,
           isSaved: wasSaved || false,
           generateDisabled: false,
-          isLoading: false
+          isLoading: false,
+          toggleGradient: this.toggleGradient,
+          toggleColor: this.toggleColor,
         });
       } else {
         this.shareUrl = null;
@@ -1198,7 +1213,9 @@ export default class DisplayCanvas extends React.Component {
       isExporting,
       exportProgress,
       frameCount,
-      animationPaused
+      animationPaused,
+      toggleGradient,
+      toggleColor,
     } = this.state;
 
     const { spacing, fade, starSpacing, starFade } = this.getAnimTiming();
@@ -1253,12 +1270,14 @@ export default class DisplayCanvas extends React.Component {
               <div className="mode-toggle">
                 <button
                   className={'mode-toggle-btn' + (!animationMode ? ' active' : '')}
+                  style={!animationMode && toggleGradient ? { backgroundImage: toggleGradient, color: toggleColor } : {}}
                   onClick={() => this.onModeToggle(false)}
                 >
                   Image
                 </button>
                 <button
                   className={'mode-toggle-btn' + (animationMode ? ' active' : '')}
+                  style={animationMode && toggleGradient ? { backgroundImage: toggleGradient, color: toggleColor } : {}}
                   onClick={() => this.onModeToggle(true)}
                 >
                   Animation
