@@ -1,5 +1,5 @@
 import React from 'react';
-import { gsap, Quad, Back, Bounce } from 'gsap';
+import { gsap } from 'gsap';
 import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
@@ -450,7 +450,7 @@ export default class DisplayCanvas extends React.Component {
     gsap.to('.image-container', {
       duration: 0.2,
       alpha: 0,
-      ease: Quad.easeInOut
+      ease: 'power2.inOut'
     });
 
     this.buildImage(config);
@@ -482,7 +482,7 @@ export default class DisplayCanvas extends React.Component {
         gsap.to('.image-container', {
           duration: 0.2,
           alpha: 1,
-          ease: Quad.easeInOut
+          ease: 'power2.inOut'
         });
 
         this.setState({
@@ -524,7 +524,7 @@ export default class DisplayCanvas extends React.Component {
           y: 0,
           alpha: 1,
           stagger: 0.02,
-          ease: Back.easeOut
+          ease: 'back.out(1.7)'
         }
       );
     }
@@ -548,14 +548,14 @@ export default class DisplayCanvas extends React.Component {
       alpha: 0.5,
       scale: 0.9,
       filter: 'blur(3px)',
-      ease: Back.easeOut
+      ease: 'back.out(1.7)'
     });
 
     gsap.from('#controls-save', {
       duration: 0.2,
       alpha: 0,
       scale: 1.2,
-      ease: Back.easeOut
+      ease: 'back.out(1.7)'
     });
 
     this.setState({
@@ -570,7 +570,7 @@ export default class DisplayCanvas extends React.Component {
       scaleY: 1.4,
       rotation: -0.5 + Math.random() * 1,
       skewY: -5 + Math.random() * 10,
-      ease: Bounce.easeOut
+      ease: 'bounce.out'
     });
 
     gsap.to('input', {
@@ -578,7 +578,7 @@ export default class DisplayCanvas extends React.Component {
       scale: 1,
       rotation: 0,
       skewY: 0,
-      ease: Bounce.easeOut,
+      ease: 'bounce.out',
       delay: 0.1
     });
   }
@@ -836,7 +836,7 @@ export default class DisplayCanvas extends React.Component {
         gsap.to('.image-container', {
           duration: 0.2,
           alpha: 0,
-          ease: Quad.easeInOut
+          ease: 'power2.inOut'
         });
 
         this.setState({
@@ -854,7 +854,7 @@ export default class DisplayCanvas extends React.Component {
         gsap.to('.image-container', {
           duration: 0.2,
           alpha: 0,
-          ease: Quad.easeInOut
+          ease: 'power2.inOut'
         });
 
         this.setState({
@@ -905,7 +905,7 @@ export default class DisplayCanvas extends React.Component {
       } else {
         this.animationConfigs = null;
         this.shareUrl = null;
-        gsap.to('.image-container', { duration: 0.2, alpha: 0, ease: Quad.easeInOut });
+        gsap.to('.image-container', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
         this.setState({
           animationMode: true,
           animationFrames: [],
@@ -974,7 +974,7 @@ export default class DisplayCanvas extends React.Component {
     gsap.delayedCall(0.05, () => {
       gsap.fromTo('.mode-toggle-btn.active',
         { opacity: 0.3, scale: 0.94 },
-        { duration: 0.35, opacity: 1, scale: 1, ease: Back.easeOut }
+        { duration: 0.35, opacity: 1, scale: 1, ease: 'back.out(1.7)' }
       );
     });
   }
@@ -987,14 +987,14 @@ export default class DisplayCanvas extends React.Component {
       if (controlsAreOpen) {
         this.setState({ controlsAreOpen: false });
 
-        gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: Quad.easeInOut });
-        gsap.to('.row, .logo', { duration: 0.2, alpha: 0, ease: Quad.easeInOut });
+        gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
+        gsap.to('.row, .logo', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
 
         const panelOut = { blur: 12, brightness: 0.95, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4 };
         gsap.to(panelOut, {
           blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0,
           duration: 0.2,
-          ease: Quad.easeInOut,
+          ease: 'power2.inOut',
           onUpdate: () => {
             const el = document.querySelector('.controls-inner');
             if (el) {
@@ -1016,14 +1016,14 @@ export default class DisplayCanvas extends React.Component {
       } else {
         this.setState({ controlsAreOpen: true });
 
-        gsap.to('#copyright', { duration: 1, alpha: 0.5, scale: 1, ease: Back.easeOut });
+        gsap.to('#copyright', { duration: 1, alpha: 0.5, scale: 1, ease: 'back.out(1.7)' });
         gsap.set('.controls-container', { display: 'flex' });
 
         const panelIn = { blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0 };
         gsap.to(panelIn, {
           blur: 12, brightness: 0.95, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4,
           duration: 0.4,
-          ease: Quad.easeInOut,
+          ease: 'power2.inOut',
           onUpdate: () => {
             const el = document.querySelector('.controls-inner');
             if (el) {
@@ -1044,7 +1044,7 @@ export default class DisplayCanvas extends React.Component {
 
         gsap.fromTo('.row, .logo',
           { alpha: 0, y: 42 },
-          { duration: 0.5, alpha: 1, y: 0, stagger: 0.05, ease: Back.easeOut }
+          { duration: 0.5, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
         );
       }
     }
@@ -1056,14 +1056,14 @@ export default class DisplayCanvas extends React.Component {
       alpha: 0.5,
       scale: 0.9,
       filter: 'blur(3px)',
-      ease: Back.easeOut
+      ease: 'back.out(1.7)'
     });
 
     gsap.from('#controls-settings', {
       duration: 0.2,
       alpha: 0,
       scale: 1.2,
-      ease: Back.easeOut
+      ease: 'back.out(1.7)'
     });
 
     this.animateColors();
@@ -1079,7 +1079,7 @@ export default class DisplayCanvas extends React.Component {
       alpha: 0.9,
       scale: 1,
       filter: 'blur(0px)',
-      ease: Back.easeOut,
+      ease: 'back.out(1.7)',
       onComplete: () => {
         this.updateColors();
       }
@@ -1196,7 +1196,7 @@ export default class DisplayCanvas extends React.Component {
               alpha: 1,
               y: 0,
               duration: 0.3,
-              ease: Bounce.easeOut
+              ease: 'bounce.out'
             }
           );
         }.bind(this),
