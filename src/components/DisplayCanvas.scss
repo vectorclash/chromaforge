@@ -25,6 +25,7 @@
     mix-blend-mode: hard-light;
     transition: all 0.3s ease;
     opacity: 0;
+    -webkit-tap-highlight-color: transparent;
 
     &:hover {
       transform: scale(1.15);
@@ -59,6 +60,7 @@
     border: none;
     padding: 0;
     transition: all 0.3s ease;
+    -webkit-tap-highlight-color: transparent;
 
     svg {
       width: 100%;
@@ -134,11 +136,11 @@
       flex-direction: column;
       opacity: 0.9;
       z-index: 1;
-      backdrop-filter: blur(6px) brightness(0.95);
+      backdrop-filter: blur(4px) brightness(0.95);
       background: rgba(0, 0, 0, 0.15);
       border-radius: 16px;
       box-shadow: 0 4px 40px rgba(0, 0, 0, 0.4);
-      border-bottom: 2px solid rgba(76, 0, 255, var(--border-opacity, 0.75));
+      border-bottom: 2px solid rgba(#4c00ff, var(--border-opacity, 0.75));
 
       &::after {
         content: '';
@@ -149,6 +151,8 @@
         height: 2px;
         background: linear-gradient(90deg, #4c00ff, #ff0059, #ffbb00, #eaff00, #00e5ff, #4c00ff);
         opacity: var(--border-opacity, 0.75);
+        -webkit-mask-image: linear-gradient(90deg, transparent, black 24px, black calc(100% - 24px), transparent);
+        mask-image: linear-gradient(90deg, transparent, black 24px, black calc(100% - 24px), transparent);
       }
 
       @media (max-width: 480px) {
