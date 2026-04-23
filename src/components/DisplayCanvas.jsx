@@ -468,19 +468,26 @@ export default class DisplayCanvas extends React.Component {
         let imageContainer = document.querySelector('.image-container');
         imageContainer.style.backgroundImage = 'url(' + url + ')';
 
-        // Mobile Safari snapshots backdrop-filter at composite time — toggling it off
-        // before the fade and restoring it in onComplete ensures the snapshot is taken
-        // when the background image is fully opaque, not while it's still dark.
+        // Animate backdrop-filter from 0 alongside the image fade. Because GSAP updates
+        // the inline value every frame, iOS re-composites each frame rather than caching
+        // a stale snapshot — so we can run both animations in parallel safely.
         const panel = document.querySelector('#controls-main');
-        if (panel) panel.style.backdropFilter = 'none';
+        if (panel) {
+          panel.style.backdropFilter = 'none';
+          const f = { blur: 0, brightness: 1 };
+          gsap.to(f, {
+            blur: 8, brightness: 0.95,
+            duration: 0.5,
+            ease: 'power2.inOut',
+            onUpdate: () => { panel.style.backdropFilter = `blur(${f.blur}px) brightness(${f.brightness})`; },
+            onComplete: () => { panel.style.backdropFilter = ''; }
+          });
+        }
 
         gsap.to('.image-container', {
-          duration: 0.2,
+          duration: 0.5,
           alpha: 1,
-          ease: 'power2.inOut',
-          onComplete: () => {
-            if (panel) requestAnimationFrame(() => { panel.style.backdropFilter = ''; });
-          }
+          ease: 'power2.inOut'
         });
 
         this.setState({

@@ -35,6 +35,7 @@ export default function AnimationPreview({
   starSpacing = DEFAULT_STAR_SPACING,
   paused      = false
 }) {
+  const containerRef = useRef(null);
   const imgRefs   = useRef([]);
   const starRefs  = useRef([]);
   const tlRef     = useRef(null);
@@ -51,6 +52,8 @@ export default function AnimationPreview({
     if (imgs.length !== frames.length) return;
 
     killRef.current = false;
+
+    gsap.fromTo(containerRef.current, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: 'power2.inOut' });
 
     // ── Main frames ──────────────────────────────────────────────────────────
     gsap.set(imgs, { opacity: 0, scale: 1, transformOrigin: 'center center' });
@@ -131,7 +134,7 @@ export default function AnimationPreview({
   }, [paused]);
 
   return (
-    <div className="animation-preview" onClick={onClick}>
+    <div className="animation-preview" ref={containerRef} onClick={onClick}>
       {frames.map((src, i) => (
         <img
           key={i}
