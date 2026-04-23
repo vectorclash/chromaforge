@@ -814,7 +814,7 @@ export default class DisplayCanvas extends React.Component {
 
     this.setState({ exportProgress: 100 });
     const blob = new Blob([target.buffer], { type: 'video/mp4' });
-    saveAs(blob, `${FileName()}-animation.mp4`);
+    saveAs(blob, `${FileName()}.mp4`);
     this.setState({ isExporting: false, exportProgress: 0 });
   }
 
