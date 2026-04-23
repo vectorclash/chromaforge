@@ -134,10 +134,22 @@
       flex-direction: column;
       opacity: 0.9;
       z-index: 1;
-      backdrop-filter: blur(8px) brightness(0.95);
+      backdrop-filter: blur(6px) brightness(0.95);
       background: rgba(0, 0, 0, 0.15);
       border-radius: 16px;
       box-shadow: 0 4px 40px rgba(0, 0, 0, 0.4);
+      border-bottom: 2px solid rgba(76, 0, 255, var(--border-opacity, 0.75));
+
+      &::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 16px;
+        right: 16px;
+        height: 2px;
+        background: linear-gradient(90deg, #4c00ff, #ff0059, #ffbb00, #eaff00, #00e5ff, #4c00ff);
+        opacity: var(--border-opacity, 0.75);
+      }
 
       @media (max-width: 480px) {
         min-width: auto;

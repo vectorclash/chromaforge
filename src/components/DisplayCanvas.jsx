@@ -473,10 +473,11 @@ export default class DisplayCanvas extends React.Component {
         // a stale snapshot — so we can run both animations in parallel safely.
         const panel = document.querySelector('#controls-main');
         if (panel) {
+          const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(panel);
           panel.style.backdropFilter = 'none';
           const f = { blur: 0, brightness: 1 };
           gsap.to(f, {
-            blur: 8, brightness: 0.95,
+            blur: cssBlur, brightness: cssBrightness,
             duration: 0.5,
             ease: 'power2.inOut',
             onUpdate: () => { panel.style.backdropFilter = `blur(${f.blur}px) brightness(${f.brightness})`; },
@@ -493,8 +494,6 @@ export default class DisplayCanvas extends React.Component {
         this.setState({
           generateDisabled: false,
           isLoading: false,
-          toggleGradient: this.toggleGradient,
-          toggleColor: this.toggleColor,
         });
       });
     });
@@ -904,8 +903,6 @@ export default class DisplayCanvas extends React.Component {
           isSaved: wasSaved || false,
           generateDisabled: false,
           isLoading: false,
-          toggleGradient: this.toggleGradient,
-          toggleColor: this.toggleColor,
         });
       } else {
         this.animationConfigs = null;
@@ -960,8 +957,6 @@ export default class DisplayCanvas extends React.Component {
           isSaved: wasSaved || false,
           generateDisabled: false,
           isLoading: false,
-          toggleGradient: this.toggleGradient,
-          toggleColor: this.toggleColor,
         });
       } else {
         this.shareUrl = null;
@@ -984,6 +979,13 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
+  readBackdropValues(el) {
+    const raw = getComputedStyle(el).backdropFilter || getComputedStyle(el).webkitBackdropFilter || '';
+    const blur = parseFloat((raw.match(/blur\(([\d.]+)px\)/) || [])[1]) || 6;
+    const brightness = parseFloat((raw.match(/brightness\(([\d.]+)\)/) || [])[1]) || 0.95;
+    return { blur, brightness };
+  }
+
   onCloseButtonClick(e) {
     const { controlsAreOpen } = this.state;
     this.onSettingsCloseButtonClick();
@@ -995,28 +997,32 @@ export default class DisplayCanvas extends React.Component {
         gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
         gsap.to('.row, .logo', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
 
-        const panelOut = { blur: 12, brightness: 0.95, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4 };
+        const el = document.querySelector('.controls-inner');
+        const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(el);
+        const panelOut = { blur: cssBlur, brightness: cssBrightness, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4 };
         gsap.to(panelOut, {
           blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0,
           duration: 0.2,
           ease: 'power2.inOut',
           onUpdate: () => {
-            const el = document.querySelector('.controls-inner');
-            if (el) {
-              el.style.backdropFilter = `blur(${panelOut.blur}px) brightness(${panelOut.brightness})`;
-              el.style.background = `rgba(0, 0, 0, ${panelOut.bgAlpha})`;
-              el.style.boxShadow = `0 4px ${panelOut.shadow}px rgba(0, 0, 0, ${panelOut.shadowAlpha})`;
-            }
+            el.style.backdropFilter = `blur(${panelOut.blur}px) brightness(${panelOut.brightness})`;
+            el.style.background = `rgba(0, 0, 0, ${panelOut.bgAlpha})`;
+            el.style.boxShadow = `0 4px ${panelOut.shadow}px rgba(0, 0, 0, ${panelOut.shadowAlpha})`;
           },
           onComplete: () => {
             gsap.set('.controls-container', { display: 'none' });
-            const el = document.querySelector('.controls-inner');
-            if (el) {
-              el.style.backdropFilter = '';
-              el.style.background = '';
-              el.style.boxShadow = '';
-            }
+            el.style.backdropFilter = '';
+            el.style.background = '';
+            el.style.boxShadow = '';
+            el.style.removeProperty('--border-opacity');
           }
+        });
+
+        // Border exits faster so it doesn't linger after the rest of the panel fades
+        const borderOut = { v: 0.75 };
+        gsap.to(borderOut, {
+          v: 0, duration: 0.1, ease: 'power2.inOut',
+          onUpdate: () => { el.style.setProperty('--border-opacity', borderOut.v); }
         });
       } else {
         this.setState({ controlsAreOpen: true });
@@ -1024,26 +1030,24 @@ export default class DisplayCanvas extends React.Component {
         gsap.to('#copyright', { duration: 1, alpha: 0.5, scale: 1, ease: 'back.out(1.7)' });
         gsap.set('.controls-container', { display: 'flex' });
 
-        const panelIn = { blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0 };
+        const elIn = document.querySelector('.controls-inner');
+        const { blur: cssBlurIn, brightness: cssBrightnessIn } = this.readBackdropValues(elIn);
+        const panelIn = { blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0, borderOpacity: 0 };
         gsap.to(panelIn, {
-          blur: 12, brightness: 0.95, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4,
+          blur: cssBlurIn, brightness: cssBrightnessIn, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4, borderOpacity: 0.75,
           duration: 0.4,
           ease: 'power2.inOut',
           onUpdate: () => {
-            const el = document.querySelector('.controls-inner');
-            if (el) {
-              el.style.backdropFilter = `blur(${panelIn.blur}px) brightness(${panelIn.brightness})`;
-              el.style.background = `rgba(0, 0, 0, ${panelIn.bgAlpha})`;
-              el.style.boxShadow = `0 4px ${panelIn.shadow}px rgba(0, 0, 0, ${panelIn.shadowAlpha})`;
-            }
+            elIn.style.backdropFilter = `blur(${panelIn.blur}px) brightness(${panelIn.brightness})`;
+            elIn.style.background = `rgba(0, 0, 0, ${panelIn.bgAlpha})`;
+            elIn.style.boxShadow = `0 4px ${panelIn.shadow}px rgba(0, 0, 0, ${panelIn.shadowAlpha})`;
+            elIn.style.setProperty('--border-opacity', panelIn.borderOpacity);
           },
           onComplete: () => {
-            const el = document.querySelector('.controls-inner');
-            if (el) {
-              el.style.backdropFilter = '';
-              el.style.background = '';
-              el.style.boxShadow = '';
-            }
+            elIn.style.backdropFilter = '';
+            elIn.style.background = '';
+            elIn.style.boxShadow = '';
+            elIn.style.removeProperty('--border-opacity');
           }
         });
 
