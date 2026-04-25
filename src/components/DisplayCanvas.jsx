@@ -4,6 +4,7 @@ import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
+import { generateAudioBuffer } from '../audio/generateAudioBuffer';
 import './DisplayCanvas.scss';
 import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 
@@ -28,6 +29,56 @@ import ColorField from './ColorField';
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
 
+async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
+  const left        = audioBuffer.getChannelData(0);
+  const right       = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
+  const sampleRate  = audioBuffer.sampleRate;
+  const totalFrames = audioBuffer.length;
+  const CHUNK_FRAMES = 4096;
+  // Estimate output chunks: AAC uses 1024-sample frames, Opus uses 960 or 480.
+  const frameSize = audioCodec === 'opus' ? 960 : 1024;
+  const totalOutputChunks = Math.ceil(totalFrames / frameSize);
+  let outputCount = 0;
+
+  await new Promise((resolve, reject) => {
+    const encoder = new AudioEncoder({
+      output: (chunk, meta) => {
+        muxer.addAudioChunk(chunk, meta);
+        outputCount++;
+        onProgress?.(Math.min(outputCount / totalOutputChunks, 1));
+      },
+      error: reject,
+    });
+
+    try {
+      encoder.configure({ codec: audioCodec, numberOfChannels: 2, sampleRate, bitrate: 128_000 });
+
+      for (let offset = 0; offset < totalFrames; offset += CHUNK_FRAMES) {
+        const frameCount = Math.min(CHUNK_FRAMES, totalFrames - offset);
+        const timestamp  = Math.round((offset / sampleRate) * 1_000_000);
+        const planar     = new Float32Array(frameCount * 2);
+        planar.set(left.subarray(offset, offset + frameCount), 0);
+        planar.set(right.subarray(offset, offset + frameCount), frameCount);
+
+        const audioData = new AudioData({
+          format: 'f32-planar',
+          sampleRate,
+          numberOfFrames: frameCount,
+          numberOfChannels: 2,
+          timestamp,
+          data: planar,
+        });
+        encoder.encode(audioData);
+        audioData.close();
+      }
+
+      encoder.flush().then(resolve).catch(reject);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 export default class DisplayCanvas extends React.Component {
   constructor(props) {
     super(props);
@@ -47,11 +98,12 @@ export default class DisplayCanvas extends React.Component {
       animationProgress: 0,
       isExporting: false,
       exportProgress: 0,
-      // Animation configuration — wire these to UI controls later
+      musicEnabled: false,
       frameCount: 20,
-      cycleDuration: 10,  // seconds for one full seamless loop
-      starFrameCount: 10, // set to frameCount / 2 by default
-      animationPaused: false
+      cycleDuration: 10,
+      starFrameCount: 10,
+      animationPaused: false,
+      settingsTab: 'color',
     };
     this.nextColorId = 0;
   }
@@ -515,6 +567,13 @@ export default class DisplayCanvas extends React.Component {
     return blendModes[randomBlendMode];
   }
 
+  animateSettingsTab() {
+    gsap.set('#controls-settings .color-container', { opacity: 1 });
+    const els = '#controls-settings .settings-field, #controls-settings .row';
+    gsap.set(els, { alpha: 0, y: 20 });
+    gsap.to(els, { duration: 0.4, alpha: 1, y: 0, stagger: 0.06, ease: 'back.out(1.7)' });
+  }
+
   animateColors() {
     if (this.state.colors.length > 0) {
       gsap.fromTo(
@@ -673,6 +732,44 @@ export default class DisplayCanvas extends React.Component {
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
+    const { musicEnabled } = this.state;
+    const totalDurationSec = TOTAL_FRAMES / FPS;
+
+    // Pre-validate codec support and generate the audio buffer BEFORE creating the muxer.
+    // An audio track declared in the muxer but left empty makes the MP4 unplayable.
+    let audioBuffer = null;
+    // Resolve which audio codec to use. AAC (mp4a.40.2) is preferred for broad
+    // player compatibility, but requires a platform codec — not available on Linux.
+    // Opus is a universal fallback supported by all WebCodecs implementations.
+    let audioCodec = null;
+    let audioSampleRate = 44100;
+    if (musicEnabled && typeof AudioEncoder !== 'undefined' && typeof AudioData !== 'undefined') {
+      const candidates = [
+        { encoderCodec: 'mp4a.40.2', muxerCodec: 'aac',  sampleRate: 44100 },
+        { encoderCodec: 'opus',       muxerCodec: 'opus', sampleRate: 48000 },
+      ];
+      for (const c of candidates) {
+        const { supported } = await AudioEncoder.isConfigSupported({
+          codec: c.encoderCodec, numberOfChannels: 2, sampleRate: c.sampleRate, bitrate: 128_000,
+        }).catch(() => ({ supported: false }));
+        if (supported) {
+          audioCodec = c.encoderCodec;
+          audioSampleRate = c.sampleRate;
+          break;
+        }
+      }
+    }
+
+    if (audioCodec) {
+      audioBuffer = await generateAudioBuffer(totalDurationSec, audioSampleRate).catch(e => {
+        console.warn('[ChromaForge audio] generateAudioBuffer failed:', e);
+        return null;
+      });
+    }
+
+    const includeAudio = audioBuffer !== null;
+    const muxerAudioCodec = audioCodec === 'mp4a.40.2' ? 'aac' : 'opus';
+
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -745,6 +842,7 @@ export default class DisplayCanvas extends React.Component {
     const muxer = new Muxer({
       target,
       video: { codec: 'avc', width, height },
+      ...(includeAudio ? { audio: { codec: muxerAudioCodec, numberOfChannels: 2, sampleRate: audioSampleRate } } : {}),
       fastStart: 'in-memory'
     });
 
@@ -799,16 +897,24 @@ export default class DisplayCanvas extends React.Component {
     canvas.width = 0;
     canvas.height = 0;
 
-    // encoder.flush() has no progress callbacks — animate the bar from 90→99%
-    // so it keeps visibly moving while we wait
+    // encoder.flush() has no progress callbacks — animate the bar while we wait.
+    // With audio, leave room at 93–99 for the audio encoding phase.
+    const crawlTarget = includeAudio ? 93 : 99;
     let fakeProgress = 90;
     const crawl = setInterval(() => {
-      fakeProgress += (99 - fakeProgress) * 0.15; // asymptotic: approaches 99 but never reaches it
+      fakeProgress += (crawlTarget - fakeProgress) * 0.15;
       this.setState({ exportProgress: Math.round(fakeProgress) });
     }, 200);
 
     await encoder.flush();
     clearInterval(crawl);
+
+    if (includeAudio) {
+      this.setState({ exportProgress: 94 });
+      await encodeAudioTrack(audioBuffer, muxer, audioCodec, p => {
+        this.setState({ exportProgress: Math.round(94 + p * 5) });
+      });
+    }
 
     muxer.finalize();
 
@@ -1075,11 +1181,7 @@ export default class DisplayCanvas extends React.Component {
       ease: 'back.out(1.7)'
     });
 
-    this.animateColors();
-
-    this.setState({
-      controlsBlurred: true
-    });
+    this.setState({ controlsBlurred: true }, () => this.animateSettingsTab());
   }
 
   onSettingsCloseButtonClick(e) {
@@ -1236,7 +1338,11 @@ export default class DisplayCanvas extends React.Component {
       isExporting,
       exportProgress,
       frameCount,
+      cycleDuration,
+      starFrameCount,
       animationPaused,
+      musicEnabled,
+      settingsTab,
     } = this.state;
 
     const { spacing, fade, starSpacing, starFade } = this.getAnimTiming();
@@ -1363,32 +1469,91 @@ export default class DisplayCanvas extends React.Component {
               'controls-inner controls-settings' + (controlsBlurred ? ' controls-visible' : '')
             }
           >
-            <div className="row colors">
-              {colors.map(colorObj => (
-                <ColorField
-                  color={colorObj.value || colorObj}
-                  key={colorObj.id}
-                  colorId={colorObj.id}
-                  callback={this.onRemoveColorbuttonClick.bind(this)}
-                  onReorder={this.onReorderColors.bind(this)}
-                />
-              ))}
-              {colors.length < 6 ? (
-                <button onClick={this.onAddColorButtonClick.bind(this)} className="button-small">
-                  ADD COLOR <AddColorButton />
-                </button>
-              ) : (
-                ''
-              )}
-            </div>
-            <div className="row">
-              <button onClick={this.onClearColors.bind(this)} className="button-small">
-                CLEAR
+            <div className="settings-tabs">
+              <button
+                className={'settings-tab-btn' + (settingsTab === 'color' ? ' active' : '')}
+                onClick={() => this.setState({ settingsTab: 'color' }, () => this.animateSettingsTab())}
+              >
+                Color
               </button>
-              <button onClick={this.onRainbowColors.bind(this)} className="button-small">
-                🌈
+              <button
+                className={'settings-tab-btn' + (settingsTab === 'video' ? ' active' : '')}
+                onClick={() => this.setState({ settingsTab: 'video' }, () => this.animateSettingsTab())}
+              >
+                Video
               </button>
             </div>
+
+            {settingsTab === 'color' && (
+              <>
+                <div className="row colors">
+                  {colors.map(colorObj => (
+                    <ColorField
+                      color={colorObj.value || colorObj}
+                      key={colorObj.id}
+                      colorId={colorObj.id}
+                      callback={this.onRemoveColorbuttonClick.bind(this)}
+                      onReorder={this.onReorderColors.bind(this)}
+                    />
+                  ))}
+                  {colors.length < 6 ? (
+                    <button onClick={this.onAddColorButtonClick.bind(this)} className="button-small">
+                      ADD COLOR <AddColorButton />
+                    </button>
+                  ) : (
+                    ''
+                  )}
+                </div>
+                <div className="row">
+                  <button onClick={this.onClearColors.bind(this)} className="button-small">
+                    CLEAR
+                  </button>
+                  <button onClick={this.onRainbowColors.bind(this)} className="button-small">
+                    🌈
+                  </button>
+                </div>
+              </>
+            )}
+
+            {settingsTab === 'video' && (
+              <>
+                <div className="settings-field">
+                  <span className="settings-label">Include Music</span>
+                  <button
+                    className={'settings-toggle' + (musicEnabled ? ' on' : '')}
+                    onClick={() => this.setState({ musicEnabled: !musicEnabled })}
+                    aria-label={musicEnabled ? 'Music on' : 'Music off'}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">Frames</span>
+                  <div className="settings-stepper">
+                    <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, fc) }); }}>−</button>
+                    <span>{frameCount}</span>
+                    <button onClick={() => this.setState({ frameCount: Math.min(60, frameCount + 1) })}>+</button>
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">Star Frames</span>
+                  <div className="settings-stepper">
+                    <button onClick={() => this.setState({ starFrameCount: Math.max(1, starFrameCount - 1) })}>−</button>
+                    <span>{starFrameCount}</span>
+                    <button onClick={() => this.setState({ starFrameCount: Math.min(frameCount, starFrameCount + 1) })}>+</button>
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">Duration</span>
+                  <div className="settings-stepper">
+                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1) })}>−</button>
+                    <span>{cycleDuration}s</span>
+                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1) })}>+</button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="row">
               <button
                 onClick={this.onSettingsCloseButtonClick.bind(this)}
