@@ -758,6 +758,9 @@ export default class DisplayCanvas extends React.Component {
           break;
         }
       }
+      if (!audioCodec) {
+        alert('Audio export isn\'t supported in this browser — the video will export without music. Try Safari or Chrome on desktop.');
+      }
     }
 
     if (audioCodec) {
@@ -911,17 +914,29 @@ export default class DisplayCanvas extends React.Component {
 
     if (includeAudio) {
       this.setState({ exportProgress: 94 });
-      await encodeAudioTrack(audioBuffer, muxer, audioCodec, p => {
-        this.setState({ exportProgress: Math.round(94 + p * 5) });
-      });
+      try {
+        await encodeAudioTrack(audioBuffer, muxer, audioCodec, p => {
+          this.setState({ exportProgress: Math.round(94 + p * 5) });
+        });
+      } catch (e) {
+        console.warn('[ChromaForge] Audio encoding failed, exporting video only:', e);
+        alert('Audio encoding is not supported in this browser — the video will export without music.');
+      }
     }
 
     muxer.finalize();
 
-    this.setState({ exportProgress: 100 });
-    const blob = new Blob([target.buffer], { type: 'video/mp4' });
-    saveAs(blob, `${FileName()}.mp4`);
-    this.setState({ isExporting: false, exportProgress: 0 });
+    try {
+      muxer.finalize();
+      this.setState({ exportProgress: 100 });
+      const blob = new Blob([target.buffer], { type: 'video/mp4' });
+      saveAs(blob, `${FileName()}.mp4`);
+    } catch (e) {
+      console.error('[ChromaForge] Export finalize failed:', e);
+      alert('Export failed. Please try again.');
+    } finally {
+      this.setState({ isExporting: false, exportProgress: 0 });
+    }
   }
 
   onGenerateButtonClick(e) {
