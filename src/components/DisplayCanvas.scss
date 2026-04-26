@@ -129,12 +129,8 @@
 
     .controls-inner {
       position: absolute;
-      padding: 5vh 5vh 2vh;
+      padding: 32px;
       min-width: 400px;
-
-      &.controls-settings {
-        padding: 5vh;
-      }
       display: flex;
       justify-content: center;
       flex-direction: column;
@@ -162,21 +158,24 @@
       @media (max-width: 480px) {
         min-width: auto;
         width: calc(100% - 40px);
-        padding: 5vw 5vw 0vw;
+        padding: 20px;
       }
 
       .row {
         display: flex;
+        align-items: center;
         justify-content: space-between;
         margin-bottom: 10px;
 
         &:last-child {
+          margin-top: 20px;
           margin-bottom: 0;
         }
 
         h1 {
           display: block;
           width: 100%;
+          margin: 0;
           text-align: left;
           color: #fafafa;
           font-size: 20px;
@@ -515,6 +514,13 @@
           font-weight: 700;
           letter-spacing: 2px;
           text-transform: uppercase;
+
+          .settings-label-note {
+            opacity: 0.5;
+            font-weight: 400;
+            letter-spacing: 0;
+            text-transform: none;
+          }
         }
       }
 

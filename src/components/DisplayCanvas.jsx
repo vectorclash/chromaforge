@@ -99,6 +99,7 @@ export default class DisplayCanvas extends React.Component {
       isExporting: false,
       exportProgress: 0,
       musicEnabled: false,
+      audioExportSupported: true,
       frameCount: 20,
       cycleDuration: 10,
       starFrameCount: 10,
@@ -117,6 +118,26 @@ export default class DisplayCanvas extends React.Component {
     this.queue = new window.createjs.LoadQueue(true, '');
     this.queue.on('complete', this.init, this);
     this.queue.loadManifest(queueItems);
+
+    this.checkAudioExportSupport();
+  }
+
+  async checkAudioExportSupport() {
+    if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {
+      this.setState({ audioExportSupported: false });
+      return;
+    }
+    const candidates = [
+      { codec: 'mp4a.40.2', sampleRate: 44100 },
+      { codec: 'opus',       sampleRate: 48000 },
+    ];
+    for (const c of candidates) {
+      const { supported } = await AudioEncoder.isConfigSupported({
+        codec: c.codec, numberOfChannels: 2, sampleRate: c.sampleRate, bitrate: 128_000,
+      }).catch(() => ({ supported: false }));
+      if (supported) return;
+    }
+    this.setState({ audioExportSupported: false, musicEnabled: false });
   }
 
   init() {
@@ -758,9 +779,6 @@ export default class DisplayCanvas extends React.Component {
           break;
         }
       }
-      if (!audioCodec) {
-        alert('Audio export isn\'t supported in this browser — the video will export without music. Try Safari or Chrome on desktop.');
-      }
     }
 
     if (audioCodec) {
@@ -919,12 +937,12 @@ export default class DisplayCanvas extends React.Component {
           this.setState({ exportProgress: Math.round(94 + p * 5) });
         });
       } catch (e) {
-        console.warn('[ChromaForge] Audio encoding failed, exporting video only:', e);
-        alert('Audio encoding is not supported in this browser — the video will export without music.');
+        console.warn('[ChromaForge] Audio encoding failed:', e);
+        this.setState({ isExporting: false, exportProgress: 0 });
+        alert('Export failed: audio encoding error. Try disabling music in settings.');
+        return;
       }
     }
-
-    muxer.finalize();
 
     try {
       muxer.finalize();
@@ -1357,6 +1375,7 @@ export default class DisplayCanvas extends React.Component {
       starFrameCount,
       animationPaused,
       musicEnabled,
+      audioExportSupported,
       settingsTab,
     } = this.state;
 
@@ -1524,7 +1543,7 @@ export default class DisplayCanvas extends React.Component {
                     CLEAR
                   </button>
                   <button onClick={this.onRainbowColors.bind(this)} className="button-small">
-                    🌈
+                    ADD 🌈
                   </button>
                 </div>
               </>
@@ -1533,11 +1552,15 @@ export default class DisplayCanvas extends React.Component {
             {settingsTab === 'video' && (
               <>
                 <div className="settings-field">
-                  <span className="settings-label">Include Music</span>
+                  <span className="settings-label">
+                    Include Music
+                    {!audioExportSupported && <span className="settings-label-note"> (unsupported)</span>}
+                  </span>
                   <button
-                    className={'settings-toggle' + (musicEnabled ? ' on' : '')}
-                    onClick={() => this.setState({ musicEnabled: !musicEnabled })}
-                    aria-label={musicEnabled ? 'Music on' : 'Music off'}
+                    className={'settings-toggle' + (musicEnabled && audioExportSupported ? ' on' : '')}
+                    onClick={() => audioExportSupported && this.setState({ musicEnabled: !musicEnabled })}
+                    aria-label={!audioExportSupported ? 'Music export not supported in this browser' : musicEnabled ? 'Music on' : 'Music off'}
+                    style={!audioExportSupported ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
                   >
                     <span className="settings-toggle-thumb" />
                   </button>
