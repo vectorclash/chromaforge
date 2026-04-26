@@ -123,7 +123,9 @@ export default class DisplayCanvas extends React.Component {
   }
 
   async checkAudioExportSupport() {
-    if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIOS || typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {
       this.setState({ audioExportSupported: false });
       return;
     }
