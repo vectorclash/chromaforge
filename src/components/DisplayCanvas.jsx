@@ -105,6 +105,8 @@ export default class DisplayCanvas extends React.Component {
       starFrameCount: 10,
       animationPaused: false,
       settingsTab: 'color',
+      animTiming: null,
+      settingsDirty: false,
     };
     this.nextColorId = 0;
   }
@@ -419,7 +421,9 @@ export default class DisplayCanvas extends React.Component {
       animationFrames: frames,
       animationStarFrames: starFrames,
       generateDisabled: false,
-      isLoading: false
+      isLoading: false,
+      animTiming: this.getAnimTiming(),
+      settingsDirty: false,
     });
   }
 
@@ -455,6 +459,8 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
+      animTiming: this.getAnimTiming(configs.length),
+      settingsDirty: false,
     });
   }
 
@@ -1379,9 +1385,11 @@ export default class DisplayCanvas extends React.Component {
       musicEnabled,
       audioExportSupported,
       settingsTab,
+      animTiming,
+      settingsDirty,
     } = this.state;
 
-    const { spacing, fade, starSpacing, starFade } = this.getAnimTiming();
+    const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
 
     return (
       <div
@@ -1467,6 +1475,11 @@ export default class DisplayCanvas extends React.Component {
                       : `${(animationProgress / frameCount) * 100}%`
                   }}
                 />
+              </div>
+            )}
+            {animationMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
+              <div className="settings-dirty-notice">
+                Regenerate to apply new settings
               </div>
             )}
             <div className="row">
@@ -1570,25 +1583,25 @@ export default class DisplayCanvas extends React.Component {
                 <div className="settings-field">
                   <span className="settings-label">Frames</span>
                   <div className="settings-stepper">
-                    <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, fc) }); }}>−</button>
+                    <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, fc), settingsDirty: true }); }}>−</button>
                     <span>{frameCount}</span>
-                    <button onClick={() => this.setState({ frameCount: Math.min(60, frameCount + 1) })}>+</button>
+                    <button onClick={() => this.setState({ frameCount: Math.min(60, frameCount + 1), settingsDirty: true })}>+</button>
                   </div>
                 </div>
                 <div className="settings-field">
                   <span className="settings-label">Star Frames</span>
                   <div className="settings-stepper">
-                    <button onClick={() => this.setState({ starFrameCount: Math.max(1, starFrameCount - 1) })}>−</button>
+                    <button onClick={() => this.setState({ starFrameCount: Math.max(1, starFrameCount - 1), settingsDirty: true })}>−</button>
                     <span>{starFrameCount}</span>
-                    <button onClick={() => this.setState({ starFrameCount: Math.min(frameCount, starFrameCount + 1) })}>+</button>
+                    <button onClick={() => this.setState({ starFrameCount: Math.min(frameCount, starFrameCount + 1), settingsDirty: true })}>+</button>
                   </div>
                 </div>
                 <div className="settings-field">
                   <span className="settings-label">Duration</span>
                   <div className="settings-stepper">
-                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1) })}>−</button>
+                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1), settingsDirty: true })}>−</button>
                     <span>{cycleDuration}s</span>
-                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1) })}>+</button>
+                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1), settingsDirty: true })}>+</button>
                   </div>
                 </div>
               </>

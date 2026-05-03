@@ -439,6 +439,15 @@
         }
       }
 
+      .settings-dirty-notice {
+        width: 100%;
+        text-align: center;
+        font-size: 10px;
+        color: rgba(#fafafa, 0.45);
+        margin-bottom: 10px;
+        letter-spacing: 0.04em;
+      }
+
       .animation-progress {
         width: 100%;
         height: 3px;
