@@ -7,10 +7,10 @@ export async function generateAudioBuffer(durationSec, sampleRate = 44100) {
 
   state.rootMidi     = 36;
   state.scaleIdx     = 0;
-  state.tempo        = 78;
-  state.density      = 0.5;
-  state.brightness   = 0.3;
-  state.spaciousness = 0.5;
+  state.tempo        = 58;
+  state.density      = 0.28;
+  state.brightness   = 0.15;
+  state.spaciousness = 0.88;
   state.era          = 0;
 
   pickVoices();

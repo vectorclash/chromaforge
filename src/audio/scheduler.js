@@ -23,10 +23,9 @@ import { drumsVoice }    from './voices/drums.js';
 export { bassVoice, drumsVoice };
 
 const VOICE_POOL = [
-  padVoice, melodyVoice, textureVoice, pluckVoice,
-  bellVoice, arpeggioVoice, malletVoice, droneVoice, fluteVoice, choirVoice,
-  stringsVoice, rhodesVoice, organVoice, glassVoice, harpVoice, brassVoice,
-  drumsVoice, drumsVoice,
+  padVoice, padVoice, droneVoice, droneVoice,
+  glassVoice, glassVoice, textureVoice, stringsVoice,
+  choirVoice, bellVoice, arpeggioVoice, fluteVoice, melodyVoice,
 ];
 
 // All unique voice instances — used for bulk reset between renders.
@@ -63,10 +62,10 @@ function advanceEra() {
   const shifts = [-7, -5, -2, 0, 0, 2, 5, 7];
   state.rootMidi     = Math.max(24, Math.min(48, state.rootMidi + pick(shifts)));
   state.scaleIdx     = Math.floor(Math.random() * SCALE_NAMES.length);
-  state.tempo        = Math.max(52, Math.min(130, state.tempo + rand(-8, 8)));
-  state.brightness   = rand(0.1, 0.9);
-  state.spaciousness = rand(0.2, 0.85);
-  state.density      = rand(0.2, 0.9);
+  state.tempo        = Math.max(48, Math.min(72, state.tempo + rand(-5, 5)));
+  state.brightness   = rand(0.05, 0.35);
+  state.spaciousness = rand(0.60, 0.95);
+  state.density      = rand(0.15, 0.50);
   pickVoices();
   bassVoice.reroll();
   drumsVoice.reroll();

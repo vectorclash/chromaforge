@@ -7,7 +7,7 @@ export const melodyVoice = (() => {
 
   function play(t) {
     const { ctx, masterGain, reverbNode } = audio;
-    if (Math.random() < 0.25) return beat() * pick([0.5, 1, 1]);
+    if (Math.random() < 0.50) return beat() * pick([1, 2, 2]);
 
     const scale = SCALES[SCALE_NAMES[state.scaleIdx]];
     const notes = scaleNotes(state.rootMidi + 36, scale, 2);
@@ -22,10 +22,10 @@ export const melodyVoice = (() => {
     lastMidi = midi;
 
     const hz   = midiToHz(midi);
-    const dur  = beat() * pick([0.5, 0.5, 1, 1, 1.5, 2]);
+    const dur  = beat() * pick([1.5, 2, 2, 3, 4]);
     const gain = rand(0.07, 0.14) * lerp(0.4, 1.0, state.density);
     const osc  = ctx.createOscillator(), env = ctx.createGain(), wet = ctx.createGain();
-    osc.type = Math.random() < 0.5 ? 'sine' : 'triangle';
+    osc.type = 'sine';
     osc.frequency.value = hz; osc.detune.value = rand(-4, 4);
     env.gain.setValueAtTime(0, t);
     env.gain.linearRampToValueAtTime(gain, t + 0.02);

@@ -5,7 +5,7 @@ export const audio = {
   started:    false,
 };
 
-function buildReverb(ctx, duration = 4, decay = 2.8) {
+function buildReverb(ctx, duration = 7, decay = 2.2) {
   const sr  = ctx.sampleRate;
   const len = sr * duration;
   const buf = ctx.createBuffer(2, len, sr);
@@ -31,7 +31,7 @@ export function initOfflineAudio(durationSec, sampleRate = 44100) {
   audio.started    = true;
 
   const reverbGain = offlineCtx.createGain();
-  reverbGain.gain.value = 0.45;
+  reverbGain.gain.value = 0.65;
 
   audio.masterGain.connect(offlineCtx.destination);
   audio.reverbNode.connect(reverbGain);

@@ -1,7 +1,7 @@
 import { audio } from '../context.js';
 import { state, SCALES, SCALE_NAMES, LOOKAHEAD, beat, rand, pick, midiToHz } from '../state.js';
 
-const STYLES = ['sub', 'plucked', 'walking', 'synth', 'rumble'];
+const STYLES = ['sub', 'sub', 'rumble'];
 
 export const bassVoice = (() => {
   let nextTime = 0;
@@ -15,7 +15,7 @@ export const bassVoice = (() => {
     const b     = beat();
 
     if (style === 'sub') {
-      const dur = b * pick([2, 2, 3, 4]);
+      const dur = b * pick([4, 4, 6, 8]);
       const gain = rand(0.20, 0.28);
       const osc = ctx.createOscillator(), sub = ctx.createOscillator();
       const env = ctx.createGain(), filt = ctx.createBiquadFilter();
@@ -81,7 +81,7 @@ export const bassVoice = (() => {
       return dur;
 
     } else { // rumble
-      const dur = b * pick([3, 4, 4, 6]);
+      const dur = b * pick([6, 8, 8, 12]);
       const gain = rand(0.12, 0.18);
       const osc = ctx.createOscillator(), sub = ctx.createOscillator();
       const trem = ctx.createOscillator(), tremGain = ctx.createGain();
