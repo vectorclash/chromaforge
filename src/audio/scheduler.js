@@ -1,5 +1,6 @@
 import { audio } from './context.js';
 import { state, SCALE_NAMES, TICK_MS, rand, pick } from './state.js';
+import { harmony } from './harmony.js';
 
 import { bassVoice }     from './voices/bass.js';
 import { padVoice }      from './voices/pad.js';
@@ -13,19 +14,28 @@ import { droneVoice }    from './voices/drone.js';
 import { fluteVoice }    from './voices/flute.js';
 import { choirVoice }    from './voices/choir.js';
 import { stringsVoice }  from './voices/strings.js';
-import { rhodesVoice }   from './voices/rhodes.js';
-import { organVoice }    from './voices/organ.js';
-import { glassVoice }    from './voices/glass.js';
-import { harpVoice }     from './voices/harp.js';
-import { brassVoice }    from './voices/brass.js';
-import { drumsVoice }    from './voices/drums.js';
+import { rhodesVoice }     from './voices/rhodes.js';
+import { organVoice }      from './voices/organ.js';
+import { glassVoice }      from './voices/glass.js';
+import { harpVoice }       from './voices/harp.js';
+import { brassVoice }      from './voices/brass.js';
+import { drumsVoice }      from './voices/drums.js';
+import { vibraphoneVoice } from './voices/vibraphone.js';
+import { clavinetVoice }   from './voices/clavinet.js';
+import { sitarVoice }      from './voices/sitar.js';
+import { kalimbaVoice }    from './voices/kalimba.js';
 
 export { bassVoice, drumsVoice };
 
+// ─── Voice pool ───────────────────────────────────────────────────────────────
+// Bass always plays. Each era draws 3–5 from this pool at random.
+// Drums are weighted with two slots so they appear ~1/3 of eras on average.
 const VOICE_POOL = [
-  padVoice, padVoice, droneVoice, droneVoice,
-  glassVoice, glassVoice, textureVoice, stringsVoice,
-  choirVoice, bellVoice, arpeggioVoice, fluteVoice, melodyVoice,
+  padVoice, melodyVoice, textureVoice, pluckVoice,
+  bellVoice, arpeggioVoice, malletVoice, droneVoice, fluteVoice, choirVoice,
+  stringsVoice, rhodesVoice, organVoice, glassVoice, harpVoice, brassVoice,
+  vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice,
+  drumsVoice, drumsVoice,
 ];
 
 // All unique voice instances — used for bulk reset between renders.
@@ -33,6 +43,7 @@ export const ALL_VOICES = [
   bassVoice, padVoice, melodyVoice, textureVoice, pluckVoice,
   bellVoice, arpeggioVoice, malletVoice, droneVoice, fluteVoice, choirVoice,
   stringsVoice, rhodesVoice, organVoice, glassVoice, harpVoice, brassVoice,
+  vibraphoneVoice, clavinetVoice, sitarVoice, kalimbaVoice,
   drumsVoice,
 ];
 
@@ -54,6 +65,7 @@ export const ERA_DURATION = 38;
 export function resetEraTimer() { eraTimer = 0; }
 
 export function resetAllVoices(now) {
+  harmony.reset(now);
   ALL_VOICES.forEach(v => v.reset(now));
 }
 
@@ -66,6 +78,9 @@ function advanceEra() {
   state.brightness   = rand(0.05, 0.35);
   state.spaciousness = rand(0.60, 0.95);
   state.density      = rand(0.15, 0.50);
+  state.octaveShift  = pick([-1, 0, 0, 1]);
+  state.chordBeats   = pick([4, 8, 8]);
+  harmony.reroll();
   pickVoices();
   bassVoice.reroll();
   drumsVoice.reroll();
@@ -83,6 +98,7 @@ function evolve(dt) {
 }
 
 export function tickAt(now, dt) {
+  harmony.tick(now);
   try { bassVoice.tick(now); } catch (e) { console.warn('[ChromaForge audio] bassVoice.tick error:', e); }
   for (const v of activeVoices) {
     try { v.tick(now); } catch (e) { console.warn('[ChromaForge audio] voice tick error:', v.name, e); }

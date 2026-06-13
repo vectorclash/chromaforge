@@ -1,5 +1,6 @@
 import { audio } from '../context.js';
 import { state, SCALES, SCALE_NAMES, LOOKAHEAD, beat, rand, pick, lerp, midiToHz, scaleNotes } from '../state.js';
+import { harmony } from '../harmony.js';
 
 export const melodyVoice = (() => {
   let nextTime = 0;
@@ -7,10 +8,10 @@ export const melodyVoice = (() => {
 
   function play(t) {
     const { ctx, masterGain, reverbNode } = audio;
-    if (Math.random() < 0.50) return beat() * pick([1, 2, 2]);
+    if (Math.random() < 0.25) return beat() * pick([0.5, 1, 1]);
 
     const scale = SCALES[SCALE_NAMES[state.scaleIdx]];
-    const notes = scaleNotes(state.rootMidi + 36, scale, 2);
+    const notes = scaleNotes(state.rootBase + 24, scale, 2);
     let midi;
     if (lastMidi > 0 && Math.random() < 0.65) {
       const idx = notes.indexOf(lastMidi);
@@ -18,14 +19,14 @@ export const melodyVoice = (() => {
         midi = notes[Math.max(0, Math.min(notes.length - 1, idx + (Math.random() < 0.5 ? 1 : -1)))];
       }
     }
-    if (!midi) midi = pick(notes);
+    if (!midi) midi = harmony.pickChordTone(notes);
     lastMidi = midi;
 
     const hz   = midiToHz(midi);
-    const dur  = beat() * pick([1.5, 2, 2, 3, 4]);
-    const gain = rand(0.07, 0.14) * lerp(0.4, 1.0, state.density);
+    const dur  = beat() * pick([0.5, 0.5, 1, 1, 1.5, 2]);
+    const gain = rand(0.09, 0.16) * lerp(0.55, 1.0, state.density);
     const osc  = ctx.createOscillator(), env = ctx.createGain(), wet = ctx.createGain();
-    osc.type = 'sine';
+    osc.type = Math.random() < 0.5 ? 'sine' : 'triangle';
     osc.frequency.value = hz; osc.detune.value = rand(-4, 4);
     env.gain.setValueAtTime(0, t);
     env.gain.linearRampToValueAtTime(gain, t + 0.02);
@@ -44,6 +45,6 @@ export const melodyVoice = (() => {
         nextTime += play(nextTime);
       }
     },
-    reset(now) { nextTime = now; },
+    reset(now) { nextTime = now; lastMidi = -1; },
   };
 })();

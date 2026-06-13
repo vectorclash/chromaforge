@@ -1,5 +1,6 @@
 import { audio } from '../context.js';
 import { state, SCALES, SCALE_NAMES, LOOKAHEAD, beat, rand, pick, midiToHz, scaleNotes } from '../state.js';
+import { harmony } from '../harmony.js';
 
 export const rhodesVoice = (() => {
   let nextTime = 0;
@@ -10,13 +11,13 @@ export const rhodesVoice = (() => {
     if (Math.random() < 0.2) return beat() * pick([0.5, 1]);
 
     const scale = SCALES[SCALE_NAMES[state.scaleIdx]];
-    const notes = scaleNotes(state.rootMidi + 36, scale, 2);
+    const notes = scaleNotes(state.rootBase + 24, scale, 2);
     let midi;
     if (lastMidi > 0 && Math.random() < 0.6) {
       const idx = notes.indexOf(lastMidi);
       if (idx >= 0) midi = notes[Math.max(0, Math.min(notes.length - 1, idx + pick([-2, -1, 1, 2])))];
     }
-    if (!midi) midi = pick(notes);
+    if (!midi) midi = harmony.pickChordTone(notes);
     lastMidi = midi;
 
     const hz   = midiToHz(midi);
@@ -53,6 +54,6 @@ export const rhodesVoice = (() => {
         nextTime += play(nextTime);
       }
     },
-    reset(now) { nextTime = now; },
+    reset(now) { nextTime = now; lastMidi = -1; },
   };
 })();

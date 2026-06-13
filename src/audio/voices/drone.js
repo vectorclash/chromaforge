@@ -7,28 +7,27 @@ export const droneVoice = (() => {
   function play(t) {
     const { ctx, masterGain, reverbNode } = audio;
     const scale = SCALES[SCALE_NAMES[state.scaleIdx]];
-    const notes = [state.rootMidi + 12, state.rootMidi + 12 + scale[4]]; // root + fifth
-    const dur   = beat() * pick([12, 16, 20, 24]);
-    const gain  = rand(0.04, 0.08);
+    const notes = [state.rootBase + 12, state.rootBase + 12 + scale[4]]; // root + fifth
+    const dur   = beat() * pick([8, 12, 16]);
+    const gain  = rand(0.06, 0.10);
 
     for (const midi of notes) {
       const hz  = midiToHz(midi);
-      // Two slightly detuned sines create a slow cosmic beating shimmer
-      for (const detune of [-3, 3]) {
-        const osc = ctx.createOscillator();
-        const env = ctx.createGain(), wet = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = hz;
-        osc.detune.value = detune;
-        env.gain.setValueAtTime(0, t);
-        env.gain.linearRampToValueAtTime(gain * 0.6, t + 3.5);
-        env.gain.setValueAtTime(gain * 0.6, t + dur - 3.5);
-        env.gain.linearRampToValueAtTime(0, t + dur);
-        wet.gain.value = lerp(0.6, 0.95, state.spaciousness);
-        osc.connect(env);
-        env.connect(masterGain); env.connect(wet); wet.connect(reverbNode);
-        osc.start(t); osc.stop(t + dur + 0.1);
-      }
+      const osc = ctx.createOscillator(), filt = ctx.createBiquadFilter();
+      const env = ctx.createGain(),       wet  = ctx.createGain();
+      osc.type = Math.random() < 0.5 ? 'sawtooth' : 'square';
+      osc.frequency.value = hz; osc.detune.value = rand(-6, 6);
+      filt.type = 'lowpass'; filt.frequency.value = lerp(200, 800, state.brightness); filt.Q.value = 0.8;
+      const attackEnd = t + 2.5;
+      const sustainAt = t + Math.max(2.5, dur - 2.5);
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(gain, attackEnd);
+      env.gain.setValueAtTime(gain, sustainAt);
+      env.gain.linearRampToValueAtTime(0, t + dur);
+      wet.gain.value = lerp(0.4, 0.9, state.spaciousness);
+      osc.connect(filt); filt.connect(env);
+      env.connect(masterGain); env.connect(wet); wet.connect(reverbNode);
+      osc.start(t); osc.stop(t + dur + 0.1);
     }
     return dur - 1.0;
   }

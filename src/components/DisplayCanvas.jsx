@@ -870,10 +870,34 @@ export default class DisplayCanvas extends React.Component {
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
       target,
-      video: { codec: 'avc', width, height },
+      video: { codec: 'avc', width, height, frameRate: FPS },
       ...(includeAudio ? { audio: { codec: muxerAudioCodec, numberOfChannels: 2, sampleRate: audioSampleRate } } : {}),
       fastStart: 'in-memory'
     });
+
+    // Resolve a supported H.264 codec string. We prefer Constrained Baseline
+    // (profile 66 — `avc1.42xxxx`) because it CANNOT contain B-frames. The
+    // Windows hardware encoder otherwise emits B-frames and delivers chunks in
+    // decode order, so their presentation timestamps arrive non-monotonically;
+    // mp4-muxer then rejects every out-of-order chunk and drops ~half the
+    // frames, which is what collapsed 24fps exports to ~13fps on Windows. With
+    // no B-frames, decode order == presentation order and nothing is dropped.
+    // High Profile is kept as a fallback (it works fine on macOS/VideoToolbox).
+    const bitrate = isMobile ? 15_000_000 : 40_000_000;
+    const codecCandidates = [
+      'avc1.42E034', // Constrained Baseline, Level 5.2 — no B-frames
+      'avc1.42E028', // Constrained Baseline, Level 4.0 — no B-frames (lower-res fallback)
+      'avc1.640034', // High Profile, Level 5.2 — may emit B-frames
+    ];
+    let videoCodec = null;
+    for (const c of codecCandidates) {
+      const cfg = { codec: c, width, height, bitrate, framerate: FPS, latencyMode: 'realtime' };
+      const ok = await VideoEncoder.isConfigSupported(cfg)
+        .then(r => r.supported)
+        .catch(() => false);
+      if (ok) { videoCodec = c; break; }
+    }
+    if (!videoCodec) videoCodec = 'avc1.640034';
 
     let encoder;
     try {
@@ -887,11 +911,15 @@ export default class DisplayCanvas extends React.Component {
       });
 
       encoder.configure({
-        codec: 'avc1.640034', // H.264 High Profile Level 5.2
+        codec: videoCodec,
         width,
         height,
-        bitrate: isMobile ? 15_000_000 : 40_000_000,
-        framerate: FPS
+        bitrate,
+        framerate: FPS,
+        // 'realtime' asks the encoder to avoid frame reordering; the Baseline
+        // profile above is the structural guarantee, since some Windows
+        // encoders ignore this hint.
+        latencyMode: 'realtime'
       });
     } catch (e) {
       console.error('VideoEncoder configure failed:', e);

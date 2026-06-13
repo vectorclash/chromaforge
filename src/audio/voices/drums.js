@@ -56,6 +56,26 @@ function snare(ctx, dest, reverbDest, t, gain) {
   osc.start(t); osc.stop(t + 0.065);
 }
 
+function clap(ctx, dest, reverbDest, t, gain) {
+  // Three staggered noise bursts through bandpass — simulates fingers meeting at different times
+  [0, 0.008, 0.018].forEach((offset, i) => {
+    const dur    = 0.045;
+    const bufLen = Math.ceil(ctx.sampleRate * (dur + 0.01));
+    const buf    = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data   = buf.getChannelData(0);
+    for (let j = 0; j < bufLen; j++) data[j] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const bp  = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1000 + i * 200; bp.Q.value = 0.9;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(gain * (1 - i * 0.25), t + offset);
+    env.gain.exponentialRampToValueAtTime(0.001, t + offset + dur);
+    src.connect(bp); bp.connect(env); env.connect(dest);
+    const wet = ctx.createGain(); wet.gain.value = 0.35;
+    env.connect(wet); wet.connect(reverbDest);
+    src.start(t + offset); src.stop(t + offset + dur + 0.01);
+  });
+}
+
 function hihat(ctx, dest, t, gain, open = false) {
   const dur    = open ? 0.22 : 0.045;
   const bufLen = Math.ceil(ctx.sampleRate * (dur + 0.01));
@@ -106,6 +126,22 @@ const PATTERNS = {
     snare: [0,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,0],
     hihat: [0,0,1,0, 0,0,0,0, 0,1,0,0, 0,0,0,0],
   },
+  halftime: {
+    kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,0],
+    snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0.4,0],
+    hihat: [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    clap:  [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+  },
+  breakbeat: {
+    kick:  [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+    snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0.4,0],
+    hihat: [1,0,1,1, 0,1,1,0, 1,1,0,1, 1,0,1,0],
+  },
+  bossanova: {
+    kick:  [1,0,0,0, 0,0,1,0, 0,1,0,0, 1,0,0,0],
+    snare: [0,0,0,0, 0.4,0,0,0, 0,0,0,0, 0.4,0,0,0],
+    hihat: [1,0,1,0, 0,1,0,1, 1,0,1,0, 0,1,0,0],
+  },
 };
 
 const STYLE_NAMES = Object.keys(PATTERNS);
@@ -124,15 +160,17 @@ export const drumsVoice = (() => {
 
     // Scale gains with musical state
     const densityMod = 0.5 + state.density * 0.5;
-    const kGain = rand(0.28, 0.36) * densityMod;
-    const sGain = rand(0.15, 0.22) * densityMod;
-    const hGain = rand(0.06, 0.10) * (0.4 + state.brightness * 0.6);
+    const kGain = rand(0.34, 0.43) * densityMod;
+    const sGain = rand(0.19, 0.27) * densityMod;
+    const hGain = rand(0.07, 0.11) * (0.4 + state.brightness * 0.6);
+    const cGain = rand(0.16, 0.23) * densityMod;
 
     for (let i = 0; i < 16; i++) {
       const st = t + i * stepDur;
-      if (p.kick[i])  kick(ctx, masterGain, st, kGain  * p.kick[i]);
-      if (p.snare[i]) snare(ctx, masterGain, reverbNode, st, sGain * p.snare[i]);
-      if (p.hihat[i]) hihat(ctx, masterGain, st, hGain  * p.hihat[i]);
+      if (p.kick[i])              kick(ctx, masterGain, st, kGain  * p.kick[i]);
+      if (p.snare[i])             snare(ctx, masterGain, reverbNode, st, sGain * p.snare[i]);
+      if (p.hihat[i])             hihat(ctx, masterGain, st, hGain  * p.hihat[i]);
+      if (p.clap && p.clap[i])    clap(ctx, masterGain, reverbNode, st, cGain  * p.clap[i]);
     }
 
     return b * 4; // one bar
@@ -142,6 +180,7 @@ export const drumsVoice = (() => {
     name: 'drums',
     get style() { return style; },
     reroll() { style = pick(STYLE_NAMES); },
+    setStyle(s) { style = s; },
     tick(now) {
       while (nextTime < now + LOOKAHEAD) {
         if (!nextTime) nextTime = now;
