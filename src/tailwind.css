@@ -1,0 +1,13 @@
+/* Tailwind v4 entry.
+ *
+ * MIGRATION NOTE: we import the theme + utilities layers but intentionally OMIT the
+ * `base` layer (Tailwind's Preflight reset) for now. Preflight is global and would
+ * restyle every not-yet-converted component, so it's added at the very end of the
+ * migration once all components use utilities. Until then, the existing SCSS look is
+ * untouched and we get Tailwind utility classes to convert with incrementally.
+ *
+ * To finish the migration: replace the three lines below with `@import "tailwindcss";`
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
