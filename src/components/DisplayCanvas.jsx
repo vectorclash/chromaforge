@@ -7,6 +7,11 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
 import './DisplayCanvas.scss';
 import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
+import { makeRng, randomSeed } from '../render/prng';
+
+// Bump when the generation algorithm changes in a way that alters output for a given seed,
+// so old designs can be detected and (re)rendered with the matching generator behaviour.
+const GENERATOR_VERSION = 2;
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -183,73 +188,95 @@ export default class DisplayCanvas extends React.Component {
     return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
   }
 
-  buildConfig() {
-    this.mainConfig = {};
-    this.mainConfig.width = this.props.width;
-    this.mainConfig.height = this.props.height;
+  // Deterministic generation. The entire composition is a pure function of
+  // (seed, colors, width, height): the same arguments always rebuild the identical
+  // artwork, at any resolution or aspect ratio. Passing a different (width, height)
+  // recomposes the piece for that ratio rather than reflowing a stored layout.
+  //
+  //   seed       - string identity of the design (defaults to a fresh one each call)
+  //   width/height - target canvas size (defaults to the live on-screen size)
+  //   colorValues  - explicit palette; defaults to the current UI colors
+  buildConfig(
+    seed = randomSeed(),
+    width = this.props.width,
+    height = this.props.height,
+    colorValues = null
+  ) {
+    const rng = makeRng(seed);
 
     // Convert color objects to color values array
-    const colorValues = this.state.colors.map(c => c.value || c);
+    if (!colorValues) {
+      colorValues = this.state.colors.map(c => c.value || c);
+    }
 
-    let gradientBackgroundConfig = new GenerateLinearGradient(
-      this.props.width,
-      this.props.height,
+    const config = {
+      generatorVersion: GENERATOR_VERSION,
+      seed,
+      width,
+      height,
+      colors: colorValues.slice()
+    };
+
+    config.gradientBackgroundConfig = new GenerateLinearGradient(
+      width,
+      height,
       1,
-      colorValues.slice()
+      colorValues.slice(),
+      rng
     );
-    this.mainConfig.gradientBackgroundConfig = gradientBackgroundConfig;
 
-    let radialChance = Math.random();
+    let radialChance = rng();
 
     if (radialChance > 0.4) {
-      this.mainConfig.firstBlend = this.randomBlendMode();
+      config.firstBlend = this.randomBlendMode(rng);
 
-      let radialFieldConfig = new GenerateLargeRadialField(
-        this.props.width,
-        this.props.height,
-        colorValues.slice()
+      config.radialFieldConfig = new GenerateLargeRadialField(
+        width,
+        height,
+        colorValues.slice(),
+        rng
       );
-      this.mainConfig.radialFieldConfig = radialFieldConfig;
     }
 
-    this.mainConfig.secondBlend = this.randomBlendMode();
+    config.secondBlend = this.randomBlendMode(rng);
 
-    let starFieldConfig = new GenerateStarField(
-      this.props.width,
-      this.props.height,
-      colorValues.slice()
+    config.starFieldConfig = new GenerateStarField(
+      width,
+      height,
+      colorValues.slice(),
+      rng
     );
-    this.mainConfig.starFieldConfig = starFieldConfig;
 
-    let geometryChance = Math.random();
+    let geometryChance = rng();
 
     if (geometryChance >= 0.6) {
-      this.mainConfig.thirdBlend = this.randomBlendMode();
+      config.thirdBlend = this.randomBlendMode(rng);
 
-      let geometryConfig = new GenerateGeometricShape(
-        this.props.width,
-        this.props.height,
-        10 + Math.round(Math.random() * 30),
-        colorValues.slice()
+      config.geometryConfig = new GenerateGeometricShape(
+        width,
+        height,
+        10 + Math.round(rng() * 30),
+        colorValues.slice(),
+        rng
       );
-      this.mainConfig.geometryConfig = geometryConfig;
     }
 
-    let overlayChance = Math.random();
+    let overlayChance = rng();
 
-    if (overlayChance >= 0.7 && this.state.colors.length > 0) {
-      this.mainConfig.overlayBlend = this.randomBlendMode();
-      this.mainConfig.overlayAlpha = Math.random().toFixed(2);
-      let overlayConfig = new GenerateLinearGradient(
-        this.props.width,
-        this.props.height,
-        Math.round(Math.random() * 2),
-        colorValues.slice()
+    if (overlayChance >= 0.7 && colorValues.length > 0) {
+      config.overlayBlend = this.randomBlendMode(rng);
+      config.overlayAlpha = rng().toFixed(2);
+      config.overlayConfig = new GenerateLinearGradient(
+        width,
+        height,
+        Math.round(rng() * 2),
+        colorValues.slice(),
+        rng
       );
-      this.mainConfig.overlayConfig = overlayConfig;
     }
 
-    return this.mainConfig;
+    this.mainConfig = config;
+    return config;
   }
 
   buildImage(config) {
@@ -580,7 +607,7 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  randomBlendMode() {
+  randomBlendMode(rng = Math.random) {
     const blendModes = [
       'screen',
       'overlay',
@@ -592,7 +619,7 @@ export default class DisplayCanvas extends React.Component {
       'source-over'
     ];
 
-    let randomBlendMode = Math.floor(Math.random() * blendModes.length);
+    let randomBlendMode = Math.floor(rng() * blendModes.length);
     return blendModes[randomBlendMode];
   }
 

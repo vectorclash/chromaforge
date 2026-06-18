@@ -1,7 +1,8 @@
 import tinycolor from 'tinycolor2';
+import { randomColorHex } from '../../render/prng';
 
 export default class GenerateLinearGradient {
-  constructor(width, height, complexity = 0, colors = []) {
+  constructor(width, height, complexity = 0, colors = [], rng = Math.random) {
     let config = {};
 
     config.width = width;
@@ -9,19 +10,19 @@ export default class GenerateLinearGradient {
 
     // set the gradient direction
 
-    let ranDirection = Math.random();
+    let ranDirection = rng();
     if (ranDirection > 0.5) {
       config.gradientDirection = {
         x1: 0,
-        y1: Math.round(Math.random() * height),
+        y1: Math.round(rng() * height),
         x2: width,
-        y2: Math.round(Math.random() * height)
+        y2: Math.round(rng() * height)
       };
     } else {
       config.gradientDirection = {
-        x1: Math.round(Math.random() * width),
+        x1: Math.round(rng() * width),
         y1: 0,
-        x2: Math.round(Math.random() * width),
+        x2: Math.round(rng() * width),
         y2: height
       };
     }
@@ -32,11 +33,11 @@ export default class GenerateLinearGradient {
 
     if (colors.length > 0) {
       if (colors.length === 1) {
-        let colorChance = Math.random();
+        let colorChance = rng();
         if (colorChance > 0.5) {
-          let ranGrayScale = Math.round(Math.random() * 255);
+          let ranGrayScale = Math.round(rng() * 255);
           let newColor = tinycolor({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
-          let colorOrderChance = Math.random();
+          let colorOrderChance = rng();
           if (colorOrderChance > 0.5) {
             config.colors.push(colors[0]);
             config.colors.push(newColor);
@@ -45,9 +46,9 @@ export default class GenerateLinearGradient {
             config.colors.push(colors[0]);
           }
         } else {
-          let ranSpin = -20 + Math.random() * 40;
+          let ranSpin = -20 + rng() * 40;
           let newColor = tinycolor(colors[0]).spin(ranSpin).toHexString();
-          let colorOrderChance = Math.random();
+          let colorOrderChance = rng();
           if (colorOrderChance > 0.5) {
             config.colors.push(colors[0]);
             config.colors.push(newColor);
@@ -62,11 +63,11 @@ export default class GenerateLinearGradient {
     } else {
       let colorAmount = 2 + complexity;
 
-      let gradientType = Math.random();
+      let gradientType = rng();
 
       if (gradientType > 0.5) {
-        let colorStart = Math.random() * 360;
-        let colorDistance = Math.random() * 50;
+        let colorStart = rng() * 360;
+        let colorDistance = rng() * 50;
         for (let i = 0; i < colorAmount; i++) {
           config.colors.push(
             tinycolor('#CCFF00')
@@ -75,15 +76,15 @@ export default class GenerateLinearGradient {
           );
         }
       } else {
-        let colorType = Math.random();
+        let colorType = rng();
 
         for (let i = 0; i < colorAmount; i++) {
           if (colorType > 0.8) {
-            config.colors.push(tinycolor.random().toHexString());
+            config.colors.push(randomColorHex(rng));
           } else {
             config.colors.push(
               tinycolor('#CCFF00')
-                .spin(Math.round(Math.random() * 360))
+                .spin(Math.round(rng() * 360))
                 .toHexString()
             );
           }

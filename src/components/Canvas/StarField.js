@@ -31,17 +31,35 @@ export default function StarField(config, images) {
     }
   }
 
-  let smallStarSizeMax = config.width / 500;
-  let smallStarSizeMin = config.width / 5000;
+  // Fine star layer is now pre-resolved (and seeded) in GenerateStarField, so the same
+  // config always draws the identical field. Fall back to smallStarAmount for any legacy
+  // config that predates config.smallStars.
+  let smallStars = config.smallStars;
+  if (!smallStars && config.smallStarAmount) {
+    smallStars = [];
+    let smallStarSizeMax = config.width / 500;
+    let smallStarSizeMin = config.width / 5000;
+    for (let i = 0; i < config.smallStarAmount; i++) {
+      smallStars.push({
+        x: -100 + Math.random() * config.width + 100,
+        y: -100 + Math.random() * config.height + 100,
+        size: smallStarSizeMin + Math.random() * smallStarSizeMax
+      });
+    }
+  }
 
-  for (let i = 0; i < config.smallStarAmount; i++) {
-    let ranSize = smallStarSizeMin + Math.random() * smallStarSizeMax;
-    let ranX = -100 + Math.random() * config.width + 100;
-    let ranY = -100 + Math.random() * config.height + 100;
-
+  if (smallStars) {
     let smallStarImage = images.getResult('star-small');
     if (smallStarImage) {
-      starContext.drawImage(smallStarImage, ranX, ranY, ranSize, ranSize);
+      for (let i = 0; i < smallStars.length; i++) {
+        starContext.drawImage(
+          smallStarImage,
+          smallStars[i].x,
+          smallStars[i].y,
+          smallStars[i].size,
+          smallStars[i].size
+        );
+      }
     }
   }
 

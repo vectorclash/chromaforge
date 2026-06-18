@@ -1,19 +1,21 @@
 import tinycolor from 'tinycolor2';
+import { randomColorHex } from '../../render/prng';
 
 export default class GenerateGeometricShape {
-  constructor(width, height, shapeNum, colors = []) {
+  constructor(width, height, shapeNum, colors = [], rng = Math.random) {
     let config = {
       width: width,
       height: height,
       shapes: []
     };
 
+    this.rng = rng;
     this.colors = colors;
 
-    this.shapeVertices = 3 + Math.round(Math.random() * 9);
-    this.shapeDepth = 2 + Math.round(Math.random() * 4);
+    this.shapeVertices = 3 + Math.round(rng() * 9);
+    this.shapeDepth = 2 + Math.round(rng() * 4);
     this.shapeAng = 360 / this.shapeVertices;
-    this.shapeSize = 150 + Math.round((Math.random() * width * height) / (height * 3));
+    this.shapeSize = 150 + Math.round((rng() * width * height) / (height * 3));
 
     this.points = this.pointsArray(this.shapeSize);
 
@@ -60,12 +62,12 @@ export default class GenerateGeometricShape {
     if (this.colors.length > 0) {
       this.shuffleColors(this.colors);
       if (this.colors.length === 1) {
-        let ranGrayScale = Math.round(Math.random() * 255);
+        let ranGrayScale = Math.round(this.rng() * 255);
         shape.colors.push(
           this.colors[0],
           tinycolor({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale }),
           tinycolor(this.colors[0])
-            .spin(-40 + Math.random() * 80)
+            .spin(-40 + this.rng() * 80)
             .toHexString()
         );
       } else if (this.colors.length === 2) {
@@ -73,7 +75,7 @@ export default class GenerateGeometricShape {
           this.colors[0],
           this.colors[1],
           tinycolor(this.colors[0])
-            .spin(-20 + Math.random() * 40)
+            .spin(-20 + this.rng() * 40)
             .toHexString()
         );
       } else {
@@ -81,9 +83,9 @@ export default class GenerateGeometricShape {
       }
     } else {
       shape.colors.push(
-        tinycolor.random().toHexString(),
-        tinycolor.random().toHexString(),
-        tinycolor.random().toHexString()
+        randomColorHex(this.rng),
+        randomColorHex(this.rng),
+        randomColorHex(this.rng)
       );
     }
 
@@ -95,20 +97,20 @@ export default class GenerateGeometricShape {
   shuffleColors(array) {
     for (let i = 0; i < array.length; i++) {
       array[i] = tinycolor(array[i])
-        .spin(-10 + Math.random() * 20)
+        .spin(-10 + this.rng() * 20)
         .toHexString();
     }
   }
 
   shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
-      let j = Math.floor(Math.random() * (i + 1));
+      let j = Math.floor(this.rng() * (i + 1));
       [array[i], array[j]] = [array[j], array[i]];
     }
   }
 
   getRandomNumber(min, max) {
-    let ranNumber = Math.random() * (max - min) + min;
+    let ranNumber = this.rng() * (max - min) + min;
     return ranNumber;
   }
 
@@ -120,7 +122,7 @@ export default class GenerateGeometricShape {
     }
 
     for (let i = endNumber; i > startNumber; i--) {
-      let tempRandom = startNumber + Math.floor(Math.random() * (i - startNumber));
+      let tempRandom = startNumber + Math.floor(this.rng() * (i - startNumber));
       randNumber[i] = baseNumber[tempRandom];
       baseNumber[tempRandom] = baseNumber[i];
     }
