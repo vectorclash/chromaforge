@@ -42,9 +42,11 @@ export async function getDesign(id) {
 
 // Public gallery feed, newest first. `before` is an ISO timestamp for keyset pagination.
 export async function listPublicDesigns({ limit = 30, before = null } = {}) {
+  // Disambiguate the profiles embed: `likes` also links designs<->profiles, so PostgREST
+  // sees two relationship paths. The `!designs_user_id_fkey` hint pins it to the author FK.
   let query = client()
     .from('designs')
-    .select('*, profiles(username, display_name, avatar_url)')
+    .select('*, profiles!designs_user_id_fkey(username, display_name, avatar_url)')
     .eq('is_public', true)
     .order('created_at', { ascending: false })
     .limit(limit);
