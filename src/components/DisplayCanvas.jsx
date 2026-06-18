@@ -7,24 +7,16 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
 import './DisplayCanvas.scss';
 import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
-import { makeRng, randomSeed } from '../render/prng';
-
-// Bump when the generation algorithm changes in a way that alters output for a given seed,
-// so old designs can be detected and (re)rendered with the matching generator behaviour.
-const GENERATOR_VERSION = 2;
+import { randomSeed } from '../render/prng';
+import { generateArtwork } from '../render/generateArtwork';
+import renderArtwork from '../render/renderArtwork';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import CloseButton from './buttons/CloseButton';
-import LinearGradient from './Canvas/LinearGradient';
-import GenerateLinearGradient from './Canvas/GenerateLinearGradient';
-import LargeRadialField from './Canvas/LargeRadialField';
-import GenerateLargeRadialField from './Canvas/GenerateLargeRadialField';
 import GenerateStarField from './Canvas/GenerateStarField';
 import StarField from './Canvas/StarField';
-import GenerateGeometricShape from './Canvas/GenerateGeometricShape';
-import GeometricShape from './Canvas/GeometricShape';
 import FileName from './FileNameGenerator';
 import SettingsButton from './buttons/SettingsButton';
 import PlayPauseButton from './buttons/PlayPauseButton';
@@ -188,150 +180,34 @@ export default class DisplayCanvas extends React.Component {
     return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
   }
 
-  // Deterministic generation. The entire composition is a pure function of
-  // (seed, colors, width, height): the same arguments always rebuild the identical
-  // artwork, at any resolution or aspect ratio. Passing a different (width, height)
-  // recomposes the piece for that ratio rather than reflowing a stored layout.
-  //
-  //   seed       - string identity of the design (defaults to a fresh one each call)
-  //   width/height - target canvas size (defaults to the live on-screen size)
-  //   colorValues  - explicit palette; defaults to the current UI colors
+  // Thin wrapper over the pure generateArtwork() orchestrator. Defaults to a fresh seed
+  // at the live on-screen size with the current UI palette; pass explicit args to
+  // regenerate a stored design at any size (e.g. portrait print) deterministically.
   buildConfig(
     seed = randomSeed(),
     width = this.props.width,
     height = this.props.height,
     colorValues = null
   ) {
-    const rng = makeRng(seed);
-
-    // Convert color objects to color values array
     if (!colorValues) {
       colorValues = this.state.colors.map(c => c.value || c);
     }
-
-    const config = {
-      generatorVersion: GENERATOR_VERSION,
-      seed,
-      width,
-      height,
-      colors: colorValues.slice()
-    };
-
-    config.gradientBackgroundConfig = new GenerateLinearGradient(
-      width,
-      height,
-      1,
-      colorValues.slice(),
-      rng
-    );
-
-    let radialChance = rng();
-
-    if (radialChance > 0.4) {
-      config.firstBlend = this.randomBlendMode(rng);
-
-      config.radialFieldConfig = new GenerateLargeRadialField(
-        width,
-        height,
-        colorValues.slice(),
-        rng
-      );
-    }
-
-    config.secondBlend = this.randomBlendMode(rng);
-
-    config.starFieldConfig = new GenerateStarField(
-      width,
-      height,
-      colorValues.slice(),
-      rng
-    );
-
-    let geometryChance = rng();
-
-    if (geometryChance >= 0.6) {
-      config.thirdBlend = this.randomBlendMode(rng);
-
-      config.geometryConfig = new GenerateGeometricShape(
-        width,
-        height,
-        10 + Math.round(rng() * 30),
-        colorValues.slice(),
-        rng
-      );
-    }
-
-    let overlayChance = rng();
-
-    if (overlayChance >= 0.7 && colorValues.length > 0) {
-      config.overlayBlend = this.randomBlendMode(rng);
-      config.overlayAlpha = rng().toFixed(2);
-      config.overlayConfig = new GenerateLinearGradient(
-        width,
-        height,
-        Math.round(rng() * 2),
-        colorValues.slice(),
-        rng
-      );
-    }
-
+    const config = generateArtwork(seed, width, height, colorValues);
     this.mainConfig = config;
     return config;
   }
 
   buildImage(config) {
-    let canvas = document.createElement('canvas');
-    let context = canvas.getContext('2d');
-
-    canvas.width = config.width;
-    canvas.height = config.height;
-
     this.setState({
       generateDisabled: true,
       linkCopied: false
     });
 
-    let gradientBackground = LinearGradient(config.gradientBackgroundConfig);
-    context.drawImage(gradientBackground, 0, 0);
-    this.clearElement(gradientBackground);
-
     // change buttons to match backgroundImage
     this.changeGradient(config.gradientBackgroundConfig.colors);
-    //
 
-    if (config.radialFieldConfig) {
-      context.globalCompositeOperation = config.firstBlend;
-
-      let radialField = LargeRadialField(config.radialFieldConfig);
-      context.drawImage(radialField, 0, 0);
-      this.clearElement(radialField);
-    }
-
-    context.globalCompositeOperation = config.secondBlend;
-
-    let starField = StarField(config.starFieldConfig, this.queue);
-    context.drawImage(starField, 0, 0);
-    this.clearElement(starField);
-
-    if (config.geometryConfig) {
-      context.globalCompositeOperation = config.thirdBlend;
-
-      let geometry = GeometricShape(config.geometryConfig);
-      context.drawImage(geometry, 0, 0);
-      this.clearElement(geometry);
-    }
-
-    if (config.overlayConfig) {
-      context.globalCompositeOperation = config.overlayBlend;
-      context.globalAlpha = config.overlayAlpha;
-
-      let gradientOverlay = LinearGradient(config.overlayConfig);
-      context.drawImage(gradientOverlay, 0, 0);
-      this.clearElement(gradientOverlay);
-    }
-
+    const canvas = renderArtwork(config, this.queue);
     canvas.toBlob(this.setImage.bind(this), 'image/jpeg', 0.98);
-
     this.clearElement(canvas);
   }
 
@@ -342,48 +218,11 @@ export default class DisplayCanvas extends React.Component {
   }
 
   async buildImageAsBlob(config) {
-    const tick = () => new Promise(r => setTimeout(r, 0));
+    // Yield once before the synchronous composite so the loader stays responsive
+    // between animation frames (the per-frame breathe() in the callers spaces them out).
+    await new Promise(r => setTimeout(r, 0));
 
-    let canvas = document.createElement('canvas');
-    let context = canvas.getContext('2d');
-    canvas.width = config.width;
-    canvas.height = config.height;
-
-    let gradientBackground = LinearGradient(config.gradientBackgroundConfig);
-    context.drawImage(gradientBackground, 0, 0);
-    this.clearElement(gradientBackground);
-    await tick();
-
-    if (config.radialFieldConfig) {
-      context.globalCompositeOperation = config.firstBlend;
-      let radialField = LargeRadialField(config.radialFieldConfig);
-      context.drawImage(radialField, 0, 0);
-      this.clearElement(radialField);
-      await tick();
-    }
-
-    context.globalCompositeOperation = config.secondBlend;
-    let starField = StarField(config.starFieldConfig, this.queue);
-    context.drawImage(starField, 0, 0);
-    this.clearElement(starField);
-    await tick();
-
-    if (config.geometryConfig) {
-      context.globalCompositeOperation = config.thirdBlend;
-      let geometry = GeometricShape(config.geometryConfig);
-      context.drawImage(geometry, 0, 0);
-      this.clearElement(geometry);
-      await tick();
-    }
-
-    if (config.overlayConfig) {
-      context.globalCompositeOperation = config.overlayBlend;
-      context.globalAlpha = config.overlayAlpha;
-      let gradientOverlay = LinearGradient(config.overlayConfig);
-      context.drawImage(gradientOverlay, 0, 0);
-      this.clearElement(gradientOverlay);
-      await tick();
-    }
+    const canvas = renderArtwork(config, this.queue);
 
     return new Promise(resolve => {
       canvas.toBlob(blob => {
@@ -605,22 +444,6 @@ export default class DisplayCanvas extends React.Component {
         });
       });
     });
-  }
-
-  randomBlendMode(rng = Math.random) {
-    const blendModes = [
-      'screen',
-      'overlay',
-      'multiply',
-      'hard-light',
-      'lighten',
-      'darken',
-      'soft-light',
-      'source-over'
-    ];
-
-    let randomBlendMode = Math.floor(rng() * blendModes.length);
-    return blendModes[randomBlendMode];
   }
 
   animateSettingsTab() {
