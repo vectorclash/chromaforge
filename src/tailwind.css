@@ -11,3 +11,10 @@
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Design tokens for the migration. Quicksand is used across the brand UI
+   (wordmark, copyright, etc.); registering it here gives a clean `font-quicksand`
+   utility instead of arbitrary-value font classes everywhere. */
+@theme {
+  --font-quicksand: 'Quicksand', sans-serif;
+}
