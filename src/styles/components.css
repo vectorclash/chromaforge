@@ -95,8 +95,11 @@
   transform: scale(0.95);
 }
 .color-container.drag-over {
-  border: 2px solid #2cd8fe;
-  box-shadow: 0 0 15px rgba(44, 216, 254, 0.6);
+  /* 2px ring via box-shadow (not border) so the swatch fill stays flush with the
+     buttons and the layout doesn't shift when a swatch is dragged over. */
+  box-shadow:
+    0 0 0 2px #2cd8fe,
+    0 0 15px rgba(44, 216, 254, 0.6);
   transform: scale(1.05);
 }
 .color-container.drag-clone {

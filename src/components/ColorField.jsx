@@ -264,7 +264,7 @@ export default class ColorField extends React.Component {
   render() {
     return (
       <div
-        className="color-container relative mb-[10px] h-[60px] w-[48.5%] border-2 border-transparent opacity-0 transition-[transform,box-shadow,border,opacity] duration-200 ease-[ease]"
+        className="color-container relative mb-[10px] h-[60px] w-[48.5%] opacity-0 transition-[transform,box-shadow,opacity] duration-200 ease-[ease]"
         ref={mount => {
           this.mount = mount;
         }}
