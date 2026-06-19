@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
-import './AnimationPreview.scss';
 
 const SCALE_END        = 1.45;
 const STAR_SCALE_END   = 1.15;
@@ -143,13 +142,17 @@ export default function AnimationPreview({
   }, [paused]);
 
   return (
-    <div className="animation-preview" ref={containerRef} onClick={onClick}>
+    <div
+      className="animation-preview absolute top-0 left-0 z-[1] h-full w-full cursor-pointer bg-black"
+      ref={containerRef}
+      onClick={onClick}
+    >
       {frames.map((src, i) => (
         <img
           key={i}
           src={src}
           alt=""
-          className="animation-frame"
+          className="animation-frame absolute top-0 left-0 h-full w-full object-cover opacity-0"
           ref={el => (imgRefs.current[i] = el)}
         />
       ))}
@@ -158,7 +161,7 @@ export default function AnimationPreview({
           key={`star-${i}`}
           src={src}
           alt=""
-          className="animation-star"
+          className="animation-star absolute top-0 left-0 h-full w-full object-cover opacity-0"
           ref={el => (starRefs.current[i] = el)}
         />
       ))}
