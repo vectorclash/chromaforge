@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { gsap, MorphSVGPlugin } from 'gsap/all';
-import './PlayPauseButton.scss';
 
 gsap.registerPlugin(MorphSVGPlugin);
 
@@ -29,7 +28,7 @@ export default function PlayPauseButton({ paused }) {
   }, [paused]);
 
   return (
-    <svg viewBox="0 0 600 600" className="play-pause-button">
+    <svg viewBox="0 0 600 600" className="play-pause-button h-full w-full opacity-50">
       {/* Active shapes */}
       <rect id="pp-bar1" x="170" y="115" width="110" height="370" rx="18" />
       <rect id="pp-bar2" x="320" y="115" width="110" height="370" rx="18" />

@@ -1,10 +1,10 @@
 /* Custom CSS layer for the Tailwind migration.
  *
  * Holds the styles that utility classes can't cleanly express — chiefly SVG-internal
- * styling (strokes/fills on <rect>/<path>/<circle>, often targeted by id and morphed by
- * GSAP, including elements GSAP creates at runtime via convertToPath()). Each block is
- * keyed off the component's hook class so it stays scoped. Container/box styling for
- * these components lives as utilities on the JSX instead.
+ * styling (strokes/fills on <rect>/<path>/<circle>/<polygon>, often targeted by id and
+ * morphed/drawn by GSAP, including elements GSAP creates at runtime via convertToPath()).
+ * Each block is keyed off the component's hook class so it stays scoped. Container/box
+ * styling for these components lives as utilities on the JSX instead.
  */
 
 /* CloseButton — the morphing X / dot icon. GSAP converts #lineOne/#lineTwo/#outer/#inner
@@ -36,4 +36,52 @@
 .close-button #outer {
   fill: #3f0049;
   stroke: none;
+}
+
+/* PlayPauseButton — morphing play/pause icon. Active bars are <rect> converted to <path>;
+   the morph-target shapes stay hidden. */
+.play-pause-button rect,
+.play-pause-button polygon {
+  display: none;
+}
+.play-pause-button path {
+  fill: rgb(39, 0, 155);
+  stroke: rgb(39, 0, 155);
+  stroke-width: 28;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.play-pause-button #pp-play1,
+.play-pause-button #pp-play2,
+.play-pause-button #pp-pause1,
+.play-pause-button #pp-pause2 {
+  display: none;
+}
+
+/* HexagonLoader — concentric hexagon polygons (stroke drawn/animated inline by GSAP) plus
+   the blurred gradient glow (its background is also overridden inline by GSAP each cycle). */
+.hexagon-loader svg {
+  overflow: visible;
+  width: 100%;
+}
+.hexagon-loader svg polygon {
+  fill: none;
+  stroke: #ccff00;
+  stroke-width: 0;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-miterlimit: 10;
+}
+.hexagon-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(42deg, #5100c6, #ff0073, #ffd600);
+  border-radius: 50%;
+  filter: blur(42px);
+  z-index: 1;
+  overflow: visible;
+  mix-blend-mode: screen;
 }

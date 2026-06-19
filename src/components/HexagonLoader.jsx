@@ -1,7 +1,6 @@
 import React from 'react';
 import tinycolor from 'tinycolor2';
 import { gsap, Quad, DrawSVGPlugin } from 'gsap/all';
-import './HexagonLoader.scss';
 
 class HexagonLoader extends React.Component {
   componentDidMount() {
@@ -125,7 +124,7 @@ class HexagonLoader extends React.Component {
   render() {
     return (
       <div
-        className="hexagon-loader"
+        className="hexagon-loader relative flex w-[150px] items-center justify-center z-[1]"
         ref={mount => {
           this.mount = mount;
         }}
