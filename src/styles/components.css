@@ -85,3 +85,49 @@
   overflow: visible;
   mix-blend-mode: screen;
 }
+
+/* ColorField — heavily stateful + jscolor-integrated, so most of it stays custom CSS:
+   JS-toggled drag states, the jscolor-enhanced `.color` input (with !important overrides
+   of jscolor's inline styles), and hover/active. Box/layout for the container, drag handle,
+   and close button are utilities on the JSX. */
+.color-container.dragging {
+  opacity: 0.3 !important;
+  transform: scale(0.95);
+}
+.color-container.drag-over {
+  border: 2px solid #2cd8fe;
+  box-shadow: 0 0 15px rgba(44, 216, 254, 0.6);
+  transform: scale(1.05);
+}
+.color-container.drag-clone {
+  opacity: 0.8 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  cursor: grabbing !important;
+}
+.color-container.drag-clone input,
+.color-container.drag-clone .color-drag-handle {
+  cursor: grabbing !important;
+}
+.color-container input {
+  height: 100% !important;
+  font-size: 10px;
+  background-color: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  padding-left: 30px !important;
+  z-index: 0;
+}
+.color-container input:hover {
+  box-shadow:
+    inset 0 0 5px rgba(89, 6, 154, 0.6),
+    0 0 20px rgba(44, 216, 254, 0.6);
+}
+.color-close-button svg {
+  width: 100%;
+  height: 100%;
+  fill: white;
+  stroke: white;
+}
+.jscolor-btn-close {
+  width: 100%;
+  max-width: 213px !important;
+}

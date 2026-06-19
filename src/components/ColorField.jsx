@@ -4,8 +4,6 @@ import React from 'react';
 import tinycolor from 'tinycolor2';
 import CloseColorButton from './buttons/CloseColorButton';
 
-import './ColorField.scss';
-
 export default class ColorField extends React.Component {
   componentDidMount() {
     window.jscolor.install();
@@ -266,7 +264,7 @@ export default class ColorField extends React.Component {
   render() {
     return (
       <div
-        className="color-container"
+        className="color-container relative mb-[10px] h-[60px] w-[48.5%] border-2 border-transparent opacity-0 transition-all duration-200 ease-[ease]"
         ref={mount => {
           this.mount = mount;
         }}
@@ -274,8 +272,13 @@ export default class ColorField extends React.Component {
         onMouseDown={this.onMouseDown.bind(this)}
         onTouchStart={this.onTouchStart.bind(this)}
       >
-        <div className="color-drag-handle">⋮⋮</div>
-        <div className="color-close-button" onClick={this.onCloseClick.bind(this)}>
+        <div className="color-drag-handle absolute left-[5px] top-0 z-10 flex h-full w-[20px] cursor-grab touch-none select-none items-center justify-center text-[16px] tracking-[-2px] text-white/50 [-webkit-touch-callout:none] hover:text-white/80 active:cursor-grabbing">
+          ⋮⋮
+        </div>
+        <div
+          className="color-close-button absolute right-0 top-0 z-[100] h-full w-[25px] cursor-pointer pr-[10px]"
+          onClick={this.onCloseClick.bind(this)}
+        >
           <CloseColorButton />
         </div>
         <input
