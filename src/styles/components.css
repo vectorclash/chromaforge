@@ -1,0 +1,39 @@
+/* Custom CSS layer for the Tailwind migration.
+ *
+ * Holds the styles that utility classes can't cleanly express — chiefly SVG-internal
+ * styling (strokes/fills on <rect>/<path>/<circle>, often targeted by id and morphed by
+ * GSAP, including elements GSAP creates at runtime via convertToPath()). Each block is
+ * keyed off the component's hook class so it stays scoped. Container/box styling for
+ * these components lives as utilities on the JSX instead.
+ */
+
+/* CloseButton — the morphing X / dot icon. GSAP converts #lineOne/#lineTwo/#outer/#inner
+   to <path> at runtime, so these <path> rules style nodes that don't exist in the JSX. */
+.close-button rect {
+  stroke: #ff0091;
+  stroke-width: 80;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-miterlimit: 10;
+  display: none;
+}
+.close-button path {
+  stroke: #ff0091;
+  fill: #ff0091;
+  stroke-width: 80;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-miterlimit: 10;
+}
+.close-button #center-EX,
+.close-button #dot-EX {
+  display: none;
+}
+.close-button #inner {
+  fill: #ec007f;
+  stroke: none;
+}
+.close-button #outer {
+  fill: #3f0049;
+  stroke: none;
+}
