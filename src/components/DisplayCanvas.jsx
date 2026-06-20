@@ -5,7 +5,6 @@ import saveAs from 'file-saver';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
-import './DisplayCanvas.scss';
 import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';

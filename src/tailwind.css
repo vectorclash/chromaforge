@@ -1,3 +1,9 @@
+/* Quicksand/Exo are used across the brand UI (wordmark, panel headings, etc).
+   Moved here from DisplayCanvas.scss during the Tailwind migration -- a CSS
+   @import url() must be the first statement in the file, hence it's above the
+   Tailwind layer imports below. */
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&family=Exo:wght@400;700;900&display=swap');
+
 /* Tailwind v4 entry.
  *
  * MIGRATION NOTE: we import the theme + utilities layers but intentionally OMIT the
