@@ -147,6 +147,21 @@
   border-color: #2cd8fe !important;
   color: #2cd8fe !important;
 }
+/* Frosted glass, matching .controls-inner -- the lower backgroundColor alpha (set in the
+   preset, index.html) needs this blur to stay legible over bright/busy generated art.
+   Neither property is set inline by the library, so no !important needed. */
+.jscolor-picker-border {
+  backdrop-filter: blur(6px) brightness(0.9);
+}
+/* Round the palette/hue/alpha control boxes to match the outer picker's corners -- the
+   borderRadius preset option only reaches the outer wrapper/border/shadow layers, not
+   these inner boxes. They're unclassed direct children of .jscolor-picker (excluding
+   the close button, which has its own class); overflow:hidden clips their square canvas
+   content to the rounded corners. */
+.jscolor-picker > div:not(.jscolor-btn-close) {
+  border-radius: 8px;
+  overflow: hidden;
+}
 
 /* ───────────────────────────────────────────────────────────────────────────
    DisplayCanvas — effect CSS that can't be utilities (glassmorphism, gradients,
