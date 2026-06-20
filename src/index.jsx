@@ -2,7 +2,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './tailwind.css';
 import './styles/components.css';
-import './index.scss';
 import App from './App';
 import * as serviceWorker from './serviceWorker';
 
