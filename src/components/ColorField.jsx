@@ -201,20 +201,32 @@ export default class ColorField extends React.Component {
     if (!this.isDragging || !this.dragClone) return;
     const pos = this.lastPointer;
 
-    // Check if we're over another color container
-    const elements = document.elementsFromPoint(pos.clientX, pos.clientY);
-    const targetContainer = elements.find(el => {
-      // Must be a color-container
-      if (!el.classList.contains('color-container')) return false;
-      // Must not be the clone
-      if (el.classList.contains('drag-clone')) return false;
-      // Must not be the currently dragging element
-      if (el === this.mount) return false;
-      // Must have a valid color ID
-      const colorId = el.getAttribute('data-color-id');
-      if (!colorId) return false;
+    // Find the nearest valid color-container whose bounding box (expanded by
+    // GAP_TOLERANCE) contains the pointer. A plain elementsFromPoint() hit-test only
+    // matches when the cursor is exactly over a painted swatch, so it misses whenever
+    // the cursor is in one of the small gaps between swatches/rows (row-gap is 10px,
+    // and the gap above the FIRST row — between it and the settings tabs — is 20px).
+    // Landing in a gap left dropTarget null and silently dropped the reorder; this was
+    // most reproducible on the first row since there's no row above it to catch an
+    // overshoot, and its gap is twice as large.
+    const GAP_TOLERANCE = 20;
+    let targetContainer = null;
+    let bestDist = Infinity;
+    document.querySelectorAll('.color-container').forEach(el => {
+      if (el === this.mount) return;
+      if (el.classList.contains('drag-clone')) return;
+      if (!el.getAttribute('data-color-id')) return;
 
-      return true;
+      const r = el.getBoundingClientRect();
+      const withinX = pos.clientX >= r.left - GAP_TOLERANCE && pos.clientX <= r.right + GAP_TOLERANCE;
+      const withinY = pos.clientY >= r.top - GAP_TOLERANCE && pos.clientY <= r.bottom + GAP_TOLERANCE;
+      if (!withinX || !withinY) return;
+
+      const dist = Math.hypot(pos.clientX - (r.left + r.width / 2), pos.clientY - (r.top + r.height / 2));
+      if (dist < bestDist) {
+        bestDist = dist;
+        targetContainer = el;
+      }
     });
 
     // Clear previous hover states
