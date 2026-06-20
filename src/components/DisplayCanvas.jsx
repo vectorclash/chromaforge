@@ -1194,14 +1194,12 @@ export default class DisplayCanvas extends React.Component {
 
     if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) return;
 
-    // Remove the dragged item
-    const [draggedItem] = colors.splice(draggedIndex, 1);
-
-    // Find the new target index (it may have shifted after removal)
-    const newTargetIndex = colors.findIndex(c => c.id === targetColorId);
-
-    // Insert the dragged item at the target position
-    colors.splice(newTargetIndex, 0, draggedItem);
+    // Swap the dragged and target colors so dropping onto a swatch always takes its
+    // exact slot. The previous remove-then-insert-before approach always left the
+    // target at its own original index when dragging forward (earlier -> later) onto
+    // it, which made the LAST swatch look stuck -- there's nothing after it to absorb
+    // the displacement, so it could never be "replaced".
+    [colors[draggedIndex], colors[targetIndex]] = [colors[targetIndex], colors[draggedIndex]];
 
     this.setState({
       colors: colors
