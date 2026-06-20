@@ -153,12 +153,13 @@
 .jscolor-picker-border {
   backdrop-filter: blur(6px) brightness(0.9);
 }
-/* Round the palette/hue/alpha control boxes to match the outer picker's corners -- the
-   borderRadius preset option only reaches the outer wrapper/border/shadow layers, not
-   these inner boxes. They're unclassed direct children of .jscolor-picker (excluding
-   the close button, which has its own class); overflow:hidden clips their square canvas
-   content to the rounded corners. */
-.jscolor-picker > div:not(.jscolor-btn-close) {
+/* Round the palette/hue/alpha gradient canvases to match the outer picker's corners --
+   the borderRadius preset option only reaches the outer wrapper/border/shadow layers.
+   Target ONLY the canvas's immediate wrapper div (":has(> canvas)", direct child) and
+   not its parent border box: the crosshair/slider-pointer indicators are siblings of
+   that wrapper one level up, positioned to slightly overflow their box edge by design,
+   so clipping at the border-box level (an earlier version of this rule) cut them off. */
+.jscolor-picker div:has(> canvas) {
   border-radius: 8px;
   overflow: hidden;
 }
