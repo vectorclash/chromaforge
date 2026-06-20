@@ -5,6 +5,16 @@ import tinycolor from 'tinycolor2';
 import CloseColorButton from './buttons/CloseColorButton';
 
 export default class ColorField extends React.Component {
+  constructor(props) {
+    super(props);
+    // Bind drag handlers once so addEventListener/removeEventListener share the
+    // SAME function reference. .bind() returns a new function each call, so
+    // binding inline at add/remove time meant removeEventListener never matched
+    // and the document listeners leaked/stacked across drags.
+    this.boundHandleMove = this.handleMove.bind(this);
+    this.boundHandleEnd = this.handleEnd.bind(this);
+  }
+
   componentDidMount() {
     window.jscolor.install();
     this.adjustColor(this.props.color);
@@ -149,11 +159,11 @@ export default class ColorField extends React.Component {
     // Add dragging class to original
     this.mount.classList.add('dragging');
 
-    // Add listeners for both mouse and touch
-    document.addEventListener('mousemove', this.onMouseMove.bind(this));
-    document.addEventListener('mouseup', this.onMouseUp.bind(this));
-    document.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: false });
-    document.addEventListener('touchend', this.onTouchEnd.bind(this));
+    // Add listeners for both mouse and touch (same bound refs used to remove them)
+    document.addEventListener('mousemove', this.boundHandleMove);
+    document.addEventListener('mouseup', this.boundHandleEnd);
+    document.addEventListener('touchmove', this.boundHandleMove, { passive: false });
+    document.addEventListener('touchend', this.boundHandleEnd);
   }
 
   onMouseDown(e) {
@@ -223,14 +233,6 @@ export default class ColorField extends React.Component {
     }
   }
 
-  onMouseMove(e) {
-    this.handleMove(e);
-  }
-
-  onTouchMove(e) {
-    this.handleMove(e);
-  }
-
   handleEnd() {
     if (!this.isDragging) return;
 
@@ -267,19 +269,11 @@ export default class ColorField extends React.Component {
     });
     this.dropTarget = null;
 
-    // Remove listeners
-    document.removeEventListener('mousemove', this.onMouseMove.bind(this));
-    document.removeEventListener('mouseup', this.onMouseUp.bind(this));
-    document.removeEventListener('touchmove', this.onTouchMove.bind(this));
-    document.removeEventListener('touchend', this.onTouchEnd.bind(this));
-  }
-
-  onMouseUp() {
-    this.handleEnd();
-  }
-
-  onTouchEnd() {
-    this.handleEnd();
+    // Remove listeners (same bound refs that were added in startDrag)
+    document.removeEventListener('mousemove', this.boundHandleMove);
+    document.removeEventListener('mouseup', this.boundHandleEnd);
+    document.removeEventListener('touchmove', this.boundHandleMove);
+    document.removeEventListener('touchend', this.boundHandleEnd);
   }
 
   render() {
