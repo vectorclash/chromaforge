@@ -16,12 +16,30 @@
     <script src="/createjs.min.js"></script>
     <script src="/jscolor.js"></script>
     <script>
+      // Themed to match the app's dark glass UI instead of jscolor's default white
+      // widget. Colors/sizes set here cover everything the library draws from its own
+      // options; a few bits it sets via inline style (the close button's font/hover)
+      // are overridden in src/styles/components.css with !important instead, since
+      // presets have no option for them.
       jscolor.presets.default = {
         alphaChannel: false,
-        borderWidth: 0,
-        borderRadius: 4,
+        // sized up from the library default for comfortable touch targets, matching
+        // the app's generously sized buttons (this picker is used on phones)
+        width: 200,
+        height: 120,
+        sliderSize: 20,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(166,224,0,0.25)', // faint lime edge, for definition against bright art
+        borderRadius: 12,
+        backgroundColor: 'rgba(10,8,20,0.97)',
+        controlBorderColor: 'rgba(166,224,0,0.4)', // same lime used on .button-small/.button-medium
+        buttonColor: 'rgba(250,250,250,1)', // matches the app's button/input text color
+        shadow: true,
+        shadowBlur: 24,
+        shadowColor: 'rgba(0,0,0,0.5)',
         closeButton: true,
-        buttonHeight: 30,
+        buttonHeight: 34,
         closeText: 'CLOSE',
       }
     </script>
