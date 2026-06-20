@@ -1,8 +1,6 @@
 import React from 'react';
 import { gsap, Bounce, MorphSVGPlugin } from 'gsap/all';
 
-import './CloseButton.scss';
-
 export default class CloseButton extends React.Component {
   componentDidMount() {
     gsap.registerPlugin(MorphSVGPlugin);
@@ -61,7 +59,7 @@ export default class CloseButton extends React.Component {
 
   render() {
     return (
-      <svg viewBox="0 0 600 600" className="close-button">
+      <svg viewBox="0 0 600 600" className="close-button relative h-full w-full opacity-50">
         <circle id="outer" cx="300" cy="300" r="275" />
         <circle id="inner" cx="300" cy="300" r="180" />
         <rect

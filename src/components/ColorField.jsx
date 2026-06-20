@@ -4,9 +4,17 @@ import React from 'react';
 import tinycolor from 'tinycolor2';
 import CloseColorButton from './buttons/CloseColorButton';
 
-import './ColorField.scss';
-
 export default class ColorField extends React.Component {
+  constructor(props) {
+    super(props);
+    // Bind drag handlers once so addEventListener/removeEventListener share the
+    // SAME function reference. .bind() returns a new function each call, so
+    // binding inline at add/remove time meant removeEventListener never matched
+    // and the document listeners leaked/stacked across drags.
+    this.boundHandleMove = this.handleMove.bind(this);
+    this.boundHandleEnd = this.handleEnd.bind(this);
+  }
+
   componentDidMount() {
     window.jscolor.install();
     this.adjustColor(this.props.color);
@@ -151,11 +159,11 @@ export default class ColorField extends React.Component {
     // Add dragging class to original
     this.mount.classList.add('dragging');
 
-    // Add listeners for both mouse and touch
-    document.addEventListener('mousemove', this.onMouseMove.bind(this));
-    document.addEventListener('mouseup', this.onMouseUp.bind(this));
-    document.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: false });
-    document.addEventListener('touchend', this.onTouchEnd.bind(this));
+    // Add listeners for both mouse and touch (same bound refs used to remove them)
+    document.addEventListener('mousemove', this.boundHandleMove);
+    document.addEventListener('mouseup', this.boundHandleEnd);
+    document.addEventListener('touchmove', this.boundHandleMove, { passive: false });
+    document.addEventListener('touchend', this.boundHandleEnd);
   }
 
   onMouseDown(e) {
@@ -172,11 +180,26 @@ export default class ColorField extends React.Component {
     e.preventDefault();
 
     const pos = this.getPointerPosition(e);
-    const deltaX = pos.clientX - this.startX;
-    const deltaY = pos.clientY - this.startY;
 
-    this.dragClone.style.left = this.initialX + deltaX + 'px';
-    this.dragClone.style.top = this.initialY + deltaY + 'px';
+    // Move the clone immediately on every pointer event so it tracks the cursor 1:1.
+    this.dragClone.style.left = this.initialX + (pos.clientX - this.startX) + 'px';
+    this.dragClone.style.top = this.initialY + (pos.clientY - this.startY) + 'px';
+
+    // Throttle the expensive drop-target hit-testing to once per animation frame.
+    // elementsFromPoint() forces a synchronous layout, so running it on every pointer
+    // event (60-120/s) periodically stalled the main thread (the intermittent freeze).
+    // Coalescing to one rAF keeps the drag smooth.
+    this.lastPointer = pos;
+    if (this.hitTestRaf) return;
+    this.hitTestRaf = requestAnimationFrame(() => {
+      this.hitTestRaf = null;
+      this.updateDropTarget();
+    });
+  }
+
+  updateDropTarget() {
+    if (!this.isDragging || !this.dragClone) return;
+    const pos = this.lastPointer;
 
     // Check if we're over another color container
     const elements = document.elementsFromPoint(pos.clientX, pos.clientY);
@@ -210,18 +233,16 @@ export default class ColorField extends React.Component {
     }
   }
 
-  onMouseMove(e) {
-    this.handleMove(e);
-  }
-
-  onTouchMove(e) {
-    this.handleMove(e);
-  }
-
   handleEnd() {
     if (!this.isDragging) return;
 
     this.isDragging = false;
+
+    // Cancel any hit-test frame still queued from the last move
+    if (this.hitTestRaf) {
+      cancelAnimationFrame(this.hitTestRaf);
+      this.hitTestRaf = null;
+    }
 
     // Remove clone
     if (this.dragClone && this.dragClone.parentNode) {
@@ -248,25 +269,17 @@ export default class ColorField extends React.Component {
     });
     this.dropTarget = null;
 
-    // Remove listeners
-    document.removeEventListener('mousemove', this.onMouseMove.bind(this));
-    document.removeEventListener('mouseup', this.onMouseUp.bind(this));
-    document.removeEventListener('touchmove', this.onTouchMove.bind(this));
-    document.removeEventListener('touchend', this.onTouchEnd.bind(this));
-  }
-
-  onMouseUp() {
-    this.handleEnd();
-  }
-
-  onTouchEnd() {
-    this.handleEnd();
+    // Remove listeners (same bound refs that were added in startDrag)
+    document.removeEventListener('mousemove', this.boundHandleMove);
+    document.removeEventListener('mouseup', this.boundHandleEnd);
+    document.removeEventListener('touchmove', this.boundHandleMove);
+    document.removeEventListener('touchend', this.boundHandleEnd);
   }
 
   render() {
     return (
       <div
-        className="color-container"
+        className="color-container relative h-[60px] w-[48.5%] opacity-0 transition-[transform,box-shadow,opacity] duration-200 ease-[ease]"
         ref={mount => {
           this.mount = mount;
         }}
@@ -274,8 +287,13 @@ export default class ColorField extends React.Component {
         onMouseDown={this.onMouseDown.bind(this)}
         onTouchStart={this.onTouchStart.bind(this)}
       >
-        <div className="color-drag-handle">⋮⋮</div>
-        <div className="color-close-button" onClick={this.onCloseClick.bind(this)}>
+        <div className="color-drag-handle absolute left-[5px] top-0 z-10 flex h-full w-[20px] cursor-grab touch-none select-none items-center justify-center text-[16px] tracking-[-2px] text-white/50 [-webkit-touch-callout:none] hover:text-white/80 active:cursor-grabbing">
+          ⋮⋮
+        </div>
+        <div
+          className="color-close-button absolute right-0 top-0 z-[100] h-full w-[25px] cursor-pointer pr-[10px]"
+          onClick={this.onCloseClick.bind(this)}
+        >
           <CloseColorButton />
         </div>
         <input

@@ -5,7 +5,6 @@ import saveAs from 'file-saver';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
-import './DisplayCanvas.scss';
 import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
@@ -1128,16 +1127,21 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onRainbowColors() {
+    // Replace the palette with the full rainbow set. Use fresh ids (continuing from
+    // nextColorId) so the keys never collide with existing colors — otherwise React
+    // reuses those ColorField instances and their uncontrolled inputs keep their old
+    // values, so only the non-colliding slots would actually show rainbow colors.
+    const base = this.nextColorId;
     this.setState({
       colors: [
-        { id: 0, value: '#ff0059' },
-        { id: 1, value: '#ffbb00' },
-        { id: 2, value: '#eaff00' },
-        { id: 3, value: '#00e5ff' },
-        { id: 4, value: '#4c00ff' }
+        { id: base, value: '#ff0059' },
+        { id: base + 1, value: '#ffbb00' },
+        { id: base + 2, value: '#eaff00' },
+        { id: base + 3, value: '#00e5ff' },
+        { id: base + 4, value: '#4c00ff' }
       ]
     });
-    this.nextColorId = 5;
+    this.nextColorId = base + 5;
     gsap.delayedCall(0.05, () => this.animateColors());
   }
 
@@ -1271,16 +1275,22 @@ export default class DisplayCanvas extends React.Component {
 
     return (
       <div
-        className="display-canvas"
+        className="display-canvas fixed left-0 top-0 flex h-full w-full items-center justify-center overflow-hidden"
         ref={mount => {
           this.mount = mount;
         }}
       >
         {isLoading ? <HexagonLoader /> : ''}
-        <div className="controls-open" onClick={this.onCloseButtonClick.bind(this)}>
+        <div
+          className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
+          onClick={this.onCloseButtonClick.bind(this)}
+        >
           <CloseButton isOpen={controlsAreOpen} />
         </div>
-        <div className="image-container" onClick={this.onCloseButtonClick.bind(this)}></div>
+        <div
+          className="image-container absolute left-0 top-0 z-0 h-full w-full bg-cover bg-center bg-no-repeat opacity-0"
+          onClick={this.onCloseButtonClick.bind(this)}
+        ></div>
         {animationFrames.length > 0 && (
           <AnimationPreview
             frames={animationFrames}
@@ -1295,17 +1305,17 @@ export default class DisplayCanvas extends React.Component {
         )}
         {animationFrames.length > 0 && (
           <button
-            className="animation-pause"
+            className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[5em] w-[5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
             onClick={e => { e.stopPropagation(); this.setState({ animationPaused: !animationPaused }); }}
             aria-label={animationPaused ? 'Play' : 'Pause'}
           >
             <PlayPauseButton paused={animationPaused} />
           </button>
         )}
-        <div className="controls-container">
+        <div className="controls-container absolute left-0 top-0 z-[5] flex h-full w-full items-center justify-center bg-transparent">
           {controlsAreOpen ? (
             <div
-              className="controls-background-click"
+              className="controls-background-click absolute left-0 top-0 z-0 h-full w-full"
               onClick={this.onCloseButtonClick.bind(this)}
             ></div>
           ) : (
@@ -1313,7 +1323,10 @@ export default class DisplayCanvas extends React.Component {
           )}
           <div
             id="controls-main"
-            className={'controls-inner' + (controlsBlurred ? ' controls-blurred' : '')}
+            className={
+              'controls-inner absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (controlsBlurred ? ' controls-blurred' : '')
+            }
           >
             <div className="row">
               <div className="mode-toggle">
@@ -1393,7 +1406,8 @@ export default class DisplayCanvas extends React.Component {
           <div
             id="controls-settings"
             className={
-              'controls-inner controls-settings' + (controlsBlurred ? ' controls-visible' : '')
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (controlsBlurred ? ' controls-visible' : '')
             }
           >
             <div className="settings-tabs">
@@ -1498,7 +1512,8 @@ export default class DisplayCanvas extends React.Component {
           <div
             id="controls-save"
             className={
-              'controls-inner controls-settings' + (saveVisible ? ' controls-visible' : '')
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (saveVisible ? ' controls-visible' : '')
             }
           >
             <div className="row text-container">

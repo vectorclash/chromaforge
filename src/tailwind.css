@@ -1,0 +1,42 @@
+/* Quicksand/Exo are used across the brand UI (wordmark, panel headings, etc).
+   Moved here from DisplayCanvas.scss during the Tailwind migration -- a CSS
+   @import url() must be the first statement in the file, hence it's above the
+   Tailwind layer imports below. */
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&family=Exo:wght@400;700;900&display=swap');
+
+/* Tailwind v4 entry. Preflight (the `base` layer) is now enabled -- every component is
+ * converted, so the migration's last step is on: full reset (box-sizing: border-box,
+ * margin: 0, Tailwind's default font stack, etc). The app-specific globals Preflight
+ * doesn't provide (background color, full-viewport sizing, no scroll, the original font
+ * stack, font smoothing) are restored explicitly below so nothing shifts. */
+@import 'tailwindcss';
+
+/* Design tokens for the migration. Quicksand is used across the brand UI
+   (wordmark, copyright, etc.); registering it here gives a clean `font-quicksand`
+   utility instead of arbitrary-value font classes everywhere. */
+@theme {
+  --font-quicksand: 'Quicksand', sans-serif;
+}
+
+/* Globals previously in App.scss / index.scss (both files removed). Preflight already
+   covers box-sizing: border-box and body margin: 0, so only the app-specific parts are
+   restated here. */
+html,
+body {
+  min-width: 100vw;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+body {
+  background-color: #333333;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell',
+    'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
