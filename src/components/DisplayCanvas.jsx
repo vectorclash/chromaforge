@@ -1324,7 +1324,10 @@ export default class DisplayCanvas extends React.Component {
           )}
           <div
             id="controls-main"
-            className={'controls-inner' + (controlsBlurred ? ' controls-blurred' : '')}
+            className={
+              'controls-inner absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (controlsBlurred ? ' controls-blurred' : '')
+            }
           >
             <div className="row">
               <div className="mode-toggle">
@@ -1404,7 +1407,8 @@ export default class DisplayCanvas extends React.Component {
           <div
             id="controls-settings"
             className={
-              'controls-inner controls-settings' + (controlsBlurred ? ' controls-visible' : '')
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (controlsBlurred ? ' controls-visible' : '')
             }
           >
             <div className="settings-tabs">
@@ -1509,7 +1513,8 @@ export default class DisplayCanvas extends React.Component {
           <div
             id="controls-save"
             className={
-              'controls-inner controls-settings' + (saveVisible ? ' controls-visible' : '')
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (saveVisible ? ' controls-visible' : '')
             }
           >
             <div className="row text-container">

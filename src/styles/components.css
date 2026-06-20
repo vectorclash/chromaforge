@@ -172,3 +172,30 @@
 .display-canvas .animation-pause:hover svg {
   opacity: 1;
 }
+
+/* Glass panel — backdrop blur/brightness, the rainbow gradient bottom border (its
+   opacity is animated via --border-opacity, set inline by GSAP on open/close), and the
+   small-screen override. Layout (flex/padding/size/radius/bg/shadow) is utilities. */
+.display-canvas .controls-inner {
+  backdrop-filter: blur(4px) brightness(0.95);
+  border-bottom: 2px solid rgba(76, 0, 255, var(--border-opacity, 0.75));
+}
+.display-canvas .controls-inner::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+  background: linear-gradient(90deg, #4c00ff, #ff0059, #ffbb00, #eaff00, #00e5ff, #4c00ff);
+  opacity: var(--border-opacity, 0.75);
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 24px, black calc(100% - 24px), transparent);
+  mask-image: linear-gradient(90deg, transparent, black 24px, black calc(100% - 24px), transparent);
+}
+@media (max-width: 480px) {
+  .display-canvas .controls-inner {
+    min-width: auto;
+    width: calc(100% - 40px);
+    padding: 20px;
+  }
+}
