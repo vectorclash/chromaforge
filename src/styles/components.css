@@ -130,12 +130,18 @@
   fill: white;
   stroke: white;
 }
-/* jscolor close button — width is a plain CSS rule (no inline conflict), but font and
-   hover need !important since jscolor sets color/border/font via inline style and
-   presets (index.html) have no option for them. */
+/* jscolor close button. The library positions it with `left: <padding>px` (absolute,
+   anchored to .jscolor-picker) but only ever gives it an inline max-width, which is
+   narrower than the full available span -- so a fixed CSS width/max-width here always
+   risks drifting out of sync if the picker's size preset changes. Anchoring `right` to
+   the SAME value as the preset's `padding` (index.html) instead makes the browser
+   compute the width as the gap between left/right automatically, so it always spans
+   edge-to-edge regardless of picker size. Font/hover need !important since jscolor sets
+   color/border/font via inline style and presets have no option for them. */
 .jscolor-btn-close {
-  width: 100%;
-  max-width: 213px !important;
+  right: 14px !important; /* must match the `padding` value in index.html's jscolor preset */
+  width: auto !important;
+  max-width: none !important;
   font-family: 'Quicksand', sans-serif !important;
   font-weight: 700 !important;
   letter-spacing: 1px !important;
@@ -162,6 +168,14 @@
 .jscolor-picker div:has(> canvas) {
   border-radius: 8px;
   overflow: hidden;
+}
+/* The hue/darkness slider is much narrower than the palette (sliderSize: 20 vs width:
+   200 in index.html's jscolor preset), so the same 8px radius reads as disproportionately
+   rounded -- almost pill-shaped. Distinguish it from the palette by that configured
+   width (the two presets must stay in sync); the combined selector is more specific than
+   the rule above, so it wins regardless of source order. */
+.jscolor-picker div:has(> canvas)[style*='width: 20px'] {
+  border-radius: 3px;
 }
 /* Hide the now-mismatched square outline around the rounded canvases above (padB/sldB/
    asldB -- one level up from the canvas wrapper, identified the same structural way:
