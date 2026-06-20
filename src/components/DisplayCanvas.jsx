@@ -1128,16 +1128,21 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onRainbowColors() {
+    // Replace the palette with the full rainbow set. Use fresh ids (continuing from
+    // nextColorId) so the keys never collide with existing colors — otherwise React
+    // reuses those ColorField instances and their uncontrolled inputs keep their old
+    // values, so only the non-colliding slots would actually show rainbow colors.
+    const base = this.nextColorId;
     this.setState({
       colors: [
-        { id: 0, value: '#ff0059' },
-        { id: 1, value: '#ffbb00' },
-        { id: 2, value: '#eaff00' },
-        { id: 3, value: '#00e5ff' },
-        { id: 4, value: '#4c00ff' }
+        { id: base, value: '#ff0059' },
+        { id: base + 1, value: '#ffbb00' },
+        { id: base + 2, value: '#eaff00' },
+        { id: base + 3, value: '#00e5ff' },
+        { id: base + 4, value: '#4c00ff' }
       ]
     });
-    this.nextColorId = 5;
+    this.nextColorId = base + 5;
     gsap.delayedCall(0.05, () => this.animateColors());
   }
 
