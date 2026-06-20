@@ -1276,16 +1276,22 @@ export default class DisplayCanvas extends React.Component {
 
     return (
       <div
-        className="display-canvas"
+        className="display-canvas fixed left-0 top-0 flex h-full w-full items-center justify-center overflow-hidden"
         ref={mount => {
           this.mount = mount;
         }}
       >
         {isLoading ? <HexagonLoader /> : ''}
-        <div className="controls-open" onClick={this.onCloseButtonClick.bind(this)}>
+        <div
+          className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
+          onClick={this.onCloseButtonClick.bind(this)}
+        >
           <CloseButton isOpen={controlsAreOpen} />
         </div>
-        <div className="image-container" onClick={this.onCloseButtonClick.bind(this)}></div>
+        <div
+          className="image-container absolute left-0 top-0 z-0 h-full w-full bg-cover bg-center bg-no-repeat opacity-0"
+          onClick={this.onCloseButtonClick.bind(this)}
+        ></div>
         {animationFrames.length > 0 && (
           <AnimationPreview
             frames={animationFrames}
@@ -1300,17 +1306,17 @@ export default class DisplayCanvas extends React.Component {
         )}
         {animationFrames.length > 0 && (
           <button
-            className="animation-pause"
+            className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[5em] w-[5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
             onClick={e => { e.stopPropagation(); this.setState({ animationPaused: !animationPaused }); }}
             aria-label={animationPaused ? 'Play' : 'Pause'}
           >
             <PlayPauseButton paused={animationPaused} />
           </button>
         )}
-        <div className="controls-container">
+        <div className="controls-container absolute left-0 top-0 z-[5] flex h-full w-full items-center justify-center bg-transparent">
           {controlsAreOpen ? (
             <div
-              className="controls-background-click"
+              className="controls-background-click absolute left-0 top-0 z-0 h-full w-full"
               onClick={this.onCloseButtonClick.bind(this)}
             ></div>
           ) : (

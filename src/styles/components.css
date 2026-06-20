@@ -134,3 +134,41 @@
   width: 100%;
   max-width: 213px !important;
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   DisplayCanvas — effect CSS that can't be utilities (glassmorphism, gradients,
+   pseudo-elements, keyframes, complex hover states). Scoped under .display-canvas;
+   layout/box-model for these elements is utilities on the JSX.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Close (settings) button hover — drop-shadow glow + pulse */
+.display-canvas .controls-open:hover {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 15px rgba(44, 216, 254, 0.8)) drop-shadow(0 0 25px rgba(166, 224, 0, 0.4));
+  animation: settings-pulse 1.5s ease-in-out infinite;
+}
+@keyframes settings-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 15px rgba(44, 216, 254, 0.8)) drop-shadow(0 0 25px rgba(166, 224, 0, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 25px rgba(44, 216, 254, 1)) drop-shadow(0 0 40px rgba(166, 224, 0, 0.6));
+  }
+}
+
+/* Animation play/pause button — svg fill/opacity + hover */
+.display-canvas .animation-pause svg {
+  width: 100%;
+  height: 100%;
+  fill: white;
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+.display-canvas .animation-pause:hover {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 15px rgba(44, 216, 254, 0.8)) drop-shadow(0 0 25px rgba(166, 224, 0, 0.4));
+}
+.display-canvas .animation-pause:hover svg {
+  opacity: 1;
+}
