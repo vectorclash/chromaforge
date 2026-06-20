@@ -163,6 +163,16 @@
   border-radius: 8px;
   overflow: hidden;
 }
+/* Hide the now-mismatched square outline around the rounded canvases above (padB/sldB/
+   asldB -- one level up from the canvas wrapper, identified the same structural way:
+   their direct child is a div whose direct child is canvas). controlBorderColor/Width
+   is a single global preset value shared with the close button's border, so it can't be
+   turned off there without also affecting the close button -- this CSS override only
+   targets these three boxes, leaving the close button's border untouched. !important
+   needed since the border is set inline by the library. */
+.jscolor-picker div:has(> div > canvas) {
+  border: none !important;
+}
 
 /* ───────────────────────────────────────────────────────────────────────────
    DisplayCanvas — effect CSS that can't be utilities (glassmorphism, gradients,
