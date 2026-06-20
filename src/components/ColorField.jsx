@@ -170,11 +170,26 @@ export default class ColorField extends React.Component {
     e.preventDefault();
 
     const pos = this.getPointerPosition(e);
-    const deltaX = pos.clientX - this.startX;
-    const deltaY = pos.clientY - this.startY;
 
-    this.dragClone.style.left = this.initialX + deltaX + 'px';
-    this.dragClone.style.top = this.initialY + deltaY + 'px';
+    // Move the clone immediately on every pointer event so it tracks the cursor 1:1.
+    this.dragClone.style.left = this.initialX + (pos.clientX - this.startX) + 'px';
+    this.dragClone.style.top = this.initialY + (pos.clientY - this.startY) + 'px';
+
+    // Throttle the expensive drop-target hit-testing to once per animation frame.
+    // elementsFromPoint() forces a synchronous layout, so running it on every pointer
+    // event (60-120/s) periodically stalled the main thread (the intermittent freeze).
+    // Coalescing to one rAF keeps the drag smooth.
+    this.lastPointer = pos;
+    if (this.hitTestRaf) return;
+    this.hitTestRaf = requestAnimationFrame(() => {
+      this.hitTestRaf = null;
+      this.updateDropTarget();
+    });
+  }
+
+  updateDropTarget() {
+    if (!this.isDragging || !this.dragClone) return;
+    const pos = this.lastPointer;
 
     // Check if we're over another color container
     const elements = document.elementsFromPoint(pos.clientX, pos.clientY);
@@ -220,6 +235,12 @@ export default class ColorField extends React.Component {
     if (!this.isDragging) return;
 
     this.isDragging = false;
+
+    // Cancel any hit-test frame still queued from the last move
+    if (this.hitTestRaf) {
+      cancelAnimationFrame(this.hitTestRaf);
+      this.hitTestRaf = null;
+    }
 
     // Remove clone
     if (this.dragClone && this.dragClone.parentNode) {
