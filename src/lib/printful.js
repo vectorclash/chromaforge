@@ -4,16 +4,17 @@ import { supabase, isSupabaseConfigured } from './supabase';
 // Printful private API key (which can create real orders) never reaches the browser.
 // See supabase/functions/printful-catalog/index.ts.
 
+// We're only ever printing on all-over-print (AOP) goods -- the artwork covers the
+// entire garment rather than sitting in a single placement, which fits this app's
+// full-bleed generative pieces much better than a small front/back logo print would.
 // Printful's full catalog is thousands of products with wildly different print specs
-// (an all-over t-shirt alone needs 4 placements at 2 different aspect ratios -- see
-// getPrintfileSpecs). Rather than support all of it day one, start with a short,
-// hand-picked list we've actually verified specs for. Add to this once a product's
-// printfile specs have been checked, not before.
+// even within AOP (the t-shirt needs 4 separate placements at 2 aspect ratios; the
+// hoodie instead uses one big cut-and-sew printfile for the whole garment -- see
+// getPrintfileSpecs). Start with one AOP t-shirt and one AOP hoodie, both spec-verified;
+// add more once a new product's printfile specs have been checked.
 export const STARTER_PRODUCT_IDS = [
-  71, // Unisex Staple T-Shirt | Bella + Canvas 3001
-  146, // Unisex Heavy Blend Hoodie | Gildan 18500
-  300, // Black Glossy Mug
-  1 // Enhanced Matte Paper Poster (in)
+  257, // All-Over Print Men's Crew Neck T-Shirt
+  388 // All-Over Print Recycled Unisex Hoodie
 ];
 
 export async function listCatalogProducts({ categoryId = null } = {}) {
