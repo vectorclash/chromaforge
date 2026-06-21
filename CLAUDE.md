@@ -66,13 +66,18 @@ from print rendering above (video vs. still images) — don't conflate the two.
 - **Gotcha:** the public-gallery query disambiguates the `profiles` embed with
   `profiles!designs_user_id_fkey(...)` — the `likes` junction creates a second
   designs↔profiles join path that confuses PostgREST otherwise.
-- **Decision: email/password auth first**, Google OAuth deferred (needs separate Google
-  Cloud setup, not yet started).
+- **Email/password plus Google OAuth.** Google sign-in needed a Google Cloud Console
+  OAuth client (Web application type, authorized redirect URI =
+  `https://fgrhbzqzadpjpbzuszpm.supabase.co/auth/v1/callback`) and the resulting Client
+  ID/Secret entered in the Supabase dashboard's Authentication → Providers → Google
+  config — that's all dashboard-side, no migration. `signInWithGoogle()` in `auth.js`
+  reuses the same redirect-handling code already built for email confirmation links.
 - Backend is live and verified against the real Supabase project (connection, RLS, the
   embed query, auth endpoint all checked). **Now wired into the UI**, all in
-  `DisplayCanvas.jsx`: a Sign In/Account panel (email/password, with a banner handling
-  Supabase's email-confirmation redirect — it lands back on the app with a token in the
-  URL hash, which needs explicit UI feedback since `supabase-js` consumes it silently),
+  `DisplayCanvas.jsx`: a Sign In/Account panel (email/password + "Continue with Google",
+  with a banner handling Supabase's auth redirect — it lands back on the app with a
+  token in the URL hash, which needs explicit UI feedback since `supabase-js` consumes
+  it silently),
   Save now also persists to the `designs` table for signed-in users (alongside the
   existing share-link, which still works for everyone), and a Gallery panel
   (Public / My Designs tabs) that lists saved designs and reloads one onto the canvas on
