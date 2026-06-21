@@ -32,13 +32,23 @@ Deno.serve(async req => {
   }
 
   const url = new URL(req.url);
-  // /printful-catalog            -> GET /products (list)
-  // /printful-catalog?id=123     -> GET /products/123 (one product + variants)
+  // /printful-catalog                       -> GET /products (list)
+  // /printful-catalog?id=123                -> GET /products/123 (one product + variants)
+  // /printful-catalog?id=123&printfiles=1    -> GET /mockup-generator/printfiles/123
+  //   (per-placement print area specs: width/height px, dpi, fill_mode -- this is what
+  //   differs between e.g. a shirt's front/back vs its sleeves, and what we need before
+  //   ever generating a real print file for an order)
   const productId = url.searchParams.get("id");
   const categoryId = url.searchParams.get("category_id");
+  const wantsPrintfiles = url.searchParams.get("printfiles") === "1";
 
-  const printfulUrl = new URL(`${PRINTFUL_API_BASE}/products${productId ? `/${productId}` : ""}`);
-  if (categoryId) printfulUrl.searchParams.set("category_id", categoryId);
+  let printfulUrl;
+  if (productId && wantsPrintfiles) {
+    printfulUrl = new URL(`${PRINTFUL_API_BASE}/mockup-generator/printfiles/${productId}`);
+  } else {
+    printfulUrl = new URL(`${PRINTFUL_API_BASE}/products${productId ? `/${productId}` : ""}`);
+    if (categoryId) printfulUrl.searchParams.set("category_id", categoryId);
+  }
 
   const printfulRes = await fetch(printfulUrl, {
     headers: { Authorization: `Bearer ${apiKey}` }

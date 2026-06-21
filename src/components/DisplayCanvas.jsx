@@ -19,7 +19,7 @@ import {
   uploadDesignThumbnail,
   getThumbnailUrl
 } from '../lib/designs';
-import { listCatalogProducts, getCatalogProduct } from '../lib/printful';
+import { listCatalogProducts, getCatalogProduct, getPrintfileSpecs, STARTER_PRODUCT_IDS } from '../lib/printful';
 
 const BROWSE_PAGE_SIZE = 20;
 const THUMBNAIL_SIZE = 320;
@@ -1431,17 +1431,30 @@ export default class DisplayCanvas extends React.Component {
     this.setState({ catalogLoading: true, catalogError: null });
     try {
       const products = await listCatalogProducts();
-      this.setState({ catalogProducts: products, catalogLoading: false });
+      // Printful's full catalog is thousands of products with wildly different print
+      // specs -- start with a curated, spec-verified subset rather than overwhelming
+      // the picker with everything Printful sells (see STARTER_PRODUCT_IDS).
+      const starter = products.filter(p => STARTER_PRODUCT_IDS.includes(p.id));
+      this.setState({ catalogProducts: starter, catalogLoading: false });
     } catch (err) {
       this.setState({ catalogLoading: false, catalogError: err.message });
     }
   }
 
   async onCatalogProductClick(product) {
-    this.setState({ catalogSelected: { product, variants: null }, catalogSelectedLoading: true });
+    this.setState({
+      catalogSelected: { product, variants: null, printfileSpecs: null },
+      catalogSelectedLoading: true
+    });
     try {
-      const detail = await getCatalogProduct(product.id);
-      this.setState({ catalogSelected: detail, catalogSelectedLoading: false });
+      const [detail, printfileSpecs] = await Promise.all([
+        getCatalogProduct(product.id),
+        getPrintfileSpecs(product.id)
+      ]);
+      this.setState({
+        catalogSelected: { ...detail, printfileSpecs },
+        catalogSelectedLoading: false
+      });
     } catch (err) {
       this.setState({ catalogSelectedLoading: false, catalogError: err.message });
     }
@@ -2212,7 +2225,40 @@ export default class DisplayCanvas extends React.Component {
                       marginBottom: '10px'
                     }}
                   />
-                  {catalogSelectedLoading && <p>Loading variants…</p>}
+                  {catalogSelectedLoading && <p>Loading specs…</p>}
+                  {!catalogSelectedLoading && catalogSelected.printfileSpecs && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <p style={{ opacity: 0.7, fontSize: '12px', marginBottom: '6px' }}>
+                        Print placements
+                      </p>
+                      {Object.entries(catalogSelected.printfileSpecs.available_placements).map(
+                        ([placementKey, label]) => {
+                          const firstVariant = catalogSelected.printfileSpecs.variant_printfiles[0];
+                          const printfileId = firstVariant?.placements?.[placementKey];
+                          const spec = catalogSelected.printfileSpecs.printfiles.find(
+                            f => f.printfile_id === printfileId
+                          );
+                          return (
+                            <div
+                              key={placementKey}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                padding: '6px 0',
+                                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                                fontSize: '13px'
+                              }}
+                            >
+                              <span>{label}</span>
+                              <span style={{ opacity: 0.7 }}>
+                                {spec ? `${spec.width}×${spec.height}px @ ${spec.dpi} DPI` : '—'}
+                              </span>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  )}
                   {!catalogSelectedLoading && catalogSelected.variants && (
                     <div>
                       <p style={{ opacity: 0.7, fontSize: '12px', marginBottom: '6px' }}>
