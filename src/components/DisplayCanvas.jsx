@@ -11,9 +11,17 @@ import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { signInWithEmail, signUpWithEmail, signOut, onAuthChange } from '../lib/auth';
-import { saveDesign, listPublicDesigns, listMyDesigns, deleteDesign } from '../lib/designs';
+import {
+  saveDesign,
+  listPublicDesigns,
+  listMyDesigns,
+  deleteDesign,
+  uploadDesignThumbnail,
+  getThumbnailUrl
+} from '../lib/designs';
 
 const BROWSE_PAGE_SIZE = 20;
+const THUMBNAIL_SIZE = 320;
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -455,11 +463,27 @@ export default class DisplayCanvas extends React.Component {
 
     this.setState({ galleryStatus: 'saving', galleryError: null });
     try {
-      await saveDesign({ kind, data, isPublic: true });
+      const row = await saveDesign({ kind, data, isPublic: true });
       this.setState({ galleryStatus: 'saved' });
+      // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
+      this.uploadThumbnailFor(row.id, data).catch(err => console.error('Thumbnail upload failed:', err));
     } catch (err) {
       this.setState({ galleryStatus: null, galleryError: err.message });
     }
+  }
+
+  // Thumbnails are regenerated from the design's own seed/colors at a small size --
+  // the same recompose-per-ratio approach as the main renderer -- rather than a
+  // downscaled screenshot of the full-resolution canvas.
+  async uploadThumbnailFor(designId, data) {
+    const source = data.animation && data.frames ? data.frames[0] : data;
+    if (!source || source.seed === undefined) return;
+
+    const thumbConfig = generateArtwork(source.seed, THUMBNAIL_SIZE, THUMBNAIL_SIZE, source.colors);
+    const canvas = renderArtwork(thumbConfig, this.queue);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    this.clearElement(canvas);
+    await uploadDesignThumbnail(designId, blob);
   }
 
   loadImageFromUrl(config) {
@@ -1955,7 +1979,24 @@ export default class DisplayCanvas extends React.Component {
                     gap: '8px'
                   }}
                 >
-                  <span>{design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled image')}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                    <img
+                      src={getThumbnailUrl(design.user_id, design.id)}
+                      alt=""
+                      onError={e => { e.target.style.display = 'none'; }}
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        objectFit: 'cover',
+                        borderRadius: '4px',
+                        flexShrink: 0,
+                        background: 'rgba(255,255,255,0.05)'
+                      }}
+                    />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled image')}
+                    </span>
+                  </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                     <span style={{ opacity: 0.6, fontSize: '12px' }}>
                       {new Date(design.created_at).toLocaleDateString()}

@@ -76,6 +76,33 @@ export async function deleteDesign(id) {
   if (error) throw error;
 }
 
+const THUMBNAIL_BUCKET = 'design-thumbnails';
+
+// Upload a thumbnail for a design the signed-in user owns. Path is
+// `${user_id}/${design_id}.jpg` so storage RLS can key off the folder alone -- see
+// supabase/migrations/0002_design_thumbnails_storage.sql. upsert:true lets re-saving
+// regenerate a design's thumbnail in place.
+export async function uploadDesignThumbnail(designId, blob) {
+  const sb = client();
+  const user = await currentUser();
+  if (!user) throw new Error('You must be signed in to upload a thumbnail.');
+
+  const path = `${user.id}/${designId}.jpg`;
+  const { error } = await sb.storage
+    .from(THUMBNAIL_BUCKET)
+    .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+  if (error) throw error;
+}
+
+// Public URL for a design's thumbnail, keyed by the design's owner + id. Returns null
+// when Supabase isn't configured; callers should already be handling a missing/404
+// image (older designs predating this feature simply have nothing at this path).
+export function getThumbnailUrl(userId, designId) {
+  if (!isSupabaseConfigured || !userId) return null;
+  const path = `${userId}/${designId}.jpg`;
+  return supabase.storage.from(THUMBNAIL_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
 // Toggle the signed-in user's like on a design. Returns the new liked state.
 // designs.likes_count is kept in sync by a database trigger.
 export async function toggleLike(designId) {
