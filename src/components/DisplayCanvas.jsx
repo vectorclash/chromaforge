@@ -10,7 +10,7 @@ import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { signInWithEmail, signUpWithEmail, signOut, onAuthChange } from '../lib/auth';
+import { signInWithEmail, signUpWithEmail, signInWithGoogle, signOut, onAuthChange } from '../lib/auth';
 import {
   saveDesign,
   listPublicDesigns,
@@ -155,7 +155,7 @@ export default class DisplayCanvas extends React.Component {
       this.setState({ user });
       if (this.awaitingAuthRedirect && user) {
         this.awaitingAuthRedirect = false;
-        this.setState({ authNotice: { type: 'success', message: 'Email confirmed — you are signed in.' } });
+        this.setState({ authNotice: { type: 'success', message: 'Signed in.' } });
         gsap.delayedCall(5, () => this.setState({ authNotice: null }));
       }
     });
@@ -1280,6 +1280,17 @@ export default class DisplayCanvas extends React.Component {
     }
   }
 
+  async onGoogleSignInClick(e) {
+    this.setState({ authBusy: true, authError: null });
+    try {
+      await signInWithGoogle();
+      // Page redirects to Google here -- nothing left to do; the rest of the flow
+      // resumes in handleAuthRedirect/onAuthChange after Google sends the user back.
+    } catch (err) {
+      this.setState({ authBusy: false, authError: err.message });
+    }
+  }
+
   async onSignOutClick(e) {
     this.setState({ authBusy: true });
     try {
@@ -1920,6 +1931,14 @@ export default class DisplayCanvas extends React.Component {
                   onClick={() => this.onAuthModeToggle(authMode === 'signup' ? 'signin' : 'signup')}
                 >
                   {authMode === 'signup' ? 'Have an account? Sign In' : 'Need an account? Sign Up'}
+                </button>
+                <button
+                  type="button"
+                  className="button-medium"
+                  onClick={this.onGoogleSignInClick.bind(this)}
+                  disabled={authBusy}
+                >
+                  Continue with Google
                 </button>
               </form>
             )}

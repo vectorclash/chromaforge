@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 
-// Thin auth layer over Supabase. Email/password to start (zero extra project config);
-// Google OAuth can be added later as another sign-in method without changing callers.
+// Thin auth layer over Supabase. Email/password plus Google OAuth as a second sign-in
+// method (Google provider configured in the Supabase dashboard, not here).
 
 function client() {
   if (!isSupabaseConfigured) {
@@ -34,6 +34,18 @@ export async function signInWithEmail(email, password) {
   const { data, error } = await client().auth.signInWithPassword({ email, password });
   if (error) throw error;
   return { user: data.user, session: data.session };
+}
+
+// Redirects the whole page to Google, then back to redirectTo (current origin) with the
+// session in the URL hash -- handled by onAuthChange + the existing redirect-cleanup
+// logic in DisplayCanvas (see handleAuthRedirect), the same as the email-confirmation flow.
+// There's no return value: the caller's component unmounts as the redirect happens.
+export async function signInWithGoogle() {
+  const { error } = await client().auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin }
+  });
+  if (error) throw error;
 }
 
 export async function signOut() {
