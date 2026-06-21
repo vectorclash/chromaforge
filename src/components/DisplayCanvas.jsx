@@ -11,7 +11,9 @@ import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { signInWithEmail, signUpWithEmail, signOut, onAuthChange } from '../lib/auth';
-import { saveDesign, listPublicDesigns, listMyDesigns } from '../lib/designs';
+import { saveDesign, listPublicDesigns, listMyDesigns, deleteDesign } from '../lib/designs';
+
+const BROWSE_PAGE_SIZE = 20;
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -121,6 +123,8 @@ export default class DisplayCanvas extends React.Component {
       browseTab: 'public',
       browseDesigns: [],
       browseLoading: false,
+      browseLoadingMore: false,
+      browseHasMore: false,
       browseError: null,
     };
     this.nextColorId = 0;
@@ -1300,12 +1304,52 @@ export default class DisplayCanvas extends React.Component {
   }
 
   async loadBrowseDesigns(tab) {
-    this.setState({ browseLoading: true, browseError: null });
+    this.setState({ browseLoading: true, browseError: null, browseHasMore: false });
     try {
-      const designs = tab === 'mine' ? await listMyDesigns() : await listPublicDesigns();
-      this.setState({ browseDesigns: designs, browseLoading: false });
+      // listMyDesigns isn't paginated -- a single user's own designs are assumed to stay
+      // small enough to load in one page. Public feed pages by the BROWSE_PAGE_SIZE limit.
+      const designs = tab === 'mine'
+        ? await listMyDesigns()
+        : await listPublicDesigns({ limit: BROWSE_PAGE_SIZE });
+      this.setState({
+        browseDesigns: designs,
+        browseLoading: false,
+        browseHasMore: tab === 'public' && designs.length === BROWSE_PAGE_SIZE
+      });
     } catch (err) {
       this.setState({ browseLoading: false, browseError: err.message });
+    }
+  }
+
+  async onLoadMoreBrowseDesigns() {
+    const { browseDesigns } = this.state;
+    const cursor = browseDesigns[browseDesigns.length - 1]?.created_at;
+    if (!cursor) return;
+
+    this.setState({ browseLoadingMore: true });
+    try {
+      const more = await listPublicDesigns({ limit: BROWSE_PAGE_SIZE, before: cursor });
+      this.setState({
+        browseDesigns: [...browseDesigns, ...more],
+        browseLoadingMore: false,
+        browseHasMore: more.length === BROWSE_PAGE_SIZE
+      });
+    } catch (err) {
+      this.setState({ browseLoadingMore: false, browseError: err.message });
+    }
+  }
+
+  async onDeleteBrowsedDesign(e, design) {
+    e.stopPropagation();
+    if (!window.confirm('Delete this design? This can\'t be undone.')) return;
+
+    try {
+      await deleteDesign(design.id);
+      this.setState(state => ({
+        browseDesigns: state.browseDesigns.filter(d => d.id !== design.id)
+      }));
+    } catch (err) {
+      this.setState({ browseError: err.message });
     }
   }
 
@@ -1490,6 +1534,8 @@ export default class DisplayCanvas extends React.Component {
       browseTab,
       browseDesigns,
       browseLoading,
+      browseLoadingMore,
+      browseHasMore,
       browseError,
     } = this.state;
 
@@ -1904,15 +1950,47 @@ export default class DisplayCanvas extends React.Component {
                     borderRadius: '4px',
                     marginBottom: '8px',
                     display: 'flex',
-                    justifyContent: 'space-between'
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px'
                   }}
                 >
                   <span>{design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled image')}</span>
-                  <span style={{ opacity: 0.6, fontSize: '12px' }}>
-                    {new Date(design.created_at).toLocaleDateString()}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                    <span style={{ opacity: 0.6, fontSize: '12px' }}>
+                      {new Date(design.created_at).toLocaleDateString()}
+                    </span>
+                    {browseTab === 'mine' && (
+                      <button
+                        type="button"
+                        onClick={e => this.onDeleteBrowsedDesign(e, design)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'inherit',
+                          opacity: 0.6,
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          padding: 0
+                        }}
+                        aria-label="Delete design"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </span>
                 </div>
               ))}
+              {browseTab === 'public' && browseHasMore && (
+                <button
+                  type="button"
+                  className="button-small"
+                  onClick={this.onLoadMoreBrowseDesigns.bind(this)}
+                  disabled={browseLoadingMore}
+                >
+                  {browseLoadingMore ? 'Loading…' : 'Load More'}
+                </button>
+              )}
             </div>
 
             <div className="row">
