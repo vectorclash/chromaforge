@@ -77,17 +77,25 @@ from print rendering above (video vs. still images) — don't conflate the two.
   existing share-link, which still works for everyone), and a Gallery panel
   (Public / My Designs tabs) that lists saved designs and reloads one onto the canvas on
   click.
-- **Gallery is intentionally minimal**: no thumbnails (designs are seed-based, not stored
-  as images — thumbnailing would mean rendering each one, a separate piece of work), no
-  delete-from-gallery action, no pagination (`listPublicDesigns`'s `before` cursor param
-  exists but isn't wired to infinite scroll).
+- **Gallery now has thumbnails, delete, and pagination.** Saving a design regenerates it
+  from its own seed/colors at 320x320 (recompose-per-ratio, same approach as the main
+  renderer — not a downscaled screenshot of the full canvas) and uploads it to the
+  `design-thumbnails` Supabase Storage bucket (`supabase/migrations/
+  0002_design_thumbnails_storage.sql`), keyed by `${user_id}/${design_id}.jpg` so RLS can
+  check ownership from the path alone — no DB column tracks "has a thumbnail"; a missing
+  object just 404s client-side (`<img onError>` hides it), which is what happens for
+  designs saved before this existed. My Designs has a per-row Delete (wired to the
+  existing `deleteDesign`); the Public tab pages 20 at a time via `listPublicDesigns`'s
+  `before` cursor with a "Load More" button.
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable
   (e.g. dev server not running yet), the token is still consumed — a retry click will
-  show "invalid or expired" even though the account was already confirmed. The redirect
-  URL is currently set to `localhost:5173` in Supabase Auth → URL Configuration; it should
-  point at `chromaforge.app` for real users — not yet changed.
+  show "invalid or expired" even though the account was already confirmed. Fixed by
+  passing `emailRedirectTo: window.location.origin` in `signUpWithEmail` (`auth.js`) so
+  the link targets whichever environment the user actually signed up from; both
+  `localhost:5173` and `chromaforge.app` need to be in Supabase Auth → URL Configuration's
+  redirect allow-list for this to work (already added).
 
 ### Styling: Tailwind v4, fully migrated (not partial)
 The whole app was migrated from SCSS to Tailwind v4 + a small custom-CSS layer — this was
@@ -131,8 +139,7 @@ verified live, not yet pushed to `master` as of this writing — confirm it's be
 before assuming it's deployed).
 
 **Not yet started:** Printful/Stripe integration, server-side print rendering,
-ratio-aware generation tuning, gallery thumbnails/delete/pagination, pointing the
-Supabase email-redirect URL at `chromaforge.app` instead of `localhost:5173`.
+ratio-aware generation tuning.
 
 ## Local setup (new machine / clone)
 
