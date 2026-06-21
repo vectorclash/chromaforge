@@ -1,0 +1,20 @@
+import React from 'react';
+import DisplayCanvas from '../components/DisplayCanvas';
+import { useStudio } from '../context/StudioContext';
+
+// The generative studio: the dark, full-bleed canvas at "/". Wraps the existing
+// DisplayCanvas and feeds the current design into StudioContext so the store routes can
+// render mockups of it. The canvas keeps its own immersive identity and floating controls;
+// only the store/account/gallery routes get the light site chrome.
+export default function StudioPage() {
+  const { setCurrentDesign } = useStudio();
+
+  let width = 3840;
+  let height = 2160;
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+    width = 2160;
+    height = 2160;
+  }
+
+  return <DisplayCanvas width={width} height={height} onDesignChange={setCurrentDesign} />;
+}

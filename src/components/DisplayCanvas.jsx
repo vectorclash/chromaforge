@@ -287,6 +287,10 @@ export default class DisplayCanvas extends React.Component {
     }
     const config = generateArtwork(seed, width, height, colorValues);
     this.mainConfig = config;
+    // Mirror the current design into StudioContext (via StudioPage) so store routes can
+    // render mockups of it without the canvas being mounted. No-op when rendered outside
+    // the router (defensive).
+    this.props.onDesignChange?.(config);
     return config;
   }
 

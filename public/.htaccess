@@ -1,0 +1,18 @@
+# SPA fallback for the client-side router (react-router BrowserRouter).
+# chromaforge.app is served by Apache on Hostinger; without this, deep links and
+# hard refreshes of client routes (e.g. /shop, /gallery, /account) would 404 because
+# the server looks for literal files/dirs by those names. This rewrites any request
+# that isn't a real file or directory to index.html, letting React Router resolve it.
+#
+# Vite copies everything in public/ into dist/, and the FTP deploy syncs dist/ to the
+# web root, so this lands at the site root automatically. Real assets (JS/CSS/images,
+# and the existing /createjs.min.js, /jscolor.js globals) are served directly because
+# of the RewriteCond file/dir checks below.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
