@@ -68,10 +68,26 @@ from print rendering above (video vs. still images) — don't conflate the two.
   designs↔profiles join path that confuses PostgREST otherwise.
 - **Decision: email/password auth first**, Google OAuth deferred (needs separate Google
   Cloud setup, not yet started).
-- Backend is live and was verified against the real Supabase project (connection, RLS,
-  the embed query, auth endpoint all checked). **Not yet wired into the UI** — no sign-in
-  panel, Save doesn't persist to Supabase yet, no gallery view. That's the next real
-  feature to build.
+- Backend is live and verified against the real Supabase project (connection, RLS, the
+  embed query, auth endpoint all checked). **Now wired into the UI**, all in
+  `DisplayCanvas.jsx`: a Sign In/Account panel (email/password, with a banner handling
+  Supabase's email-confirmation redirect — it lands back on the app with a token in the
+  URL hash, which needs explicit UI feedback since `supabase-js` consumes it silently),
+  Save now also persists to the `designs` table for signed-in users (alongside the
+  existing share-link, which still works for everyone), and a Gallery panel
+  (Public / My Designs tabs) that lists saved designs and reloads one onto the canvas on
+  click.
+- **Gallery is intentionally minimal**: no thumbnails (designs are seed-based, not stored
+  as images — thumbnailing would mean rendering each one, a separate piece of work), no
+  delete-from-gallery action, no pagination (`listPublicDesigns`'s `before` cursor param
+  exists but isn't wired to infinite scroll).
+- **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
+  first (not the app directly), which consumes the one-time token and *then* redirects to
+  the app's redirect URL with the session in the hash. If that redirect URL is unreachable
+  (e.g. dev server not running yet), the token is still consumed — a retry click will
+  show "invalid or expired" even though the account was already confirmed. The redirect
+  URL is currently set to `localhost:5173` in Supabase Auth → URL Configuration; it should
+  point at `chromaforge.app` for real users — not yet changed.
 
 ### Styling: Tailwind v4, fully migrated (not partial)
 The whole app was migrated from SCSS to Tailwind v4 + a small custom-CSS layer — this was
@@ -108,12 +124,15 @@ alone, because "do it now while the app is small." It's done and merged to `mast
 
 `master` is deployed (push triggers GitHub Actions → FTP → chromaforge.app). As of the
 last push, live includes: the seed-based renderer (Phases 1–2 of the print pipeline), the
-Supabase backend scaffold (not yet wired into the UI), the full Tailwind migration, and a
-batch of ColorField drag-and-drop fixes (dead-zone hit-testing, swap-instead-of-insert
-reorder logic, a perf throttle, a listener-leak fix) plus the jscolor picker theming.
+full Tailwind migration, a batch of ColorField drag-and-drop fixes (dead-zone hit-testing,
+swap-instead-of-insert reorder logic, a perf throttle, a listener-leak fix) plus the
+jscolor picker theming, and the Supabase auth/save/gallery UI described above (built and
+verified live, not yet pushed to `master` as of this writing — confirm it's been committed
+before assuming it's deployed).
 
-**Not yet started:** auth UI, Save→Supabase wiring, gallery panel, Printful/Stripe
-integration, server-side print rendering, ratio-aware generation tuning.
+**Not yet started:** Printful/Stripe integration, server-side print rendering,
+ratio-aware generation tuning, gallery thumbnails/delete/pagination, pointing the
+Supabase email-redirect URL at `chromaforge.app` instead of `localhost:5173`.
 
 ## Local setup (new machine / clone)
 

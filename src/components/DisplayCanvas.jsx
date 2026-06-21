@@ -9,6 +9,9 @@ import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { signInWithEmail, signUpWithEmail, signOut, onAuthChange } from '../lib/auth';
+import { saveDesign, listPublicDesigns, listMyDesigns } from '../lib/designs';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -103,6 +106,22 @@ export default class DisplayCanvas extends React.Component {
       settingsTab: 'color',
       animTiming: null,
       settingsDirty: false,
+      user: null,
+      accountVisible: false,
+      authMode: 'signin',
+      authEmail: '',
+      authPassword: '',
+      authError: null,
+      authMessage: null,
+      authBusy: false,
+      galleryStatus: null,
+      galleryError: null,
+      authNotice: null,
+      browseVisible: false,
+      browseTab: 'public',
+      browseDesigns: [],
+      browseLoading: false,
+      browseError: null,
     };
     this.nextColorId = 0;
   }
@@ -118,6 +137,42 @@ export default class DisplayCanvas extends React.Component {
     this.queue.loadManifest(queueItems);
 
     this.checkAudioExportSupport();
+    this.handleAuthRedirect();
+
+    this.unsubscribeAuth = onAuthChange(user => {
+      this.setState({ user });
+      if (this.awaitingAuthRedirect && user) {
+        this.awaitingAuthRedirect = false;
+        this.setState({ authNotice: { type: 'success', message: 'Email confirmed — you are signed in.' } });
+        gsap.delayedCall(5, () => this.setState({ authNotice: null }));
+      }
+    });
+  }
+
+  // Supabase confirmation/reset links land back here with tokens in the URL hash (or an
+  // error_description if the link expired/was reused). supabase-js consumes the hash
+  // asynchronously and fires onAuthChange once the session is set — there's no other signal
+  // that the redirect happened, so we flag it here and surface a banner from that callback.
+  // Strip the hash either way so a refresh doesn't re-process stale tokens.
+  handleAuthRedirect() {
+    const hash = window.location.hash;
+    if (!hash || (!hash.includes('access_token') && !hash.includes('error'))) return;
+
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const errorDescription = params.get('error_description');
+
+    if (errorDescription) {
+      this.setState({ authNotice: { type: 'error', message: decodeURIComponent(errorDescription.replace(/\+/g, ' ')) } });
+      gsap.delayedCall(8, () => this.setState({ authNotice: null }));
+    } else {
+      this.awaitingAuthRedirect = true;
+    }
+
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+  }
+
+  componentWillUnmount() {
+    this.unsubscribeAuth?.();
   }
 
   async checkAudioExportSupport() {
@@ -359,6 +414,7 @@ export default class DisplayCanvas extends React.Component {
       this.shareUrl = shareUrl;
       this.setState({ isSaved: true, isSaving: false, isLoading: false });
       this.openSavePanel();
+      this.saveToGallery('animation', { animation: true, frames: this.animationConfigs });
     } else {
       this.setState({ isSaved: false, isSaving: false });
       console.error('Failed to generate animation share URL');
@@ -378,12 +434,27 @@ export default class DisplayCanvas extends React.Component {
       });
 
       this.openSavePanel();
+      this.saveToGallery('image', this.mainConfig);
     } else {
       this.setState({
         isSaved: false,
         isSaving: false
       });
       console.error('Failed to generate share URL');
+    }
+  }
+
+  // Persist the design for signed-in users alongside the always-available share link.
+  // Silently no-ops when signed out — the share link is the only saved state in that case.
+  async saveToGallery(kind, data) {
+    if (!this.state.user) return;
+
+    this.setState({ galleryStatus: 'saving', galleryError: null });
+    try {
+      await saveDesign({ kind, data, isPublic: true });
+      this.setState({ galleryStatus: 'saved' });
+    } catch (err) {
+      this.setState({ galleryStatus: null, galleryError: err.message });
     }
   }
 
@@ -1117,8 +1188,145 @@ export default class DisplayCanvas extends React.Component {
     this.setState({
       controlsBlurred: false,
       saveVisible: false,
-      linkCopied: false
+      linkCopied: false,
+      galleryStatus: null,
+      galleryError: null
     });
+  }
+
+  onAccountButtonClick(e) {
+    gsap.to('#controls-main', {
+      duration: 0.2,
+      alpha: 0.5,
+      scale: 0.9,
+      filter: 'blur(3px)',
+      ease: 'back.out(1.7)'
+    });
+
+    gsap.from('#controls-account', {
+      duration: 0.2,
+      alpha: 0,
+      scale: 1.2,
+      ease: 'back.out(1.7)'
+    });
+
+    this.setState({ accountVisible: true, authError: null, authMessage: null });
+  }
+
+  onAccountCloseButtonClick(e) {
+    gsap.to('#controls-main', {
+      duration: 0.2,
+      alpha: 0.9,
+      scale: 1,
+      filter: 'blur(0px)',
+      ease: 'back.out(1.7)'
+    });
+
+    this.setState({ accountVisible: false, authError: null, authMessage: null });
+  }
+
+  onAuthModeToggle(mode) {
+    this.setState({ authMode: mode, authError: null, authMessage: null });
+  }
+
+  async onAuthFormSubmit(e) {
+    e.preventDefault();
+    const { authMode, authEmail, authPassword } = this.state;
+    this.setState({ authBusy: true, authError: null, authMessage: null });
+
+    try {
+      if (authMode === 'signup') {
+        const { needsConfirmation } = await signUpWithEmail(authEmail, authPassword);
+        this.setState({
+          authBusy: false,
+          authMessage: needsConfirmation
+            ? 'Check your inbox to confirm your email, then sign in.'
+            : 'Account created.'
+        });
+      } else {
+        await signInWithEmail(authEmail, authPassword);
+        this.setState({ authBusy: false, authEmail: '', authPassword: '', authMessage: null });
+      }
+    } catch (err) {
+      this.setState({ authBusy: false, authError: err.message });
+    }
+  }
+
+  async onSignOutClick(e) {
+    this.setState({ authBusy: true });
+    try {
+      await signOut();
+      this.setState({ authBusy: false, authMessage: null, authError: null });
+    } catch (err) {
+      this.setState({ authBusy: false, authError: err.message });
+    }
+  }
+
+  onBrowseButtonClick(e) {
+    gsap.to('#controls-main', {
+      duration: 0.2,
+      alpha: 0.5,
+      scale: 0.9,
+      filter: 'blur(3px)',
+      ease: 'back.out(1.7)'
+    });
+
+    gsap.from('#controls-browse', {
+      duration: 0.2,
+      alpha: 0,
+      scale: 1.2,
+      ease: 'back.out(1.7)'
+    });
+
+    this.setState({ browseVisible: true });
+    this.loadBrowseDesigns(this.state.browseTab);
+  }
+
+  onBrowseCloseButtonClick(e) {
+    gsap.to('#controls-main', {
+      duration: 0.2,
+      alpha: 0.9,
+      scale: 1,
+      filter: 'blur(0px)',
+      ease: 'back.out(1.7)'
+    });
+
+    this.setState({ browseVisible: false });
+  }
+
+  onBrowseTabClick(tab) {
+    this.setState({ browseTab: tab });
+    this.loadBrowseDesigns(tab);
+  }
+
+  async loadBrowseDesigns(tab) {
+    this.setState({ browseLoading: true, browseError: null });
+    try {
+      const designs = tab === 'mine' ? await listMyDesigns() : await listPublicDesigns();
+      this.setState({ browseDesigns: designs, browseLoading: false });
+    } catch (err) {
+      this.setState({ browseLoading: false, browseError: err.message });
+    }
+  }
+
+  onLoadBrowsedDesign(design) {
+    this.onBrowseCloseButtonClick();
+    this.onSettingsCloseButtonClick();
+
+    const data = design.data;
+    if (data && data.animation && data.frames) {
+      this.setState({
+        animationMode: true,
+        isLoading: true,
+        isSaved: true,
+        generateDisabled: true,
+        animationProgress: 0
+      });
+      this.loadAnimationFromConfigs(data.frames);
+    } else {
+      this.setState({ isLoading: true, isSaved: true });
+      this.loadImageFromUrl(data);
+    }
   }
 
   onClearColors() {
@@ -1267,6 +1475,22 @@ export default class DisplayCanvas extends React.Component {
       settingsTab,
       animTiming,
       settingsDirty,
+      user,
+      accountVisible,
+      authMode,
+      authEmail,
+      authPassword,
+      authError,
+      authMessage,
+      authBusy,
+      galleryStatus,
+      galleryError,
+      authNotice,
+      browseVisible,
+      browseTab,
+      browseDesigns,
+      browseLoading,
+      browseError,
     } = this.state;
 
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
@@ -1279,6 +1503,16 @@ export default class DisplayCanvas extends React.Component {
         }}
       >
         {isLoading ? <HexagonLoader /> : ''}
+        {authNotice && (
+          <div
+            className={
+              'absolute left-1/2 top-[25px] z-20 -translate-x-1/2 rounded-xl px-5 py-3 text-center text-sm shadow-[0_4px_40px_rgba(0,0,0,0.4)] backdrop-blur-md ' +
+              (authNotice.type === 'error' ? 'bg-red-900/70 text-red-50' : 'bg-black/60 text-white')
+            }
+          >
+            {authNotice.message}
+          </div>
+        )}
         <div
           className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
           onClick={this.onCloseButtonClick.bind(this)}
@@ -1395,6 +1629,12 @@ export default class DisplayCanvas extends React.Component {
               <h1>
                 CHROMA<b>FORGE</b>
               </h1>
+              <button onClick={this.onBrowseButtonClick.bind(this)} className="button-small">
+                Gallery
+              </button>
+              <button onClick={this.onAccountButtonClick.bind(this)} className="button-small">
+                {this.state.user ? 'Account' : 'Sign In'}
+              </button>
               <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
                 <SettingsButton />
               </button>
@@ -1537,10 +1777,147 @@ export default class DisplayCanvas extends React.Component {
                 {this.shareUrl || 'Generating link...'}
               </div>
               {linkCopied ? <p className="alert">Link copied to clipboard</p> : ''}
+              {user && galleryStatus === 'saving' && <p>Saving to your gallery…</p>}
+              {user && galleryStatus === 'saved' && <p>Saved to your gallery.</p>}
+              {user && galleryError && <p className="alert">Gallery save failed: {galleryError}</p>}
+              {!user && <p>Sign in to also save this to your gallery.</p>}
             </div>
             <div className="row">
               <button
                 onClick={this.onSettingsCloseButtonClick.bind(this)}
+                className="button-medium"
+              >
+                BACK
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="controls-account"
+            className={
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (accountVisible ? ' controls-visible' : '')
+            }
+          >
+            {!isSupabaseConfigured ? (
+              <div className="row text-container">
+                <h6>Accounts unavailable</h6>
+                <p>Supabase isn&apos;t configured in this environment.</p>
+              </div>
+            ) : user ? (
+              <div className="row text-container">
+                <h6>Signed in</h6>
+                <p>{user.email}</p>
+                {authError && <p className="alert">{authError}</p>}
+                <button
+                  onClick={this.onSignOutClick.bind(this)}
+                  className="button-medium"
+                  disabled={authBusy}
+                >
+                  {authBusy ? 'Signing out…' : 'Sign Out'}
+                </button>
+              </div>
+            ) : (
+              <form className="row text-container" onSubmit={this.onAuthFormSubmit.bind(this)}>
+                <h6>{authMode === 'signup' ? 'Create Account' : 'Sign In'}</h6>
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={authEmail}
+                  onChange={e => this.setState({ authEmail: e.target.value })}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={authPassword}
+                  onChange={e => this.setState({ authPassword: e.target.value })}
+                  minLength={6}
+                  required
+                />
+                {authError && <p className="alert">{authError}</p>}
+                {authMessage && <p className="alert">{authMessage}</p>}
+                <button type="submit" className="button-medium" disabled={authBusy}>
+                  {authBusy
+                    ? 'Please wait…'
+                    : authMode === 'signup'
+                      ? 'Sign Up'
+                      : 'Sign In'}
+                </button>
+                <button
+                  type="button"
+                  className="button-small"
+                  onClick={() => this.onAuthModeToggle(authMode === 'signup' ? 'signin' : 'signup')}
+                >
+                  {authMode === 'signup' ? 'Have an account? Sign In' : 'Need an account? Sign Up'}
+                </button>
+              </form>
+            )}
+            <div className="row">
+              <button
+                onClick={this.onAccountCloseButtonClick.bind(this)}
+                className="button-medium"
+              >
+                BACK
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="controls-browse"
+            className={
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] max-h-[70vh] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (browseVisible ? ' controls-visible' : '')
+            }
+          >
+            <div className="settings-tabs">
+              <button
+                className={'settings-tab-btn' + (browseTab === 'public' ? ' active' : '')}
+                onClick={() => this.onBrowseTabClick('public')}
+              >
+                Public
+              </button>
+              {user && (
+                <button
+                  className={'settings-tab-btn' + (browseTab === 'mine' ? ' active' : '')}
+                  onClick={() => this.onBrowseTabClick('mine')}
+                >
+                  My Designs
+                </button>
+              )}
+            </div>
+
+            <div className="row text-container" style={{ overflowY: 'auto', maxHeight: '40vh' }}>
+              {browseLoading && <p>Loading…</p>}
+              {browseError && <p className="alert">{browseError}</p>}
+              {!browseLoading && !browseError && browseDesigns.length === 0 && (
+                <p>{browseTab === 'mine' ? 'You haven’t saved any designs yet.' : 'No public designs yet.'}</p>
+              )}
+              {!browseLoading && browseDesigns.map(design => (
+                <div
+                  key={design.id}
+                  onClick={() => this.onLoadBrowsedDesign(design)}
+                  style={{
+                    cursor: 'pointer',
+                    padding: '10px',
+                    background: 'rgba(0,0,0,0.2)',
+                    borderRadius: '4px',
+                    marginBottom: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between'
+                  }}
+                >
+                  <span>{design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled image')}</span>
+                  <span style={{ opacity: 0.6, fontSize: '12px' }}>
+                    {new Date(design.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="row">
+              <button
+                onClick={this.onBrowseCloseButtonClick.bind(this)}
                 className="button-medium"
               >
                 BACK
