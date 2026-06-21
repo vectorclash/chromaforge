@@ -1521,7 +1521,18 @@ export default class DisplayCanvas extends React.Component {
       const task = await getMockupTask(taskId);
       if (task.status === 'completed') {
         const images = task.catalog_variant_mockups?.[0]?.mockups || [];
-        this.setState({ mockupStatus: 'completed', mockupImages: images });
+        // Printful returns one entry per placement we submitted, but placements visible
+        // in the same camera angle (e.g. front + both sleeves all show up in one front
+        // photo) render pixel-identical images -- confirmed live, identical MD5s -- each
+        // re-uploaded to its own throwaway URL, so dedupe by style_id (the actual photo
+        // angle) rather than mockup_url, which differs every time even for the same shot.
+        const seenStyles = new Set();
+        const uniqueImages = images.filter(img => {
+          if (seenStyles.has(img.style_id)) return false;
+          seenStyles.add(img.style_id);
+          return true;
+        });
+        this.setState({ mockupStatus: 'completed', mockupImages: uniqueImages });
         return;
       }
       if (task.status === 'failed') {
