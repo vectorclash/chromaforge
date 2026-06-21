@@ -4,9 +4,19 @@
 // charge anything; it's a free preview render. Still gated behind verify_jwt so only
 // signed-in app users can spend Printful's (rate-limited) mockup quota.
 //
+// Uses the v2 Mockup Generator API (/v2/mockup-tasks), not v1
+// (/mockup-generator/create-task). v1 returned a task_key and accepted the task but every
+// actual render came back "Internal Server Error" for our all-over-print products -- v1's
+// mockup generator predates AOP/cut-and-sew construction. v2 models a placement as
+// { placement, technique, layers: [{ type: 'file', url }] } instead of v1's flat
+// { placement, image_url, position }, and requires the X-PF-Store-Id header v1 doesn't use.
+//
 // Deploy with: npx supabase functions deploy printful-mockup
 
-const PRINTFUL_API_BASE = "https://api.printful.com";
+const PRINTFUL_API_BASE = "https://api.printful.com/v2";
+
+// Not a secret -- store IDs are just account identifiers, same sensitivity as a username.
+const STORE_ID = "18363066";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,35 +36,53 @@ Deno.serve(async req => {
     );
   }
 
+  const printfulHeaders = {
+    Authorization: `Bearer ${apiKey}`,
+    "X-PF-Store-Id": STORE_ID,
+    "Content-Type": "application/json"
+  };
+
   const url = new URL(req.url);
 
   if (req.method === "POST") {
-    // Create a mockup task: { productId, variantIds, files: [{ placement, image_url }] }
+    // Create a mockup task.
+    // Body: { productId, variantIds, placements: [{ placement, technique, layers: [{ type, url }] }],
+    //         format, productOptions? } -- productOptions covers per-product config some catalog
+    //         items require (e.g. this hoodie's stitch_color), surfaced by
+    //         GET /products/{id} -> result.product.options.
     const body = await req.json();
-    const { productId, variantIds, files, format = "jpg" } = body;
+    const { productId, variantIds, placements, format = "jpg", productOptions } = body;
 
-    const printfulRes = await fetch(
-      `${PRINTFUL_API_BASE}/mockup-generator/create-task/${productId}`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ variant_ids: variantIds, files, format })
-      }
-    );
+    const printfulRes = await fetch(`${PRINTFUL_API_BASE}/mockup-tasks`, {
+      method: "POST",
+      headers: printfulHeaders,
+      body: JSON.stringify({
+        format,
+        products: [
+          {
+            source: "catalog",
+            catalog_product_id: productId,
+            catalog_variant_ids: variantIds,
+            placements,
+            ...(productOptions ? { product_options: productOptions } : {})
+          }
+        ]
+      })
+    });
     const data = await printfulRes.json();
     return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
   }
 
   if (req.method === "GET") {
-    // Poll a task: /printful-mockup?task_key=xxx
-    const taskKey = url.searchParams.get("task_key");
-    if (!taskKey) {
-      return Response.json({ error: "task_key is required" }, { status: 400, headers: corsHeaders });
+    // Poll a task: /printful-mockup?id=xxx
+    const taskId = url.searchParams.get("id");
+    if (!taskId) {
+      return Response.json({ error: "id is required" }, { status: 400, headers: corsHeaders });
     }
 
     const printfulRes = await fetch(
-      `${PRINTFUL_API_BASE}/mockup-generator/task?task_key=${encodeURIComponent(taskKey)}`,
-      { headers: { Authorization: `Bearer ${apiKey}` } }
+      `${PRINTFUL_API_BASE}/mockup-tasks?id=${encodeURIComponent(taskId)}`,
+      { headers: printfulHeaders }
     );
     const data = await printfulRes.json();
     return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
