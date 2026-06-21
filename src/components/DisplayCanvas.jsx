@@ -19,6 +19,7 @@ import {
   uploadDesignThumbnail,
   getThumbnailUrl
 } from '../lib/designs';
+import { listCatalogProducts, getCatalogProduct } from '../lib/printful';
 
 const BROWSE_PAGE_SIZE = 20;
 const THUMBNAIL_SIZE = 320;
@@ -134,6 +135,12 @@ export default class DisplayCanvas extends React.Component {
       browseLoadingMore: false,
       browseHasMore: false,
       browseError: null,
+      catalogVisible: false,
+      catalogProducts: [],
+      catalogLoading: false,
+      catalogError: null,
+      catalogSelected: null,
+      catalogSelectedLoading: false,
     };
     this.nextColorId = 0;
   }
@@ -1388,6 +1395,62 @@ export default class DisplayCanvas extends React.Component {
     }
   }
 
+  onCatalogButtonClick(e) {
+    gsap.to('#controls-main', {
+      duration: 0.2,
+      alpha: 0.5,
+      scale: 0.9,
+      filter: 'blur(3px)',
+      ease: 'back.out(1.7)'
+    });
+
+    gsap.from('#controls-catalog', {
+      duration: 0.2,
+      alpha: 0,
+      scale: 1.2,
+      ease: 'back.out(1.7)'
+    });
+
+    this.setState({ catalogVisible: true });
+    if (this.state.catalogProducts.length === 0) this.loadCatalogProducts();
+  }
+
+  onCatalogCloseButtonClick(e) {
+    gsap.to('#controls-main', {
+      duration: 0.2,
+      alpha: 0.9,
+      scale: 1,
+      filter: 'blur(0px)',
+      ease: 'back.out(1.7)'
+    });
+
+    this.setState({ catalogVisible: false, catalogSelected: null });
+  }
+
+  async loadCatalogProducts() {
+    this.setState({ catalogLoading: true, catalogError: null });
+    try {
+      const products = await listCatalogProducts();
+      this.setState({ catalogProducts: products, catalogLoading: false });
+    } catch (err) {
+      this.setState({ catalogLoading: false, catalogError: err.message });
+    }
+  }
+
+  async onCatalogProductClick(product) {
+    this.setState({ catalogSelected: { product, variants: null }, catalogSelectedLoading: true });
+    try {
+      const detail = await getCatalogProduct(product.id);
+      this.setState({ catalogSelected: detail, catalogSelectedLoading: false });
+    } catch (err) {
+      this.setState({ catalogSelectedLoading: false, catalogError: err.message });
+    }
+  }
+
+  onCatalogBackToListClick() {
+    this.setState({ catalogSelected: null });
+  }
+
   onLoadBrowsedDesign(design) {
     this.onBrowseCloseButtonClick();
     this.onSettingsCloseButtonClick();
@@ -1572,6 +1635,12 @@ export default class DisplayCanvas extends React.Component {
       browseLoadingMore,
       browseHasMore,
       browseError,
+      catalogVisible,
+      catalogProducts,
+      catalogLoading,
+      catalogError,
+      catalogSelected,
+      catalogSelectedLoading,
     } = this.state;
 
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
@@ -1712,6 +1781,9 @@ export default class DisplayCanvas extends React.Component {
               </h1>
               <button onClick={this.onBrowseButtonClick.bind(this)} className="button-small">
                 Gallery
+              </button>
+              <button onClick={this.onCatalogButtonClick.bind(this)} className="button-small">
+                Print Catalog
               </button>
               <button onClick={this.onAccountButtonClick.bind(this)} className="button-small">
                 {this.state.user ? 'Account' : 'Sign In'}
@@ -2056,6 +2128,120 @@ export default class DisplayCanvas extends React.Component {
             <div className="row">
               <button
                 onClick={this.onBrowseCloseButtonClick.bind(this)}
+                className="button-medium"
+              >
+                BACK
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="controls-catalog"
+            className={
+              'controls-inner controls-settings absolute z-[1] flex min-w-[400px] max-h-[70vh] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+              (catalogVisible ? ' controls-visible' : '')
+            }
+          >
+            <div className="row text-container" style={{ overflowY: 'auto', maxHeight: '50vh' }}>
+              {catalogError && <p className="alert">{catalogError}</p>}
+
+              {!catalogSelected && catalogLoading && <p>Loading catalog…</p>}
+              {!catalogSelected && !catalogLoading && catalogProducts.length === 0 && !catalogError && (
+                <p>No products found.</p>
+              )}
+              {!catalogSelected && !catalogLoading && catalogProducts.map(product => (
+                <div
+                  key={product.id}
+                  onClick={() => this.onCatalogProductClick(product)}
+                  style={{
+                    cursor: 'pointer',
+                    padding: '10px',
+                    background: 'rgba(0,0,0,0.2)',
+                    borderRadius: '4px',
+                    marginBottom: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}
+                >
+                  <img
+                    src={product.image}
+                    alt=""
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                      flexShrink: 0,
+                      background: 'rgba(255,255,255,0.05)'
+                    }}
+                  />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {product.title}
+                  </span>
+                </div>
+              ))}
+
+              {catalogSelected && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={this.onCatalogBackToListClick.bind(this)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'inherit',
+                      opacity: 0.6,
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      padding: 0,
+                      marginBottom: '10px'
+                    }}
+                  >
+                    ← Back to catalog
+                  </button>
+                  <h3 style={{ marginBottom: '8px' }}>{catalogSelected.product.title}</h3>
+                  <img
+                    src={catalogSelected.product.image}
+                    alt=""
+                    style={{
+                      width: '100%',
+                      maxWidth: '200px',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                      marginBottom: '10px'
+                    }}
+                  />
+                  {catalogSelectedLoading && <p>Loading variants…</p>}
+                  {!catalogSelectedLoading && catalogSelected.variants && (
+                    <div>
+                      <p style={{ opacity: 0.7, fontSize: '12px', marginBottom: '6px' }}>
+                        {catalogSelected.variants.length} variants
+                      </p>
+                      {catalogSelected.variants.map(variant => (
+                        <div
+                          key={variant.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            padding: '6px 0',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            fontSize: '13px'
+                          }}
+                        >
+                          <span>{variant.size} / {variant.color}</span>
+                          <span style={{ opacity: 0.7 }}>${variant.price}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="row">
+              <button
+                onClick={this.onCatalogCloseButtonClick.bind(this)}
                 className="button-medium"
               >
                 BACK
