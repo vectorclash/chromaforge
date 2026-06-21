@@ -19,10 +19,27 @@ import {
   uploadDesignThumbnail,
   getThumbnailUrl
 } from '../lib/designs';
-import { listCatalogProducts, getCatalogProduct, getPrintfileSpecs, STARTER_PRODUCT_IDS } from '../lib/printful';
+import {
+  listCatalogProducts,
+  getCatalogProduct,
+  getPrintfileSpecs,
+  STARTER_PRODUCT_IDS,
+  uploadMockupSourceImage,
+  createMockupTask,
+  getMockupTask,
+  getMockupConfigForProduct
+} from '../lib/printful';
 
 const BROWSE_PAGE_SIZE = 20;
 const THUMBNAIL_SIZE = 320;
+// Mockups are previews, not the final print file -- cap render size well below Printful's
+// real printfile dimensions (some are 6000x6000) so this stays fast and safely under iOS
+// Safari's ~16.7 Mpx canvas limit (see CLAUDE.md print-rendering notes).
+const MOCKUP_RENDER_CAP = 1200;
+const MOCKUP_POLL_INTERVAL_MS = 4000;
+// Confirmed live: a 5-placement task (front/sleeves/hood/pocket) completes in ~40-80s.
+// Doubled for headroom without masking a genuinely stuck task for too long.
+const MOCKUP_POLL_MAX_TRIES = 45;
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -141,6 +158,9 @@ export default class DisplayCanvas extends React.Component {
       catalogError: null,
       catalogSelected: null,
       catalogSelectedLoading: false,
+      mockupStatus: 'idle',
+      mockupError: null,
+      mockupImages: [],
     };
     this.nextColorId = 0;
   }
@@ -1424,7 +1444,13 @@ export default class DisplayCanvas extends React.Component {
       ease: 'back.out(1.7)'
     });
 
-    this.setState({ catalogVisible: false, catalogSelected: null });
+    this.setState({
+      catalogVisible: false,
+      catalogSelected: null,
+      mockupStatus: 'idle',
+      mockupError: null,
+      mockupImages: []
+    });
   }
 
   async loadCatalogProducts() {
@@ -1444,7 +1470,10 @@ export default class DisplayCanvas extends React.Component {
   async onCatalogProductClick(product) {
     this.setState({
       catalogSelected: { product, variants: null, printfileSpecs: null },
-      catalogSelectedLoading: true
+      catalogSelectedLoading: true,
+      mockupStatus: 'idle',
+      mockupError: null,
+      mockupImages: []
     });
     try {
       const [detail, printfileSpecs] = await Promise.all([
@@ -1461,7 +1490,107 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onCatalogBackToListClick() {
-    this.setState({ catalogSelected: null });
+    this.setState({ catalogSelected: null, mockupStatus: 'idle', mockupError: null, mockupImages: [] });
+  }
+
+  // Renders the current design at the given size via the same pure generateArtwork/
+  // renderArtwork pipeline as thumbnails -- recompose-per-ratio, not a screenshot.
+  renderArtworkBlobAt(width, height) {
+    const config = generateArtwork(this.mainConfig.seed, width, height, this.mainConfig.colors);
+    const canvas = renderArtwork(config, this.queue);
+    return new Promise(resolve => {
+      canvas.toBlob(
+        blob => {
+          this.clearElement(canvas);
+          resolve(blob);
+        },
+        'image/jpeg',
+        0.85
+      );
+    });
+  }
+
+  scaledMockupDims(spec) {
+    const scale = MOCKUP_RENDER_CAP / Math.max(spec.width, spec.height);
+    return { width: Math.round(spec.width * scale), height: Math.round(spec.height * scale) };
+  }
+
+  async pollMockupTask(taskId) {
+    for (let i = 0; i < MOCKUP_POLL_MAX_TRIES; i++) {
+      await new Promise(resolve => setTimeout(resolve, MOCKUP_POLL_INTERVAL_MS));
+      const task = await getMockupTask(taskId);
+      if (task.status === 'completed') {
+        const images = task.catalog_variant_mockups?.[0]?.mockups || [];
+        this.setState({ mockupStatus: 'completed', mockupImages: images });
+        return;
+      }
+      if (task.status === 'failed') {
+        throw new Error(task.failure_reasons?.join(', ') || 'Mockup generation failed.');
+      }
+    }
+    throw new Error('Mockup generation timed out.');
+  }
+
+  async onGenerateMockupClick() {
+    const { catalogSelected, user } = this.state;
+    if (!user) {
+      this.setState({ mockupStatus: 'failed', mockupError: 'Sign in to generate a mockup.' });
+      return;
+    }
+    if (!catalogSelected?.printfileSpecs || !catalogSelected?.variants || !this.mainConfig) {
+      this.setState({ mockupStatus: 'failed', mockupError: 'No design loaded to render.' });
+      return;
+    }
+
+    this.setState({ mockupStatus: 'rendering', mockupError: null, mockupImages: [] });
+    try {
+      const { product, printfileSpecs, variants } = catalogSelected;
+      const variant = variants[0];
+      const variantPrintfiles = printfileSpecs.variant_printfiles.find(
+        v => v.variant_id === variant.id
+      );
+      if (!variantPrintfiles) throw new Error('No printfile mapping found for this variant.');
+
+      const mockupConfig = getMockupConfigForProduct(product.id);
+      // Restrict to a hand-verified placement subset -- see getMockupConfigForProduct's
+      // comment. Submitting every placement the variant has (e.g. the hoodie's back/
+      // label placements alongside the visible ones) left a real task stuck pending
+      // indefinitely rather than completing or failing.
+      const placementEntries = Object.entries(variantPrintfiles.placements).filter(
+        ([placementKey]) => !mockupConfig.placements || mockupConfig.placements.includes(placementKey)
+      );
+
+      // Group by printfile id so each unique size/aspect ratio is only rendered and
+      // uploaded once, even if several placements share it.
+      const printfileIdToUrl = {};
+      for (const [, printfileId] of placementEntries) {
+        if (printfileIdToUrl[printfileId]) continue;
+        const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
+        if (!spec) continue;
+        const { width, height } = this.scaledMockupDims(spec);
+        const blob = await this.renderArtworkBlobAt(width, height);
+        printfileIdToUrl[printfileId] = await uploadMockupSourceImage(blob, printfileId);
+      }
+
+      const placements = placementEntries.map(([placementKey, printfileId]) => ({
+        placement: placementKey,
+        technique: mockupConfig.technique,
+        layers: [{ type: 'file', url: printfileIdToUrl[printfileId] }]
+      }));
+
+      this.setState({ mockupStatus: 'creating' });
+      const task = await createMockupTask({
+        productId: product.id,
+        variantIds: [variant.id],
+        placements,
+        productOptions: mockupConfig.productOptions
+      });
+
+      this.setState({ mockupStatus: 'polling' });
+      await this.pollMockupTask(task.id);
+    } catch (err) {
+      this.setState({ mockupStatus: 'failed', mockupError: err.message });
+    }
   }
 
   onLoadBrowsedDesign(design) {
@@ -1654,6 +1783,9 @@ export default class DisplayCanvas extends React.Component {
       catalogError,
       catalogSelected,
       catalogSelectedLoading,
+      mockupStatus,
+      mockupError,
+      mockupImages,
     } = this.state;
 
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
@@ -2281,6 +2413,39 @@ export default class DisplayCanvas extends React.Component {
                       ))}
                     </div>
                   )}
+
+                  <div style={{ marginTop: '14px' }}>
+                    <button
+                      type="button"
+                      className="button-small"
+                      onClick={this.onGenerateMockupClick.bind(this)}
+                      disabled={['rendering', 'creating', 'polling'].includes(mockupStatus)}
+                    >
+                      {mockupStatus === 'rendering' && 'Rendering design…'}
+                      {mockupStatus === 'creating' && 'Sending to Printful…'}
+                      {mockupStatus === 'polling' && 'Generating mockup…'}
+                      {['idle', 'completed', 'failed'].includes(mockupStatus) && 'Generate Mockup'}
+                    </button>
+                    {mockupStatus === 'failed' && mockupError && (
+                      <p className="alert" style={{ marginTop: '8px' }}>{mockupError}</p>
+                    )}
+                    {mockupStatus === 'completed' && mockupImages.length > 0 && (
+                      <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {mockupImages.map(m => (
+                          <div key={m.placement} style={{ textAlign: 'center' }}>
+                            <img
+                              src={m.mockup_url}
+                              alt={m.display_name}
+                              style={{ width: '90px', height: '90px', objectFit: 'cover', borderRadius: '4px' }}
+                            />
+                            <p style={{ fontSize: '11px', opacity: 0.7, marginTop: '4px' }}>
+                              {m.display_name}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
