@@ -51,10 +51,11 @@ const MOCKUP_BUCKET = 'design-mockups';
 
 // Confirmed live: both starter products are constructed as all-over cut-and-sew garments
 // (printed fabric panels sewn together), not DTG-on-a-flat-placement, so both use the
-// same Printful "technique" value. The hoodie also requires a stitch_color product
-// option -- Printful rejects the task without it (GET /products/{id} -> result.product
-// .options lists which products need this; there's no generic way to detect "required"
-// from that response, so this is a small hand-verified map rather than something derived).
+// same Printful "technique" value, and both require a stitch_color product option --
+// Printful rejects the task without it even though it's not obviously implied by anything
+// in getPrintfileSpecs (GET /products/{id} -> result.product.options lists which products
+// need this; there's no generic way to detect "required" from that response, so this is a
+// small hand-verified map rather than something derived).
 // `placements` further restricts which of getPrintfileSpecs' available_placements we
 // actually submit -- confirmed live that submitting all of the hoodie's 8 placements at
 // once (front/back/sleeves/pocket/hood/label_panel/inside_label) left the task stuck in
@@ -64,7 +65,11 @@ const MOCKUP_BUCKET = 'design-mockups';
 // also just the set worth rendering for a preview -- a real print order still needs every
 // placement filled in, that's a separate concern from generating a mockup.
 const PRODUCT_MOCKUP_CONFIG = {
-  257: { technique: 'cut-sew', placements: ['default', 'sleeve_left', 'sleeve_right'] }, // t-shirt
+  257: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    placements: ['default', 'sleeve_left', 'sleeve_right']
+  }, // t-shirt
   388: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
