@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import DisplayCanvas from '../components/DisplayCanvas';
 import { useStudio } from '../context/StudioContext';
 
@@ -8,6 +9,7 @@ import { useStudio } from '../context/StudioContext';
 // only the store/account/gallery routes get the light site chrome.
 export default function StudioPage() {
   const { setCurrentDesign } = useStudio();
+  const navigate = useNavigate();
 
   let width = 3840;
   let height = 2160;
@@ -16,5 +18,12 @@ export default function StudioPage() {
     height = 2160;
   }
 
-  return <DisplayCanvas width={width} height={height} onDesignChange={setCurrentDesign} />;
+  return (
+    <DisplayCanvas
+      width={width}
+      height={height}
+      onDesignChange={setCurrentDesign}
+      onNavigateToStore={() => navigate('/shop')}
+    />
+  );
 }

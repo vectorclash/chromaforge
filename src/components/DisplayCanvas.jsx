@@ -1939,14 +1939,11 @@ export default class DisplayCanvas extends React.Component {
               <h1>
                 CHROMA<b>FORGE</b>
               </h1>
-              <button onClick={this.onBrowseButtonClick.bind(this)} className="button-small">
-                Gallery
-              </button>
-              <button onClick={this.onCatalogButtonClick.bind(this)} className="button-small">
-                Print Catalog
-              </button>
-              <button onClick={this.onAccountButtonClick.bind(this)} className="button-small">
-                {this.state.user ? 'Account' : 'Sign In'}
+              {/* Single clean entry into the store (Shop/Gallery/Account live there now,
+                  under the light site chrome). Navigates client-side via StudioPage's
+                  useNavigate, passed in as a prop. */}
+              <button onClick={() => this.props.onNavigateToStore?.()} className="button-small">
+                Shop
               </button>
               <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
                 <SettingsButton />
