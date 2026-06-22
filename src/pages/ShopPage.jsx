@@ -1,11 +1,11 @@
 import React from 'react';
+import PageContainer from '../components/ui/PageContainer';
 
 // Placeholder -- real catalog grid lands in the flow-porting phase.
 export default function ShopPage() {
   return (
-    <div>
-      <h1 className="font-quicksand text-3xl font-bold">Shop</h1>
-      <p className="mt-2 text-neutral-500">Catalog coming soon.</p>
-    </div>
+    <PageContainer title="Shop" subtitle="Wear the algorithm. Every piece is generated, never reprinted.">
+      <p className="text-neutral-500">Catalog coming soon.</p>
+    </PageContainer>
   );
 }

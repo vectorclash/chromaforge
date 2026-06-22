@@ -11,11 +11,16 @@
  * stack, font smoothing) are restored explicitly below so nothing shifts. */
 @import 'tailwindcss';
 
-/* Design tokens for the migration. Quicksand is used across the brand UI
-   (wordmark, copyright, etc.); registering it here gives a clean `font-quicksand`
-   utility instead of arbitrary-value font classes everywhere. */
+/* Design tokens. Quicksand is the brand UI font (wordmark, copyright, body); Exo is the
+   display face for headings. The store's "clean & light" chrome uses one restrained accent
+   (a deepened brand magenta with enough contrast for white button text) -- the studio's
+   full neon trio stays scoped under `.display-canvas` in components.css and doesn't use
+   these utilities, so the two visual systems don't bleed into each other. */
 @theme {
   --font-quicksand: 'Quicksand', sans-serif;
+  --font-display: 'Exo', sans-serif;
+  --color-accent: #c4006e;
+  --color-accent-strong: #9c0057;
 }
 
 /* Globals previously in App.scss / index.scss (both files removed). Preflight already
