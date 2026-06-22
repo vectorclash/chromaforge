@@ -1551,64 +1551,40 @@ export default class DisplayCanvas extends React.Component {
               (saveVisible ? ' controls-visible' : '')
             }
           >
-            <div className="row text-container">
+            {/* Confirmation message -- plain text on the glass, no nested gradient box. */}
+            <div className="mb-6">
               {user ? (
                 <>
-                  <h6>
-                    {galleryStatus === 'saving'
-                      ? 'Saving…'
-                      : galleryError
-                        ? 'Save failed'
-                        : 'Saved to your gallery'}
+                  <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
+                    {galleryStatus === 'saving' && 'Saving…'}
+                    {galleryStatus === 'saved' && (
+                      <>
+                        <span className="text-[#a6e000]">✓ </span>Saved to your gallery
+                      </>
+                    )}
+                    {galleryError && 'Save failed'}
+                    {!galleryStatus && !galleryError && 'Saved to your gallery'}
                   </h6>
                   {galleryStatus === 'saved' && (
-                    <p>Your design is in your gallery — view it any time or put it on a product.</p>
-                  )}
-                  {galleryError && <p className="alert">Gallery save failed: {galleryError}</p>}
-                </>
-              ) : (
-                <>
-                  <h6>Save your design</h6>
-                  <p>Sign in to save this to your gallery — or create a share link to keep it.</p>
-                </>
-              )}
-
-              {shareLinkShown ? (
-                <>
-                  <div
-                    onClick={this.onDirectLinkClick.bind(this)}
-                    style={{
-                      cursor: 'pointer',
-                      padding: '10px',
-                      background: 'rgba(0,0,0,0.2)',
-                      borderRadius: '4px',
-                      maxHeight: '100px',
-                      overflow: 'auto',
-                      wordBreak: 'break-all',
-                      fontSize: '12px',
-                      marginTop: '10px'
-                    }}
-                  >
-                    {this.shareUrl}
-                  </div>
-                  {linkCopied ? (
-                    <p className="alert">Link copied to clipboard</p>
-                  ) : (
-                    <p style={{ fontSize: '12px', opacity: 0.7 }}>
-                      Anyone with this link can view and recreate this design. Tap to copy.
+                    <p className="mt-2 text-sm leading-snug text-white/60">
+                      Your design is in your gallery — view it any time or put it on a product.
                     </p>
                   )}
+                  {galleryError && <p className="mt-2 text-sm text-red-300">{galleryError}</p>}
                 </>
               ) : (
-                <button
-                  onClick={this.onCreateShareLink.bind(this)}
-                  className="button-small"
-                  style={{ marginTop: '12px' }}
-                >
-                  Create share link
-                </button>
+                <>
+                  <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
+                    Save your design
+                  </h6>
+                  <p className="mt-2 text-sm leading-snug text-white/60">
+                    Sign in to save this to your gallery — or create a share link to keep it.
+                  </p>
+                </>
               )}
             </div>
+
+            {/* Primary actions. */}
             <div className="row">
               {user ? (
                 <button onClick={() => this.props.onNavigate?.('/gallery')} className="button-medium">
@@ -1623,6 +1599,48 @@ export default class DisplayCanvas extends React.Component {
                 Shop design
               </button>
             </div>
+
+            {/* Optional share link -- quiet text affordance (kept outside .row so it isn't a
+                tall bordered button); reveals the link box on demand. */}
+            <div className="mt-4">
+              {shareLinkShown ? (
+                <>
+                  <div
+                    onClick={this.onDirectLinkClick.bind(this)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: 'rgba(0,0,0,0.25)',
+                      borderRadius: '4px',
+                      maxHeight: '100px',
+                      overflow: 'auto',
+                      wordBreak: 'break-all',
+                      fontSize: '12px',
+                      color: 'white'
+                    }}
+                  >
+                    {this.shareUrl}
+                  </div>
+                  {linkCopied ? (
+                    <p className="mt-2 text-xs font-bold text-[#a6e000]">Link copied to clipboard</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-white/50">
+                      Anyone with this link can view and recreate this design. Tap to copy.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={this.onCreateShareLink.bind(this)}
+                  className="text-sm text-white/55 underline underline-offset-2 transition hover:text-white"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  Create a share link
+                </button>
+              )}
+            </div>
+
             <div className="row">
               <button
                 onClick={this.onSettingsCloseButtonClick.bind(this)}
