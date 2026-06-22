@@ -89,6 +89,7 @@ export default class DisplayCanvas extends React.Component {
       controlsAreOpen: true,
       controlsBlurred: false,
       saveVisible: false,
+      shareLinkShown: false,
       colors: [],
       linkCopied: false,
       animationMode: false,
@@ -361,45 +362,22 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  saveAnimationToUrl() {
-    const shareUrl = generateShareUrl({ animation: true, frames: this.animationConfigs });
-
-    if (shareUrl) {
+  // Share link is optional now (gallery save is the primary action) -- generate it on
+  // demand from the data stashed at save time, and reveal the link box.
+  onCreateShareLink() {
+    if (!this.shareUrl) {
+      const shareUrl = generateShareUrl(this.pendingShareData);
+      if (!shareUrl) {
+        console.error('Failed to generate share URL');
+        return;
+      }
       this.shareUrl = shareUrl;
-      this.setState({ isSaved: true, isSaving: false, isLoading: false });
-      this.openSavePanel();
-      this.saveToGallery('animation', { animation: true, frames: this.animationConfigs });
-    } else {
-      this.setState({ isSaved: false, isSaving: false });
-      console.error('Failed to generate animation share URL');
     }
+    this.setState({ shareLinkShown: true });
   }
 
-  saveImageToUrl() {
-    const shareUrl = generateShareUrl(this.mainConfig);
-
-    if (shareUrl) {
-      this.shareUrl = shareUrl;
-
-      this.setState({
-        isSaved: true,
-        isSaving: false,
-        isLoading: false
-      });
-
-      this.openSavePanel();
-      this.saveToGallery('image', this.mainConfig);
-    } else {
-      this.setState({
-        isSaved: false,
-        isSaving: false
-      });
-      console.error('Failed to generate share URL');
-    }
-  }
-
-  // Persist the design for signed-in users alongside the always-available share link.
-  // Silently no-ops when signed out — the share link is the only saved state in that case.
+  // Persist the design to the signed-in user's gallery -- the primary save action.
+  // Silently no-ops when signed out (those users can still grab an optional share link).
   async saveToGallery(kind, data) {
     if (!this.props.user) return;
 
@@ -580,17 +558,22 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
-    if (animationMode) {
-      if (this.animationConfigs && this.animationConfigs.length > 0 && !isSaving) {
-        this.setState({ isSaving: true });
-        this.saveAnimationToUrl();
-      }
-    } else {
-      if (this.mainConfig && !isSaving) {
-        this.setState({ isSaving: true, isLoading: true });
-        this.saveImageToUrl();
-      }
-    }
+    const kind = animationMode ? 'animation' : 'image';
+    const data = animationMode
+      ? { animation: true, frames: this.animationConfigs }
+      : this.mainConfig;
+    const ready = animationMode
+      ? this.animationConfigs && this.animationConfigs.length > 0
+      : !!this.mainConfig;
+    if (!ready || isSaving) return;
+
+    // Gallery (DB) save is the primary action; the share link is optional and created on
+    // demand (onCreateShareLink). Stash the data so the link can be built later.
+    this.pendingShareData = data;
+    this.shareUrl = null;
+    this.setState({ isSaved: true, isSaving: false, shareLinkShown: false });
+    this.openSavePanel();
+    this.saveToGallery(kind, data); // no-ops when signed out
   }
 
   onDownloadButtonClick(e) {
@@ -1294,6 +1277,7 @@ export default class DisplayCanvas extends React.Component {
       controlsBlurred,
       colors,
       saveVisible,
+      shareLinkShown,
       linkCopied,
       animationMode,
       animationFrames,
@@ -1444,8 +1428,8 @@ export default class DisplayCanvas extends React.Component {
               </h1>
               {/* Single clean entry into the store (Shop/Gallery/Account live there now,
                   under the light site chrome). Navigates client-side via StudioPage's
-                  useNavigate, passed in as a prop. */}
-              <button onClick={() => this.props.onNavigateToStore?.()} className="button-small">
+                  useNavigate, passed in as the onNavigate prop. */}
+              <button onClick={() => this.props.onNavigate?.('/shop')} className="button-small">
                 Shop
               </button>
               <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
@@ -1568,32 +1552,76 @@ export default class DisplayCanvas extends React.Component {
             }
           >
             <div className="row text-container">
-              <h6>Shareable Link Created</h6>
-              <p>
-                Click the link below to copy it to your clipboard. Anyone with this link can view
-                and recreate this image.
-              </p>
-              <div
-                onClick={this.onDirectLinkClick.bind(this)}
-                style={{
-                  cursor: 'pointer',
-                  padding: '10px',
-                  background: 'rgba(0,0,0,0.2)',
-                  borderRadius: '4px',
-                  maxHeight: '100px',
-                  overflow: 'auto',
-                  wordBreak: 'break-all',
-                  fontSize: '12px',
-                  marginBottom: '10px'
-                }}
-              >
-                {this.shareUrl || 'Generating link...'}
-              </div>
-              {linkCopied ? <p className="alert">Link copied to clipboard</p> : ''}
-              {user && galleryStatus === 'saving' && <p>Saving to your gallery…</p>}
-              {user && galleryStatus === 'saved' && <p>Saved to your gallery.</p>}
-              {user && galleryError && <p className="alert">Gallery save failed: {galleryError}</p>}
-              {!user && <p>Sign in to also save this to your gallery.</p>}
+              {user ? (
+                <>
+                  <h6>
+                    {galleryStatus === 'saving'
+                      ? 'Saving…'
+                      : galleryError
+                        ? 'Save failed'
+                        : 'Saved to your gallery'}
+                  </h6>
+                  {galleryStatus === 'saved' && (
+                    <p>Your design is in your gallery — view it any time or put it on a product.</p>
+                  )}
+                  {galleryError && <p className="alert">Gallery save failed: {galleryError}</p>}
+                </>
+              ) : (
+                <>
+                  <h6>Save your design</h6>
+                  <p>Sign in to save this to your gallery — or create a share link to keep it.</p>
+                </>
+              )}
+
+              {shareLinkShown ? (
+                <>
+                  <div
+                    onClick={this.onDirectLinkClick.bind(this)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: 'rgba(0,0,0,0.2)',
+                      borderRadius: '4px',
+                      maxHeight: '100px',
+                      overflow: 'auto',
+                      wordBreak: 'break-all',
+                      fontSize: '12px',
+                      marginTop: '10px'
+                    }}
+                  >
+                    {this.shareUrl}
+                  </div>
+                  {linkCopied ? (
+                    <p className="alert">Link copied to clipboard</p>
+                  ) : (
+                    <p style={{ fontSize: '12px', opacity: 0.7 }}>
+                      Anyone with this link can view and recreate this design. Tap to copy.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <button
+                  onClick={this.onCreateShareLink.bind(this)}
+                  className="button-small"
+                  style={{ marginTop: '12px' }}
+                >
+                  Create share link
+                </button>
+              )}
+            </div>
+            <div className="row">
+              {user ? (
+                <button onClick={() => this.props.onNavigate?.('/gallery')} className="button-medium">
+                  View gallery
+                </button>
+              ) : (
+                <button onClick={() => this.props.onNavigate?.('/account')} className="button-medium">
+                  Sign in
+                </button>
+              )}
+              <button onClick={() => this.props.onNavigate?.('/shop')} className="button-medium">
+                Shop design
+              </button>
             </div>
             <div className="row">
               <button

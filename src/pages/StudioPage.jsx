@@ -26,7 +26,7 @@ export default function StudioPage() {
       height={height}
       user={user}
       onDesignChange={setCurrentDesign}
-      onNavigateToStore={() => navigate('/shop')}
+      onNavigate={navigate}
     />
   );
 }
