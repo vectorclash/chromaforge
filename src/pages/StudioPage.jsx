@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 // render mockups of it. The canvas keeps its own immersive identity and floating controls;
 // only the store/account/gallery routes get the light site chrome.
 export default function StudioPage() {
-  const { setCurrentDesign } = useStudio();
+  const { setCurrentDesign, saveCurrentDesign } = useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -27,6 +27,7 @@ export default function StudioPage() {
       user={user}
       onDesignChange={setCurrentDesign}
       onNavigate={navigate}
+      saveCurrentDesign={saveCurrentDesign}
     />
   );
 }

@@ -70,6 +70,22 @@ export default function AccountPage() {
       title={mode === 'signup' ? 'Create account' : 'Sign in'}
       subtitle="Save your designs and order prints."
     >
+      {/* Prominent, hard-to-miss confirmation/error banner -- placed above the form so
+          submitting never looks like it did nothing, even on a fast local response. */}
+      {message && (
+        <div className="mb-6 max-w-sm rounded-lg border border-[#a6e000]/30 bg-[#a6e000]/10 px-4 py-3">
+          <p className="text-sm font-bold text-neutral-900">
+            <span className="text-[#5c8a00]">✓ </span>
+            {message}
+          </p>
+        </div>
+      )}
+      {error && (
+        <div className="mb-6 max-w-sm rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
+          <p className="text-sm font-bold text-accent">{error}</p>
+        </div>
+      )}
+
       <form onSubmit={onSubmit} className="max-w-sm space-y-4">
         <Field label="Email" htmlFor="email">
           <Input
@@ -94,10 +110,7 @@ export default function AccountPage() {
           />
         </Field>
 
-        {error && <p className="text-sm text-accent">{error}</p>}
-        {message && <p className="text-sm text-neutral-600">{message}</p>}
-
-        <Button type="submit" className="w-full" disabled={busy}>
+        <Button type="submit" className="w-full" disabled={busy} aria-busy={busy}>
           {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
         </Button>
         <Button

@@ -9,9 +9,6 @@ import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
-import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
-
-const THUMBNAIL_SIZE = 320;
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -378,32 +375,18 @@ export default class DisplayCanvas extends React.Component {
 
   // Persist the design to the signed-in user's gallery -- the primary save action.
   // Silently no-ops when signed out (those users can still grab an optional share link).
+  // Delegates the actual save + thumbnail upload to StudioContext.saveCurrentDesign (passed
+  // down by StudioPage), shared with the mini-generator widget's Save button.
   async saveToGallery(kind, data) {
     if (!this.props.user) return;
 
     this.setState({ galleryStatus: 'saving', galleryError: null });
     try {
-      const row = await saveDesign({ kind, data, isPublic: true });
+      await this.props.saveCurrentDesign(kind, data);
       this.setState({ galleryStatus: 'saved' });
-      // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
-      this.uploadThumbnailFor(row.id, data).catch(err => console.error('Thumbnail upload failed:', err));
     } catch (err) {
       this.setState({ galleryStatus: null, galleryError: err.message });
     }
-  }
-
-  // Thumbnails are regenerated from the design's own seed/colors at a small size --
-  // the same recompose-per-ratio approach as the main renderer -- rather than a
-  // downscaled screenshot of the full-resolution canvas.
-  async uploadThumbnailFor(designId, data) {
-    const source = data.animation && data.frames ? data.frames[0] : data;
-    if (!source || source.seed === undefined) return;
-
-    const thumbConfig = generateArtwork(source.seed, THUMBNAIL_SIZE, THUMBNAIL_SIZE, source.colors);
-    const canvas = renderArtwork(thumbConfig, this.queue);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-    this.clearElement(canvas);
-    await uploadDesignThumbnail(designId, blob);
   }
 
   loadImageFromUrl(config) {

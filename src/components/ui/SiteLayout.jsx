@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
+import MiniGenerator from './MiniGenerator';
 
 // Light site chrome for the store/account/gallery routes. The studio ("/") renders outside
 // this layout and keeps its dark full-bleed canvas. Because html/body are `overflow: hidden`
@@ -15,6 +16,9 @@ export default function SiteLayout() {
         <Outlet />
       </main>
       <SiteFooter />
+      {/* Rendered once here (not per-page) so the ambient generator widget is present across
+          every light route without each page needing to include it. */}
+      <MiniGenerator />
     </div>
   );
 }

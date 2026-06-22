@@ -2,12 +2,15 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
+import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
+import { useAuth } from './AuthContext';
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
 
-// Shared "studio" state: the current design and the ability to render it to an image,
-// lifted out of DisplayCanvas so commerce routes (e.g. /shop product mockups) can render
-// the current design even though the canvas component isn't mounted on those routes.
+// Shared "studio" state: the current design, a live small preview of it, and the ability to
+// render/save it -- lifted out of DisplayCanvas so commerce routes (product mockups, the
+// ambient mini-generator widget, the footer art band) can all work off the same design even
+// though the canvas component isn't mounted on those routes.
 //
 // `currentDesign` is the generateArtwork() output (same object DisplayCanvas keeps as
 // this.mainConfig) -- it carries .seed and .colors, which is all renderDesignBlob needs to
@@ -17,9 +20,16 @@ import s2 from '../assets/images/star-sprite-small.png';
 // The star-sprite queue is the one piece renderArtwork needs that isn't pure -- it's loaded
 // once here (mirroring DisplayCanvas's own load) so the render pipeline works off-canvas.
 
+const PREVIEW_SIZE = 480;
+const THUMBNAIL_SIZE = 320;
+
 const StudioContext = createContext(null);
 
 export function StudioProvider({ children }) {
+  // StudioProvider is nested inside AuthProvider (see App.jsx), so it's safe to read auth
+  // state directly here rather than threading `user` through every caller of saveCurrentDesign.
+  const { user } = useAuth();
+
   const queueRef = useRef(null);
   const [queueReady, setQueueReady] = useState(false);
   // Seed a random default so the store always has something to preview even on a cold
@@ -28,6 +38,7 @@ export function StudioProvider({ children }) {
   const [currentDesign, setCurrentDesign] = useState(() =>
     generateArtwork(randomSeed(), 1080, 1080, [])
   );
+  const [previewUrl, setPreviewUrl] = useState(null);
 
   useEffect(() => {
     if (queueRef.current) return; // guard against StrictMode double-invoke
@@ -53,7 +64,62 @@ export function StudioProvider({ children }) {
     return blob;
   }, []);
 
-  const value = { currentDesign, setCurrentDesign, renderDesignBlob, queueReady };
+  // Derived small preview of the current design -- the single render both the mini-generator
+  // widget and the footer art band read, so regenerating once updates both at once instead of
+  // each consumer rendering its own copy.
+  useEffect(() => {
+    if (!queueReady) return;
+    let cancelled = false;
+    let url;
+    renderDesignBlob(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
+      .then(blob => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setPreviewUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDesign, queueReady, renderDesignBlob]);
+
+  // Fresh random design, auto-palette -- the same shape used for the provider's initial seed.
+  const generateRandom = useCallback(() => {
+    setCurrentDesign(generateArtwork(randomSeed(), 1080, 1080, []));
+  }, []);
+
+  // Persist a design to the signed-in user's gallery. Throws (rather than silently no-op'ing)
+  // so callers -- the studio's save panel, the mini-generator widget -- can each show their own
+  // error state. Ported from the old DisplayCanvas.saveToGallery/uploadThumbnailFor.
+  const saveCurrentDesign = useCallback(
+    async (kind, data) => {
+      if (!user) throw new Error('Sign in to save designs.');
+      const row = await saveDesign({ kind, data, isPublic: true });
+      // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
+      const source = data.animation && data.frames ? data.frames[0] : data;
+      if (source?.seed !== undefined) {
+        renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE)
+          .then(blob => uploadDesignThumbnail(row.id, blob))
+          .catch(err => console.error('Thumbnail upload failed:', err));
+      }
+      return row;
+    },
+    [user, renderDesignBlob]
+  );
+
+  const value = {
+    currentDesign,
+    setCurrentDesign,
+    previewUrl,
+    renderDesignBlob,
+    generateRandom,
+    saveCurrentDesign,
+    queueReady
+  };
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
 }
 
