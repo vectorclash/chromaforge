@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { generateArtwork } from '../render/generateArtwork';
+import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
@@ -21,7 +22,12 @@ const StudioContext = createContext(null);
 export function StudioProvider({ children }) {
   const queueRef = useRef(null);
   const [queueReady, setQueueReady] = useState(false);
-  const [currentDesign, setCurrentDesign] = useState(null);
+  // Seed a random default so the store always has something to preview even on a cold
+  // deep-link to /shop (no Studio visit). The studio overwrites this via setCurrentDesign
+  // on its first generate. Empty colors -> the seeded RNG picks a palette, deterministically.
+  const [currentDesign, setCurrentDesign] = useState(() =>
+    generateArtwork(randomSeed(), 1080, 1080, [])
+  );
 
   useEffect(() => {
     if (queueRef.current) return; // guard against StrictMode double-invoke
