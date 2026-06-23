@@ -48,6 +48,12 @@ export function StudioProvider({ children }) {
   // mini-generator widget's (locally-tracked) saved state, so visiting /shop right after a
   // studio save still showed an enabled "Save" button and produced a duplicate row.
   const [savedDesign, setSavedDesign] = useState(null);
+  // One-shot hand-off for "Print this" from the Gallery: set when a gallery card's print
+  // action fires, read (and cleared) by ProductPage on mount so the artwork-picker defaults
+  // to this design instead of the live studio design. Deliberately separate from
+  // currentDesign -- printing an old saved design shouldn't change what the ambient
+  // mini-generator/footer show elsewhere, since those represent the studio's live work.
+  const [printQueueDesign, setPrintQueueDesign] = useState(null);
 
   useEffect(() => {
     if (queueRef.current) return; // guard against StrictMode double-invoke
@@ -133,7 +139,9 @@ export function StudioProvider({ children }) {
     generateRandom,
     saveCurrentDesign,
     isCurrentDesignSaved: savedDesign === currentDesign,
-    queueReady
+    queueReady,
+    printQueueDesign,
+    setPrintQueueDesign
   };
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
 }

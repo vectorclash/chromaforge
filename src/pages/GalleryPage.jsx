@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
+import ShirtIcon from '../components/buttons/ShirtIcon';
 import { listPublicDesigns, listMyDesigns, deleteDesign, getThumbnailUrl } from '../lib/designs';
 import { generateShareUrl } from '../utils/urlConfig';
 import { useAuth } from '../context/AuthContext';
+import { useStudio } from '../context/StudioContext';
 
 const PAGE_SIZE = 20;
 
 export default function GalleryPage() {
   const { user } = useAuth();
+  const { setPrintQueueDesign } = useStudio();
   const navigate = useNavigate();
   const [tab, setTab] = useState('public');
   const [designs, setDesigns] = useState([]);
@@ -73,6 +76,14 @@ export default function GalleryPage() {
     navigate('/' + query);
   };
 
+  // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage
+  // reads on mount) and jump to the catalog so the user picks a product for it.
+  const onPrint = (e, design) => {
+    e.stopPropagation();
+    setPrintQueueDesign(design);
+    navigate('/shop');
+  };
+
   const tabClass = active =>
     'cursor-pointer font-quicksand text-sm pb-2 border-b-2 transition ' +
     (active ? 'border-accent text-neutral-900' : 'border-transparent text-neutral-500 hover:text-neutral-900');
@@ -116,15 +127,29 @@ export default function GalleryPage() {
                 <span className="truncate text-sm text-neutral-700">
                   {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
                 </span>
-                {tab === 'mine' && (
-                  <button
-                    onClick={e => onDelete(e, design)}
-                    className="ml-2 shrink-0 cursor-pointer text-xs text-neutral-400 hover:text-accent"
-                    aria-label="Delete design"
-                  >
-                    Delete
-                  </button>
-                )}
+                <span className="ml-2 flex shrink-0 items-center gap-2">
+                  {/* Animations aren't printable -- the mockup pipeline expects a flat
+                      { seed, colors } design, not a frames array. */}
+                  {design.kind !== 'animation' && (
+                    <button
+                      onClick={e => onPrint(e, design)}
+                      className="cursor-pointer text-neutral-400 hover:text-accent"
+                      aria-label="Print this design"
+                      title="Print this design"
+                    >
+                      <ShirtIcon size={14} />
+                    </button>
+                  )}
+                  {tab === 'mine' && (
+                    <button
+                      onClick={e => onDelete(e, design)}
+                      className="cursor-pointer text-xs text-neutral-400 hover:text-accent"
+                      aria-label="Delete design"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </span>
               </div>
             </Card>
           ))}
