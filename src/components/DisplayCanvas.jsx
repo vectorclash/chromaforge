@@ -20,6 +20,7 @@ import FileName from './FileNameGenerator';
 import SettingsButton from './buttons/SettingsButton';
 import PlayPauseButton from './buttons/PlayPauseButton';
 import AddColorButton from './buttons/AddColorButton';
+import ShirtIcon from './buttons/ShirtIcon';
 import ColorField from './ColorField';
 
 import s1 from '../assets/images/star-sprite-large.png';
@@ -1567,11 +1568,12 @@ export default class DisplayCanvas extends React.Component {
               )}
             </div>
 
-            {/* Primary actions. */}
-            <div className="row">
+            {/* Primary actions. Explicit gap -- .row's justify-content: space-between alone
+                left these touching once both buttons' content filled most of the panel width. */}
+            <div className="row gap-3">
               {user ? (
                 <button onClick={() => this.props.onNavigate?.('/gallery')} className="button-medium">
-                  View gallery
+                  Gallery
                 </button>
               ) : (
                 <button onClick={() => this.props.onNavigate?.('/account')} className="button-medium">
@@ -1579,7 +1581,9 @@ export default class DisplayCanvas extends React.Component {
                 </button>
               )}
               <button onClick={() => this.props.onNavigate?.('/shop')} className="button-medium">
-                Shop design
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  <ShirtIcon size={14} /> Shop
+                </span>
               </button>
             </div>
 

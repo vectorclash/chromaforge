@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import ShirtIcon from '../buttons/ShirtIcon';
 
 // Persistent header for the light store chrome. The wordmark links back to "/" (the dark
 // studio), which doubles as the "back to making art" path. The account link reflects auth
@@ -18,7 +19,9 @@ export default function SiteHeader() {
           CHROMAFORGE
         </Link>
         <nav className="flex items-center gap-7">
-          <NavLink to="/shop" className={navClass}>Shop</NavLink>
+          <NavLink to="/shop" className={({ isActive }) => navClass({ isActive }) + ' inline-flex items-center gap-1.5'}>
+            <ShirtIcon size={15} /> Shop
+          </NavLink>
           <NavLink to="/gallery" className={navClass}>Gallery</NavLink>
           <NavLink to="/account" className={navClass}>{user ? 'Account' : 'Sign in'}</NavLink>
         </nav>
