@@ -87,9 +87,9 @@ export default class DisplayCanvas extends React.Component {
       controlsAreOpen: true,
       controlsBlurred: false,
       saveVisible: false,
-      shareLinkShown: false,
       colors: [],
       linkCopied: false,
+      linkCopyFailed: false,
       animationMode: false,
       animationFrames: [],
       animationStarFrames: [],
@@ -360,20 +360,6 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  // Share link is optional now (gallery save is the primary action) -- generate it on
-  // demand from the data stashed at save time, and reveal the link box.
-  onCreateShareLink() {
-    if (!this.shareUrl) {
-      const shareUrl = generateShareUrl(this.pendingShareData);
-      if (!shareUrl) {
-        console.error('Failed to generate share URL');
-        return;
-      }
-      this.shareUrl = shareUrl;
-    }
-    this.setState({ shareLinkShown: true });
-  }
-
   // Persist the design to the signed-in user's gallery -- the primary save action.
   // Silently no-ops when signed out (those users can still grab an optional share link).
   // Delegates the actual save + thumbnail upload to StudioContext.saveCurrentDesign (passed
@@ -538,6 +524,14 @@ export default class DisplayCanvas extends React.Component {
     const { isSaving, isSaved, animationMode } = this.state;
 
     if (isSaved) {
+      // Designs loaded via a share/gallery link arrive with isSaved already true but never
+      // went through the generation below, so this.shareUrl can still be unset here.
+      if (!this.shareUrl) {
+        const loadedData = animationMode
+          ? { animation: true, frames: this.animationConfigs }
+          : this.mainConfig;
+        this.shareUrl = generateShareUrl(loadedData);
+      }
       this.openSavePanel();
       return;
     }
@@ -551,11 +545,11 @@ export default class DisplayCanvas extends React.Component {
       : !!this.mainConfig;
     if (!ready || isSaving) return;
 
-    // Gallery (DB) save is the primary action; the share link is optional and created on
-    // demand (onCreateShareLink). Stash the data so the link can be built later.
-    this.pendingShareData = data;
-    this.shareUrl = null;
-    this.setState({ isSaved: true, isSaving: false, shareLinkShown: false });
+    // Gallery (DB) save is the primary action; the share link is secondary but always
+    // shown (not gated behind an extra click) -- generateShareUrl is synchronous, so this
+    // costs nothing to do eagerly.
+    this.shareUrl = generateShareUrl(data);
+    this.setState({ isSaved: true, isSaving: false });
     this.openSavePanel();
     this.saveToGallery(kind, data); // no-ops when signed out
   }
@@ -1126,6 +1120,7 @@ export default class DisplayCanvas extends React.Component {
       controlsBlurred: false,
       saveVisible: false,
       linkCopied: false,
+      linkCopyFailed: false,
       galleryStatus: null,
       galleryError: null
     });
@@ -1224,29 +1219,54 @@ export default class DisplayCanvas extends React.Component {
 
   onDirectLinkClick(e) {
     const { isSaved } = this.state;
-    if (isSaved && this.shareUrl) {
-      navigator.clipboard.writeText(this.shareUrl).then(
-        function () {
-          this.setState({ linkCopied: true });
-          gsap.fromTo(
-            '.alert',
-            {
-              alpha: 0,
-              y: 10
-            },
-            {
-              alpha: 1,
-              y: 0,
-              duration: 0.3,
-              ease: 'bounce.out'
-            }
-          );
-        }.bind(this),
-        function () {
-          console.log('Copy Error');
-        }
+    if (!isSaved || !this.shareUrl) return;
+    this.copyToClipboard(this.shareUrl);
+  }
+
+  onCopySuccess() {
+    this.setState({ linkCopied: true, linkCopyFailed: false });
+    gsap.fromTo('.alert', { alpha: 0, y: 10 }, { alpha: 1, y: 0, duration: 0.3, ease: 'bounce.out' });
+  }
+
+  // Neither copy mechanism can succeed without browser/OS cooperation (e.g. the document
+  // must be focused) -- when that happens, surface it instead of swallowing it silently, so
+  // the user knows to fall back to manually selecting the link text shown right above.
+  onCopyFailure() {
+    this.setState({ linkCopyFailed: true });
+  }
+
+  // navigator.clipboard.writeText silently rejects in some real-world contexts (no document
+  // focus, an embedding iframe without clipboard-write permission delegated, non-secure
+  // context) -- it was failing "most of the time" with no fallback, just a swallowed
+  // console.log. Fall back to the legacy execCommand technique, which copies synchronously
+  // via a real text selection rather than the async permission-gated Clipboard API.
+  copyToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => this.onCopySuccess(),
+        () => this.copyViaExecCommand(text)
       );
+    } else {
+      this.copyViaExecCommand(text);
     }
+  }
+
+  copyViaExecCommand(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    try {
+      if (document.execCommand('copy')) this.onCopySuccess();
+      else this.onCopyFailure();
+    } catch (err) {
+      this.onCopyFailure();
+    }
+    document.body.removeChild(textarea);
   }
 
   //
@@ -1261,8 +1281,8 @@ export default class DisplayCanvas extends React.Component {
       controlsBlurred,
       colors,
       saveVisible,
-      shareLinkShown,
       linkCopied,
+      linkCopyFailed,
       animationMode,
       animationFrames,
       animationStarFrames,
@@ -1587,44 +1607,38 @@ export default class DisplayCanvas extends React.Component {
               </button>
             </div>
 
-            {/* Optional share link -- quiet text affordance (kept outside .row so it isn't a
-                tall bordered button); reveals the link box on demand. */}
+            {/* Share link -- secondary to the gallery save, but always visible (not gated
+                behind an extra click) since the URL is generated eagerly on save. The link
+                box and the explicit Copy button are separate elements so the copy action is
+                always a direct, synchronous response to this exact click (required for the
+                Clipboard API to be allowed to act, and harmless for the execCommand fallback). */}
             <div className="mt-4">
-              {shareLinkShown ? (
-                <>
-                  <div
-                    onClick={this.onDirectLinkClick.bind(this)}
-                    style={{
-                      cursor: 'pointer',
-                      padding: '10px',
-                      background: 'rgba(0,0,0,0.25)',
-                      borderRadius: '4px',
-                      maxHeight: '100px',
-                      overflow: 'auto',
-                      wordBreak: 'break-all',
-                      fontSize: '12px',
-                      color: 'white'
-                    }}
-                  >
-                    {this.shareUrl}
-                  </div>
-                  {linkCopied ? (
-                    <p className="mt-2 text-xs font-bold text-[#a6e000]">Link copied to clipboard</p>
-                  ) : (
-                    <p className="mt-2 text-xs text-white/50">
-                      Anyone with this link can view and recreate this design. Tap to copy.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={this.onCreateShareLink.bind(this)}
-                  className="text-sm text-white/55 underline underline-offset-2 transition hover:text-white"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                >
-                  Create a share link
+              <div
+                style={{
+                  padding: '10px',
+                  background: 'rgba(0,0,0,0.25)',
+                  borderRadius: '4px',
+                  maxHeight: '100px',
+                  overflow: 'auto',
+                  wordBreak: 'break-all',
+                  fontSize: '12px',
+                  color: 'white',
+                  marginBottom: '10px'
+                }}
+              >
+                {this.shareUrl}
+              </div>
+              {/* .button-small's styling is scoped to .row -- without this wrapper the
+                  button rendered as plain unstyled text. */}
+              <div className="row">
+                <button type="button" onClick={this.onDirectLinkClick.bind(this)} className="button-small">
+                  {linkCopied ? 'Copied!' : 'Copy link'}
                 </button>
+              </div>
+              {linkCopyFailed && (
+                <p className="mt-2 text-xs text-white/60">
+                  Couldn't copy automatically — select the link above and copy it manually.
+                </p>
               )}
             </div>
 
