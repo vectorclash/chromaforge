@@ -128,7 +128,7 @@ export default function AccountPage() {
         {mode === 'signup' ? 'Already have an account?' : 'New here?'}{' '}
         <button
           type="button"
-          className="text-accent underline"
+          className="cursor-pointer text-accent underline"
           onClick={() => {
             setMode(mode === 'signup' ? 'signin' : 'signup');
             setError(null);

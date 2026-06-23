@@ -86,7 +86,7 @@ export default function MiniGenerator() {
         type="button"
         onClick={onOpenStudio}
         aria-label="Open this design in the studio"
-        className="relative block aspect-square w-full overflow-hidden rounded-lg bg-neutral-100"
+        className="relative block aspect-square w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-100"
       >
         {shown && <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
         {incoming && (
@@ -110,7 +110,7 @@ export default function MiniGenerator() {
           disabled={pending}
           aria-label="Generate new design"
           title="Generate new design"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-neutral-300 text-neutral-700 transition hover:border-neutral-900 disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-300 text-neutral-700 transition hover:border-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <RefreshIcon spinning={pending} />
         </button>

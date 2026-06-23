@@ -74,7 +74,7 @@ export default function GalleryPage() {
   };
 
   const tabClass = active =>
-    'font-quicksand text-sm pb-2 border-b-2 transition ' +
+    'cursor-pointer font-quicksand text-sm pb-2 border-b-2 transition ' +
     (active ? 'border-accent text-neutral-900' : 'border-transparent text-neutral-500 hover:text-neutral-900');
 
   return (
@@ -119,7 +119,7 @@ export default function GalleryPage() {
                 {tab === 'mine' && (
                   <button
                     onClick={e => onDelete(e, design)}
-                    className="ml-2 shrink-0 text-xs text-neutral-400 hover:text-accent"
+                    className="ml-2 shrink-0 cursor-pointer text-xs text-neutral-400 hover:text-accent"
                     aria-label="Delete design"
                   >
                     Delete

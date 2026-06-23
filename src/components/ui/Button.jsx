@@ -23,7 +23,7 @@ export default function Button({
 }) {
   const base =
     'inline-flex items-center justify-center rounded-lg font-quicksand font-bold transition ' +
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ' +
+    'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ' +
     'disabled:pointer-events-none disabled:opacity-40';
   return <Comp className={`${base} ${VARIANTS[variant]} ${SIZES[size]} ${className}`} {...props} />;
 }
