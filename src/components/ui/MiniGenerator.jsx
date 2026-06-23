@@ -32,7 +32,8 @@ function RefreshIcon({ spinning }) {
 // thumbnail and the footer's art band both read the same StudioContext.previewUrl through the
 // same useCrossfadeImage hook, so regenerating here updates both at once, fading the same way.
 export default function MiniGenerator() {
-  const { previewUrl, currentDesign, generateRandom, saveCurrentDesign } = useStudio();
+  const { previewUrl, currentDesign, generateRandom, saveCurrentDesign, isCurrentDesignSaved } =
+    useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -40,11 +41,10 @@ export default function MiniGenerator() {
   // "Generating" lasts exactly as long as the crossfade -- no artificial extra wait.
   const pending = !!incoming;
 
-  // Tracks the design object that was last successfully saved, so the button can show
-  // "Saved" (and stop inviting another save) until a new design replaces it.
-  const [savedDesign, setSavedDesign] = useState(null);
+  // "Already saved" comes from StudioContext, not local state -- it has to be shared with
+  // the studio's own Save panel (DisplayCanvas), since saving there should also disable this
+  // button instead of leaving it free to create a duplicate row with a different name.
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | error
-  const isSaved = savedDesign === currentDesign;
 
   // A fresh design (Generate) always needs its own save -- clear any stale error state from
   // a previous design's failed save attempt.
@@ -59,11 +59,10 @@ export default function MiniGenerator() {
       navigate('/account');
       return;
     }
-    if (isSaved || saveStatus === 'saving') return;
+    if (isCurrentDesignSaved || saveStatus === 'saving') return;
     setSaveStatus('saving');
     try {
       await saveCurrentDesign('image', currentDesign);
-      setSavedDesign(currentDesign);
       setSaveStatus('idle');
     } catch {
       setSaveStatus('error');
@@ -116,14 +115,14 @@ export default function MiniGenerator() {
         </button>
         <Button
           size="sm"
-          variant={isSaved ? 'secondary' : 'primary'}
+          variant={isCurrentDesignSaved ? 'secondary' : 'primary'}
           className="min-w-0 flex-1"
           onClick={onSave}
-          disabled={saveStatus === 'saving' || isSaved}
+          disabled={saveStatus === 'saving' || isCurrentDesignSaved}
         >
           {saveStatus === 'saving' && 'Saving'}
           {saveStatus === 'error' && 'Error'}
-          {saveStatus === 'idle' && (isSaved ? 'Saved' : 'Save')}
+          {saveStatus === 'idle' && (isCurrentDesignSaved ? 'Saved' : 'Save')}
         </Button>
       </div>
     </div>

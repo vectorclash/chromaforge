@@ -40,6 +40,14 @@ export function StudioProvider({ children }) {
     generateArtwork(randomSeed(), 1080, 1080, [])
   );
   const [previewUrl, setPreviewUrl] = useState(null);
+  // Tracks the exact image-design object (by reference -- see buildConfig's onDesignChange,
+  // which hands the same object to setCurrentDesign that DisplayCanvas keeps as this.mainConfig)
+  // that was last saved, so "is the CURRENT design already saved" is a single shared fact
+  // rather than something each caller of saveCurrentDesign tracks separately. That sharing is
+  // the fix for a real bug: saving from the studio's own panel didn't used to update the
+  // mini-generator widget's (locally-tracked) saved state, so visiting /shop right after a
+  // studio save still showed an enabled "Save" button and produced a duplicate row.
+  const [savedDesign, setSavedDesign] = useState(null);
 
   useEffect(() => {
     if (queueRef.current) return; // guard against StrictMode double-invoke
@@ -104,6 +112,7 @@ export function StudioProvider({ children }) {
     async (kind, data) => {
       if (!user) throw new Error('Sign in to save designs.');
       const row = await saveDesign({ kind, data, title: FileName(), isPublic: true });
+      if (kind === 'image') setSavedDesign(data);
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
       const source = data.animation && data.frames ? data.frames[0] : data;
       if (source?.seed !== undefined) {
@@ -123,6 +132,7 @@ export function StudioProvider({ children }) {
     renderDesignBlob,
     generateRandom,
     saveCurrentDesign,
+    isCurrentDesignSaved: savedDesign === currentDesign,
     queueReady
   };
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
