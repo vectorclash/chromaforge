@@ -1607,14 +1607,14 @@ export default class DisplayCanvas extends React.Component {
               </button>
             </div>
 
-            {/* Share link -- secondary to the gallery save, but always visible (not gated
-                behind an extra click) since the URL is generated eagerly on save. The link
-                box and the explicit Copy button are separate elements so the copy action is
-                always a direct, synchronous response to this exact click (required for the
-                Clipboard API to be allowed to act, and harmless for the execCommand fallback). */}
+            {/* Share link -- secondary to the gallery save, always visible (generated eagerly
+                on save, not gated behind an extra click or a separate button). The box itself
+                is the click target, with a small inline indicator on success. */}
             <div className="mt-4">
               <div
+                onClick={this.onDirectLinkClick.bind(this)}
                 style={{
+                  cursor: 'pointer',
                   padding: '10px',
                   background: 'rgba(0,0,0,0.25)',
                   borderRadius: '4px',
@@ -1622,22 +1622,19 @@ export default class DisplayCanvas extends React.Component {
                   overflow: 'auto',
                   wordBreak: 'break-all',
                   fontSize: '12px',
-                  color: 'white',
-                  marginBottom: '10px'
+                  color: 'white'
                 }}
               >
                 {this.shareUrl}
               </div>
-              {/* .button-small's styling is scoped to .row -- without this wrapper the
-                  button rendered as plain unstyled text. */}
-              <div className="row">
-                <button type="button" onClick={this.onDirectLinkClick.bind(this)} className="button-small">
-                  {linkCopied ? 'Copied!' : 'Copy link'}
-                </button>
-              </div>
+              {linkCopied && (
+                <span className="mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000]">
+                  ✓ Copied to clipboard
+                </span>
+              )}
               {linkCopyFailed && (
-                <p className="mt-2 text-xs text-white/60">
-                  Couldn't copy automatically — select the link above and copy it manually.
+                <p className="mt-1.5 text-xs text-white/50">
+                  Couldn't copy automatically — select the text above and copy it manually.
                 </p>
               )}
             </div>
