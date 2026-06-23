@@ -25,6 +25,7 @@ export default function ProductPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
 
   // Fetch product detail + printfile specs.
   useEffect(() => {
@@ -39,6 +40,7 @@ export default function ProductPage() {
         if (!cancelled) {
           setDetail(d);
           setPrintfileSpecs(specs);
+          setSelectedVariantId(d.variants[0]?.id ?? null);
         }
       } catch (err) {
         if (!cancelled) setError(err.message);
@@ -88,7 +90,8 @@ export default function ProductPage() {
   }
 
   const { product, variants } = detail;
-  const variant = variants[0];
+  const variant = variants.find(v => v.id === selectedVariantId) || variants[0];
+  const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
   const busy = BUSY.includes(status);
 
   return (
@@ -103,17 +106,34 @@ export default function ProductPage() {
             <img src={product.image} alt={product.title} className="h-full w-full object-cover" />
           </div>
           <div className="mt-6">
-            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-neutral-500">
-              {variants.length} sizes
-            </h2>
-            <ul className="mt-2 divide-y divide-neutral-100">
-              {variants.map(v => (
-                <li key={v.id} className="flex justify-between py-2 text-sm">
-                  <span className="text-neutral-700">{v.size}{v.color ? ` / ${v.color}` : ''}</span>
-                  <span className="text-neutral-500">${v.price}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-neutral-500">
+                Size{hasMultipleColors ? ' & color' : ''}
+              </h2>
+              <span className="font-quicksand text-sm font-bold text-neutral-900">${variant.price}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {variants.map(v => {
+                const selected = v.id === variant.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setSelectedVariantId(v.id)}
+                    aria-pressed={selected}
+                    className={
+                      'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition ' +
+                      (selected
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-neutral-300 text-neutral-700 hover:border-neutral-900')
+                    }
+                  >
+                    {v.size}
+                    {hasMultipleColors && v.color ? ` / ${v.color}` : ''}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
