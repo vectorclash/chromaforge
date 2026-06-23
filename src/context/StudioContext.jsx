@@ -4,6 +4,7 @@ import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
+import FileName from '../components/FileNameGenerator';
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
 
@@ -95,10 +96,14 @@ export function StudioProvider({ children }) {
   // Persist a design to the signed-in user's gallery. Throws (rather than silently no-op'ing)
   // so callers -- the studio's save panel, the mini-generator widget -- can each show their own
   // error state. Ported from the old DisplayCanvas.saveToGallery/uploadThumbnailFor.
+  //
+  // Gives every save a generated name (the same astro-themed generator already used for
+  // export filenames -- src/components/FileNameGenerator.js) rather than leaving the gallery
+  // row title null, which is why every card read "Untitled".
   const saveCurrentDesign = useCallback(
     async (kind, data) => {
       if (!user) throw new Error('Sign in to save designs.');
-      const row = await saveDesign({ kind, data, isPublic: true });
+      const row = await saveDesign({ kind, data, title: FileName(), isPublic: true });
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
       const source = data.animation && data.frames ? data.frames[0] : data;
       if (source?.seed !== undefined) {
