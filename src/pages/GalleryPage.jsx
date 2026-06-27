@@ -4,7 +4,15 @@ import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import ShirtIcon from '../components/buttons/ShirtIcon';
-import { listPublicDesigns, listMyDesigns, deleteDesign, getThumbnailUrl } from '../lib/designs';
+import HeartIcon from '../components/buttons/HeartIcon';
+import {
+  listPublicDesigns,
+  listMyDesigns,
+  listMyLikedIds,
+  toggleLike,
+  deleteDesign,
+  getThumbnailUrl
+} from '../lib/designs';
 import { generateShareUrl } from '../utils/urlConfig';
 import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
@@ -21,6 +29,7 @@ export default function GalleryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(null);
+  const [likedIds, setLikedIds] = useState(() => new Set());
 
   const load = useCallback(async which => {
     setLoading(true);
@@ -31,6 +40,9 @@ export default function GalleryPage() {
         which === 'mine' ? await listMyDesigns() : await listPublicDesigns({ limit: PAGE_SIZE });
       setDesigns(rows);
       setHasMore(which === 'public' && rows.length === PAGE_SIZE);
+      listMyLikedIds(rows.map(d => d.id))
+        .then(ids => setLikedIds(new Set(ids)))
+        .catch(() => {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -68,12 +80,13 @@ export default function GalleryPage() {
     }
   };
 
-  // Load a saved design into the studio by routing to its share URL -- the studio's
-  // existing getConfigFromUrl path reconstructs it on mount.
+  // Load a saved design into the full studio by routing to its share URL -- /studio's
+  // existing getConfigFromUrl path reconstructs it on mount. (Not "/" -- the homepage hero
+  // is the compact Generate/Save view now, not the full tool; see StudioPage's `compact`.)
   const onOpen = design => {
     const url = generateShareUrl(design.data);
     const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/' + query);
+    navigate('/studio' + query);
   };
 
   // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage
@@ -84,13 +97,51 @@ export default function GalleryPage() {
     navigate('/shop');
   };
 
+  // Optimistic like toggle: flips the heart + adjusts the visible count immediately, reverts
+  // both if the request fails. likes_count itself is server-authoritative (a DB trigger), so
+  // this local adjustment is just to avoid a refetch -- it'll be exactly right next load.
+  const onToggleLike = async (e, design) => {
+    e.stopPropagation();
+    if (!user) {
+      navigate('/account');
+      return;
+    }
+    const wasLiked = likedIds.has(design.id);
+    setLikedIds(prev => {
+      const next = new Set(prev);
+      wasLiked ? next.delete(design.id) : next.add(design.id);
+      return next;
+    });
+    setDesigns(rows =>
+      rows.map(d =>
+        d.id === design.id ? { ...d, likes_count: (d.likes_count || 0) + (wasLiked ? -1 : 1) } : d
+      )
+    );
+    try {
+      await toggleLike(design.id);
+    } catch {
+      setLikedIds(prev => {
+        const next = new Set(prev);
+        wasLiked ? next.add(design.id) : next.delete(design.id);
+        return next;
+      });
+      setDesigns(rows =>
+        rows.map(d =>
+          d.id === design.id
+            ? { ...d, likes_count: (d.likes_count || 0) + (wasLiked ? 1 : -1) }
+            : d
+        )
+      );
+    }
+  };
+
   const tabClass = active =>
     'cursor-pointer font-quicksand text-sm pb-2 border-b-2 transition ' +
-    (active ? 'border-accent text-neutral-900' : 'border-transparent text-neutral-500 hover:text-neutral-900');
+    (active ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text');
 
   return (
     <PageContainer title="Gallery" subtitle="Designs saved by the community and by you.">
-      <div className="mb-6 flex gap-6 border-b border-neutral-200">
+      <div className="mb-6 flex gap-6 border-b border-hairline">
         <button className={tabClass(tab === 'public')} onClick={() => setTab('public')}>
           Public
         </button>
@@ -101,10 +152,17 @@ export default function GalleryPage() {
         )}
       </div>
 
-      {loading && <p className="text-neutral-500">Loading…</p>}
-      {error && <p className="text-accent">{error}</p>}
+      {loading && <p className="text-text-secondary">Loading…</p>}
+      {error && (
+        <p className="text-accent">
+          {error}{' '}
+          <button onClick={() => load(tab)} className="cursor-pointer underline">
+            Retry
+          </button>
+        </p>
+      )}
       {!loading && !error && designs.length === 0 && (
-        <p className="text-neutral-500">
+        <p className="text-text-secondary">
           {tab === 'mine' ? 'You haven’t saved any designs yet.' : 'No public designs yet.'}
         </p>
       )}
@@ -113,7 +171,7 @@ export default function GalleryPage() {
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
           {designs.map(design => (
             <Card key={design.id} className="group cursor-pointer" onClick={() => onOpen(design)}>
-              <div className="aspect-square overflow-hidden bg-neutral-100">
+              <div className="aspect-square overflow-hidden bg-ink-900">
                 <img
                   src={getThumbnailUrl(design.user_id, design.id)}
                   alt={design.title || 'Untitled design'}
@@ -124,16 +182,35 @@ export default function GalleryPage() {
                 />
               </div>
               <div className="flex items-center justify-between p-3">
-                <span className="truncate text-sm text-neutral-700">
-                  {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
+                <span className="min-w-0">
+                  <span className="block truncate text-sm text-text-secondary">
+                    {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
+                  </span>
+                  {design.profiles && (
+                    <span className="block truncate text-xs text-text-muted">
+                      by {design.profiles.display_name || design.profiles.username || 'someone'}
+                    </span>
+                  )}
                 </span>
                 <span className="ml-2 flex shrink-0 items-center gap-2">
+                  <button
+                    onClick={e => onToggleLike(e, design)}
+                    className={
+                      'flex cursor-pointer items-center gap-1 ' +
+                      (likedIds.has(design.id) ? 'text-accent' : 'text-text-muted hover:text-accent')
+                    }
+                    aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}
+                    title={likedIds.has(design.id) ? 'Unlike' : 'Like'}
+                  >
+                    <HeartIcon filled={likedIds.has(design.id)} />
+                    {design.likes_count > 0 && <span className="text-xs">{design.likes_count}</span>}
+                  </button>
                   {/* Animations aren't printable -- the mockup pipeline expects a flat
                       { seed, colors } design, not a frames array. */}
                   {design.kind !== 'animation' && (
                     <button
                       onClick={e => onPrint(e, design)}
-                      className="cursor-pointer text-neutral-400 hover:text-accent"
+                      className="cursor-pointer text-text-muted hover:text-accent"
                       aria-label="Print this design"
                       title="Print this design"
                     >
@@ -143,7 +220,7 @@ export default function GalleryPage() {
                   {tab === 'mine' && (
                     <button
                       onClick={e => onDelete(e, design)}
-                      className="cursor-pointer text-xs text-neutral-400 hover:text-accent"
+                      className="cursor-pointer text-xs text-text-muted hover:text-accent"
                       aria-label="Delete design"
                     >
                       Delete

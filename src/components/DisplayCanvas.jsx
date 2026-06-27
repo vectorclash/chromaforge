@@ -21,6 +21,7 @@ import SettingsButton from './buttons/SettingsButton';
 import PlayPauseButton from './buttons/PlayPauseButton';
 import AddColorButton from './buttons/AddColorButton';
 import ShirtIcon from './buttons/ShirtIcon';
+import ArrowIcon from './buttons/ArrowIcon';
 import ColorField from './ColorField';
 
 import s1 from '../assets/images/star-sprite-large.png';
@@ -124,6 +125,27 @@ export default class DisplayCanvas extends React.Component {
     this.checkAudioExportSupport();
   }
 
+  componentWillUnmount() {
+    if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (
+      this.props.initialDesign &&
+      this.props.initialDesign !== prevProps.initialDesign &&
+      this.props.initialDesign !== this.mainConfig
+    ) {
+      this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+      const built = this.buildConfig(
+        this.props.initialDesign.seed,
+        this.props.width,
+        this.props.height,
+        this.props.initialDesign.colors
+      );
+      this.buildImage(built);
+    }
+  }
+
   async checkAudioExportSupport() {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -145,7 +167,10 @@ export default class DisplayCanvas extends React.Component {
   }
 
   init() {
-    gsap.to('.controls-open', { opacity: 1, duration: 0.4, delay: 0.2 });
+    // Compact mode doesn't render .controls-open (the legacy reopen icon) at all.
+    if (!this.props.compact) {
+      gsap.to('.controls-open', { opacity: 1, duration: 0.4, delay: 0.2 });
+    }
 
     const config = getConfigFromUrl();
     if (config) {
@@ -162,11 +187,26 @@ export default class DisplayCanvas extends React.Component {
         this.setState({ isLoading: true, isSaved: true });
         this.loadImageFromUrl(config);
       }
+    } else if (this.props.initialDesign) {
+      // Continuity with whatever's already "active" (e.g. the homepage hero's showcase,
+      // via StudioContext.currentDesign) -- render that exact design instead of a fresh
+      // random one, so expanding into the full tool doesn't swap the artwork out from
+      // under the user. Same seed + colors is a pure function (generateArtwork), so this
+      // reproduces it pixel-for-pixel rather than approximating it.
+      this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+      const built = this.buildConfig(
+        this.props.initialDesign.seed,
+        this.props.width,
+        this.props.height,
+        this.props.initialDesign.colors
+      );
+      this.buildImage(built);
     } else {
       this.onGenerateButtonClick();
     }
 
-    window.addEventListener('keyup', this.onKeyUp.bind(this));
+    this.boundOnKeyUp = this.onKeyUp.bind(this);
+    window.addEventListener('keyup', this.boundOnKeyUp);
   }
 
   // Derives all animation timing constants from the two top-level settings.
@@ -1013,6 +1053,12 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onCloseButtonClick(e) {
+    // Compact mode (the homepage hero) has its own minimal/expanded toggle below -- this
+    // legacy "hide the whole panel, click anywhere to bring it back" interaction would
+    // otherwise still fire on background clicks with no visible way to undo it once the
+    // compact-mode reopen icon is hidden.
+    if (this.props.compact) return;
+
     const { controlsAreOpen } = this.state;
     this.onSettingsCloseButtonClick();
 
@@ -1305,6 +1351,7 @@ export default class DisplayCanvas extends React.Component {
     // `user` now comes from the auth provider via props (StudioPage), not local state.
     const user = this.props.user;
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
+    const compact = !!this.props.compact;
 
     return (
       <div
@@ -1314,12 +1361,14 @@ export default class DisplayCanvas extends React.Component {
         }}
       >
         {isLoading ? <HexagonLoader /> : ''}
-        <div
-          className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
-          onClick={this.onCloseButtonClick.bind(this)}
-        >
-          <CloseButton isOpen={controlsAreOpen} />
-        </div>
+        {!compact && (
+          <div
+            className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
+            onClick={this.onCloseButtonClick.bind(this)}
+          >
+            <CloseButton isOpen={controlsAreOpen} />
+          </div>
+        )}
         <div
           className="image-container absolute left-0 top-0 z-0 h-full w-full bg-cover bg-center bg-no-repeat opacity-0"
           onClick={this.onCloseButtonClick.bind(this)}
@@ -1354,93 +1403,142 @@ export default class DisplayCanvas extends React.Component {
           ) : (
             ''
           )}
-          <div
-            id="controls-main"
-            className={
-              'controls-inner absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
-              (controlsBlurred ? ' controls-blurred' : '')
-            }
-          >
-            <div className="row">
-              <div className="mode-toggle">
+          {compact ? (
+            // Homepage hero: a fixed, minimal state -- no glass chrome, no toggle. Image/
+            // Animation, Download, and Settings only exist on the full standalone studio
+            // (compact=false, see the other branch / pages/StudioPage.jsx's `compact` prop).
+            <div
+              id="controls-main"
+              className={
+                'controls-inner absolute z-[1] flex min-w-[400px] flex-col justify-center gap-3 rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+                (controlsBlurred ? ' controls-blurred' : '')
+              }
+            >
+              <div className="row">
                 <button
-                  className={'mode-toggle-btn' + (!animationMode ? ' active' : '')}
-                  onClick={() => this.onModeToggle(false)}
+                  onClick={this.onGenerateButtonClick.bind(this)}
+                  className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
                 >
-                  Image
-                </button>
-                <button
-                  className={'mode-toggle-btn' + (animationMode ? ' active' : '')}
-                  onClick={() => this.onModeToggle(true)}
-                >
-                  Animation
+                  {generateDisabled ? 'Generating' : 'Generate'}
                 </button>
               </div>
-            </div>
-            <div className="row">
-              <button
-                onClick={this.onGenerateButtonClick.bind(this)}
-                className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
-              >
-                {generateDisabled
-                  ? animationMode
-                    ? `Generating ${animationProgress} / ${frameCount}`
-                    : 'Generating'
-                  : 'Generate'}
-              </button>
-            </div>
-            {animationMode && (generateDisabled || isExporting) && (
-              <div className="animation-progress">
-                <div
-                  className="animation-progress-bar"
+              <div className="row">
+                <button
+                  onClick={this.onSaveButtonClick.bind(this)}
+                  className="button-small"
+                  style={{ width: '100%' }}
+                >
+                  {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
+                </button>
+              </div>
+              <div className="row" style={{ justifyContent: 'center' }}>
+                <button
+                  onClick={() => this.props.onNavigate?.('/studio')}
                   style={{
-                    width: isExporting
-                      ? `${exportProgress}%`
-                      : `${(animationProgress / frameCount) * 100}%`
+                    background: 'transparent',
+                    border: 'none',
+                    boxShadow: 'none',
+                    height: 'auto',
+                    width: 'auto',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-quicksand)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    letterSpacing: 'normal'
                   }}
-                />
+                >
+                  Go to studio <ArrowIcon />
+                </button>
               </div>
-            )}
-            {animationMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
-              <div className="settings-dirty-notice">
-                Regenerate to apply new settings
+            </div>
+          ) : (
+            <div
+              id="controls-main"
+              className={
+                'controls-inner absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+                (controlsBlurred ? ' controls-blurred' : '')
+              }
+            >
+              <div className="row">
+                <div className="mode-toggle">
+                  <button
+                    className={'mode-toggle-btn' + (!animationMode ? ' active' : '')}
+                    onClick={() => this.onModeToggle(false)}
+                  >
+                    Image
+                  </button>
+                  <button
+                    className={'mode-toggle-btn' + (animationMode ? ' active' : '')}
+                    onClick={() => this.onModeToggle(true)}
+                  >
+                    Animation
+                  </button>
+                </div>
               </div>
-            )}
-            <div className="row">
-              <button
-                onClick={this.onSaveButtonClick.bind(this)}
-                className="button-small"
-              >
-                {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
-              </button>
-              <button
-                onClick={this.onDownloadButtonClick.bind(this)}
-                className="button-small"
-                disabled={isExporting || (animationMode && animationFrames.length === 0)}
-                style={
-                  isExporting || (animationMode && animationFrames.length === 0)
-                    ? { opacity: 0.4, cursor: 'not-allowed' }
-                    : {}
-                }
-              >
-                {isExporting ? 'Exporting...' : animationMode ? 'Export MP4' : 'Download'}
-              </button>
+              <div className="row">
+                <button
+                  onClick={this.onGenerateButtonClick.bind(this)}
+                  className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
+                >
+                  {generateDisabled
+                    ? animationMode
+                      ? `Generating ${animationProgress} / ${frameCount}`
+                      : 'Generating'
+                    : 'Generate'}
+                </button>
+              </div>
+              {animationMode && (generateDisabled || isExporting) && (
+                <div className="animation-progress">
+                  <div
+                    className="animation-progress-bar"
+                    style={{
+                      width: isExporting
+                        ? `${exportProgress}%`
+                        : `${(animationProgress / frameCount) * 100}%`
+                    }}
+                  />
+                </div>
+              )}
+              {animationMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
+                <div className="settings-dirty-notice">
+                  Regenerate to apply new settings
+                </div>
+              )}
+              <div className="row">
+                <button
+                  onClick={this.onSaveButtonClick.bind(this)}
+                  className="button-small"
+                >
+                  {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
+                </button>
+                <button
+                  onClick={this.onDownloadButtonClick.bind(this)}
+                  className="button-small"
+                  disabled={isExporting || (animationMode && animationFrames.length === 0)}
+                  style={
+                    isExporting || (animationMode && animationFrames.length === 0)
+                      ? { opacity: 0.4, cursor: 'not-allowed' }
+                      : {}
+                  }
+                >
+                  {isExporting ? 'Exporting...' : animationMode ? 'Export MP4' : 'Download'}
+                </button>
+              </div>
+              <div className="row">
+                <h1>
+                  CHROMA<b>FORGE</b>
+                </h1>
+                <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
+                  <SettingsButton />
+                </button>
+              </div>
             </div>
-            <div className="row">
-              <h1>
-                CHROMA<b>FORGE</b>
-              </h1>
-              {/* Single clean entry into the store (Shop/Gallery/Account live there now,
-                  under the light site chrome). Navigates client-side via StudioPage's
-                  useNavigate, passed in as the onNavigate prop. */}
-              <button onClick={() => this.props.onNavigate?.('/shop')} className="button-small">
-                Shop
-              </button>
-              <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
-                <SettingsButton />
-              </button>
-            </div>
-          </div>
+          )}
 
           <div
             id="controls-settings"

@@ -108,5 +108,13 @@ export function useMockup() {
     [renderDesignBlob]
   );
 
-  return { status, error, images, generate };
+  // Back to idle/no-images -- callers use this when the artwork or variant changes, so a
+  // stale mockup from a previous selection doesn't keep showing as if it were current.
+  const reset = useCallback(() => {
+    setStatus('idle');
+    setError(null);
+    setImages([]);
+  }, []);
+
+  return { status, error, images, generate, reset };
 }

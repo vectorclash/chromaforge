@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
+import HexagonLoader from '../components/HexagonLoader';
 import { getCatalogProduct, getPrintfileSpecs } from '../lib/printful';
 import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
 import { useMockup } from '../hooks/useMockup';
+import { useHoverScroll } from '../hooks/useHoverScroll';
 
 const BUSY = ['rendering', 'creating', 'polling'];
 const STATUS_LABEL = {
@@ -17,23 +19,19 @@ const STATUS_LABEL = {
 
 export default function ProductPage() {
   const { productId } = useParams();
-  const {
-    currentDesign,
-    previewUrl: studioPreviewUrl,
-    renderDesignBlob,
-    queueReady,
-    printQueueDesign,
-    setPrintQueueDesign
-  } = useStudio();
+  const { currentDesign, previewUrl: studioPreviewUrl, printQueueDesign, setPrintQueueDesign } =
+    useStudio();
   const { user } = useAuth();
-  const { status, error: mockupError, images, generate } = useMockup();
+  const { status, error: mockupError, images, generate, reset: resetMockup } = useMockup();
 
   const [detail, setDetail] = useState(null); // { product, variants }
   const [printfileSpecs, setPrintfileSpecs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
   const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [qty, setQty] = useState(1);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [checkoutNotice, setCheckoutNotice] = useState(null);
 
   // Step 1: which artwork to print. "current" is always the live studio design; a one-shot
   // hand-off from the Gallery's "Print this" action can also queue a specific saved design
@@ -42,6 +40,7 @@ export default function ProductPage() {
   const [queuedChoice, setQueuedChoice] = useState(null);
   const [selectedKey, setSelectedKey] = useState('current');
   const consumedQueueRef = useRef(false);
+  const artworkStripRef = useHoverScroll();
 
   // Fetch product detail + printfile specs.
   useEffect(() => {
@@ -97,6 +96,19 @@ export default function ProductPage() {
     };
   }, [user]);
 
+  // A new mockup batch always starts on its first (front-facing) image.
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [images]);
+
+  // Switching artwork or variant invalidates whatever mockup is showing -- otherwise the
+  // hero image would keep displaying a mockup of the *previous* selection as if it were
+  // current.
+  useEffect(() => {
+    resetMockup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, selectedVariantId]);
+
   const choices = [
     { key: 'current', label: 'Current studio design', thumb: studioPreviewUrl, data: currentDesign },
     ...(queuedChoice
@@ -121,31 +133,10 @@ export default function ProductPage() {
   const selectedChoice = choices.find(c => c.key === selectedKey) || choices[0];
   const selectedDesign = selectedChoice.data;
 
-  // Render a preview of the selected artwork (what will be printed) off-canvas.
-  useEffect(() => {
-    if (!selectedDesign || !queueReady) {
-      setPreviewUrl(null);
-      return;
-    }
-    let url;
-    let cancelled = false;
-    renderDesignBlob(selectedDesign, 600, 600)
-      .then(blob => {
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setPreviewUrl(url);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [selectedDesign, queueReady, renderDesignBlob]);
-
   if (loading) {
     return (
       <PageContainer title="Loading…">
-        <p className="text-neutral-500">Fetching product…</p>
+        <p className="text-text-secondary">Fetching product…</p>
       </PageContainer>
     );
   }
@@ -161,18 +152,33 @@ export default function ProductPage() {
   const variant = variants.find(v => v.id === selectedVariantId) || variants[0];
   const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
   const busy = BUSY.includes(status);
+  const hasMockup = status === 'completed' && images.length > 0;
+  const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
+
+  const onGenerateClick = () => generate({ product, printfileSpecs, variant, design: selectedDesign });
+
+  // No Stripe integration yet (that's its own later phase) -- this previews the page's final
+  // shape without pretending checkout works. Gated behind a real mockup existing, since
+  // buying before seeing what you're printing doesn't make sense regardless of payments.
+  const onBuyNowClick = () => {
+    setCheckoutNotice("Checkout isn't connected yet -- coming in a later phase.");
+  };
 
   return (
     <PageContainer
       title={product.title}
-      actions={<Button as={Link} to="/shop" variant="ghost">← Shop</Button>}
+      actions={
+        <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
+          ← Shop
+        </Link>
+      }
     >
-      {/* Step 1: artwork. Full-width, above the size/preview columns -- it drives both. */}
+      {/* Step 1: artwork. Full-width, above the gallery/purchase columns -- it drives both. */}
       <div className="mb-8">
-        <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-neutral-500">
+        <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
           1. Choose artwork
         </h2>
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+        <div ref={artworkStripRef} className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
           {choices.map(c => {
             const selected = c.key === selectedKey;
             return (
@@ -183,8 +189,8 @@ export default function ProductPage() {
                 aria-pressed={selected}
                 title={c.label}
                 className={
-                  'h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-neutral-100 transition ' +
-                  (selected ? 'border-accent' : 'border-neutral-200 hover:border-neutral-400')
+                  'h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition ' +
+                  (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                 }
               >
                 {c.thumb && <img src={c.thumb} alt={c.label} className="h-full w-full object-cover" />}
@@ -192,103 +198,159 @@ export default function ProductPage() {
             );
           })}
         </div>
-        <p className="mt-2 truncate text-xs text-neutral-500">{selectedChoice.label}</p>
+        <p className="mt-2 truncate text-xs text-text-secondary">{selectedChoice.label}</p>
         {!user && (
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="mt-1 text-xs text-text-muted">
             <Link to="/account" className="text-accent underline">Sign in</Link> to choose from your saved designs.
           </p>
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
-        {/* Step 2: size */}
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[3fr_2fr]">
+        {/* Gallery: one large hero image that upgrades in place from blank stock photo to
+            the real mockup, instead of a small mockup grid competing with a separate
+            "useless" blank photo elsewhere on the page. */}
         <div>
-          <div className="aspect-square overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
-            <img src={product.image} alt={product.title} className="h-full w-full object-cover" />
+          <div className="relative aspect-square overflow-hidden rounded-xl border border-hairline bg-ink-900">
+            <img src={heroImage} alt={product.title} className="h-full w-full object-cover" />
+            {!hasMockup && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6">
+                {!user ? (
+                  <p className="max-w-xs text-center text-sm text-text">
+                    <Link to="/account" className="text-accent underline">Sign in</Link> to generate a mockup of your design.
+                  </p>
+                ) : busy ? (
+                  <div className="flex flex-col items-center gap-3 text-center text-text">
+                    <HexagonLoader />
+                    <p className="text-sm font-bold">{STATUS_LABEL[status]}</p>
+                    <p className="text-xs text-text-secondary">This usually takes 30–90 seconds.</p>
+                  </div>
+                ) : status === 'failed' ? (
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <p className="max-w-xs text-sm text-accent">{mockupError}</p>
+                    <Button onClick={onGenerateClick} disabled={!selectedDesign}>
+                      Try again
+                    </Button>
+                  </div>
+                ) : (
+                  <Button onClick={onGenerateClick} disabled={!selectedDesign}>
+                    Generate mockup
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
-          <div className="mt-6">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-neutral-500">
-                2. Size{hasMultipleColors ? ' & color' : ''}
-              </h2>
-              <span className="font-quicksand text-sm font-bold text-neutral-900">${variant.price}</span>
+
+          {hasMockup && images.length > 1 && (
+            <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
+              {images.map((m, i) => (
+                <button
+                  key={m.style_id}
+                  type="button"
+                  onClick={() => setActiveImageIndex(i)}
+                  aria-pressed={i === activeImageIndex}
+                  title={m.display_name}
+                  className={
+                    'h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition ' +
+                    (i === activeImageIndex ? 'border-accent' : 'border-hairline hover:border-text-muted')
+                  }
+                >
+                  <img src={m.mockup_url} alt={m.display_name} className="h-full w-full object-cover" />
+                </button>
+              ))}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {variants.map(v => {
-                const selected = v.id === variant.id;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setSelectedVariantId(v.id)}
-                    aria-pressed={selected}
-                    className={
-                      'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition ' +
-                      (selected
-                        ? 'border-accent bg-accent text-white'
-                        : 'border-neutral-300 text-neutral-700 hover:border-neutral-900')
-                    }
-                  >
-                    {v.size}
-                    {hasMultipleColors && v.color ? ` / ${v.color}` : ''}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          )}
+          {hasMockup && (
+            <p className="mt-2 text-center text-xs text-text-secondary">
+              {images[activeImageIndex].display_name}
+            </p>
+          )}
         </div>
 
-        {/* Step 3: preview + mockup */}
+        {/* Purchase panel: size/color, quantity, total, checkout. */}
         <div>
-          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-neutral-500">
-            3. Preview &amp; mockup
-          </h2>
-          <div className="mt-2 aspect-square overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
-            {previewUrl ? (
-              <img src={previewUrl} alt={selectedChoice.label} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center p-6 text-center text-sm text-neutral-500">
-                Rendering preview…
-              </div>
-            )}
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              2. Size{hasMultipleColors ? ' & color' : ''}
+            </h2>
+            <span className="font-quicksand text-sm font-bold text-text">${variant.price}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {variants.map(v => {
+              const selected = v.id === variant.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setSelectedVariantId(v.id)}
+                  aria-pressed={selected}
+                  className={
+                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition ' +
+                    (selected
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-hairline text-text-secondary hover:border-text')
+                  }
+                >
+                  {v.size}
+                  {hasMultipleColors && v.color ? ` / ${v.color}` : ''}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="mt-6">
-            {!user ? (
-              <p className="text-sm text-neutral-500">
-                <Link to="/account" className="text-accent underline">Sign in</Link> to generate a mockup of your design.
-              </p>
-            ) : (
-              <Button
-                onClick={() => generate({ product, printfileSpecs, variant, design: selectedDesign })}
-                disabled={busy || !selectedDesign}
+          <div className="mt-8">
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Quantity
+            </h2>
+            <div className="mt-3 inline-flex items-center gap-4 rounded-lg border border-hairline px-4 py-2">
+              <button
+                type="button"
+                onClick={() => setQty(q => Math.max(1, q - 1))}
+                aria-label="Decrease quantity"
+                className="cursor-pointer font-quicksand text-lg text-text-secondary hover:text-text"
               >
-                {busy && (
-                  <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                )}
-                {busy ? STATUS_LABEL[status] : 'Generate mockup'}
+                −
+              </button>
+              <span className="w-4 text-center font-quicksand font-bold text-text">{qty}</span>
+              <button
+                type="button"
+                onClick={() => setQty(q => Math.min(10, q + 1))}
+                aria-label="Increase quantity"
+                className="cursor-pointer font-quicksand text-lg text-text-secondary hover:text-text"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-8 border-t border-hairline pt-6">
+            <div className="flex items-baseline justify-between">
+              <span className="font-quicksand text-sm text-text-secondary">Total</span>
+              <span className="font-display text-2xl text-text">
+                ${(variant.price * qty).toFixed(2)}
+              </span>
+            </div>
+
+            {!user ? (
+              <Button as={Link} to="/account" className="mt-4 w-full">
+                Sign in to buy
+              </Button>
+            ) : (
+              <Button className="mt-4 w-full" disabled={!hasMockup} onClick={onBuyNowClick}>
+                Buy now
               </Button>
             )}
-            {busy && (
-              <p className="mt-2 text-xs text-neutral-400">
-                This usually takes 30–90 seconds, depending on the product.
+            {user && !hasMockup && (
+              <p className="mt-2 text-center text-xs text-text-muted">
+                Generate a mockup above before you check out.
               </p>
             )}
-            {status === 'failed' && mockupError && (
-              <p className="mt-3 text-sm text-accent">{mockupError}</p>
+            {checkoutNotice && (
+              <p className="mt-2 text-center text-xs text-accent">{checkoutNotice}</p>
             )}
-            {status === 'completed' && images.length > 0 && (
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {images.map(m => (
-                  <div key={m.style_id}>
-                    <div className="overflow-hidden rounded-lg border border-neutral-200">
-                      <img src={m.mockup_url} alt={m.display_name} className="w-full" />
-                    </div>
-                    <p className="mt-1 text-center text-xs text-neutral-500">{m.display_name}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+            <p className="mt-3 text-center text-xs text-text-muted">
+              Printed on demand and shipped by Printful. No returns on custom prints.
+            </p>
           </div>
         </div>
       </div>

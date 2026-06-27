@@ -32,13 +32,13 @@ export default function ShopPage() {
 
   return (
     <PageContainer title="Shop" subtitle="Wear the algorithm. Every piece is generated, never reprinted.">
-      {loading && <p className="text-neutral-500">Loading products…</p>}
+      {loading && <p className="text-text-secondary">Loading products…</p>}
       {error && <p className="text-accent">{error}</p>}
       {!loading && !error && (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {products.map(product => (
             <Card key={product.id} as={Link} to={`/shop/${product.id}`} className="group">
-              <div className="aspect-square overflow-hidden bg-neutral-100">
+              <div className="aspect-square overflow-hidden bg-ink-900">
                 <img
                   src={product.image}
                   alt={product.title}
@@ -46,8 +46,8 @@ export default function ShopPage() {
                 />
               </div>
               <div className="p-4">
-                <h2 className="font-quicksand text-sm font-bold text-neutral-900">{product.title}</h2>
-                <p className="mt-1 text-sm text-neutral-500">Customize with your design →</p>
+                <h2 className="font-quicksand text-sm font-bold text-text">{product.title}</h2>
+                <p className="mt-1 text-sm text-text-secondary">Customize with your design →</p>
               </div>
             </Card>
           ))}

@@ -1,17 +1,21 @@
 import React from 'react';
 
-// Light-theme button for the store/account/gallery chrome. `as` lets it render as a
-// router <Link> or <a> while keeping the same styling (e.g. <Button as={Link} to="/shop">).
-// Variants: primary (accent fill), secondary (outline), ghost (text only).
+// Canonical button for the dark site-wide system (.cf-btn-primary / .cf-btn-ghost /
+// .cf-btn-icon in components.css). One button, reused on glass and solid surfaces alike --
+// the surface changes, the button doesn't. `as` lets it render as a router <Link> or <a>
+// while keeping the same styling (e.g. <Button as={Link} to="/shop">).
+// `secondary` is kept as an alias for `ghost` -- pre-redesign callers used that name for
+// the outline treatment, which is exactly what ghost is here.
 const VARIANTS = {
-  primary: 'bg-accent text-white hover:bg-accent-strong',
-  secondary: 'border border-neutral-300 text-neutral-900 hover:border-neutral-900',
-  ghost: 'text-neutral-600 hover:text-neutral-900'
+  primary: 'cf-btn-primary',
+  secondary: 'cf-btn-ghost',
+  ghost: 'cf-btn-ghost',
+  icon: 'cf-btn-icon'
 };
 
 const SIZES = {
-  sm: 'h-9 px-4 text-sm',
-  md: 'h-11 px-6 text-sm'
+  sm: 'cf-size-sm',
+  md: ''
 };
 
 export default function Button({
@@ -21,9 +25,5 @@ export default function Button({
   className = '',
   ...props
 }) {
-  const base =
-    'inline-flex items-center justify-center rounded-lg font-quicksand font-bold transition ' +
-    'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ' +
-    'disabled:pointer-events-none disabled:opacity-40';
-  return <Comp className={`${base} ${VARIANTS[variant]} ${SIZES[size]} ${className}`} {...props} />;
+  return <Comp className={`${VARIANTS[variant]} ${SIZES[size]} ${className}`} {...props} />;
 }

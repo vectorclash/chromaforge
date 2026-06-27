@@ -1,13 +1,11 @@
 import React from 'react';
 
-// Light surface card. `as` lets it render as a router <Link> (whole-card link, e.g. a
-// product tile) while keeping hover affordances.
+// Solid, lift-on-hover card from the locked foundation (.cf-card in components.css). `as`
+// lets it render as a router <Link> (whole-card link, e.g. a product tile) while keeping
+// hover affordances.
 export default function Card({ as: Comp = 'div', className = '', children, ...props }) {
-  const base =
-    'block overflow-hidden rounded-xl border border-neutral-200 bg-white transition ' +
-    'hover:border-neutral-300 hover:shadow-sm';
   return (
-    <Comp className={`${base} ${className}`} {...props}>
+    <Comp className={`cf-card block overflow-hidden ${className}`} {...props}>
       {children}
     </Comp>
   );

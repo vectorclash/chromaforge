@@ -57,6 +57,18 @@ export async function listPublicDesigns({ limit = 30, before = null } = {}) {
   return data;
 }
 
+// Top-liked public designs for the homepage gallery preview, most-liked first.
+export async function listTopLikedDesigns({ limit = 8 } = {}) {
+  const { data, error } = await client()
+    .from('designs')
+    .select('*, profiles!designs_user_id_fkey(username, display_name, avatar_url)')
+    .eq('is_public', true)
+    .order('likes_count', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
 export async function listMyDesigns() {
   const sb = client();
   const user = await currentUser();
@@ -101,6 +113,25 @@ export function getThumbnailUrl(userId, designId) {
   if (!isSupabaseConfigured || !userId) return null;
   const path = `${userId}/${designId}.jpg`;
   return supabase.storage.from(THUMBNAIL_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+// Design ids the signed-in user has liked, among the given list -- used to seed each
+// gallery card's initial liked/unliked state. Returns an empty array when signed out
+// (no error -- callers render unliked hearts for anonymous visitors) rather than throwing,
+// since this is meant to be called unconditionally alongside the gallery's own list fetch.
+export async function listMyLikedIds(designIds) {
+  if (!designIds || designIds.length === 0) return [];
+  const sb = client();
+  const user = await currentUser();
+  if (!user) return [];
+
+  const { data, error } = await sb
+    .from('likes')
+    .select('design_id')
+    .eq('user_id', user.id)
+    .in('design_id', designIds);
+  if (error) throw error;
+  return data.map(row => row.design_id);
 }
 
 // Toggle the signed-in user's like on a design. Returns the new liked state.

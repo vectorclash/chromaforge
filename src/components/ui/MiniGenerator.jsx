@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Button from './Button';
 import { useStudio } from '../../context/StudioContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
+import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
 import { generateShareUrl } from '../../utils/urlConfig';
 
 const CROSSFADE_MS = 450;
@@ -27,27 +27,22 @@ function RefreshIcon({ spinning }) {
   );
 }
 
-// Ambient presence of the generator on every light page: a small floating widget with a live
-// thumbnail of the current design plus Generate/Save. Rendered once in SiteLayout. The
-// thumbnail and the footer's art band both read the same StudioContext.previewUrl through the
-// same useCrossfadeImage hook, so regenerating here updates both at once, fading the same way.
-export default function MiniGenerator() {
+// Ambient presence of the generator: either a floating widget or docked in the footer.
+// The thumbnail and the footer's art band both read the same StudioContext.previewUrl,
+// so regenerating here updates both at once, fading the same way.
+export default function MiniGenerator({ inline = false }) {
   const { previewUrl, currentDesign, generateRandom, saveCurrentDesign, isCurrentDesignSaved } =
     useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const visible = useWidgetVisibility();
 
   const { shown, incoming, fadingIn } = useCrossfadeImage(previewUrl, CROSSFADE_MS);
-  // "Generating" lasts exactly as long as the crossfade -- no artificial extra wait.
   const pending = !!incoming;
 
-  // "Already saved" comes from StudioContext, not local state -- it has to be shared with
-  // the studio's own Save panel (DisplayCanvas), since saving there should also disable this
-  // button instead of leaving it free to create a duplicate row with a different name.
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | error
 
-  // A fresh design (Generate) always needs its own save -- clear any stale error state from
-  // a previous design's failed save attempt.
+  // Clear any stale error state from a previous design's failed save attempt
   useEffect(() => {
     setSaveStatus('idle');
   }, [currentDesign]);
@@ -70,22 +65,104 @@ export default function MiniGenerator() {
     }
   };
 
-  // Open the studio with THIS design loaded, not a fresh one -- the studio's own init()
-  // already knows how to load a design from the URL (getConfigFromUrl), the same path
-  // GalleryPage uses to reopen a saved design, so reuse it rather than a bare "/" link.
   const onOpenStudio = () => {
     const url = generateShareUrl(currentDesign);
     const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/' + query);
+    navigate('/studio' + query);
   };
 
+  // 1. Inline (Docked in Footer) Version: Horizontal Layout, buttons on left, image on right
+  if (inline) {
+    return (
+      <div className="cf-glass flex flex-row items-center gap-4 p-4 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+        {/* Buttons stacked on the left */}
+        <div className="flex flex-col gap-3 w-32 shrink-0">
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={pending}
+            aria-label="Generate new design"
+            title="Generate new design"
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 text-text-secondary hover:text-accent hover:bg-accent/10 hover:border-accent/30 transition-all duration-200 text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
+          >
+            <RefreshIcon spinning={pending} />
+            <span>Generate</span>
+          </button>
+          
+          {isCurrentDesignSaved ? (
+            <button
+              type="button"
+              disabled
+              className="h-12 w-full rounded-xl bg-white/5 border border-white/10 text-text-muted font-quicksand font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-default"
+            >
+              Saved
+            </button>
+          ) : saveStatus === 'saving' ? (
+            <button
+              type="button"
+              disabled
+              className="h-12 w-full rounded-xl bg-white/10 border border-white/10 text-text-secondary font-quicksand font-bold text-xs uppercase tracking-wider transition-all duration-200 animate-pulse"
+            >
+              Saving
+            </button>
+          ) : saveStatus === 'error' ? (
+            <button
+              type="button"
+              disabled
+              className="h-12 w-full rounded-xl bg-red-950/20 border border-red-500/30 text-red-400 font-quicksand font-bold text-xs uppercase tracking-wider transition-all duration-200"
+            >
+              Error
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSave}
+              className="h-12 w-full rounded-xl bg-accent text-ink-950 font-quicksand font-bold text-xs uppercase tracking-wider hover:bg-accent-strong hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-[0_4px_12px_rgba(166,224,0,0.25)] hover:shadow-[0_6px_16px_rgba(166,224,0,0.4)] cursor-pointer"
+            >
+              Save
+            </button>
+          )}
+        </div>
+
+        {/* Thumbnail on the right */}
+        <button
+          type="button"
+          onClick={onOpenStudio}
+          aria-label="Open this design in the studio"
+          className="group relative block aspect-square w-[108px] h-[108px] shrink-0 cursor-pointer overflow-hidden rounded-xl bg-ink-950 border border-white/10 transition-all duration-300 hover:scale-[1.03] hover:border-accent/40 hover:shadow-[0_0_15px_rgba(166,224,0,0.2)]"
+        >
+          {shown && <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+          {incoming && (
+            <img
+              src={incoming}
+              alt=""
+              className={
+                'absolute inset-0 h-full w-full object-cover transition-opacity ' +
+                (fadingIn ? 'opacity-100' : 'opacity-0')
+              }
+              style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+            />
+          )}
+          {/* Hover overlay */}
+          <div className="absolute inset-0 bg-interactive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+        </button>
+      </div>
+    );
+  }
+
+  // 2. Floating Version: Vertical Layout, image on top, buttons on bottom
   return (
-    <div className="fixed bottom-6 right-6 z-30 w-44 rounded-xl border border-neutral-200 bg-white/95 p-2 shadow-lg backdrop-blur">
+    <div
+      className={
+        'cf-glass fixed bottom-6 right-6 z-30 w-44 p-3 transition-all duration-300 ' +
+        (visible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0')
+      }
+    >
       <button
         type="button"
         onClick={onOpenStudio}
         aria-label="Open this design in the studio"
-        className="relative block aspect-square w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-100"
+        className="group relative block aspect-square w-full cursor-pointer overflow-hidden rounded-lg bg-ink-950 border border-white/10 transition-all duration-300 hover:scale-[1.03] hover:border-interactive/40"
       >
         {shown && <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
         {incoming && (
@@ -99,31 +176,55 @@ export default function MiniGenerator() {
             style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
           />
         )}
+        {/* Hover overlay */}
+        <div className="absolute inset-0 bg-interactive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
       </button>
-      <div className="mt-2 flex gap-1.5">
-        {/* Icon-only (matches the studio's own .button-icon language) so its fixed size
-            never fights the Save label for width. */}
+      
+      <div className="mt-2.5 flex gap-2">
         <button
           type="button"
           onClick={onGenerate}
           disabled={pending}
           aria-label="Generate new design"
           title="Generate new design"
-          className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-300 text-neutral-700 transition hover:border-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-text-secondary hover:text-accent hover:bg-accent/10 hover:border-accent/30 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
         >
           <RefreshIcon spinning={pending} />
         </button>
-        <Button
-          size="sm"
-          variant={isCurrentDesignSaved ? 'secondary' : 'primary'}
-          className="min-w-0 flex-1"
-          onClick={onSave}
-          disabled={saveStatus === 'saving' || isCurrentDesignSaved}
-        >
-          {saveStatus === 'saving' && 'Saving'}
-          {saveStatus === 'error' && 'Error'}
-          {saveStatus === 'idle' && (isCurrentDesignSaved ? 'Saved' : 'Save')}
-        </Button>
+        
+        {isCurrentDesignSaved ? (
+          <button
+            type="button"
+            disabled
+            className="flex-1 h-9 rounded-lg bg-white/5 border border-white/10 text-text-muted font-quicksand font-semibold text-[10px] uppercase tracking-wider transition-all duration-200 cursor-default"
+          >
+            Saved
+          </button>
+        ) : saveStatus === 'saving' ? (
+          <button
+            type="button"
+            disabled
+            className="flex-1 h-9 rounded-lg bg-white/10 border border-white/10 text-text-secondary font-quicksand font-semibold text-[10px] uppercase tracking-wider transition-all duration-200 animate-pulse"
+          >
+            Saving
+          </button>
+        ) : saveStatus === 'error' ? (
+          <button
+            type="button"
+            disabled
+            className="flex-1 h-9 rounded-lg bg-red-950/20 border border-red-500/30 text-red-400 font-quicksand font-semibold text-[10px] uppercase tracking-wider transition-all duration-200"
+          >
+            Error
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSave}
+            className="flex-1 h-9 rounded-lg bg-accent text-ink-950 font-quicksand font-bold text-[10px] uppercase tracking-wider hover:bg-accent-strong hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-[0_4px_12px_rgba(166,224,0,0.25)] hover:shadow-[0_6px_16px_rgba(166,224,0,0.4)] cursor-pointer"
+          >
+            Save
+          </button>
+        )}
       </div>
     </div>
   );
