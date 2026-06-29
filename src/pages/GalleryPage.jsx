@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
+import FadeImage from '../components/ui/FadeImage';
 import ShirtIcon from '../components/buttons/ShirtIcon';
 import HeartIcon from '../components/buttons/HeartIcon';
 import {
@@ -169,10 +170,15 @@ export default function GalleryPage() {
 
       {!loading && designs.length > 0 && (
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
-          {designs.map(design => (
-            <Card key={design.id} className="group cursor-pointer" onClick={() => onOpen(design)}>
+          {designs.map((design, i) => (
+            <Card
+              key={design.id}
+              className="group cursor-pointer animate-fade-slide-up"
+              style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
+              onClick={() => onOpen(design)}
+            >
               <div className="relative aspect-square overflow-hidden bg-ink-900">
-                <img
+                <FadeImage
                   src={getThumbnailUrl(design.user_id, design.id)}
                   alt={design.title || 'Untitled design'}
                   onError={e => {

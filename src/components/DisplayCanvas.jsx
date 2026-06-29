@@ -26,6 +26,7 @@ import ColorField from './ColorField';
 
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
+import logo from '../assets/images/logo.svg';
 
 async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
   const left        = audioBuffer.getChannelData(0);
@@ -1063,7 +1064,7 @@ export default class DisplayCanvas extends React.Component {
 
     // Pulse the newly active button after React re-renders
     gsap.delayedCall(0.05, () => {
-      gsap.fromTo('.mode-toggle-btn.active',
+      gsap.fromTo('.panel-tab.active',
         { opacity: 0.3, scale: 0.94 },
         { duration: 0.35, opacity: 1, scale: 1, ease: 'back.out(1.7)' }
       );
@@ -1092,7 +1093,7 @@ export default class DisplayCanvas extends React.Component {
         this.setState({ controlsAreOpen: false });
 
         gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
-        gsap.to('.row, .logo', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
+        gsap.to('.row, .logo, .panel-tabs', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
 
         const el = document.querySelector('.controls-inner');
         const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(el);
@@ -1148,7 +1149,7 @@ export default class DisplayCanvas extends React.Component {
           }
         });
 
-        gsap.fromTo('.row, .logo',
+        gsap.fromTo('.row, .logo, .panel-tabs',
           { alpha: 0, y: 42 },
           { duration: 0.5, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
         );
@@ -1471,21 +1472,23 @@ export default class DisplayCanvas extends React.Component {
                 (controlsBlurred ? ' controls-blurred' : '')
               }
             >
-              <div className="row">
-                <div className="mode-toggle">
-                  <button
-                    className={'mode-toggle-btn' + (!animationMode ? ' active' : '')}
-                    onClick={() => this.onModeToggle(false)}
-                  >
-                    Image
-                  </button>
-                  <button
-                    className={'mode-toggle-btn' + (animationMode ? ' active' : '')}
-                    onClick={() => this.onModeToggle(true)}
-                  >
-                    Animation
-                  </button>
-                </div>
+              <div className="panel-tabs">
+                <button
+                  className={'panel-tab' + (!animationMode ? ' active' : '')}
+                  onClick={() => this.onModeToggle(false)}
+                >
+                  Image
+                </button>
+                <button
+                  className={'panel-tab' + (animationMode ? ' active' : '')}
+                  onClick={() => this.onModeToggle(true)}
+                >
+                  Animation
+                </button>
+                <span
+                  className="panel-tabs-indicator"
+                  style={{ transform: animationMode ? 'translateX(100%)' : 'translateX(0%)' }}
+                />
               </div>
               <div className="row">
                 <button
@@ -1541,7 +1544,8 @@ export default class DisplayCanvas extends React.Component {
                     own hover treatment (uppercase, fixed height, glow shadow, lift) meant for
                     Generate/Save/Settings, which looked wrong applied to the wordmark. */}
                 <h1 onClick={() => this.props.onNavigate?.('/')} style={{ cursor: 'pointer' }}>
-                  CHROMA<b>FORGE</b>
+                  <img src={logo} alt="" />
+                  <span>CHROMA<b>FORGE</b></span>
                 </h1>
                 <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
                   <SettingsButton />

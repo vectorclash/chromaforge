@@ -25,7 +25,7 @@ export default function HomePage() {
       onScroll={onScroll}
       className="h-screen w-full overflow-y-auto bg-ink-950 text-text"
     >
-      <SiteHeader transparent={!scrolled} sections overlay />
+      <SiteHeader transparent={!scrolled} overlay />
       <Hero />
       <AboutSection />
       <GallerySection />

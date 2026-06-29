@@ -48,6 +48,26 @@
 
   /* hairlines */
   --color-hairline: rgba(255, 255, 255, 0.08);
+
+  /* entrance animation -- grid/card reveals (gallery, shop). Paired with an inline
+     animation-delay per item for the staggered effect; see @keyframes below.
+     `backwards` (not `forwards`/`both`) only holds the first-keyframe state during the
+     stagger delay -- it does NOT hold the end state once the animation finishes, which
+     matters because .cf-card's hover-lift (components.css) also animates `transform`.
+     A held end-state would out-rank that :hover rule in the cascade and silently kill
+     the lift effect on every card forever after its entrance played once. */
+  --animate-fade-slide-up: fade-slide-up 0.5s ease-out backwards;
+}
+
+@keyframes fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Globals previously in App.scss / index.scss (both files removed). Preflight already

@@ -459,7 +459,9 @@
   margin-bottom: 0;
 }
 .display-canvas .controls-inner .row h1 {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   margin: 0;
   text-align: left;
@@ -467,6 +469,10 @@
   font-size: 20px;
   font-weight: 400;
   font-family: 'Exo', sans-serif;
+}
+.display-canvas .controls-inner .row h1 img {
+  height: 1em;
+  width: auto;
 }
 .display-canvas .controls-inner .row h1 b {
   color: var(--color-accent-soft);
@@ -547,15 +553,14 @@
   position: relative;
 }
 .display-canvas .controls-inner .row .button-small:hover,
-.display-canvas .controls-inner .row .button-medium:hover,
-.display-canvas .controls-inner .row .button-icon:hover {
+.display-canvas .controls-inner .row .button-medium:hover {
   background: rgba(166, 224, 0, 0.1);
   border-color: var(--color-interactive);
   color: var(--color-interactive);
 }
 .display-canvas .controls-inner .row .button-icon {
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
   border: none;
 }
 .display-canvas .controls-inner .row .button-icon svg {
@@ -565,6 +570,7 @@
 }
 .display-canvas .controls-inner .row .button-icon:hover {
   box-shadow: none;
+  transform: none;
 }
 .display-canvas .controls-inner .row .button-icon:hover svg {
   opacity: 1;
@@ -685,27 +691,24 @@
   transform: scale(0.99);
 }
 
-/* Image/Animation mode toggle */
-.display-canvas .controls-inner .mode-toggle {
+/* Image/Animation tabs — minimal underline switcher (the same idiom already used for
+   the Settings panel's Color/Video sub-tabs below: plain transparent-bg labels on a
+   thin divider, no boxed/bordered "button" look). The two tabs are equal width
+   (flex: 1) so the active indicator can slide between them with a plain CSS transform
+   on a fixed 50%-wide bar, no JS measurement needed. The indicator reuses the same
+   rainbow-gradient stops as the panel's own bottom accent border for visual cohesion. */
+.display-canvas .controls-inner .panel-tabs {
+  position: relative;
   display: flex;
   width: 100%;
-  margin-bottom: 10px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(166, 224, 0, 0.25);
-  border-radius: 6px;
-  overflow: hidden;
-  transition: all 0.2s ease-out;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(250, 250, 250, 0.12);
 }
-.display-canvas .controls-inner .mode-toggle:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    inset 0 0 5px rgba(89, 6, 154, 0.6),
-    0 0 10px rgba(44, 216, 254, 0.5);
-}
-.display-canvas .controls-inner .mode-toggle-btn {
+.display-canvas .controls-inner .panel-tab {
   flex: 1;
-  height: 40px;
+  height: 36px;
   margin-bottom: 0;
+  padding: 0 18px;
   background: transparent;
   color: rgba(250, 250, 250, 0.35);
   font-family: 'Quicksand', sans-serif;
@@ -715,21 +718,27 @@
   text-transform: uppercase;
   border: none;
   border-radius: 0;
+  box-shadow: none;
   cursor: pointer;
-  transition: color 0.3s ease, opacity 0.3s ease;
+  transition: color 0.2s ease;
 }
-.display-canvas .controls-inner .mode-toggle-btn.active {
-  background: linear-gradient(42deg, #1f1c77, #ff0059);
+.display-canvas .controls-inner .panel-tab.active {
   color: #eeeeee;
-  transition: color 0.3s ease, opacity 0.3s ease;
 }
-.display-canvas .controls-inner .mode-toggle-btn:hover {
+.display-canvas .controls-inner .panel-tab:hover:not(.active) {
+  color: rgba(250, 250, 250, 0.7);
   transform: none;
   box-shadow: none;
 }
-.display-canvas .controls-inner .mode-toggle-btn:hover:not(.active) {
-  color: rgba(250, 250, 250, 0.8);
-  background: rgba(250, 250, 250, 0.08);
+.display-canvas .controls-inner .panel-tabs-indicator {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, #4c00ff, #ff0059, #ffbb00, #eaff00, #00e5ff, #4c00ff);
+  filter: drop-shadow(0 0 4px rgba(166, 224, 0, 0.5));
+  transition: transform 0.3s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* Settings-regenerate notice + animation generation progress bar */

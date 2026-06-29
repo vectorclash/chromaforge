@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
+import FadeImage from '../components/ui/FadeImage';
 import HexagonLoader from '../components/HexagonLoader';
 import { getCatalogProduct, getPrintfileSpecs } from '../lib/printful';
 import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
@@ -37,6 +38,7 @@ export default function ProductPage() {
   // hand-off from the Gallery's "Print this" action can also queue a specific saved design
   // (consumed once on mount, see below) alongside the user's own saved designs.
   const [myDesigns, setMyDesigns] = useState([]);
+  const [myDesignsLoading, setMyDesignsLoading] = useState(false);
   const [queuedChoice, setQueuedChoice] = useState(null);
   const [selectedKey, setSelectedKey] = useState('current');
   const consumedQueueRef = useRef(false);
@@ -83,14 +85,19 @@ export default function ProductPage() {
   useEffect(() => {
     if (!user) {
       setMyDesigns([]);
+      setMyDesignsLoading(false);
       return;
     }
     let cancelled = false;
+    setMyDesignsLoading(true);
     listMyDesigns()
       .then(rows => {
         if (!cancelled) setMyDesigns(rows.filter(d => d.kind !== 'animation'));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setMyDesignsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -183,7 +190,7 @@ export default function ProductPage() {
           1. Choose artwork
         </h2>
         <div ref={artworkStripRef} className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
-          {choices.map(c => {
+          {choices.map((c, i) => {
             const selected = c.key === selectedKey;
             return (
               <button
@@ -192,15 +199,32 @@ export default function ProductPage() {
                 onClick={() => setSelectedKey(c.key)}
                 aria-pressed={selected}
                 title={c.label}
+                style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
                 className={
-                  'h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition ' +
+                  'relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition animate-fade-slide-up ' +
                   (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                 }
               >
-                {c.thumb && <img src={c.thumb} alt={c.label} className="h-full w-full object-cover" />}
+                {c.thumb && <FadeImage src={c.thumb} alt={c.label} className="h-full w-full object-cover" />}
               </button>
             );
           })}
+          {/* Saved designs load in after "Current studio design" is already showing -- without
+              this, the strip looks complete with just the one choice and there's no hint that
+              more are on the way once listMyDesigns() resolves. */}
+          {myDesignsLoading &&
+            [0, 1, 2].map(i => (
+              <div
+                key={`loading-${i}`}
+                aria-hidden="true"
+                className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 border-hairline bg-ink-900"
+              >
+                <div
+                  className="absolute inset-0 animate-pulse bg-ink-700"
+                  style={{ animationDelay: `${i * 150}ms` }}
+                />
+              </div>
+            ))}
         </div>
         <p className="mt-2 truncate text-xs text-text-secondary">{selectedChoice.label}</p>
         {!user && (
@@ -216,7 +240,7 @@ export default function ProductPage() {
             "useless" blank photo elsewhere on the page. */}
         <div>
           <div className="relative aspect-square overflow-hidden rounded-xl border border-hairline bg-ink-900">
-            <img src={heroImage} alt={product.title} className="h-full w-full object-cover" />
+            <FadeImage src={heroImage} alt={product.title} className="h-full w-full object-cover" />
             {!hasMockup && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6">
                 {!user ? (
@@ -254,12 +278,13 @@ export default function ProductPage() {
                   onClick={() => setActiveImageIndex(i)}
                   aria-pressed={i === activeImageIndex}
                   title={m.display_name}
+                  style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
                   className={
-                    'h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition ' +
+                    'relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-fade-slide-up ' +
                     (i === activeImageIndex ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
-                  <img src={m.mockup_url} alt={m.display_name} className="h-full w-full object-cover" />
+                  <FadeImage src={m.mockup_url} alt={m.display_name} className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>
@@ -339,17 +364,19 @@ export default function ProductPage() {
                 Buy now
               </Button>
             )}
-            {user && !hasMockup && (
-              <p className="mt-2 text-center text-xs text-text-muted">
-                Generate a mockup above before you check out.
+            <div className="mt-4 space-y-1.5">
+              {user && !hasMockup && (
+                <p className="text-xs leading-tight text-text-muted">
+                  Generate a mockup above before you check out.
+                </p>
+              )}
+              {checkoutNotice && (
+                <p className="text-xs leading-tight text-accent">{checkoutNotice}</p>
+              )}
+              <p className="text-xs leading-tight text-text-muted">
+                Printed on demand and shipped by Printful. No returns on custom prints.
               </p>
-            )}
-            {checkoutNotice && (
-              <p className="mt-2 text-center text-xs text-accent">{checkoutNotice}</p>
-            )}
-            <p className="mt-3 text-center text-xs text-text-muted">
-              Printed on demand and shipped by Printful. No returns on custom prints.
-            </p>
+            </div>
           </div>
         </div>
       </div>

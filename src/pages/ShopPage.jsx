@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
+import FadeImage from '../components/ui/FadeImage';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 
 // The storefront: the curated, spec-verified starter products (see STARTER_PRODUCT_IDS in
@@ -37,10 +38,16 @@ export default function ShopPage() {
       {error && <p className="text-accent">{error}</p>}
       {!loading && !error && (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {products.map(product => (
-            <Card key={product.id} as={Link} to={`/shop/${product.id}`} className="group">
+          {products.map((product, i) => (
+            <Card
+              key={product.id}
+              as={Link}
+              to={`/shop/${product.id}`}
+              className="group animate-fade-slide-up"
+              style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
+            >
               <div className="relative aspect-square overflow-hidden bg-ink-900">
-                <img
+                <FadeImage
                   src={product.image}
                   alt={product.title}
                   className="h-full w-full object-cover transition group-hover:scale-[1.02]"

@@ -35,6 +35,13 @@ function scaledDims(spec) {
 // switching choices and even navigating to a different product and back, for the tab's life.
 const mockupCache = new Map();
 
+// failure_reasons is an array of { type, detail, source, valid_values } objects, not
+// strings -- joining it directly (as this used to) renders as "[object Object]".
+function describeFailure(reasons) {
+  const detail = reasons?.map(r => r.detail || r.type).filter(Boolean).join('; ');
+  return detail || 'Mockup generation failed.';
+}
+
 function resolveEntries(printfileSpecs, cfg, variant) {
   const variantPrintfiles = printfileSpecs.variant_printfiles.find(v => v.variant_id === variant.id);
   if (!variantPrintfiles) return null;
@@ -103,39 +110,49 @@ export function useMockup() {
           layers: [{ type: 'file', url: printfileIdToUrl[printfileId] }]
         }));
 
-        setStatus('creating');
-        const task = await createMockupTask({
-          productId: product.id,
-          variantIds: [variant.id],
-          placements,
-          productOptions: cfg.productOptions,
-          mockupStyleIds: cfg.mockupStyleIds
-        });
+        // Printful's v2 mockup-tasks endpoint has been confirmed live to occasionally
+        // return a bare "Internal Server Error" failure for some all-over-print products
+        // (the track jacket, 801) that then succeeds immediately on a second attempt with
+        // the exact same inputs -- a transient flake on their end, not anything wrong with
+        // what we sent. One automatic retry before surfacing a failure to the user.
+        let task2 = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          task2 = null;
+          setStatus('creating');
+          const task = await createMockupTask({
+            productId: product.id,
+            variantIds: [variant.id],
+            placements,
+            productOptions: cfg.productOptions,
+            mockupStyleIds: cfg.mockupStyleIds
+          });
 
-        setStatus('polling');
-        for (let i = 0; i < POLL_MAX_TRIES; i++) {
-          await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-          const task2 = await getMockupTask(task.id);
-          if (task2.status === 'completed') {
-            const mockups = task2.catalog_variant_mockups?.[0]?.mockups || [];
-            // Placements sharing a camera angle render pixel-identical images at distinct
-            // throwaway URLs -- dedupe by style_id (the photo angle), not mockup_url.
-            const seen = new Set();
-            const unique = mockups.filter(m => {
-              if (seen.has(m.style_id)) return false;
-              seen.add(m.style_id);
-              return true;
-            });
-            mockupCache.set(key, unique);
-            setImages(unique);
-            setStatus('completed');
-            return;
+          setStatus('polling');
+          for (let i = 0; i < POLL_MAX_TRIES; i++) {
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+            const polled = await getMockupTask(task.id);
+            if (polled.status === 'completed' || polled.status === 'failed') {
+              task2 = polled;
+              break;
+            }
           }
-          if (task2.status === 'failed') {
-            throw new Error(task2.failure_reasons?.join(', ') || 'Mockup generation failed.');
-          }
+          if (!task2) throw new Error('Mockup generation timed out.');
+          if (task2.status === 'completed') break;
+          if (attempt === 1) throw new Error(describeFailure(task2.failure_reasons));
         }
-        throw new Error('Mockup generation timed out.');
+
+        const mockups = task2.catalog_variant_mockups?.[0]?.mockups || [];
+        // Placements sharing a camera angle render pixel-identical images at distinct
+        // throwaway URLs -- dedupe by style_id (the photo angle), not mockup_url.
+        const seen = new Set();
+        const unique = mockups.filter(m => {
+          if (seen.has(m.style_id)) return false;
+          seen.add(m.style_id);
+          return true;
+        });
+        mockupCache.set(key, unique);
+        setImages(unique);
+        setStatus('completed');
       } catch (err) {
         setStatus('failed');
         setError(err.message);

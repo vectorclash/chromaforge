@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Card from '../ui/Card';
+import FadeImage from '../ui/FadeImage';
 import HeartIcon from '../buttons/HeartIcon';
 import { listTopLikedDesigns, listMyLikedIds, toggleLike, getThumbnailUrl } from '../../lib/designs';
+import { generateShareUrl } from '../../utils/urlConfig';
 import { useAuth } from '../../context/AuthContext';
 
 // Homepage preview of the gallery -- the 8 most-liked public designs. Solid surface (no
@@ -37,6 +39,14 @@ export default function GallerySection() {
       cancelled = true;
     };
   }, []);
+
+  // Load a saved design into the full studio -- same approach as GalleryPage.onOpen,
+  // routing to /studio's share-link query so getConfigFromUrl reconstructs it on mount.
+  const onOpen = design => {
+    const url = generateShareUrl(design.data);
+    const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
+    navigate('/studio' + query);
+  };
 
   // Same optimistic toggle as GalleryPage.onToggleLike -- see that file for the rationale on
   // why this is local-only rather than refetching (likes_count is server-authoritative via a
@@ -120,10 +130,15 @@ export default function GallerySection() {
           <p className="text-ink-950/70">Loading&hellip;</p>
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-            {designs.map(design => (
-              <Card key={design.id} as={Link} to="/gallery" className="group">
+            {designs.map((design, i) => (
+              <Card
+                key={design.id}
+                className="group cursor-pointer animate-fade-slide-up"
+                style={{ animationDelay: `${i * 50}ms` }}
+                onClick={() => onOpen(design)}
+              >
                 <div className="relative aspect-square overflow-hidden bg-ink-800">
-                  <img
+                  <FadeImage
                     src={getThumbnailUrl(design.user_id, design.id)}
                     alt={design.title || 'Untitled design'}
                     onError={e => {

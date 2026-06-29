@@ -2,19 +2,17 @@ import React from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ShirtIcon from '../buttons/ShirtIcon';
+import logo from '../../assets/images/logo.svg';
 
 // Site-wide sticky nav. Used both inside SiteLayout (store/account/gallery routes, always
 // solid) and standalone on the homepage (HomePage.jsx owns scroll tracking on its own
 // scroll container -- the document itself can't scroll, see tailwind.css -- and passes
-// `transparent` while the hero showcase is still in view, `sections` to add in-page anchor
-// links to the homepage's own modules).
+// `transparent` while the hero showcase is still in view).
 const navClass = ({ isActive }) =>
   'font-quicksand text-sm transition ' +
   (isActive ? 'text-text' : 'text-text-muted hover:text-text');
 
-const sectionLinkClass = 'font-quicksand text-sm text-text-muted transition hover:text-text';
-
-export default function SiteHeader({ transparent = false, sections = false, overlay = false }) {
+export default function SiteHeader({ transparent = false, overlay = false }) {
   const { user } = useAuth();
   return (
     <header
@@ -32,27 +30,18 @@ export default function SiteHeader({ transparent = false, sections = false, over
         <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent" />
       )}
       <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link to="/" className="font-display text-base tracking-tight text-text sm:text-lg">
-          CHROMA<b className="font-black text-accent-soft">FORGE</b>
+        <Link to="/" className="inline-flex items-center gap-2 font-display text-base tracking-tight text-text sm:text-lg">
+          <img src={logo} alt="" className="h-[1em] w-auto" />
+          <span>CHROMA<b className="font-black text-accent-soft">FORGE</b></span>
         </Link>
         <nav className="flex items-center gap-4 sm:gap-7">
           {/* Below `sm`, only the single most useful action (account/sign-in) stays visible
               -- four+ items at full width overlapped the wordmark on a phone-width screen. */}
           <span className="hidden items-center gap-7 sm:flex">
-            {sections ? (
-              <>
-                <a href="#about" className={sectionLinkClass}>About</a>
-                <a href="#gallery" className={sectionLinkClass}>Gallery</a>
-                <a href="#shop" className={sectionLinkClass}>Shop</a>
-              </>
-            ) : (
-              <>
-                <NavLink to="/shop" className={({ isActive }) => navClass({ isActive }) + ' inline-flex items-center gap-1.5'}>
-                  <ShirtIcon size={15} /> Shop
-                </NavLink>
-                <NavLink to="/gallery" className={navClass}>Gallery</NavLink>
-              </>
-            )}
+            <NavLink to="/shop" className={({ isActive }) => navClass({ isActive }) + ' inline-flex items-center gap-1.5'}>
+              <ShirtIcon size={15} /> Shop
+            </NavLink>
+            <NavLink to="/gallery" className={navClass}>Gallery</NavLink>
           </span>
           <NavLink to="/account" className={navClass}>{user ? 'Account' : 'Sign in'}</NavLink>
         </nav>

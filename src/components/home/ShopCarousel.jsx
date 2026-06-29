@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { gsap } from 'gsap';
 import Card from '../ui/Card';
+import FadeImage from '../ui/FadeImage';
 import ArrowIcon from '../buttons/ArrowIcon';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../../lib/printful';
 
@@ -227,7 +228,7 @@ export default function ShopCarousel() {
                   style={{ width: cardWidth || undefined }}
                 >
                   <div className="relative aspect-square overflow-hidden bg-ink-900">
-                    <img
+                    <FadeImage
                       src={product.image}
                       alt={product.title}
                       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
