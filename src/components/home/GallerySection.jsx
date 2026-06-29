@@ -144,18 +144,28 @@ export default function GallerySection() {
                     onError={e => {
                       e.target.style.visibility = 'hidden';
                     }}
-                    className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                    className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                   />
                   <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.4)_22%,rgba(0,0,0,0.1)_40%,transparent_60%)]" />
-                  {design.profiles && (
-                    <span className="absolute inset-x-0 bottom-0 truncate p-3 text-xs text-text-secondary">
-                      by {design.profiles.display_name || design.profiles.username || 'someone'}
-                    </span>
-                  )}
+                  <div className="absolute inset-x-0 bottom-0 overflow-hidden p-3">
+                    <div className="translate-y-5 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                      {design.profiles && (
+                        <span className="block truncate text-xs text-text-secondary">
+                          by {design.profiles.display_name || design.profiles.username || 'someone'}
+                        </span>
+                      )}
+                      <span className="block truncate text-xs text-accent opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                        Open in studio &rarr;
+                      </span>
+                    </div>
+                  </div>
+                  {/* Hidden-until-hover only on devices with a hover-capable pointer -- on
+                      touch, where there's no hover to reveal it, the like button stays
+                      visible exactly as before so tapping it never loses functionality. */}
                   <button
                     onClick={e => onToggleLike(e, design)}
                     className={
-                      'absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition ' +
+                      'absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100 ' +
                       (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
                     }
                     aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}

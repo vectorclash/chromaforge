@@ -1,14 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
+import GoogleIcon from '../components/buttons/GoogleIcon';
+import FadeImage from '../components/ui/FadeImage';
 import { Field, Input } from '../components/ui/Field';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } from '../lib/auth';
-import { getMyProfile, updateMyProfile } from '../lib/profiles';
+import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../lib/profiles';
+import { getMyDesignStats } from '../lib/designs';
+import { generateAvatar } from '../render/generateAvatar';
+import renderAvatar from '../render/renderAvatar';
+import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
 
+const AVATAR_SIZE = 256;
+
 export default function AccountPage() {
-  const { user } = useAuth();
+  // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
+  // is immediately reflected in SiteHeader's tiny avatar too, without a second fetch.
+  const { user, avatarUrl, setAvatarUrl } = useAuth();
   const [mode, setMode] = useState('signin'); // signin | signup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,6 +33,30 @@ export default function AccountPage() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileError, setProfileError] = useState(null);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState(null);
+  const [stats, setStats] = useState(null);
+
+  // Renders a brand-new avatar off-canvas and uploads it, replacing whatever's there now
+  // (a Google photo, a previous generated one, or nothing). Used both by the "Regenerate"
+  // button and, below, to assign a first avatar automatically when a profile has none.
+  const regenerateAvatar = useCallback(async () => {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      const config = generateAvatar(randomSeed(), AVATAR_SIZE);
+      const canvas = renderAvatar(config);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+      canvas.width = 0;
+      canvas.height = 0;
+      const url = await uploadMyAvatar(blob);
+      setAvatarUrl(url);
+    } catch (err) {
+      setAvatarError(err.message);
+    } finally {
+      setAvatarBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -32,13 +66,18 @@ export default function AccountPage() {
         if (cancelled) return;
         setUsername(profile.username || '');
         setDisplayName(profile.display_name || '');
+        setAvatarUrl(profile.avatar_url || null);
+        if (!profile.avatar_url) regenerateAvatar();
       })
       .catch(err => !cancelled && setProfileError(err.message))
       .finally(() => !cancelled && setProfileLoading(false));
+    getMyDesignStats()
+      .then(s => !cancelled && setStats(s))
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, regenerateAvatar]);
 
   const onSaveProfile = async e => {
     e.preventDefault();
@@ -69,51 +108,93 @@ export default function AccountPage() {
         {profileLoading ? (
           <p className="text-text-secondary">Loading profile…</p>
         ) : (
-          <form onSubmit={onSaveProfile} className="max-w-sm space-y-4">
-            <Field label="Display name" htmlFor="display-name">
-              <Input
-                id="display-name"
-                value={displayName}
-                onChange={e => {
-                  setDisplayName(e.target.value);
-                  setProfileSaved(false);
-                }}
-                placeholder="How your name shows on the gallery"
-              />
-            </Field>
-            <Field label="Username" htmlFor="username">
-              <Input
-                id="username"
-                value={username}
-                onChange={e => {
-                  setUsername(e.target.value);
-                  setProfileSaved(false);
-                }}
-                placeholder="yourname"
-              />
-            </Field>
-            {profileError && <p className="text-sm text-accent">{profileError}</p>}
-            <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
-              {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
-            </Button>
-          </form>
-        )}
+          <>
+            <div className="mb-10 flex items-center gap-5">
+              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
+                {avatarUrl && (
+                  <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                )}
+              </div>
+              <div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={regenerateAvatar}
+                  disabled={avatarBusy}
+                  aria-busy={avatarBusy}
+                >
+                  {avatarBusy ? 'Generating…' : avatarUrl ? 'Regenerate avatar' : 'Generate avatar'}
+                </Button>
+                {avatarError && <p className="mt-2 text-sm text-accent">{avatarError}</p>}
+              </div>
+            </div>
 
-        <Button
-          variant="secondary"
-          className="mt-8"
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await signOut();
-            } finally {
-              setBusy(false);
-            }
-          }}
-          disabled={busy}
-        >
-          Sign out
-        </Button>
+            {stats && (
+              <div className="mb-10 max-w-sm rounded-xl border border-hairline bg-ink-800 p-5">
+                <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
+                  Your stats
+                </h2>
+                <div className="mt-3 flex gap-8 font-quicksand text-sm text-text-secondary">
+                  <span>
+                    <strong className="text-text">{stats.designCount}</strong>{' '}
+                    {stats.designCount === 1 ? 'design' : 'designs'} saved
+                  </span>
+                  <span>
+                    <strong className="text-text">{stats.totalLikes}</strong>{' '}
+                    {stats.totalLikes === 1 ? 'like' : 'likes'} received
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={onSaveProfile} className="max-w-sm space-y-5">
+              <Field label="Display name" htmlFor="display-name">
+                <Input
+                  id="display-name"
+                  value={displayName}
+                  onChange={e => {
+                    setDisplayName(e.target.value);
+                    setProfileSaved(false);
+                  }}
+                  placeholder="How your name shows on the gallery"
+                />
+              </Field>
+              <Field label="Username" htmlFor="username">
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={e => {
+                    setUsername(e.target.value);
+                    setProfileSaved(false);
+                  }}
+                  placeholder="yourname"
+                />
+              </Field>
+              {profileError && <p className="text-sm text-accent">{profileError}</p>}
+              <div className="flex items-center gap-3 pt-1">
+                <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
+                  {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await signOut();
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}
+                >
+                  Sign out
+                </Button>
+              </div>
+            </form>
+          </>
+        )}
       </PageContainer>
     );
   }
@@ -190,10 +271,11 @@ export default function AccountPage() {
         <Button
           type="button"
           variant="secondary"
-          className="w-full"
+          className="w-full flex items-center justify-center gap-2"
           onClick={signInWithGoogle}
           disabled={busy}
         >
+          <GoogleIcon size={18} />
           Continue with Google
         </Button>
       </form>

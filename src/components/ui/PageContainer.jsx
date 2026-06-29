@@ -6,7 +6,7 @@ export default function PageContainer({ title, subtitle, actions, children }) {
   return (
     <div>
       {(title || subtitle || actions) && (
-        <header className="mb-8 flex items-end justify-between gap-4">
+        <header className="mb-10 flex items-end justify-between gap-4">
           <div>
             {title && (
               <h1 className="font-display text-4xl font-black tracking-tight text-text">

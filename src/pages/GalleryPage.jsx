@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
-import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import ShirtIcon from '../components/buttons/ShirtIcon';
@@ -69,6 +68,33 @@ export default function GalleryPage() {
       setLoadingMore(false);
     }
   };
+
+  // Kept in a ref (rather than relying on the effect's closure) so the observer always
+  // calls the latest onLoadMore -- it captures that render's `designs` for the cursor --
+  // without needing to tear down and recreate the observer on every render.
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+
+  // Infinite scroll for the public feed: keyset (cursor) pagination already avoids the
+  // "page 2 shifts under you" problem a live, growing feed has with offset-based numbered
+  // pages, so auto-loading near the bottom is a more natural fit than page controls. The
+  // sentinel sits just past the grid; while a fetch is in flight the effect skips attaching
+  // an observer at all, so a slow request can't trigger a second overlapping one.
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    if (tab !== 'public' || !hasMore || loadingMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const root = sentinel.closest('.overflow-y-auto');
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting) onLoadMoreRef.current();
+      },
+      { root, rootMargin: '600px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [tab, hasMore, loadingMore, designs.length]);
 
   const onDelete = async (e, design) => {
     e.stopPropagation();
@@ -184,20 +210,31 @@ export default function GalleryPage() {
                   onError={e => {
                     e.target.style.visibility = 'hidden';
                   }}
-                  className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                  className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                 />
                 <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.9)_0%,rgba(0,0,0,0.5)_28%,rgba(0,0,0,0.15)_50%,transparent_70%)]" />
-                <div className="absolute inset-x-0 bottom-0 min-w-0 p-3">
-                  <span className="block truncate text-sm font-bold text-text">
-                    {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
-                  </span>
-                  {design.profiles && (
-                    <span className="block truncate text-xs text-text-secondary">
-                      by {design.profiles.display_name || design.profiles.username || 'someone'}
+                <div className="absolute inset-x-0 bottom-0 min-w-0 overflow-hidden p-3">
+                  <div className="translate-y-5 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                    <span className="block truncate text-sm font-bold text-text">
+                      {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
                     </span>
-                  )}
+                    {design.profiles && (
+                      <span className="block truncate text-xs text-text-secondary">
+                        by {design.profiles.display_name || design.profiles.username || 'someone'}
+                      </span>
+                    )}
+                    <span className="block truncate text-xs text-accent opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                      Open in studio &rarr;
+                    </span>
+                  </div>
                 </div>
-                <div className="absolute right-2 top-2 flex shrink-0 items-center gap-2 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm">
+                {/* Hidden-until-hover on devices that actually have a hover-capable pointer
+                    -- on touch, where there's no hover to reveal it, the pill (and the
+                    like/print/delete actions inside it) stays visible exactly as before, so
+                    tapping never loses functionality. */}
+                <div
+                  className="absolute right-2 top-2 flex shrink-0 items-center gap-2 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100"
+                >
                   <button
                     onClick={e => onToggleLike(e, design)}
                     className={
@@ -239,10 +276,8 @@ export default function GalleryPage() {
       )}
 
       {tab === 'public' && hasMore && (
-        <div className="mt-8 text-center">
-          <Button variant="secondary" onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </Button>
+        <div ref={sentinelRef} className="flex justify-center py-10">
+          {loadingMore && <p className="text-sm text-text-muted">Loading more…</p>}
         </div>
       )}
     </PageContainer>

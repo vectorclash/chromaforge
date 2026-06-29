@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { onAuthChange } from '../lib/auth';
+import { getMyProfile } from '../lib/profiles';
 
 // App-wide auth state, reachable from any route (header, account, gallery, studio save).
 // Also owns the Supabase auth-redirect handling (moved here from DisplayCanvas) so it works
@@ -10,7 +11,26 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [notice, setNotice] = useState(null); // { type: 'success'|'error', message }
+  const [avatarUrl, setAvatarUrl] = useState(null);
   const awaitingRedirect = useRef(false);
+
+  // Fetched once here (rather than only inside AccountPage) so the tiny avatar in
+  // SiteHeader has something to show on every route, not just after visiting /account.
+  // AccountPage still owns generating/uploading a new one -- it just mirrors the result
+  // into this shared value via setAvatarUrl so the header picks it up immediately.
+  useEffect(() => {
+    if (!user) {
+      setAvatarUrl(null);
+      return;
+    }
+    let cancelled = false;
+    getMyProfile()
+      .then(profile => !cancelled && setAvatarUrl(profile.avatar_url || null))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   // Supabase confirmation/OAuth links land back with tokens in the URL hash (or an
   // error_description if the link expired/was reused). supabase-js consumes the hash
@@ -48,7 +68,7 @@ export function AuthProvider({ children }) {
   }, [notice]);
 
   return (
-    <AuthContext.Provider value={{ user }}>
+    <AuthContext.Provider value={{ user, avatarUrl, setAvatarUrl }}>
       {children}
       {notice && (
         <div

@@ -12,7 +12,7 @@ export default function SiteLayout() {
   return (
     <div className="flex h-screen flex-col overflow-y-auto bg-ink-950 text-text">
       <SiteHeader />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-24">
         <Outlet />
       </main>
       <SiteFooter />

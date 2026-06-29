@@ -1,4 +1,5 @@
 import React from 'react';
+import aboutImage from '../../assets/images/about-infographic.png';
 
 // Minimal -- per the brief, this section explains the app in a few lines, not a feature
 // tour. Solid surface (no live art behind it), on-system type.
@@ -14,6 +15,7 @@ export default function AboutSection() {
         design is reproducible from a few numbers -- the same seed always regenerates the same
         piece, at any size. Save your favorites, share them, or put one on a shirt.
       </p>
+      <img src={aboutImage} alt="Colorful shirts being designed in outer space" className="mx-auto mt-10 w-full max-w-md" />
     </section>
   );
 }

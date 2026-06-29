@@ -2,6 +2,8 @@ import React from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ShirtIcon from '../buttons/ShirtIcon';
+import HexagonIcon from '../buttons/HexagonIcon';
+import FadeImage from './FadeImage';
 import logo from '../../assets/images/logo.svg';
 
 // Site-wide sticky nav. Used both inside SiteLayout (store/account/gallery routes, always
@@ -13,7 +15,7 @@ const navClass = ({ isActive }) =>
   (isActive ? 'text-text' : 'text-text-muted hover:text-text');
 
 export default function SiteHeader({ transparent = false, overlay = false }) {
-  const { user } = useAuth();
+  const { user, avatarUrl } = useAuth();
   return (
     <header
       className={
@@ -29,7 +31,7 @@ export default function SiteHeader({ transparent = false, overlay = false }) {
       {transparent && (
         <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent" />
       )}
-      <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+      <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
         <Link to="/" className="inline-flex items-center gap-2 font-display text-base tracking-tight text-text sm:text-lg">
           <img src={logo} alt="" className="h-[1em] w-auto" />
           <span>CHROMA<b className="font-black text-accent-soft">FORGE</b></span>
@@ -43,7 +45,16 @@ export default function SiteHeader({ transparent = false, overlay = false }) {
             </NavLink>
             <NavLink to="/gallery" className={navClass}>Gallery</NavLink>
           </span>
-          <NavLink to="/account" className={navClass}>{user ? 'Account' : 'Sign in'}</NavLink>
+          <NavLink to="/account" className={({ isActive }) => navClass({ isActive }) + ' inline-flex items-center gap-2'}>
+            <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-700">
+              {avatarUrl ? (
+                <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <HexagonIcon size={12} className="text-text-secondary" />
+              )}
+            </span>
+            {user ? 'Account' : 'Sign in'}
+          </NavLink>
         </nav>
       </div>
     </header>

@@ -231,12 +231,16 @@ export default function ShopCarousel() {
                     <FadeImage
                       src={product.image}
                       alt={product.title}
-                      className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                      className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                     />
                     <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.55)_30%,rgba(0,0,0,0.18)_55%,transparent_75%)]" />
                     <div className="absolute inset-x-0 bottom-0 p-4">
-                      <h3 className="font-quicksand text-sm font-bold text-text">{product.title}</h3>
-                      <p className="mt-1 text-sm text-text-secondary">Customize with your design &rarr;</p>
+                      <div className="translate-y-9 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                        <h3 className="font-quicksand text-sm font-bold text-text">{product.title}</h3>
+                        <p className="mt-1 text-sm text-text-secondary opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                          Customize with your design &rarr;
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </Card>

@@ -88,6 +88,26 @@ export async function deleteDesign(id) {
   if (error) throw error;
 }
 
+// Lightweight count + total-likes for the signed-in user's own designs, for the account
+// page's stats line -- one query (count header + the likes_count column already kept in
+// sync by a DB trigger), rather than listMyDesigns()'s full rows.
+export async function getMyDesignStats() {
+  const sb = client();
+  const user = await currentUser();
+  if (!user) throw new Error('You must be signed in.');
+
+  const { data, error, count } = await sb
+    .from('designs')
+    .select('likes_count', { count: 'exact' })
+    .eq('user_id', user.id);
+  if (error) throw error;
+
+  return {
+    designCount: count ?? data.length,
+    totalLikes: data.reduce((sum, row) => sum + (row.likes_count || 0), 0)
+  };
+}
+
 const THUMBNAIL_BUCKET = 'design-thumbnails';
 
 // Upload a thumbnail for a design the signed-in user owns. Path is
