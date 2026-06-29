@@ -33,10 +33,10 @@ export default function SiteFooter() {
   const { shown, incoming, fadingIn } = useCrossfadeImage(bgUrl, CROSSFADE_MS);
 
   return (
-    <footer className="relative bg-ink-950 border-t border-hairline pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
+    <footer className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
       {/* Active artwork as the footer's background at 50% opacity */}
       {shown && (
-        <div className="absolute inset-0 opacity-50 z-0 pointer-events-none">
+        <div className="absolute inset-0 opacity-75 z-0 pointer-events-none">
           <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
@@ -100,7 +100,17 @@ export default function SiteFooter() {
 
         {/* Bottom Bar */}
         <div className="mt-12 border-t border-hairline pt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-xs text-text-muted">
-          <span>© {new Date().getFullYear()} ChromaForge. All rights reserved.</span>
+          <span>
+            © {new Date().getFullYear()}{' '}
+            <a
+              className="font-bold text-text-muted no-underline hover:text-text"
+              href="https://www.vectorclash.com"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Aaron Ezra Sterczewski
+            </a>
+          </span>
           <div className="flex gap-4">
             <a href="#privacy" className="hover:text-text transition">Privacy</a>
             <span>•</span>

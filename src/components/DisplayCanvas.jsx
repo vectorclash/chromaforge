@@ -341,7 +341,14 @@ export default class DisplayCanvas extends React.Component {
   }
 
   async loadAnimationFromConfigs(configs) {
-    this.animationConfigs = configs;
+    // `configs` from a share link / gallery row are each the compact { seed, colors } form --
+    // regenerate every frame's full composition before rendering, same as loadImageFromUrl.
+    // this.animationConfigs holds fully-resolved configs everywhere else (buildAnimationFrames,
+    // onModeToggle's snapshot/restore), so resolving here keeps that invariant.
+    const resolvedConfigs = configs.map(c =>
+      generateArtwork(c.seed, this.props.width, this.props.height, c.colors)
+    );
+    this.animationConfigs = resolvedConfigs;
     const frames = [];
     const starFrames = [];
 
@@ -349,17 +356,17 @@ export default class DisplayCanvas extends React.Component {
 
     await breathe();
 
-    for (let i = 0; i < configs.length; i++) {
-      const blobUrl = await this.buildImageAsBlob(configs[i]);
+    for (let i = 0; i < resolvedConfigs.length; i++) {
+      const blobUrl = await this.buildImageAsBlob(resolvedConfigs[i]);
       frames.push(blobUrl);
       this.setState({ animationProgress: i + 1 });
-      if (i < configs.length - 1) await breathe();
+      if (i < resolvedConfigs.length - 1) await breathe();
     }
 
-    this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
+    this.changeGradient(resolvedConfigs[resolvedConfigs.length - 1].gradientBackgroundConfig.colors);
 
-    const { starCount } = this.getAnimTiming(configs.length);
-    const colorValues = configs[0].gradientBackgroundConfig.colors.slice();
+    const { starCount } = this.getAnimTiming(resolvedConfigs.length);
+    const colorValues = resolvedConfigs[0].gradientBackgroundConfig.colors.slice();
     for (let i = 0; i < starCount; i++) {
       await breathe();
       const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
@@ -372,7 +379,7 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
-      animTiming: this.getAnimTiming(configs.length),
+      animTiming: this.getAnimTiming(resolvedConfigs.length),
       settingsDirty: false,
     });
   }
@@ -428,7 +435,11 @@ export default class DisplayCanvas extends React.Component {
       ease: 'power2.inOut'
     });
 
-    this.buildImage(config);
+    // `config` from a share link / gallery row is the compact { seed, colors } form --
+    // buildConfig regenerates the full composition (and sets this.mainConfig) before we
+    // render it, same as the `initialDesign` continuity path in init().
+    const built = this.buildConfig(config.seed, this.props.width, this.props.height, config.colors);
+    this.buildImage(built);
   }
 
   setImage(blob) {
@@ -560,6 +571,20 @@ export default class DisplayCanvas extends React.Component {
     // Keeping it for potential future use
   }
 
+  // Strips a fully-resolved generateArtwork() config down to the part that's actually
+  // worth persisting -- { generatorVersion, seed, colors }. Everything else (starFieldConfig,
+  // geometryConfig, etc.) is deterministically derived from those three and regenerated fresh
+  // on load via buildConfig/generateArtwork, the same pattern already used for `initialDesign`
+  // continuity. This matters in practice, not just in principle: GenerateStarField bakes a
+  // fully-resolved star list (up to ~100k {x,y,size} objects) into starFieldConfig, which made
+  // a single image ~400KB and a 20-frame animation ~5.5MB -- well past localStorage's quota,
+  // which is what generateShareUrl falls back to once a URL gets too long. Saving the compact
+  // form instead keeps every design a few hundred bytes, matching generateArtwork.js's own
+  // documented contract ("the stored design is just { generatorVersion, seed, colors }").
+  toCompactConfig(config) {
+    return { generatorVersion: config.generatorVersion, seed: config.seed, colors: config.colors };
+  }
+
   onSaveButtonClick(e) {
     const { isSaving, isSaved, animationMode } = this.state;
 
@@ -568,8 +593,8 @@ export default class DisplayCanvas extends React.Component {
       // went through the generation below, so this.shareUrl can still be unset here.
       if (!this.shareUrl) {
         const loadedData = animationMode
-          ? { animation: true, frames: this.animationConfigs }
-          : this.mainConfig;
+          ? { animation: true, frames: this.animationConfigs.map(c => this.toCompactConfig(c)) }
+          : this.toCompactConfig(this.mainConfig);
         this.shareUrl = generateShareUrl(loadedData);
       }
       this.openSavePanel();
@@ -578,8 +603,8 @@ export default class DisplayCanvas extends React.Component {
 
     const kind = animationMode ? 'animation' : 'image';
     const data = animationMode
-      ? { animation: true, frames: this.animationConfigs }
-      : this.mainConfig;
+      ? { animation: true, frames: this.animationConfigs.map(c => this.toCompactConfig(c)) }
+      : this.toCompactConfig(this.mainConfig);
     const ready = animationMode
       ? this.animationConfigs && this.animationConfigs.length > 0
       : !!this.mainConfig;
@@ -1431,30 +1456,12 @@ export default class DisplayCanvas extends React.Component {
                   {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
                 </button>
               </div>
-              <div className="row" style={{ justifyContent: 'center' }}>
-                <button
-                  onClick={() => this.props.onNavigate?.('/studio')}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    boxShadow: 'none',
-                    height: 'auto',
-                    width: 'auto',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: 'var(--color-text-secondary)',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-quicksand)',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    letterSpacing: 'normal'
-                  }}
-                >
-                  Go to studio <ArrowIcon />
-                </button>
-              </div>
+              <button
+                onClick={() => this.props.onNavigate?.('/studio')}
+                className="go-to-studio-btn"
+              >
+                Go to studio <ArrowIcon />
+              </button>
             </div>
           ) : (
             <div
@@ -1530,7 +1537,10 @@ export default class DisplayCanvas extends React.Component {
                 </button>
               </div>
               <div className="row">
-                <h1>
+                {/* Plain clickable h1, not a <button> -- .controls-inner .row button has its
+                    own hover treatment (uppercase, fixed height, glow shadow, lift) meant for
+                    Generate/Save/Settings, which looked wrong applied to the wordmark. */}
+                <h1 onClick={() => this.props.onNavigate?.('/')} style={{ cursor: 'pointer' }}>
                   CHROMA<b>FORGE</b>
                 </h1>
                 <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
@@ -1748,7 +1758,10 @@ export default class DisplayCanvas extends React.Component {
           </div>
 
         </div>
-        <Copyright />
+        {/* Homepage hero (compact) gets its copyright notice from the site's SiteFooter
+            instead -- this tiny in-canvas notice is only needed on the standalone /studio
+            page, which has no footer of its own. */}
+        {!compact && <Copyright />}
       </div>
     );
   }

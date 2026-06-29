@@ -29,10 +29,11 @@
   --font-display: 'Exo', sans-serif; /* headings + wordmark */
 
   /* base / ink */
-  --color-ink-950: #100e16; /* page bg */
+  --color-ink-950: #1E1E1E; /* page bg */
   --color-ink-900: #181520;
   --color-ink-800: #1d1928; /* solid panel */
   --color-ink-700: #2a2436;
+  --color-ink-200: #F5F5F5;
 
   /* accent (unified on studio green) */
   --color-accent: #a6e000; /* was #c4006e */

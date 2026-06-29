@@ -47,11 +47,15 @@ Deno.serve(async req => {
   if (req.method === "POST") {
     // Create a mockup task.
     // Body: { productId, variantIds, placements: [{ placement, technique, layers: [{ type, url }] }],
-    //         format, productOptions? } -- productOptions covers per-product config some catalog
-    //         items require (e.g. this hoodie's stitch_color), surfaced by
-    //         GET /products/{id} -> result.product.options.
+    //         format, productOptions?, mockupStyleIds? } -- productOptions covers per-product
+    //         config some catalog items require (e.g. this hoodie's stitch_color), surfaced by
+    //         GET /products/{id} -> result.product.options. mockupStyleIds picks which
+    //         photographed camera angles to render (Flat Front, Flat Back, etc.) -- surfaced by
+    //         GET /v2/catalog-products/{id}/mockup-styles. Without it Printful silently defaults
+    //         to a single style no matter how many `placements` are submitted; placements alone
+    //         only supply the artwork, they don't control how many preview photos come back.
     const body = await req.json();
-    const { productId, variantIds, placements, format = "jpg", productOptions } = body;
+    const { productId, variantIds, placements, format = "jpg", productOptions, mockupStyleIds } = body;
 
     const printfulRes = await fetch(`${PRINTFUL_API_BASE}/mockup-tasks`, {
       method: "POST",
@@ -64,7 +68,8 @@ Deno.serve(async req => {
             catalog_product_id: productId,
             catalog_variant_ids: variantIds,
             placements,
-            ...(productOptions ? { product_options: productOptions } : {})
+            ...(productOptions ? { product_options: productOptions } : {}),
+            ...(mockupStyleIds ? { mockup_style_ids: mockupStyleIds } : {})
           }
         ]
       })

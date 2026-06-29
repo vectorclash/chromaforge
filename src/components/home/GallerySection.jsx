@@ -79,16 +79,16 @@ export default function GallerySection() {
 
   if (!loading && (error || designs.length === 0)) {
     return (
-      <section id="gallery" className="bg-ink-900">
+      <section id="gallery" className="bg-ink-200">
         <div className="mx-auto max-w-5xl px-6 py-24 text-center">
-          <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
+          <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
             Community favorites
           </p>
-          <h2 className="mt-3 font-display text-3xl text-text">Most-liked designs</h2>
+          <h2 className="mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
           {error ? (
             <p className="mt-4 text-accent">Couldn't load the gallery right now.</p>
           ) : (
-            <p className="mt-4 text-text-secondary">
+            <p className="mt-4 text-ink-950/70">
               No public designs yet -- be the first to{' '}
               <Link to="/studio" className="text-accent underline">
                 save one
@@ -102,27 +102,27 @@ export default function GallerySection() {
   }
 
   return (
-    <section id="gallery" className="bg-ink-900">
+    <section id="gallery" className="bg-ink-200">
       <div className="mx-auto max-w-5xl px-6 py-24">
         <div className="mb-10 flex items-end justify-between gap-4">
           <div>
-            <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
+            <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
               Community favorites
             </p>
-            <h2 className="mt-3 font-display text-3xl text-text">Most-liked designs</h2>
+            <h2 className="mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
           </div>
-          <Link to="/gallery" className="font-quicksand text-sm text-text-muted transition hover:text-text">
+          <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
             View all &rarr;
           </Link>
         </div>
 
         {loading ? (
-          <p className="text-text-secondary">Loading&hellip;</p>
+          <p className="text-ink-950/70">Loading&hellip;</p>
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
             {designs.map(design => (
               <Card key={design.id} as={Link} to="/gallery" className="group">
-                <div className="aspect-square overflow-hidden bg-ink-800">
+                <div className="relative aspect-square overflow-hidden bg-ink-800">
                   <img
                     src={getThumbnailUrl(design.user_id, design.id)}
                     alt={design.title || 'Untitled design'}
@@ -131,20 +131,17 @@ export default function GallerySection() {
                     }}
                     className="h-full w-full object-cover transition group-hover:scale-[1.02]"
                   />
-                </div>
-                <div className="flex items-center justify-between p-3">
-                  {design.profiles ? (
-                    <span className="truncate text-xs text-text-muted">
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.4)_22%,rgba(0,0,0,0.1)_40%,transparent_60%)]" />
+                  {design.profiles && (
+                    <span className="absolute inset-x-0 bottom-0 truncate p-3 text-xs text-text-secondary">
                       by {design.profiles.display_name || design.profiles.username || 'someone'}
                     </span>
-                  ) : (
-                    <span />
                   )}
                   <button
                     onClick={e => onToggleLike(e, design)}
                     className={
-                      'flex shrink-0 cursor-pointer items-center gap-1 ' +
-                      (likedIds.has(design.id) ? 'text-accent' : 'text-text-muted hover:text-accent')
+                      'absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition ' +
+                      (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
                     }
                     aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}
                     title={likedIds.has(design.id) ? 'Unlike' : 'Like'}

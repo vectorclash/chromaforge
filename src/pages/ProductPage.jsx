@@ -22,7 +22,7 @@ export default function ProductPage() {
   const { currentDesign, previewUrl: studioPreviewUrl, printQueueDesign, setPrintQueueDesign } =
     useStudio();
   const { user } = useAuth();
-  const { status, error: mockupError, images, generate, reset: resetMockup } = useMockup();
+  const { status, error: mockupError, images, generate, sync: syncMockup } = useMockup();
 
   const [detail, setDetail] = useState(null); // { product, variants }
   const [printfileSpecs, setPrintfileSpecs] = useState(null);
@@ -101,14 +101,6 @@ export default function ProductPage() {
     setActiveImageIndex(0);
   }, [images]);
 
-  // Switching artwork or variant invalidates whatever mockup is showing -- otherwise the
-  // hero image would keep displaying a mockup of the *previous* selection as if it were
-  // current.
-  useEffect(() => {
-    resetMockup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, selectedVariantId]);
-
   const choices = [
     { key: 'current', label: 'Current studio design', thumb: studioPreviewUrl, data: currentDesign },
     ...(queuedChoice
@@ -133,6 +125,20 @@ export default function ProductPage() {
   const selectedChoice = choices.find(c => c.key === selectedKey) || choices[0];
   const selectedDesign = selectedChoice.data;
 
+  const product = detail?.product;
+  const variants = detail?.variants;
+  const variant = variants ? variants.find(v => v.id === selectedVariantId) || variants[0] : null;
+
+  // Switching artwork or variant: restore an already-generated mockup for this exact combo
+  // instantly (e.g. every size of a t-shirt in the same color shares one print file, so
+  // there's nothing new to render -- see useMockup's cache), otherwise drop back to idle so
+  // the previous selection's mockup doesn't keep showing as if it were current.
+  useEffect(() => {
+    if (!product || !variant || !printfileSpecs) return;
+    syncMockup({ product, printfileSpecs, variant, design: selectedDesign });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, selectedVariantId, product, printfileSpecs]);
+
   if (loading) {
     return (
       <PageContainer title="Loading…">
@@ -148,8 +154,6 @@ export default function ProductPage() {
     );
   }
 
-  const { product, variants } = detail;
-  const variant = variants.find(v => v.id === selectedVariantId) || variants[0];
   const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
   const busy = BUSY.includes(status);
   const hasMockup = status === 'completed' && images.length > 0;
@@ -259,11 +263,6 @@ export default function ProductPage() {
                 </button>
               ))}
             </div>
-          )}
-          {hasMockup && (
-            <p className="mt-2 text-center text-xs text-text-secondary">
-              {images[activeImageIndex].display_name}
-            </p>
           )}
         </div>
 

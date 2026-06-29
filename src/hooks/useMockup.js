@@ -13,7 +13,8 @@ import { useStudio } from '../context/StudioContext';
 //
 // Mockups are previews, not the final print file -- cap render size well below Printful's
 // real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
-// limit. A 5-placement task completes in ~40-80s, so allow generous poll headroom.
+// limit. A front+back task completes in well under a minute, but allow generous poll
+// headroom regardless.
 const RENDER_CAP = 1200;
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_TRIES = 45;
@@ -21,6 +22,33 @@ const POLL_MAX_TRIES = 45;
 function scaledDims(spec) {
   const scale = RENDER_CAP / Math.max(spec.width, spec.height);
   return { width: Math.round(spec.width * scale), height: Math.round(spec.height * scale) };
+}
+
+// Caches a completed mockup by (product, exact printfile-id mapping, design content) so
+// switching artwork/variant and back doesn't force another 30-90s Printful round trip for
+// something already seen. Keying on the printfile-id mapping rather than e.g. variant color
+// is deliberate and confirmed live: every size of a given t-shirt/hoodie color resolves to
+// the *same* printfile ids (sizing is handled by repositioning on the cut pattern, not a
+// different print file), so all of them correctly share one cache entry -- but the pillow's
+// sizes resolve to genuinely different printfile ids (18x18 vs 22x22 vs 20x12 are different
+// print areas), so they correctly miss the cache and regenerate. Module-level so it survives
+// switching choices and even navigating to a different product and back, for the tab's life.
+const mockupCache = new Map();
+
+function resolveEntries(printfileSpecs, cfg, variant) {
+  const variantPrintfiles = printfileSpecs.variant_printfiles.find(v => v.variant_id === variant.id);
+  if (!variantPrintfiles) return null;
+  return Object.entries(variantPrintfiles.placements).filter(
+    ([key]) => !cfg.placements || cfg.placements.includes(key)
+  );
+}
+
+function cacheKey(product, entries, design) {
+  const signature = entries
+    .map(([placement, printfileId]) => `${placement}:${printfileId}`)
+    .sort()
+    .join(',');
+  return `${product.id}:${signature}:${JSON.stringify(design)}`;
 }
 
 export function useMockup() {
@@ -36,22 +64,28 @@ export function useMockup() {
         setError('Create a design in the Studio first.');
         return;
       }
+
+      const cfg = getMockupConfigForProduct(product.id);
+      const entries = resolveEntries(printfileSpecs, cfg, variant);
+      if (!entries) {
+        setStatus('failed');
+        setError('No printfile mapping for this variant.');
+        return;
+      }
+
+      const key = cacheKey(product, entries, design);
+      const cached = mockupCache.get(key);
+      if (cached) {
+        setError(null);
+        setImages(cached);
+        setStatus('completed');
+        return;
+      }
+
       setStatus('rendering');
       setError(null);
       setImages([]);
       try {
-        const variantPrintfiles = printfileSpecs.variant_printfiles.find(
-          v => v.variant_id === variant.id
-        );
-        if (!variantPrintfiles) throw new Error('No printfile mapping for this variant.');
-
-        const cfg = getMockupConfigForProduct(product.id);
-        // Restrict to the hand-verified placement subset -- submitting every placement
-        // (e.g. the hoodie's back/label placements) left tasks stuck pending indefinitely.
-        const entries = Object.entries(variantPrintfiles.placements).filter(
-          ([key]) => !cfg.placements || cfg.placements.includes(key)
-        );
-
         // Render + upload each unique printfile size once (placements often share one).
         const printfileIdToUrl = {};
         for (const [, printfileId] of entries) {
@@ -63,8 +97,8 @@ export function useMockup() {
           printfileIdToUrl[printfileId] = await uploadMockupSourceImage(blob, printfileId);
         }
 
-        const placements = entries.map(([key, printfileId]) => ({
-          placement: key,
+        const placements = entries.map(([placementKey, printfileId]) => ({
+          placement: placementKey,
           technique: cfg.technique,
           layers: [{ type: 'file', url: printfileIdToUrl[printfileId] }]
         }));
@@ -74,7 +108,8 @@ export function useMockup() {
           productId: product.id,
           variantIds: [variant.id],
           placements,
-          productOptions: cfg.productOptions
+          productOptions: cfg.productOptions,
+          mockupStyleIds: cfg.mockupStyleIds
         });
 
         setStatus('polling');
@@ -91,6 +126,7 @@ export function useMockup() {
               seen.add(m.style_id);
               return true;
             });
+            mockupCache.set(key, unique);
             setImages(unique);
             setStatus('completed');
             return;
@@ -108,13 +144,24 @@ export function useMockup() {
     [renderDesignBlob]
   );
 
-  // Back to idle/no-images -- callers use this when the artwork or variant changes, so a
-  // stale mockup from a previous selection doesn't keep showing as if it were current.
-  const reset = useCallback(() => {
-    setStatus('idle');
+  // Switching artwork or variant: if this exact combo was already generated this session,
+  // restore it instantly from the cache instead of dropping to "Generate mockup" and making
+  // the user wait through another Printful round trip for something they've already seen.
+  // Otherwise fall back to idle so the previous selection's mockup doesn't keep showing as
+  // if it were current.
+  const sync = useCallback(({ product, printfileSpecs, variant, design }) => {
     setError(null);
-    setImages([]);
+    const cfg = design && getMockupConfigForProduct(product.id);
+    const entries = cfg && resolveEntries(printfileSpecs, cfg, variant);
+    const cached = entries && mockupCache.get(cacheKey(product, entries, design));
+    if (cached) {
+      setImages(cached);
+      setStatus('completed');
+    } else {
+      setStatus('idle');
+      setImages([]);
+    }
   }, []);
 
-  return { status, error, images, generate, reset };
+  return { status, error, images, generate, sync };
 }

@@ -171,7 +171,7 @@ export default function GalleryPage() {
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
           {designs.map(design => (
             <Card key={design.id} className="group cursor-pointer" onClick={() => onOpen(design)}>
-              <div className="aspect-square overflow-hidden bg-ink-900">
+              <div className="relative aspect-square overflow-hidden bg-ink-900">
                 <img
                   src={getThumbnailUrl(design.user_id, design.id)}
                   alt={design.title || 'Untitled design'}
@@ -180,24 +180,23 @@ export default function GalleryPage() {
                   }}
                   className="h-full w-full object-cover transition group-hover:scale-[1.02]"
                 />
-              </div>
-              <div className="flex items-center justify-between p-3">
-                <span className="min-w-0">
-                  <span className="block truncate text-sm text-text-secondary">
+                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.9)_0%,rgba(0,0,0,0.5)_28%,rgba(0,0,0,0.15)_50%,transparent_70%)]" />
+                <div className="absolute inset-x-0 bottom-0 min-w-0 p-3">
+                  <span className="block truncate text-sm font-bold text-text">
                     {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
                   </span>
                   {design.profiles && (
-                    <span className="block truncate text-xs text-text-muted">
+                    <span className="block truncate text-xs text-text-secondary">
                       by {design.profiles.display_name || design.profiles.username || 'someone'}
                     </span>
                   )}
-                </span>
-                <span className="ml-2 flex shrink-0 items-center gap-2">
+                </div>
+                <div className="absolute right-2 top-2 flex shrink-0 items-center gap-2 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm">
                   <button
                     onClick={e => onToggleLike(e, design)}
                     className={
                       'flex cursor-pointer items-center gap-1 ' +
-                      (likedIds.has(design.id) ? 'text-accent' : 'text-text-muted hover:text-accent')
+                      (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
                     }
                     aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}
                     title={likedIds.has(design.id) ? 'Unlike' : 'Like'}
@@ -210,7 +209,7 @@ export default function GalleryPage() {
                   {design.kind !== 'animation' && (
                     <button
                       onClick={e => onPrint(e, design)}
-                      className="cursor-pointer text-text-muted hover:text-accent"
+                      className="cursor-pointer text-text hover:text-accent"
                       aria-label="Print this design"
                       title="Print this design"
                     >
@@ -220,13 +219,13 @@ export default function GalleryPage() {
                   {tab === 'mine' && (
                     <button
                       onClick={e => onDelete(e, design)}
-                      className="cursor-pointer text-xs text-text-muted hover:text-accent"
+                      className="cursor-pointer text-xs text-text hover:text-accent"
                       aria-label="Delete design"
                     >
                       Delete
                     </button>
                   )}
-                </span>
+                </div>
               </div>
             </Card>
           ))}
