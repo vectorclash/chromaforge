@@ -45,7 +45,7 @@ export default function GallerySection() {
   const onOpen = design => {
     const url = generateShareUrl(design.data);
     const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/studio' + query);
+    navigate('/studio' + query, { state: { from: '/' } });
   };
 
   // Same optimistic toggle as GalleryPage.onToggleLike -- see that file for the rationale on
@@ -100,7 +100,7 @@ export default function GallerySection() {
           ) : (
             <p className="mt-4 text-ink-950/70">
               No public designs yet -- be the first to{' '}
-              <Link to="/studio" className="text-accent underline">
+              <Link to="/studio" state={{ from: '/' }} className="text-accent underline">
                 save one
               </Link>
               .

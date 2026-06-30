@@ -1,8 +1,19 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import DisplayCanvas from '../components/DisplayCanvas';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
+
+// Where the full studio's "return" link sends the user back to -- keyed off the `from`
+// path callers pass via navigate('/studio', { state: { from } }) (see GalleryPage,
+// GallerySection, MiniGenerator, Hero/DisplayCanvas's compact "Go to studio" button).
+// Falls back to home for direct navigation (no state, e.g. a bookmarked/typed /studio URL).
+function getReturnTo(from) {
+  if (from === '/gallery') return { path: '/gallery', label: 'Return to gallery' };
+  if (from === '/account') return { path: '/account', label: 'Return to account' };
+  if (from?.startsWith('/shop')) return { path: from, label: 'Return to shop' };
+  return { path: '/', label: 'Back to home' };
+}
 
 // The full interactive generator -- the dark, full-bleed canvas. Wraps the existing
 // DisplayCanvas and feeds the current design into StudioContext so the store routes (and
@@ -14,6 +25,8 @@ export default function StudioPage({ compact = true }) {
   const { currentDesign, setCurrentDesign, saveCurrentDesign } = useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = getReturnTo(location.state?.from);
 
   let width = 3840;
   let height = 2160;
@@ -28,6 +41,7 @@ export default function StudioPage({ compact = true }) {
       height={height}
       user={user}
       compact={compact}
+      returnTo={returnTo}
       initialDesign={currentDesign}
       onDesignChange={setCurrentDesign}
       onNavigate={navigate}

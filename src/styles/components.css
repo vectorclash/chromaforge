@@ -595,8 +595,9 @@
   width: 100%;
 }
 
-/* "Go to studio" -- homepage-hero only (compact mode). Anchored to the bottom of the
-   panel itself (top: 100%) rather than living inside it as a .row, so it reads as a
+/* "Go to studio" (compact/homepage-hero) and the full studio's "Return to ..." link
+   (non-compact, see StudioPage's returnTo) share this class. Anchored to the bottom of
+   the panel itself (top: 100%) rather than living inside it as a .row, so it reads as a
    secondary action below the Generate/Save panel, not a third panel action. top: 100%
    tracks the panel's real height automatically, which matters because #controls-main is
    GSAP-animated (gsap.to('#controls-main', ...) elsewhere in DisplayCanvas.jsx) -- this

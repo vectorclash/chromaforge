@@ -113,7 +113,7 @@ export default function GalleryPage() {
   const onOpen = design => {
     const url = generateShareUrl(design.data);
     const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/studio' + query);
+    navigate('/studio' + query, { state: { from: '/gallery' } });
   };
 
   // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { gsap, ScrambleTextPlugin } from 'gsap/all';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import FadeImage from '../components/ui/FadeImage';
@@ -8,22 +9,90 @@ import { getCatalogProduct, getPrintfileSpecs } from '../lib/printful';
 import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
-import { useMockup } from '../hooks/useMockup';
+import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import { useHoverScroll } from '../hooks/useHoverScroll';
 
-const BUSY = ['rendering', 'creating', 'polling'];
+gsap.registerPlugin(ScrambleTextPlugin);
+
 const STATUS_LABEL = {
   rendering: 'Rendering design…',
   creating: 'Sending to Printful…',
   polling: 'Generating mockup…'
 };
 
+// Mockup generation is a multi-step round trip through Printful's servers that can run
+// well past its typical 30-90s (the track jacket's automatic retry, see useMockup, can
+// roughly double it) -- silence past that estimate reads as "broken," so this narrates
+// progress the whole way through. Voice is deliberately a bit Data-from-TNG: precise,
+// faintly amused by the concept of waiting, never breaks character. Ordered by elapsed
+// seconds; statusNarration below picks the latest entry that's been reached, so it reads
+// as one continuous narration rather than a random rotation, and gracefully holds on the
+// last line for runs that go long.
+const STATUS_TIMELINE = [
+  { at: 0, text: 'Initiating mockup sequence.' },
+  { at: 6, text: 'Rendering your artwork at full resolution. A trivial calculation.' },
+  { at: 14, text: "Transmitting to Printful's production servers." },
+  { at: 22, text: 'Calculating optimal seam and panel alignment.' },
+  { at: 32, text: 'Cross-referencing thousands of known textile patterns. None match yours precisely.' },
+  { at: 45, text: 'Compiling photographic angles of the finished garment.' },
+  { at: 60, text: 'Running within expected parameters, though slightly behind my initial estimate.' },
+  { at: 80, text: "Apologies for the delay -- the production servers appear to require additional time." },
+  { at: 105, text: 'I assure you: I have not malfunctioned. Still computing.' },
+  { at: 135, text: 'Curious. This is taking longer than most prior attempts. Continuing regardless.' },
+  { at: 165, text: 'Patience, I am told, is a virtue. I am simulating it admirably.' }
+];
+
+function statusNarration(elapsedSeconds) {
+  let line = STATUS_TIMELINE[0].text;
+  for (const entry of STATUS_TIMELINE) {
+    if (entry.at > elapsedSeconds) break;
+    line = entry.text;
+  }
+  return line;
+}
+
+// Decodes each STATUS_TIMELINE line in via GSAP's ScrambleTextPlugin instead of an instant
+// swap -- kept short (0.45s) and letters-only (no symbols) so it reads as a terminal
+// readout rather than a glitch effect across a wait that can run a couple of minutes.
+// Skips the animation on first mount (nothing to transition from) and on unrelated
+// re-renders where `text` hasn't actually changed (this re-renders every second via
+// elapsedSeconds even though the line only changes at STATUS_TIMELINE thresholds).
+function ScrambleText({ text, className }) {
+  const ref = useRef(null);
+  const prevText = useRef(text);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || prevText.current === text) return;
+    prevText.current = text;
+    gsap.to(el, {
+      duration: 0.45,
+      ease: 'none',
+      scrambleText: { text, chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', revealDelay: 0.05 }
+    });
+    return () => gsap.killTweensOf(el);
+  }, [text]);
+
+  return (
+    <p ref={ref} className={className}>
+      {text}
+    </p>
+  );
+}
+
 export default function ProductPage() {
   const { productId } = useParams();
   const { currentDesign, previewUrl: studioPreviewUrl, printQueueDesign, setPrintQueueDesign } =
     useStudio();
   const { user } = useAuth();
-  const { status, error: mockupError, images, generate, sync: syncMockup } = useMockup();
+  const {
+    status,
+    error: mockupError,
+    images,
+    elapsedSeconds,
+    generate,
+    sync: syncMockup
+  } = useMockup();
 
   const [detail, setDetail] = useState(null); // { product, variants }
   const [printfileSpecs, setPrintfileSpecs] = useState(null);
@@ -162,7 +231,7 @@ export default function ProductPage() {
   }
 
   const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
-  const busy = BUSY.includes(status);
+  const busy = BUSY_STATUSES.includes(status);
   const hasMockup = status === 'completed' && images.length > 0;
   const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
@@ -251,7 +320,11 @@ export default function ProductPage() {
                   <div className="flex flex-col items-center gap-3 text-center text-text">
                     <HexagonLoader />
                     <p className="text-sm font-bold">{STATUS_LABEL[status]}</p>
-                    <p className="text-xs text-text-secondary">This usually takes 30–90 seconds.</p>
+                    <ScrambleText
+                      text={statusNarration(elapsedSeconds)}
+                      className="max-w-xs text-xs text-text-secondary"
+                    />
+                    <p className="font-mono text-[11px] text-text-muted">{elapsedSeconds}s elapsed</p>
                   </div>
                 ) : status === 'failed' ? (
                   <div className="flex flex-col items-center gap-3 text-center">

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
@@ -35,6 +35,7 @@ export default function MiniGenerator({ inline = false }) {
     useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const visible = useWidgetVisibility();
 
   const { shown, incoming, fadingIn } = useCrossfadeImage(previewUrl, CROSSFADE_MS);
@@ -68,7 +69,7 @@ export default function MiniGenerator({ inline = false }) {
   const onOpenStudio = () => {
     const url = generateShareUrl(currentDesign);
     const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/studio' + query);
+    navigate('/studio' + query, { state: { from: location.pathname } });
   };
 
   // 1. Inline (Docked in Footer) Version: Horizontal Layout, buttons on left, image on right

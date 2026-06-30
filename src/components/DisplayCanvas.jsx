@@ -1093,7 +1093,7 @@ export default class DisplayCanvas extends React.Component {
         this.setState({ controlsAreOpen: false });
 
         gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
-        gsap.to('.row, .logo, .panel-tabs', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
+        gsap.to('.row, .logo, .panel-tabs, .go-to-studio-btn', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
 
         const el = document.querySelector('.controls-inner');
         const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(el);
@@ -1149,7 +1149,7 @@ export default class DisplayCanvas extends React.Component {
           }
         });
 
-        gsap.fromTo('.row, .logo, .panel-tabs',
+        gsap.fromTo('.row, .logo, .panel-tabs, .go-to-studio-btn',
           { alpha: 0, y: 42 },
           { duration: 0.5, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
         );
@@ -1378,6 +1378,7 @@ export default class DisplayCanvas extends React.Component {
     const user = this.props.user;
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
     const compact = !!this.props.compact;
+    const returnTo = this.props.returnTo ?? { path: '/', label: 'Back to home' };
 
     return (
       <div
@@ -1458,7 +1459,7 @@ export default class DisplayCanvas extends React.Component {
                 </button>
               </div>
               <button
-                onClick={() => this.props.onNavigate?.('/studio')}
+                onClick={() => this.props.onNavigate?.('/studio', { state: { from: '/' } })}
                 className="go-to-studio-btn"
               >
                 Go to studio <ArrowIcon />
@@ -1472,6 +1473,15 @@ export default class DisplayCanvas extends React.Component {
                 (controlsBlurred ? ' controls-blurred' : '')
               }
             >
+              {/* Rendered first (not after the last row) so that row stays .row:last-child
+                  for the CSS-driven top-margin gap -- this button is position: absolute and
+                  out of flow, so its DOM position doesn't affect visible layout. */}
+              <button
+                onClick={() => this.props.onNavigate?.(returnTo.path)}
+                className="go-to-studio-btn"
+              >
+                <ArrowIcon direction="left" /> {returnTo.label}
+              </button>
               <div className="panel-tabs">
                 <button
                   className={'panel-tab' + (!animationMode ? ' active' : '')}

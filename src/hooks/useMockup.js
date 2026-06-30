@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   uploadMockupSourceImage,
   createMockupTask,
@@ -18,6 +18,10 @@ import { useStudio } from '../context/StudioContext';
 const RENDER_CAP = 1200;
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_TRIES = 45;
+
+// Exported so callers (ProductPage) share one definition of "actively working" instead of
+// re-deriving it from status strings independently.
+export const BUSY_STATUSES = ['rendering', 'creating', 'polling'];
 
 function scaledDims(spec) {
   const scale = RENDER_CAP / Math.max(spec.width, spec.height);
@@ -63,6 +67,28 @@ export function useMockup() {
   const [status, setStatus] = useState('idle'); // idle|rendering|creating|polling|completed|failed
   const [error, setError] = useState(null);
   const [images, setImages] = useState([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const busyStartRef = useRef(null);
+
+  // Wall-clock seconds since the current busy run started, so the UI can reassure users
+  // who hit a slow Printful round trip instead of just spinning silently. Ticks across the
+  // whole rendering->creating->polling sequence (and any retry within it) as one continuous
+  // run -- busyStartRef is only set on the non-busy->busy transition, not on every phase
+  // change within a run, otherwise the clock would reset to 0 at each of those phase
+  // changes instead of counting the whole thing.
+  useEffect(() => {
+    if (!BUSY_STATUSES.includes(status)) {
+      busyStartRef.current = null;
+      setElapsedSeconds(0);
+      return;
+    }
+    if (busyStartRef.current === null) busyStartRef.current = Date.now();
+    const id = setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - busyStartRef.current) / 1000)),
+      1000
+    );
+    return () => clearInterval(id);
+  }, [status]);
 
   const generate = useCallback(
     async ({ product, printfileSpecs, variant, design }) => {
@@ -150,6 +176,13 @@ export function useMockup() {
           seen.add(m.style_id);
           return true;
         });
+        // Printful doesn't guarantee the response order matches the requested
+        // mockupStyleIds order (confirmed live: the track jacket comes back back-then-front
+        // even though front is requested first) -- re-sort by cfg.mockupStyleIds so front is
+        // always images[0] regardless of what Printful hands back.
+        unique.sort(
+          (a, b) => cfg.mockupStyleIds.indexOf(a.style_id) - cfg.mockupStyleIds.indexOf(b.style_id)
+        );
         mockupCache.set(key, unique);
         setImages(unique);
         setStatus('completed');
@@ -180,5 +213,5 @@ export function useMockup() {
     }
   }, []);
 
-  return { status, error, images, generate, sync };
+  return { status, error, images, elapsedSeconds, generate, sync };
 }
