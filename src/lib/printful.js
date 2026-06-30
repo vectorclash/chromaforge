@@ -44,7 +44,34 @@ export async function getCatalogProduct(productId) {
     method: 'GET'
   });
   if (error) throw error;
-  return data.result;
+  return { ...data.result, variants: sortVariantsBySize(data.result.variants) };
+}
+
+// Printful's GET /products/:id doesn't guarantee variant order -- it's whatever order the
+// product was set up in upstream, which isn't necessarily small-to-large and can apparently
+// change. Re-sort client-side so the size picker is always small to large, grouped by color
+// (in the order colors first appear) so each color's sizes run together instead of
+// interleaving across colors.
+const SIZE_ORDER = ['2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'];
+
+function sizeRank(size) {
+  const idx = SIZE_ORDER.indexOf(String(size).toUpperCase().trim());
+  if (idx !== -1) return idx;
+  // Non-letter sizes (e.g. pillow dimensions like '18"×18"', waist measurements) -- sort by
+  // their leading number, after all named sizes.
+  const num = parseFloat(size);
+  return Number.isNaN(num) ? Infinity : SIZE_ORDER.length + num;
+}
+
+function sortVariantsBySize(variants) {
+  const colorOrder = new Map();
+  variants.forEach(v => {
+    if (!colorOrder.has(v.color)) colorOrder.set(v.color, colorOrder.size);
+  });
+  return [...variants].sort((a, b) => {
+    const colorDiff = colorOrder.get(a.color) - colorOrder.get(b.color);
+    return colorDiff !== 0 ? colorDiff : sizeRank(a.size) - sizeRank(b.size);
+  });
 }
 
 // Per-placement print area specs (width/height px, dpi, fill_mode) plus which printfile
@@ -196,6 +223,21 @@ export async function uploadMockupSourceImage(blob, label) {
   return supabase.storage.from(MOCKUP_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+// supabase-js collapses any non-2xx Edge Function response into a generic
+// FunctionsHttpError ("Edge Function returned a non-2xx status code") -- the actual body
+// (here, printful-mockup's pass-through of Printful's own error) only lives on
+// error.context, the raw Response object, not error.message. Confirmed live: without this,
+// a real Printful rejection (e.g. a bad request on a specific product/variant) surfaced as
+// that generic string with no way to tell what actually went wrong.
+async function unwrapFunctionsError(error) {
+  try {
+    const body = await error.context.json();
+    return new Error(body?.error?.message || body?.message || error.message);
+  } catch {
+    return error;
+  }
+}
+
 // Creates a Printful v2 mockup-generation task. `placements` is
 // [{ placement, technique, layers: [{ type: 'file', url }] }, ...] -- one entry per
 // placement the chosen variant needs (see getPrintfileSpecs' variant_printfiles).
@@ -213,7 +255,7 @@ export async function createMockupTask({
     method: 'POST',
     body: { productId, variantIds, placements, productOptions, mockupStyleIds, format: 'jpg' }
   });
-  if (error) throw error;
+  if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Mockup task creation failed');
   return data.data[0]; // { id, status, ... }
 }
@@ -223,7 +265,7 @@ export async function getMockupTask(taskId) {
   const { data, error } = await supabase.functions.invoke(`printful-mockup?id=${taskId}`, {
     method: 'GET'
   });
-  if (error) throw error;
+  if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Mockup task lookup failed');
   return data.data[0]; // { id, status, catalog_variant_mockups, failure_reasons }
 }

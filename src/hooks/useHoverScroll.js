@@ -31,37 +31,52 @@ export function useHoverScroll() {
     // never quite happens in practice, so the last item could never cleanly settle into
     // view. The middle 76% still maps proportionally, just rescaled to fill 0..1.
     //
-    // The edges target 0 / el.scrollWidth specifically (not 0 / scrollWidth-clientWidth)
-    // -- scrollWidth minus clientWidth is an unreliable way to compute the true max
-    // scrollLeft once the strip has its own padding (a known box-model quirk: trailing
-    // padding isn't consistently folded into scrollWidth). Assigning scrollLeft past the
-    // real max always clamps to it exactly, so deliberately overshooting sidesteps the
-    // arithmetic instead of trying to replicate the browser's own clamping logic.
+    // The right edge targets a small overshoot past the true max (not the full
+    // el.scrollWidth) -- scrollWidth minus clientWidth is an unreliable way to compute the
+    // true max scrollLeft once the strip has its own padding (a known box-model quirk:
+    // trailing padding isn't consistently folded into scrollWidth), and assigning scrollLeft
+    // past the real max always clamps to it exactly, so overshooting sidesteps the
+    // arithmetic instead of trying to replicate the browser's own clamping logic. The
+    // overshoot needs to be small, though: confirmed live that targeting the *entire*
+    // el.scrollWidth (effectively the strip's whole visible width past the real max) keeps
+    // the eased delta artificially large for the whole final approach, so the speed cap
+    // below dominates the entire way in and the strip slams into the physical scroll limit
+    // at full speed instead of decelerating into it -- a small overshoot still guarantees
+    // landing exactly on the true max, but lets the delta (and therefore the easing) shrink
+    // to something small near the end so it actually decelerates.
     const EDGE = 0.12;
+    const EDGE_OVERSHOOT = 24;
     const onMouseMove = e => {
       const rect = el.getBoundingClientRect();
       const raw = (e.clientX - rect.left) / rect.width;
       if (raw <= EDGE) {
         targetRef.current = 0;
       } else if (raw >= 1 - EDGE) {
-        targetRef.current = el.scrollWidth;
+        targetRef.current = el.scrollWidth - el.clientWidth + EDGE_OVERSHOOT;
       } else {
         const ratio = (raw - EDGE) / (1 - 2 * EDGE);
         targetRef.current = ratio * (el.scrollWidth - el.clientWidth);
       }
     };
 
+    // Capped at MAX_STEP px/frame -- without it, re-entering the strip far from where the
+    // cursor last left it (rolling off, moving elsewhere, rolling back on) produces a huge
+    // delta that DECAY then closes fastest at its very first frame, reading as a sudden
+    // lurch toward the cursor rather than a smooth glide. Capping the speed makes a big
+    // re-target glide in at a steady rate and only ease near the end, which is what actually
+    // looks calm -- DECAY alone (no cap) was confirmed live to feel chaotic exactly when
+    // moving between spots, even though it converges smoothly for any single short hop.
+    const DECAY = 0.1;
+    const MAX_STEP = 16;
     let rafId;
     const tick = () => {
       const delta = targetRef.current - el.scrollLeft;
-      // The lerp only ever approaches its target asymptotically, and the decay rate this
-      // used (0.08/frame) was so slow that closing the last few px from a few hundred px
-      // away took over a second of continuously-held hovering -- nobody's mouse is that
-      // still that long, so in real use it never visibly finished, leaving the edge a few
-      // px short permanently. 0.25/frame converges in a few hundred ms; the 1px snap
-      // threshold (instead of 0.5) just means it commits to "done" a moment sooner, well
-      // under what's perceptible.
-      el.scrollLeft = Math.abs(delta) < 1 ? targetRef.current : el.scrollLeft + delta * 0.25;
+      if (Math.abs(delta) < 1) {
+        el.scrollLeft = targetRef.current;
+      } else {
+        const step = delta * DECAY;
+        el.scrollLeft += Math.sign(step) * Math.min(Math.abs(step), MAX_STEP);
+      }
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
