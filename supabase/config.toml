@@ -423,3 +423,19 @@ entrypoint = "./functions/printful-catalog/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/printful-catalog/*.html" ]
+
+# User-initiated (the customer clicks "Buy now") -- must be signed in, so verify_jwt = true.
+[functions.create-checkout-session]
+enabled = true
+verify_jwt = true
+import_map = "./functions/create-checkout-session/deno.json"
+entrypoint = "./functions/create-checkout-session/index.ts"
+
+# Stripe-initiated -- carries no Supabase JWT at all, only a Stripe-Signature header, so
+# Supabase's JWT gate would reject every legitimate delivery. Auth is entirely the Stripe
+# signature check inside the function itself.
+[functions.stripe-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/stripe-webhook/deno.json"
+entrypoint = "./functions/stripe-webhook/index.ts"

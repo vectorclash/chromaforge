@@ -1,32 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  uploadMockupSourceImage,
   createMockupTask,
   getMockupTask,
-  getMockupConfigForProduct
+  getMockupConfigForProduct,
+  resolvePlacementEntries,
+  renderAndUploadPrintFiles
 } from '../lib/printful';
 import { useStudio } from '../context/StudioContext';
 
 // Drives a Printful v2 mockup-generation task for the current design on a chosen product
 // variant. Ported out of DisplayCanvas: render each unique printfile size from the design
 // (off-canvas via StudioContext.renderDesignBlob), upload, create the task, poll, dedupe.
-//
-// Mockups are previews, not the final print file -- cap render size well below Printful's
-// real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
-// limit. A front+back task completes in well under a minute, but allow generous poll
-// headroom regardless.
-const RENDER_CAP = 1200;
+// The render+upload step (renderAndUploadPrintFiles) is shared with the real checkout flow
+// in lib/checkout.js -- see lib/printful.js for why mockups filter to cfg.placements while
+// checkout doesn't.
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_TRIES = 45;
 
 // Exported so callers (ProductPage) share one definition of "actively working" instead of
 // re-deriving it from status strings independently.
 export const BUSY_STATUSES = ['rendering', 'creating', 'polling'];
-
-function scaledDims(spec) {
-  const scale = RENDER_CAP / Math.max(spec.width, spec.height);
-  return { width: Math.round(spec.width * scale), height: Math.round(spec.height * scale) };
-}
 
 // Caches a completed mockup by (product, exact printfile-id mapping, design content) so
 // switching artwork/variant and back doesn't force another 30-90s Printful round trip for
@@ -44,14 +37,6 @@ const mockupCache = new Map();
 function describeFailure(reasons) {
   const detail = reasons?.map(r => r.detail || r.type).filter(Boolean).join('; ');
   return detail || 'Mockup generation failed.';
-}
-
-function resolveEntries(printfileSpecs, cfg, variant) {
-  const variantPrintfiles = printfileSpecs.variant_printfiles.find(v => v.variant_id === variant.id);
-  if (!variantPrintfiles) return null;
-  return Object.entries(variantPrintfiles.placements).filter(
-    ([key]) => !cfg.placements || cfg.placements.includes(key)
-  );
 }
 
 function cacheKey(product, entries, design) {
@@ -99,7 +84,7 @@ export function useMockup() {
       }
 
       const cfg = getMockupConfigForProduct(product.id);
-      const entries = resolveEntries(printfileSpecs, cfg, variant);
+      const entries = resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
       if (!entries) {
         setStatus('failed');
         setError('No printfile mapping for this variant.');
@@ -119,21 +104,12 @@ export function useMockup() {
       setError(null);
       setImages([]);
       try {
-        // Render + upload each unique printfile size once (placements often share one).
-        const printfileIdToUrl = {};
-        for (const [, printfileId] of entries) {
-          if (printfileIdToUrl[printfileId]) continue;
-          const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
-          if (!spec) continue;
-          const { width, height } = scaledDims(spec);
-          const blob = await renderDesignBlob(design, width, height);
-          printfileIdToUrl[printfileId] = await uploadMockupSourceImage(blob, printfileId);
-        }
+        const urls = await renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderDesignBlob });
 
-        const placements = entries.map(([placementKey, printfileId]) => ({
+        const placements = entries.map(([placementKey]) => ({
           placement: placementKey,
           technique: cfg.technique,
-          layers: [{ type: 'file', url: printfileIdToUrl[printfileId] }]
+          layers: [{ type: 'file', url: urls[placementKey] }]
         }));
 
         // Printful's v2 mockup-tasks endpoint has been confirmed live to occasionally
@@ -202,7 +178,7 @@ export function useMockup() {
   const sync = useCallback(({ product, printfileSpecs, variant, design }) => {
     setError(null);
     const cfg = design && getMockupConfigForProduct(product.id);
-    const entries = cfg && resolveEntries(printfileSpecs, cfg, variant);
+    const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
     const cached = entries && mockupCache.get(cacheKey(product, entries, design));
     if (cached) {
       setImages(cached);

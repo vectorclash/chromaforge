@@ -45,6 +45,42 @@ the actual print, generated the same deterministic way.
   visual judgment call, not pure math. Old pre-seed saved designs (absolute-pixel, no
   seed) can only be reflowed, not recomposed — treat as best-effort, not a blocker.
 
+### Server-side print rendering: `render-service/` — core built + verified, not yet deployed
+`render-service/` (new top-level dir, separate from the Vite app) runs the actual,
+unmodified `generateArtwork.js`/`renderArtwork.js`/`Generate*.js` files in plain Node —
+**no headless browser** (Puppeteer/Chromium were both considered and rejected: a managed
+screenshot API is a recurring per-render vendor bill the project owner explicitly doesn't
+want; a real browser needs a ~1GB+ RAM host for something this can now do in ~250MB).
+Verified this session, with real test code against real output (not assumed): every
+`globalCompositeOperation` this app uses, gradient rendering, and the one
+non-Canvas2D dependency (`GeometricShape.js`'s use of createjs/EaselJS) all render
+correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) plus
+`render-service/shim.js`'s `document`/`window`/createjs polyfill.
+
+- **A real bug was caught and fixed via this work**, independent of the render-service
+  project itself: `GenerateLargeRadialField.js:18` sets `radGrad.alpha =
+  rng().toFixed(2)` — a **string**. Browsers silently coerce that to a number when
+  assigned to `ctx.globalAlpha`; `@napi-rs/canvas` doesn't (leaves `globalAlpha` at its
+  default of `1`). Fixed in `LargeRadialField.js` with `Number(...)`, matching the
+  coercion `renderArtwork.js` already does for `overlayAlpha` — verified via pixel diff
+  against a real Puppeteer-captured browser screenshot (0-1000ppm scratch harness, not
+  committed) that this closes the gap from a 250/765 average pixel difference down to
+  ~1/765 (PNG rounding noise). This bug was latent in the browser-only renderer the whole
+  time, just never surfaced because browsers tolerate it.
+- `render-service/build.js` bundles `generateArtwork.js`+`renderArtwork.js` (via esbuild)
+  into `render-service/generated/render-lib.js` before each run/deploy — **not a code
+  port**, just resolving Vite-style extensionless imports that Node's native ESM loader
+  can't handle; the executed logic is byte-for-byte the same as what ships to the
+  browser. Re-run `npm run build` in `render-service/` after any change to `src/render`.
+- Confirmed working end-to-end against a real saved design (`render-service/spike-test.js`,
+  not wired into anything yet): 4200×5400 (true 300 DPI) in ~2s, no browser boot.
+- **Not yet done**: `Dockerfile`/`fly.toml` (hosting: Fly.io, chosen over Hostinger-VPS-self-admin
+  and DigitalOcean App Platform's flat $10-12/mo for cost + lower ops burden — real
+  compute cost at this store's volume should be near-zero, scale-to-zero billing), the
+  `render-print-file` Supabase Edge Function, and wiring into `ProductPage.jsx`'s checkout
+  flow (currently still uses the old capped client-side render for real orders). See
+  `/Users/aaronsterczewski/.claude/plans/polished-rolling-anchor.md` for the full plan.
+
 ### MP4 export: client-side (WebCodecs), not server-side
 Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`,
 `AudioEncoder`/`AudioData`) muxed with `mp4-muxer`. All in
@@ -102,6 +138,66 @@ from print rendering above (video vs. still images) — don't conflate the two.
   `localhost:5173` and `chromaforge.app` need to be in Supabase Auth → URL Configuration's
   redirect allow-list for this to work (already added).
 
+### Merch pipeline: Printful catalog → mockup preview → Stripe checkout → real order
+- `src/lib/printful.js` — catalog browsing (`listCatalogProducts`/`getCatalogProduct`/
+  `getPrintfileSpecs`) via the `printful-catalog` edge function (read-only, Printful's v1
+  API), plus `PRODUCT_MOCKUP_CONFIG` — a hand-verified, per-product map of
+  placements/technique/required options for all 11 starter products (every entry confirmed
+  against a real mockup task; see the file's header comments for product-specific quirks
+  like the track jacket's `details`+sleeves combo failing outright). `resolvePlacementEntries`
+  + `renderAndUploadPrintFiles` are shared between mockup previews and real checkout: mockup
+  previews filter to only the placements visible in the requested camera-angle photo
+  (`cfg.placements`); a real **order** needs every placement regardless of visibility
+  (left-out placements render as blank fabric on the actual garment) — checkout calls
+  `resolvePlacementEntries` with no filter.
+- `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2
+  `mockup-tasks` via the `printful-mockup` edge function → poll → dedupe by camera angle →
+  cache). Free, no money involved. One automatic retry on Printful's occasional transient
+  "Internal Server Error" for AOP products. Exposes `elapsedSeconds` + `BUSY_STATUSES` for
+  UI feedback during the 30–90s+ round trip.
+- **Real checkout** (`supabase/functions/create-checkout-session`,
+  `supabase/functions/stripe-webhook`, `src/lib/checkout.js`, wired into
+  `ProductPage.jsx`'s "Buy now" and a new `CheckoutSuccessPage` + `AccountPage` order
+  history section): Stripe Checkout (hosted page, collects shipping address natively) →
+  webhook confirms payment → submits the real Printful order. Schema:
+  `supabase/migrations/0005_orders_schema.sql` + `0006_order_items_product_options.sql`
+  (`orders`/`order_items`, owner-read-only RLS, **no client insert/update policy at all** —
+  only the service role, used exclusively by these two functions, writes orders).
+  - `create-checkout-session` (`verify_jwt = true`): re-prices server-side against
+    Printful's catalog (never trusts the client's price), inserts a `pending` order +
+    item *before* creating the Stripe session, and stashes just the order id in the
+    session's `metadata` (Stripe metadata caps at 500 chars — nowhere near enough for a
+    design jsonb, so the design/print-file URLs live in our own DB row instead).
+  - `stripe-webhook` (`verify_jwt = false` — Stripe's caller carries no Supabase JWT, only
+    a `Stripe-Signature` header, so auth here is the signature check alone, via
+    `Stripe.createSubtleCryptoProvider()` + `constructEventAsync`, Deno's documented
+    pattern since it has no Node crypto module). Idempotent on `status='pending'` guard
+    (a redelivered webhook event no-ops rather than double-submitting to Printful).
+    Printful's v2 Orders API (`POST /v2/orders`) **always creates an unconfirmed draft** —
+    a separate `POST /v2/orders/{id}/confirm` actually charges/fulfills it; the webhook
+    does both back-to-back since the customer already paid via Stripe.
+  - **`PRINTFUL_SKIP_CONFIRM` secret**: Printful has no sandbox/test mode at all — orders
+    are real and billed regardless of which store id is used, completely independent of
+    Stripe being in test mode. Rather than standing up a second "test store" (which
+    wouldn't actually be safer — still real, still billed), this secret makes the webhook
+    create the Printful order but skip the `/confirm` call, so end-to-end testing produces
+    a real, inspectable draft that's never charged or produced. **Set while testing; unset
+    before real customers can check out** — that single secret is the only thing standing
+    between this and live order fulfillment.
+  - **Live-verified** (2026-06-30): a full real run — Stripe test-mode payment (card
+    `4242...`) → webhook signature verified → order persisted → Printful order created and
+    visible as a Draft in the dashboard (`PRINTFUL_SKIP_CONFIRM` was set) — confirmed
+    working end to end, not just builds-clean. API version pinned to `2026-06-24.dahlia`
+    in both edge functions, matching the actual Stripe account/webhook destination (not
+    guessed). Stripe's "Managed Payments" (merchant-of-record tax/fraud handling) was
+    explored but is **ineligible for physical goods** — it's a digital-goods-only program;
+    this account uses standard Stripe Checkout instead.
+  - **Known gap, not yet built:** Printful order submission failure after a successful
+    Stripe charge is not auto-refunded — `orders.status` goes to `'failed'`, surfaced
+    distinctly in order history, but a human needs to notice and act. v1 also ships print
+    files at the same capped browser-render resolution the mockup previews use, not true
+    300 DPI — see the renderer section above for why that's a separate, still-open phase.
+
 ### Styling: Tailwind v4, fully migrated (not partial)
 The whole app was migrated from SCSS to Tailwind v4 + a small custom-CSS layer — this was
 the user's explicit call, made *against* an earlier instinct to leave the working UI
@@ -139,12 +235,23 @@ alone, because "do it now while the app is small." It's done and merged to `mast
 last push, live includes: the seed-based renderer (Phases 1–2 of the print pipeline), the
 full Tailwind migration, a batch of ColorField drag-and-drop fixes (dead-zone hit-testing,
 swap-instead-of-insert reorder logic, a perf throttle, a listener-leak fix) plus the
-jscolor picker theming, and the Supabase auth/save/gallery UI described above (built and
-verified live, not yet pushed to `master` as of this writing — confirm it's been committed
-before assuming it's deployed).
+jscolor picker theming, the Supabase auth/save/gallery UI, and the Printful catalog/mockup
+preview pipeline (Shop/ProductPage, `useMockup`) — confirm what's actually been committed
+and pushed before assuming any specific recent change is live, this file tracks what's
+*built*, not what's deployed.
 
-**Not yet started:** Printful/Stripe integration, server-side print rendering,
-ratio-aware generation tuning.
+The Stripe checkout → real Printful order pipeline (see "Merch pipeline" above) is
+**deployed to Supabase Edge Functions and live-verified** — a real Stripe test-mode
+purchase has gone through both functions end to end and produced a correct Printful draft
+order. `PRINTFUL_SKIP_CONFIRM` is still set (intentionally, for continued testing), so no
+order can be confirmed/billed/produced yet — check whether it's still set before assuming
+real customers can complete a purchase.
+
+**In progress:** server-side print-resolution rendering — core render pipeline built and
+pixel-verified (see "Server-side print rendering" above), not yet deployed or wired into
+checkout. **Not yet started:** ratio-aware generation tuning. (Printful catalog/mockups
+and Stripe checkout scaffolding are both built now —
+update this line again once checkout has been live-verified.)
 
 ## Local setup (new machine / clone)
 

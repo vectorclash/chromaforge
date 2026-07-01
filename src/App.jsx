@@ -10,6 +10,7 @@ import ShopPage from './pages/ShopPage';
 import ProductPage from './pages/ProductPage';
 import GalleryPage from './pages/GalleryPage';
 import AccountPage from './pages/AccountPage';
+import CheckoutSuccessPage from './pages/CheckoutSuccessPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // "/" is the multi-module homepage (hero: a simplified Generate/Save view of the studio,
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/shop/:productId" element={<ProductPage />} />
               <Route path="/gallery" element={<GalleryPage />} />
               <Route path="/account" element={<AccountPage />} />
+              <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
               {/* Path-less parent (no prefix), so this wildcard catches any URL not matched
                   above -- including "/" and "/studio", except those are sibling routes at
                   the top level with more specific paths, which React Router always ranks

@@ -202,6 +202,49 @@ export function getMockupConfigForProduct(productId) {
   return PRODUCT_MOCKUP_CONFIG[productId] || { technique: 'cut-sew' };
 }
 
+// Placement -> printfile id for a given variant, optionally restricted to a subset of
+// placements. Mockup previews (useMockup.js) restrict this to cfg.placements -- only what's
+// visible in the requested Front/Back camera-angle photos (see PRODUCT_MOCKUP_CONFIG above).
+// A real Printful order needs every placement regardless of visibility (placements left out
+// of a real order render as blank/undecorated fabric on the actual garment, unlike a preview
+// photo that simply doesn't show them) -- checkout flows call this with no filter.
+export function resolvePlacementEntries(printfileSpecs, variant, placementFilter) {
+  const variantPrintfiles = printfileSpecs.variant_printfiles.find(v => v.variant_id === variant.id);
+  if (!variantPrintfiles) return null;
+  return Object.entries(variantPrintfiles.placements).filter(
+    ([key]) => !placementFilter || placementFilter.includes(key)
+  );
+}
+
+// Mockups are previews, not the final print file -- cap render size well below Printful's
+// real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
+// limit. v1 checkout reuses this same cap (true print-resolution rendering is a later,
+// separate phase -- see CLAUDE.md).
+const RENDER_CAP = 1200;
+
+// Renders the design at each printfile's capped resolution and uploads it (one render per
+// unique printfile id -- placements often share one, e.g. a hoodie's body placements all
+// use the same printfile), returning { [placement]: url }. Shared by mockup previews
+// (useMockup.js) and real checkout (lib/checkout.js); `entries` comes from
+// resolvePlacementEntries above, with whatever placement filter the caller needs.
+export async function renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderDesignBlob }) {
+  const printfileIdToUrl = {};
+  const urls = {};
+  for (const [placementKey, printfileId] of entries) {
+    if (!printfileIdToUrl[printfileId]) {
+      const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
+      if (!spec) continue;
+      const scale = RENDER_CAP / Math.max(spec.width, spec.height);
+      const width = Math.round(spec.width * scale);
+      const height = Math.round(spec.height * scale);
+      const blob = await renderDesignBlob(design, width, height);
+      printfileIdToUrl[printfileId] = await uploadMockupSourceImage(blob, printfileId);
+    }
+    urls[placementKey] = printfileIdToUrl[printfileId];
+  }
+  return urls;
+}
+
 // Uploads a rendered design image so Printful's mockup-generator can fetch it. Must be a
 // stable, directly-fetchable URL -- confirmed live that redirect-based image hosts (e.g.
 // picsum.photos) leave the render task stuck in "pending" forever with no error surfaced,
@@ -228,8 +271,9 @@ export async function uploadMockupSourceImage(blob, label) {
 // (here, printful-mockup's pass-through of Printful's own error) only lives on
 // error.context, the raw Response object, not error.message. Confirmed live: without this,
 // a real Printful rejection (e.g. a bad request on a specific product/variant) surfaced as
-// that generic string with no way to tell what actually went wrong.
-async function unwrapFunctionsError(error) {
+// that generic string with no way to tell what actually went wrong. Exported so other edge
+// function callers (lib/checkout.js) hit the same fix instead of re-discovering it.
+export async function unwrapFunctionsError(error) {
   try {
     const body = await error.context.json();
     return new Error(body?.error?.message || body?.message || error.message);

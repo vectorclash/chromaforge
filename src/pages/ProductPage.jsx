@@ -5,8 +5,15 @@ import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import FadeImage from '../components/ui/FadeImage';
 import HexagonLoader from '../components/HexagonLoader';
-import { getCatalogProduct, getPrintfileSpecs } from '../lib/printful';
+import {
+  getCatalogProduct,
+  getPrintfileSpecs,
+  getMockupConfigForProduct,
+  resolvePlacementEntries,
+  renderAndUploadPrintFiles
+} from '../lib/printful';
 import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
+import { createCheckoutSession } from '../lib/checkout';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
@@ -82,8 +89,13 @@ function ScrambleText({ text, className }) {
 
 export default function ProductPage() {
   const { productId } = useParams();
-  const { currentDesign, previewUrl: studioPreviewUrl, printQueueDesign, setPrintQueueDesign } =
-    useStudio();
+  const {
+    currentDesign,
+    previewUrl: studioPreviewUrl,
+    printQueueDesign,
+    setPrintQueueDesign,
+    renderDesignBlob
+  } = useStudio();
   const { user } = useAuth();
   const {
     status,
@@ -102,6 +114,15 @@ export default function ProductPage() {
   const [qty, setQty] = useState(1);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [checkoutNotice, setCheckoutNotice] = useState(null);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+
+  // Stripe bounces back here with ?checkout=canceled on cancel_url -- no dedicated cancel
+  // page, just surface it through the existing checkoutNotice mechanism.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('checkout') === 'canceled') {
+      setCheckoutNotice('Checkout canceled -- your card was not charged.');
+    }
+  }, []);
 
   // Step 1: which artwork to print. "current" is always the live studio design; a one-shot
   // hand-off from the Gallery's "Print this" action can also queue a specific saved design
@@ -237,11 +258,41 @@ export default function ProductPage() {
 
   const onGenerateClick = () => generate({ product, printfileSpecs, variant, design: selectedDesign });
 
-  // No Stripe integration yet (that's its own later phase) -- this previews the page's final
-  // shape without pretending checkout works. Gated behind a real mockup existing, since
-  // buying before seeing what you're printing doesn't make sense regardless of payments.
-  const onBuyNowClick = () => {
-    setCheckoutNotice("Checkout isn't connected yet -- coming in a later phase.");
+  // Real purchase: render+upload a print file for every placement the variant has (not just
+  // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
+  // for why), then hand off to Stripe's hosted Checkout page. Gated behind a real mockup
+  // existing (disabled below), since buying before seeing what you're printing doesn't make
+  // sense regardless of payments.
+  const onBuyNowClick = async () => {
+    setCheckoutBusy(true);
+    setCheckoutNotice(null);
+    try {
+      const entries = resolvePlacementEntries(printfileSpecs, variant);
+      if (!entries) throw new Error('No printfile mapping for this variant.');
+      const printFileUrls = await renderAndUploadPrintFiles(entries, {
+        printfileSpecs,
+        design: selectedDesign,
+        renderDesignBlob
+      });
+      const cfg = getMockupConfigForProduct(product.id);
+      const { url, orderId } = await createCheckoutSession({
+        productId: product.id,
+        productTitle: product.title,
+        variantId: variant.id,
+        variantLabel: `${variant.size}${hasMultipleColors && variant.color ? ` / ${variant.color}` : ''}`,
+        quantity: qty,
+        design: selectedDesign,
+        printFileUrls,
+        productOptions: cfg.productOptions
+      });
+      // CheckoutSuccessPage reads this rather than looking the order up by Stripe session
+      // id -- simpler, and avoids needing a session-id-keyed lookup RPC.
+      sessionStorage.setItem('chromaforge:lastOrderId', orderId);
+      window.location.href = url;
+    } catch (err) {
+      setCheckoutNotice(err.message);
+      setCheckoutBusy(false);
+    }
   };
 
   return (
@@ -433,8 +484,13 @@ export default function ProductPage() {
                 Sign in to buy
               </Button>
             ) : (
-              <Button className="mt-4 w-full" disabled={!hasMockup} onClick={onBuyNowClick}>
-                Buy now
+              <Button
+                className="mt-4 w-full"
+                disabled={!hasMockup || checkoutBusy}
+                aria-busy={checkoutBusy}
+                onClick={onBuyNowClick}
+              >
+                {checkoutBusy ? 'Preparing checkout…' : 'Buy now'}
               </Button>
             )}
             <div className="mt-4 space-y-1.5">

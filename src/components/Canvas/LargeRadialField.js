@@ -10,7 +10,12 @@ export default function LargeRadialField(config) {
   for (let i = 0; i < config.radGradients.length; i++) {
     context.globalCompositeOperation = 'overlay';
 
-    context.globalAlpha = config.radGradients[i].alpha;
+    // GenerateLargeRadialField stores alpha as rng().toFixed(2) -- a string. Browsers
+    // coerce that to a number when assigned to globalAlpha; some non-browser canvas
+    // implementations (e.g. server-side rendering) don't, and silently leave globalAlpha
+    // at its default of 1 instead. Number(...) here matches the coercion renderArtwork.js
+    // already does for overlayAlpha, so every environment behaves the same way.
+    context.globalAlpha = Number(config.radGradients[i].alpha);
 
     let radGrad = RadialGradient(
       config.radGradSize,

@@ -8,12 +8,24 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } from '../lib/auth';
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../lib/profiles';
 import { getMyDesignStats } from '../lib/designs';
+import { listMyOrders } from '../lib/checkout';
 import { generateAvatar } from '../render/generateAvatar';
 import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
 
 const AVATAR_SIZE = 256;
+
+// 'pending' is deliberately excluded -- listMyOrders() never returns it (see lib/checkout.js),
+// it's an implementation detail of checkout, not a customer-visible state. 'failed' gets the
+// same accent-color treatment as form errors elsewhere on this page, so it doesn't blend in
+// with a normal completed order.
+const ORDER_STATUS_DISPLAY = {
+  paid: { label: 'Processing', className: 'text-text-secondary' },
+  submitted: { label: 'In production', className: 'text-text-secondary' },
+  failed: { label: 'Needs attention', className: 'text-accent' },
+  canceled: { label: 'Canceled', className: 'text-text-muted' }
+};
 
 export default function AccountPage() {
   // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
@@ -36,6 +48,8 @@ export default function AccountPage() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState(null);
   const [stats, setStats] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
 
   // Renders a brand-new avatar off-canvas and uploads it, replacing whatever's there now
   // (a Google photo, a previous generated one, or nothing). Used both by the "Regenerate"
@@ -74,6 +88,10 @@ export default function AccountPage() {
     getMyDesignStats()
       .then(s => !cancelled && setStats(s))
       .catch(() => {});
+    listMyOrders()
+      .then(rows => !cancelled && setOrders(rows))
+      .catch(() => {})
+      .finally(() => !cancelled && setOrdersLoading(false));
     return () => {
       cancelled = true;
     };
@@ -144,6 +162,41 @@ export default function AccountPage() {
                     <strong className="text-text">{stats.totalLikes}</strong>{' '}
                     {stats.totalLikes === 1 ? 'like' : 'likes'} received
                   </span>
+                </div>
+              </div>
+            )}
+
+            {!ordersLoading && orders.length > 0 && (
+              <div className="mb-10 max-w-sm">
+                <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
+                  Order history
+                </h2>
+                <div className="mt-3 space-y-2">
+                  {orders.map(order => {
+                    const item = order.order_items?.[0];
+                    const status = ORDER_STATUS_DISPLAY[order.status] ?? ORDER_STATUS_DISPLAY.submitted;
+                    return (
+                      <div
+                        key={order.id}
+                        className="rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
+                      >
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="truncate text-text">
+                            {item?.product_title}
+                            {item?.variant_label ? ` (${item.variant_label})` : ''}
+                          </span>
+                          <span className="shrink-0 text-text">${(order.total_cents / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-text-secondary">
+                          <span>
+                            {new Date(order.created_at).toLocaleDateString()}
+                            {item ? ` · Qty ${item.quantity}` : ''}
+                          </span>
+                          <span className={status.className}>{status.label}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
