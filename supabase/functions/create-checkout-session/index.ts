@@ -101,6 +101,13 @@ Deno.serve(async req => {
   if (!productId || !variantId || !quantity || !design || !printFileUrls) {
     return Response.json({ error: "Missing required fields" }, { status: 400, headers: corsHeaders });
   }
+  // The UI caps quantity at 1-10 (ProductPage's stepper), but nothing stops a direct call
+  // from sending -1, 2.5, "999999", etc. -- and this value multiplies straight into the
+  // Stripe charge and the Printful production run. Enforce the same bounds server-side.
+  const qty = Number(quantity);
+  if (!Number.isInteger(qty) || qty < 1 || qty > 10) {
+    return Response.json({ error: "Quantity must be between 1 and 10" }, { status: 400, headers: corsHeaders });
+  }
 
   // Re-price server-side -- never trust a client-supplied price for the actual Stripe
   // charge amount. Same v1 product endpoint printful-catalog already proxies.
@@ -116,7 +123,26 @@ Deno.serve(async req => {
     return Response.json({ error: "Unknown variant" }, { status: 400, headers: corsHeaders });
   }
   const unitPriceCents = applyMarkup(Math.round(parseFloat(variant.price) * 100));
-  const totalCents = unitPriceCents * quantity;
+  const totalCents = unitPriceCents * qty;
+
+  // Flat-rate shipping, charged to the customer at checkout -- without this, customers paid
+  // $0 shipping while Printful billed its real rate to the store owner on every order.
+  // Flat (not quoted per-address) because hosted Checkout collects the address AFTER the
+  // session exists, so an exact quote isn't possible anyway; Printful's rates vary a little
+  // by product/destination and this averages out. Tunable the same way as the markup:
+  //   npx supabase secrets set SHIPPING_FLAT_CENTS=599
+  // Takes effect on the next request. 0 disables the shipping line entirely.
+  const shippingCents = (() => {
+    const parsed = Number(Deno.env.get("SHIPPING_FLAT_CENTS") ?? "599");
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 599;
+  })();
+
+  // Stripe Tax (automatic_tax) -- requires one-time activation in the Stripe dashboard
+  // (Settings -> Tax: origin address + a registration). If a session errors with a tax
+  // configuration message before that's done, set STRIPE_AUTOMATIC_TAX=false to unblock
+  // checkout while sorting the dashboard side out. Same fail-open literal-"false" pattern
+  // as STORE_ENABLED.
+  const automaticTax = Deno.env.get("STRIPE_AUTOMATIC_TAX") !== "false";
 
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
 
@@ -131,8 +157,11 @@ Deno.serve(async req => {
       status: "pending",
       stripe_session_id: crypto.randomUUID(), // placeholder, overwritten below once the real session exists
       currency: "usd",
+      // Estimates: shipping is known here but tax isn't (Stripe computes it at checkout,
+      // after the address is collected). stripe-webhook overwrites both with Stripe's
+      // authoritative amount_subtotal/amount_total once payment completes.
       subtotal_cents: totalCents,
-      total_cents: totalCents
+      total_cents: totalCents + shippingCents
     })
     .select()
     .single();
@@ -146,7 +175,7 @@ Deno.serve(async req => {
     variant_id: variantId,
     product_title: productTitle,
     variant_label: variantLabel,
-    quantity,
+    quantity: qty,
     unit_price_cents: unitPriceCents,
     design_data: design,
     print_file_urls: printFileUrls,
@@ -167,11 +196,29 @@ Deno.serve(async req => {
           price_data: {
             currency: "usd",
             product_data: { name: `${productTitle}${variantLabel ? ` (${variantLabel})` : ""}` },
-            unit_amount: unitPriceCents
+            unit_amount: unitPriceCents,
+            // Prices are set pre-tax; Stripe Tax adds tax on top rather than carving it
+            // out of the listed price.
+            tax_behavior: "exclusive"
           },
-          quantity
+          quantity: qty
         }
       ],
+      automatic_tax: { enabled: automaticTax },
+      ...(shippingCents > 0
+        ? {
+            shipping_options: [
+              {
+                shipping_rate_data: {
+                  display_name: "Standard shipping",
+                  type: "fixed_amount",
+                  fixed_amount: { amount: shippingCents, currency: "usd" },
+                  tax_behavior: "exclusive"
+                }
+              }
+            ]
+          }
+        : {}),
       shipping_address_collection: { allowed_countries: ALLOWED_SHIPPING_COUNTRIES },
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/shop/${productId}?checkout=canceled`,

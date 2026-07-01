@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
+import SkeletonGrid from '../components/ui/SkeletonGrid';
 import ShirtIcon from '../components/buttons/ShirtIcon';
 import HeartIcon from '../components/buttons/HeartIcon';
 import {
@@ -16,10 +17,12 @@ import {
 import { generateShareUrl } from '../utils/urlConfig';
 import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const PAGE_SIZE = 20;
 
 export default function GalleryPage() {
+  usePageTitle('Gallery');
   const { user } = useAuth();
   const { setPrintQueueDesign } = useStudio();
   const navigate = useNavigate();
@@ -179,7 +182,9 @@ export default function GalleryPage() {
         )}
       </div>
 
-      {loading && <p className="text-text-secondary">Loading…</p>}
+      {loading && (
+        <SkeletonGrid count={8} className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4" />
+      )}
       {error && (
         <p className="text-accent">
           {error}{' '}

@@ -13,6 +13,7 @@ import { generateAvatar } from '../render/generateAvatar';
 import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const AVATAR_SIZE = 256;
 
@@ -31,6 +32,7 @@ export default function AccountPage() {
   // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
   // is immediately reflected in SiteHeader's tiny avatar too, without a second fetch.
   const { user, avatarUrl, setAvatarUrl } = useAuth();
+  usePageTitle(user ? 'Account' : 'Sign in');
   const [mode, setMode] = useState('signin'); // signin | signup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

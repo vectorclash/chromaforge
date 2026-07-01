@@ -1,8 +1,10 @@
 import React from 'react';
 import PageContainer from '../components/ui/PageContainer';
 import LegalSection from '../components/ui/LegalSection';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 export default function TermsPage() {
+  usePageTitle('Terms of Service');
   return (
     <PageContainer title="Terms of Service">
       <p className="text-xs text-text-muted">Last updated: June 30, 2026</p>

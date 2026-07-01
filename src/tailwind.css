@@ -64,6 +64,15 @@
      (not `backwards`) since there's no separate hover transform on the hero image
      to be out-ranked once the animation ends, unlike fade-slide-up's card case above. */
   --animate-pop-in: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+  /* Route-enter transition -- SiteLayout keys <main> on the pathname so every store/
+     account/gallery navigation replays this. Short and subtle on purpose: it should read
+     as the page "settling in", not as a loading effect competing with the per-card
+     fade-slide-up staggers that follow it. `backwards` (same reasoning as fade-slide-up
+     above) so the transform doesn't stay held on <main> after the animation -- a held
+     transform makes <main> the containing block for any position:fixed descendant a page
+     might ever add, silently pinning it to the page instead of the viewport. */
+  --animate-page-enter: page-enter 0.25s ease-out backwards;
 }
 
 @keyframes fade-slide-up {
@@ -89,6 +98,32 @@
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Users who ask the OS for reduced motion get it everywhere: entrances, hovers, pulses,
+   crossfades all collapse to (effectively) instant. 0.01ms rather than `none`/0 so
+   animation/transition end events still fire -- code that waits on them keeps working.
+   Note this only governs CSS-driven motion; GSAP animates inline styles from JS and needs
+   its own gsap.matchMedia() handling (the studio's canvas morphs are not covered here). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -172,20 +172,36 @@ Deno.serve(async req => {
   // -- confirmed live against this account's webhook destination, pinned to 2026-06-24.dahlia.
   const shippingDetails = session.collected_information?.shipping_details;
 
-  const { error: paidError } = await supabase
+  // .select() so we can see how many rows the guarded update actually claimed -- zero rows
+  // is NOT an error to PostgREST. Without this check, two near-simultaneous deliveries of
+  // the same event could both pass the status read above (both see 'pending'), both "update
+  // successfully" (one matching a row, one matching none), and both submit a Printful order
+  // -- double-producing a purchase the customer paid for once. Whichever delivery claims the
+  // pending->paid transition proceeds; the other no-ops here.
+  const { data: paidRows, error: paidError } = await supabase
     .from("orders")
     .update({
       status: "paid",
       stripe_payment_intent_id:
         typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
       shipping_name: shippingDetails?.name ?? null,
-      shipping_address: shippingDetails?.address ?? null
+      shipping_address: shippingDetails?.address ?? null,
+      // The pending row's totals were estimates (tax isn't known until Stripe collects the
+      // address at checkout) -- adopt Stripe's authoritative computed amounts, which include
+      // shipping and tax. amount_subtotal is the pre-shipping/pre-tax items total.
+      ...(typeof session.amount_subtotal === "number" ? { subtotal_cents: session.amount_subtotal } : {}),
+      ...(typeof session.amount_total === "number" ? { total_cents: session.amount_total } : {})
     })
     .eq("id", orderId)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .select("id");
   if (paidError) {
     console.error("stripe-webhook: failed to mark order paid", paidError);
     return new Response("Update failed", { status: 500 });
+  }
+  if (!paidRows || paidRows.length === 0) {
+    // A concurrent delivery of this event won the pending->paid race -- idempotent no-op.
+    return new Response("ok", { status: 200 });
   }
 
   const { data: items, error: itemsError } = await supabase
@@ -214,6 +230,9 @@ Deno.serve(async req => {
   const printfulOrderBody = {
     recipient: {
       name: shippingDetails?.name ?? session.customer_details?.name ?? "",
+      // Without an email, Printful has no way to send the customer shipping/tracking
+      // notifications -- they'd get nothing between the success page and the package.
+      email: session.customer_details?.email ?? undefined,
       address1: shippingDetails?.address?.line1 ?? "",
       address2: shippingDetails?.address?.line2 ?? undefined,
       city: shippingDetails?.address?.city ?? "",

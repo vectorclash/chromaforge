@@ -1,6 +1,6 @@
 {
-  "short_name": "ChromaForge",
-  "name": "ChromaForge Procedural Art Generator",
+  "short_name": "Chromaforge",
+  "name": "Chromaforge — Generative Art Studio",
   "icons": [
     {
       "src": "favicon.ico",
@@ -15,6 +15,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#1E1E1E",
+  "background_color": "#1E1E1E"
 }

@@ -19,6 +19,7 @@ import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import { useHoverScroll } from '../hooks/useHoverScroll';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 gsap.registerPlugin(TextPlugin);
 
@@ -123,6 +124,7 @@ export default function ProductPage() {
   } = useMockup();
 
   const [detail, setDetail] = useState(null); // { product, variants }
+  usePageTitle(detail?.product?.title || 'Shop');
   const [printfileSpecs, setPrintfileSpecs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -137,6 +139,8 @@ export default function ProductPage() {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('checkout') === 'canceled') {
       setCheckoutNotice('Checkout canceled -- your card was not charged.');
+      // Strip the param once consumed so a refresh/bookmark doesn't re-show the notice.
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
 
@@ -510,11 +514,14 @@ export default function ProductPage() {
 
           <div className="mt-8 border-t border-hairline pt-6">
             <div className="flex items-baseline justify-between">
-              <span className="font-quicksand text-sm text-text-secondary">Total</span>
+              <span className="font-quicksand text-sm text-text-secondary">Subtotal</span>
               <span className="font-display text-2xl text-text">
                 ${(variant.price * qty).toFixed(2)}
               </span>
             </div>
+            <p className="mt-1 text-right text-xs text-text-muted">
+              Shipping &amp; tax calculated at checkout.
+            </p>
 
             {!user ? (
               <Button as={Link} to="/account" className="mt-4 w-full">

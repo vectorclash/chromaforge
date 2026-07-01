@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import { AuthProvider } from './context/AuthContext';
 import { StudioProvider } from './context/StudioContext';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 import SiteLayout from './components/ui/SiteLayout';
 import HomePage from './pages/HomePage';
 import StudioPage from './pages/StudioPage';
@@ -24,7 +25,8 @@ import NotFoundPage from './pages/NotFoundPage';
 // reachable from any route -- see context/AuthContext and context/StudioContext.
 export default function App() {
   return (
-    <AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
       <StudioProvider>
         <BrowserRouter>
           <Routes>
@@ -45,8 +47,9 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
-        </BrowserRouter>
-      </StudioProvider>
-    </AuthProvider>
+          </BrowserRouter>
+        </StudioProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

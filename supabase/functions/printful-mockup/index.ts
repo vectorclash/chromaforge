@@ -23,9 +23,29 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Confirms the caller is a real signed-in user, not just anyone holding the public anon
+// key. verify_jwt alone is NOT enough here: the anon key shipped in the app's JS bundle is
+// itself a valid JWT and passes that gate, which would let anonymous scripts burn Printful's
+// rate-limited mockup quota (and submit arbitrary layer URLs). Same plain-fetch GoTrue check
+// render-print-file uses -- this function has no imports, and pulling in supabase-js is what
+// made that function's bundle step time out on deploy, so don't reach for the SDK here.
+async function isSignedInUser(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const jwt = authHeader.replace(/^Bearer\s+/i, "");
+  if (!jwt) return false;
+  const userRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/auth/v1/user`, {
+    headers: { Authorization: `Bearer ${jwt}`, apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! }
+  });
+  return userRes.ok;
+}
+
 Deno.serve(async req => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  if (!(await isSignedInUser(req))) {
+    return Response.json({ error: "Sign in required" }, { status: 401, headers: corsHeaders });
   }
 
   const apiKey = Deno.env.get("PRINTFUL_API_KEY");

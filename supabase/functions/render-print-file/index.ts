@@ -73,6 +73,21 @@ Deno.serve(async req => {
       { status: 400, headers: corsHeaders }
     );
   }
+  // Legitimate dimensions only ever come from Printful's printfile specs, which top out
+  // around 6000x6000 -- the size the render-service's 1GB Fly machine is provisioned for
+  // (a ~6000x6000 RGBA buffer is already ~144MB before Skia/PNG overhead; see CLAUDE.md's
+  // OOM note). Anything bigger is either a bug or someone probing for an OOM, so reject it
+  // here rather than letting it crash a render machine mid-request.
+  const MAX_DIMENSION = 6500;
+  if (
+    !Number.isInteger(width) || !Number.isInteger(height) ||
+    width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION
+  ) {
+    return Response.json(
+      { error: { message: `width/height must be integers between 1 and ${MAX_DIMENSION}` } },
+      { status: 400, headers: corsHeaders }
+    );
+  }
 
   let renderRes: Response;
   try {

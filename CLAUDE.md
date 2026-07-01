@@ -270,18 +270,42 @@ from print rendering above (video vs. still images) — don't conflate the two.
     literal string `"false"` means enabled, so a fresh project isn't accidentally locked
     out. No effect on the signed-out flow, which already shows "Sign in to buy" regardless.
   - `create-checkout-session` (`verify_jwt = true`): re-prices server-side against
-    Printful's catalog (never trusts the client's price), inserts a `pending` order +
-    item *before* creating the Stripe session, and stashes just the order id in the
-    session's `metadata` (Stripe metadata caps at 500 chars — nowhere near enough for a
-    design jsonb, so the design/print-file URLs live in our own DB row instead).
+    Printful's catalog (never trusts the client's price), validates quantity server-side
+    (integer 1–10 — the UI's stepper cap, enforced again here since the value multiplies
+    into the charge and the production run), inserts a `pending` order + item *before*
+    creating the Stripe session, and stashes just the order id in the session's `metadata`
+    (Stripe metadata caps at 500 chars — nowhere near enough for a design jsonb, so the
+    design/print-file URLs live in our own DB row instead).
+  - **Shipping + tax are charged at checkout** (2026-07-01): flat-rate shipping via the
+    `SHIPPING_FLAT_CENTS` secret (default 599 = $5.99, same instant-toggle pattern as the
+    markup; 0 disables the line) — flat rather than per-address-quoted deliberately, since
+    hosted Checkout collects the address *after* the session exists, so an exact Printful
+    quote is impossible anyway. Stripe Tax via `automatic_tax` (kill switch:
+    `STRIPE_AUTOMATIC_TAX=false`), `tax_behavior: "exclusive"` on both the item and the
+    shipping rate. **Requires one-time Stripe dashboard activation (Settings → Tax) or
+    session creation errors** — see TODO.md. The pending order row's totals are estimates;
+    `stripe-webhook` overwrites `subtotal_cents`/`total_cents` with Stripe's authoritative
+    `amount_subtotal`/`amount_total` (which include shipping + tax) once payment completes.
   - `stripe-webhook` (`verify_jwt = false` — Stripe's caller carries no Supabase JWT, only
     a `Stripe-Signature` header, so auth here is the signature check alone, via
     `Stripe.createSubtleCryptoProvider()` + `constructEventAsync`, Deno's documented
-    pattern since it has no Node crypto module). Idempotent on `status='pending'` guard
-    (a redelivered webhook event no-ops rather than double-submitting to Printful).
+    pattern since it has no Node crypto module). Idempotent on `status='pending'` guard,
+    and the guarded update `.select()`s and checks the affected-row count — zero rows is
+    not a PostgREST error, so without that check two *concurrent* deliveries of the same
+    event could both pass the earlier status read and both submit to Printful; whichever
+    claims the pending→paid transition proceeds, the other no-ops. The Printful recipient
+    includes `session.customer_details.email` so Printful can send shipping/tracking
+    notifications (Stripe receipt emails are a separate dashboard toggle — see TODO.md).
     Printful's v2 Orders API (`POST /v2/orders`) **always creates an unconfirmed draft** —
     a separate `POST /v2/orders/{id}/confirm` actually charges/fulfills it; the webhook
     does both back-to-back since the customer already paid via Stripe.
+  - **Edge-function auth gotcha, fixed 2026-07-01**: `verify_jwt = true` is NOT "signed-in
+    users only" — the public anon key shipped in the JS bundle is itself a valid JWT and
+    passes that gate (confirmed live: it reached `printful-mockup`'s logic before the fix).
+    Any function whose work costs money/quota must ALSO verify a real user: `printful-mockup`
+    now does the same plain-fetch GoTrue `/auth/v1/user` check `render-print-file` uses
+    (not the SDK — see that function's bundle-timeout note). `render-print-file` also
+    clamps width/height to ≤6500px so oversized requests can't OOM the 1GB Fly machine.
   - **`PRINTFUL_SKIP_CONFIRM` secret**: Printful has no sandbox/test mode at all — orders
     are real and billed regardless of which store id is used, completely independent of
     Stripe being in test mode. Rather than standing up a second "test store" (which
@@ -382,6 +406,14 @@ Function deploys themselves are already live regardless of that merge (they're d
 directly, not via the GitHub Actions → FTP flow). Ratio-aware generation tuning is also
 done now (see "Renderer: seed-based, not pixel-based" above) — same merge-to-`master`
 caveat applies before it's live on chromaforge.app.
+
+A full pre-launch review + hardening pass landed 2026-07-01 (checkout shipping/tax, the
+webhook race fix, the mockup-function auth gate, OG/meta tags with a pipeline-rendered
+`public/og-image.jpg`, per-route titles, scroll-to-top, an error boundary,
+`prefers-reduced-motion`, skeleton loaders, a route-enter transition). **The remaining
+path to launch — ops steps, go-live sequence, and deferred code items — lives in
+`TODO.md` at the repo root**; treat it the same way as this file (living facts, prune as
+things land).
 
 ## Local setup (new machine / clone)
 

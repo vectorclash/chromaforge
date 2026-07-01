@@ -4,6 +4,7 @@ import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import HexagonLoader from '../components/HexagonLoader';
 import { getOrder } from '../lib/checkout';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back to this page
@@ -13,21 +14,25 @@ const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back
 // browser redirect does -- this polls until it has (or times out without claiming failure,
 // since "not done yet" and "failed" are different things).
 export default function CheckoutSuccessPage() {
+  usePageTitle('Order confirmation');
   const [order, setOrder] = useState(null);
   const [timedOut, setTimedOut] = useState(false);
   const [notFound, setNotFound] = useState(false);
   // Read-then-delete from sessionStorage must happen exactly once -- StrictMode's
   // dev-only double-invocation of effects would otherwise find the value already gone on
-  // the second pass and report a false "not found" (same pattern as ProductPage's
-  // consumedQueueRef for the same reason).
-  const consumedRef = useRef(false);
+  // the second pass and report a false "not found". The id is cached in a ref (rather than
+  // bailing out of the whole effect on the second run) so polling still restarts after the
+  // double-invoke -- an early-return guard here previously left the page stuck on
+  // "Confirming…" in dev, because the first run's cleanup had already cancelled its poll
+  // loop and the guarded second run never started one.
+  const orderIdRef = useRef(undefined);
 
   useEffect(() => {
-    if (consumedRef.current) return;
-    consumedRef.current = true;
-
-    const orderId = sessionStorage.getItem('chromaforge:lastOrderId');
-    sessionStorage.removeItem('chromaforge:lastOrderId');
+    if (orderIdRef.current === undefined) {
+      orderIdRef.current = sessionStorage.getItem('chromaforge:lastOrderId');
+      sessionStorage.removeItem('chromaforge:lastOrderId');
+    }
+    const orderId = orderIdRef.current;
     if (!orderId) {
       setNotFound(true);
       return;

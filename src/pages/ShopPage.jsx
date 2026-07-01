@@ -3,12 +3,15 @@ import { Link } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
+import SkeletonGrid from '../components/ui/SkeletonGrid';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 // The storefront: the curated, spec-verified starter products (see STARTER_PRODUCT_IDS in
 // lib/printful.js for the current list). Each tile links to its product page where the
 // current design is previewed and mocked up.
 export default function ShopPage() {
+  usePageTitle('Shop');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,7 +37,9 @@ export default function ShopPage() {
 
   return (
     <PageContainer title="Shop" subtitle="Wear the algorithm. Every piece is generated, never reprinted.">
-      {loading && <p className="text-text-secondary">Loading products…</p>}
+      {loading && (
+        <SkeletonGrid count={6} className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3" />
+      )}
       {error && <p className="text-accent">{error}</p>}
       {!loading && !error && (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
