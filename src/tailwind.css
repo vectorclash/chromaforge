@@ -92,3 +92,13 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
+
+/* Avoids orphans (a single word wrapping alone onto the last line) in body copy -- flagged
+   on the confirmation email (fixed there with &nbsp;, since email clients can't be trusted
+   to support this CSS), applied here site-wide since it's a layout-dependent problem that
+   can surface in any paragraph at any viewport width, not something worth hand-patching
+   line by line. Browsers without `text-wrap: pretty` support just keep today's default
+   wrapping -- a harmless no-op, not a broken state. */
+p {
+  text-wrap: pretty;
+}
