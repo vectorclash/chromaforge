@@ -75,7 +75,7 @@ async function sendOrderFailureAlert(orderId: string, message: string) {
         {
           from: user,
           to,
-          subject: `ChromaForge: order ${orderId} needs attention`,
+          subject: `Chromaforge: order ${orderId} needs attention`,
           text:
             `A customer has already paid for order ${orderId}, but the Printful order ` +
             `submission failed and was not auto-retried successfully.\n\n` +

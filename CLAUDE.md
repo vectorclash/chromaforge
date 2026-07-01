@@ -1,4 +1,4 @@
-# ChromaForge — project context for Claude
+# Chromaforge — project context for Claude
 
 This file is the portable handoff doc for this project. It's checked into git specifically
 so that any Claude Code session — on any machine — has the architecture decisions and

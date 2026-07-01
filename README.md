@@ -1,10 +1,10 @@
-# ChromaForge
+# Chromaforge
 
 A generative art application that creates space-themed gradient imagery and animations using HTML5 Canvas and procedural generation.
 
-## What is ChromaForge?
+## What is Chromaforge?
 
-ChromaForge generates abstract, cosmic images and looping animations by layering procedurally built elements — gradients, star fields, radial overlays, and geometric shapes — composited with randomised blend modes. Every output is unique.
+Chromaforge generates abstract, cosmic images and looping animations by layering procedurally built elements — gradients, star fields, radial overlays, and geometric shapes — composited with randomised blend modes. Every output is unique.
 
 ## Features
 
