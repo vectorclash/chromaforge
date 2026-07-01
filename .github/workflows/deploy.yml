@@ -24,6 +24,14 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Vite bakes VITE_* vars into the bundle at build time, not runtime -- without
+          # these the production build ships with Supabase unconfigured (src/lib/supabase.js
+          # exports null and warns instead of crashing, so this fails silently: auth, the
+          # gallery, and checkout all just no-op). Add these two as repo secrets under
+          # Settings -> Secrets and variables -> Actions, same values as local .env.local.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Deploy to Hostinger via FTP
         id: deploy
