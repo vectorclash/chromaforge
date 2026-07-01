@@ -1,5 +1,6 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
+import { getCountScale, getSizeScale } from '../../render/scale';
 
 export default class GenerateLargeRadialField {
   constructor(width, height, colors = [], rng = Math.random) {
@@ -8,10 +9,12 @@ export default class GenerateLargeRadialField {
     config.width = width;
     config.height = height;
 
-    config.radGradSize = width / 2;
+    // Sized off the smaller dimension and counted off area, same reasoning as
+    // GenerateStarField -- see render/scale.js.
+    config.radGradSize = getSizeScale(width, height) / 2;
     config.radGradients = [];
 
-    let amount = 2 + Math.round(rng() * 8);
+    let amount = Math.max(1, Math.round((2 + rng() * 8) * getCountScale(width, height)));
 
     for (let i = 0; i < amount; i++) {
       let radGrad = {};

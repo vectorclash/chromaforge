@@ -1,5 +1,6 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
+import { getSizeScale } from '../../render/scale';
 
 export default class GenerateGeometricShape {
   constructor(width, height, shapeNum, colors = [], rng = Math.random) {
@@ -15,7 +16,12 @@ export default class GenerateGeometricShape {
     this.shapeVertices = 3 + Math.round(rng() * 9);
     this.shapeDepth = 2 + Math.round(rng() * 4);
     this.shapeAng = 360 / this.shapeVertices;
-    this.shapeSize = 150 + Math.round((rng() * width * height) / (height * 3));
+    // Sized off the smaller dimension, not width alone (see render/scale.js) -- the "width *
+    // height / (height * 3)" this replaces algebraically reduced to just "width / 3" anyway,
+    // so this wasn't the area-based formula it looked like. The "150 +" floor is left as an
+    // intentional absolute minimum (avoids degenerate near-zero shapes at tiny sizes), not
+    // part of the aspect-ratio bug this fixes.
+    this.shapeSize = 150 + Math.round((rng() * getSizeScale(width, height)) / 3);
 
     this.points = this.pointsArray(this.shapeSize);
 

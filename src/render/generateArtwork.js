@@ -9,10 +9,19 @@ import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialFi
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import { makeRng, randomSeed } from './prng';
+import { getCountScale } from './scale';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
 // seed, so old designs can be detected and (re)rendered with matching behaviour.
-export const GENERATOR_VERSION = 2;
+//
+// v3: made the generators ratio-aware -- sizes off min(width, height) instead of width
+// alone, counts off canvas area instead of fixed constants (see render/scale.js). This
+// changes output for every existing seed (the count changes shift how many rng() calls
+// each generator makes, desyncing the whole sequence downstream) -- old v2 saved designs
+// render differently now and will fail render-service's version check for printing until
+// re-saved. Accepted deliberately, same as how pre-seed (v1) designs are already treated
+// as best-effort-only, not a blocker -- nothing is live to real customers yet.
+export const GENERATOR_VERSION = 3;
 
 const BLEND_MODES = [
   'screen',
@@ -71,10 +80,13 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
 
   if (geometryChance >= 0.6) {
     config.thirdBlend = randomBlendMode(rng);
+    // Shape count scaled by area, same reasoning as the star/radial-field counts -- see
+    // render/scale.js.
+    let shapeNum = Math.max(1, Math.round((10 + rng() * 30) * getCountScale(width, height)));
     config.geometryConfig = new GenerateGeometricShape(
       width,
       height,
-      10 + Math.round(rng() * 30),
+      shapeNum,
       colorValues.slice(),
       rng
     );

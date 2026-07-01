@@ -40,10 +40,26 @@ the actual print, generated the same deterministic way.
   around 16.7 Mpx, and 150 DPI print (4200×5400 = 22.7 Mpx) exceeds that. Desktop Chrome
   handles it fine (proven up to 300 DPI), but mobile can't — this is why a render service
   is still needed before the print pipeline is real.
-- **Still open:** make the generators genuinely *ratio-aware* (sizes off `min(w,h)`,
-  counts off area) rather than just stretching — tune this on real test renders, it's a
-  visual judgment call, not pure math. Old pre-seed saved designs (absolute-pixel, no
-  seed) can only be reflowed, not recomposed — treat as best-effort, not a blocker.
+- **Generators are now ratio-aware** (`GENERATOR_VERSION = 3`, `src/render/scale.js`):
+  sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
+  sizing stars off its narrow axis only), and element counts scale off canvas area relative
+  to the studio's actual default resolution (3840×2160) instead of fixed constants (a
+  320×320 thumbnail was getting literally the same star counts as a 4200×5400 print).
+  Count scaling is `sqrt(area ratio)`, not the raw ratio — tested against real renders
+  (`render-service`'s local render pipeline, one-off comparison script, not committed):
+  plain linear area scaling collapsed thumbnail-size renders to nearly nothing, since
+  320×320 is ~1.2% of the reference area but the old fixed counts already looked
+  reasonable there — the actual bug showed up more at the size *extremes* than in the
+  everyday small-to-medium range. Verified visually across thumbnail (320×320), the
+  studio default, a tall print (3150×5550), and 4200×5400, isolating the star layer alone
+  (radial field/geometry/overlay temporarily forced off, then reverted) to judge density
+  without the confound of other randomized layers reshuffling alongside count changes.
+  **Consequence, accepted deliberately:** this changes output for every existing seed (the
+  count changes shift how many `rng()` calls each generator makes, desyncing the whole
+  downstream sequence) — old `v2` saved designs render differently now and fail
+  render-service's version check for printing until re-saved. Same treatment as pre-seed
+  (`v1`) designs already got — best-effort only, not a blocker, and nothing is live to
+  real customers yet so the timing cost is low.
 
 ### Server-side print rendering: `render-service/` — built, deployed, wired into checkout, live-verified
 `render-service/` (new top-level dir, separate from the Vite app) runs the actual,
@@ -333,8 +349,9 @@ pipeline section above is closed. The `render-service`/`printful.js`/`ProductPag
 changes landed on `feature/account-gallery-ui`, not yet merged to `master`, so this isn't
 live on chromaforge.app until that branch merges and pushes — the Fly.io/Supabase Edge
 Function deploys themselves are already live regardless of that merge (they're deployed
-directly, not via the GitHub Actions → FTP flow). **Not yet started:** ratio-aware
-generation tuning.
+directly, not via the GitHub Actions → FTP flow). Ratio-aware generation tuning is also
+done now (see "Renderer: seed-based, not pixel-based" above) — same merge-to-`master`
+caveat applies before it's live on chromaforge.app.
 
 ## Local setup (new machine / clone)
 
