@@ -19,6 +19,7 @@
 
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { applyMarkup } from "../_shared/pricing.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
@@ -103,7 +104,7 @@ Deno.serve(async req => {
   if (!variant) {
     return Response.json({ error: "Unknown variant" }, { status: 400, headers: corsHeaders });
   }
-  const unitPriceCents = Math.round(parseFloat(variant.price) * 100);
+  const unitPriceCents = applyMarkup(Math.round(parseFloat(variant.price) * 100));
   const totalCents = unitPriceCents * quantity;
 
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });

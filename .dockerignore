@@ -1,0 +1,14 @@
+# Applies to the render-service build (context = repo root, see render-service/Dockerfile).
+# The Dockerfile COPYs only the specific paths it needs; this just keeps everything else
+# out of the upload so deploys aren't dragging the whole repo through the builder.
+.git
+node_modules
+dist
+coverage
+render-service/node_modules
+render-service/generated
+render-service/spike-*.png
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

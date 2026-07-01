@@ -7,6 +7,8 @@
 // Deploy with: npx supabase functions deploy printful-catalog
 // Set the secret once with: npx supabase secrets set PRINTFUL_API_KEY=<key>
 
+import { applyMarkup } from "../_shared/pricing.ts";
+
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
 const corsHeaders = {
@@ -55,5 +57,17 @@ Deno.serve(async req => {
   });
 
   const data = await printfulRes.json();
+
+  // Single-product responses carry each variant's cost price -- mark it up here so the
+  // price the customer sees on the product page matches what create-checkout-session
+  // actually charges (same applyMarkup, same PRICE_MARKUP_PERCENT secret).
+  if (productId && !wantsPrintfiles && Array.isArray(data.result?.variants)) {
+    for (const variant of data.result.variants) {
+      if (typeof variant.price === "string") {
+        variant.price = (applyMarkup(Math.round(parseFloat(variant.price) * 100)) / 100).toFixed(2);
+      }
+    }
+  }
+
   return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
 });

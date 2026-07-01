@@ -70,6 +70,12 @@
   cursor: pointer;
   box-shadow: 0 8px 24px -10px rgba(230, 0, 140, 0.7);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
+  /* Button.jsx's `as` prop can render this on a <button> (UA default inline-block) or an
+     <a> (UA default inline) -- without an explicit display, width utilities like w-full
+     silently no-op on the <a> case. Same reasoning as .cf-btn-icon below. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .cf-btn-primary:hover {
   transform: translateY(-2px);
@@ -103,6 +109,9 @@
   text-transform: uppercase;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .cf-btn-ghost:hover {
   background: rgba(166, 224, 0, 0.12);
