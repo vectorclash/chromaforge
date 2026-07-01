@@ -10,7 +10,11 @@ import StudioPage from '../../pages/StudioPage';
 // breaking the rest of the homepage below it.
 export default function Hero() {
   return (
-    <section id="hero" className="relative h-screen w-full overflow-hidden [contain:layout]">
+    // bg-ink-900, not the page's own bg-ink-950 -- DisplayCanvas's root has no background
+    // of its own, so while generating (HexagonLoader, before the canvas paints over it)
+    // this section's background shows through. Left at ink-950 it was indistinguishable
+    // from AboutSection right below, which inherits the same page-level ink-950.
+    <section id="hero" className="relative h-screen w-full overflow-hidden bg-ink-900 [contain:layout]">
       <StudioPage />
     </section>
   );
