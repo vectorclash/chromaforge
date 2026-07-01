@@ -11,7 +11,7 @@ export default function AboutSection() {
       </p>
       <h2 className="mt-3 font-display text-3xl text-text">Art, generated from a seed</h2>
       <p className="mt-5 font-quicksand text-text-secondary">
-        ChromaForge composes original artwork from a random seed, live in your browser. Every
+        Chromaforge composes original artwork from a random seed, live in your browser. Every
         design is reproducible from a few numbers -- the same seed always regenerates the same piece, at any size. Save your favorites, share them, or put one on a shirt.
       </p>
       <img src={aboutImage} alt="Colorful shirts being designed in outer space" className="mx-auto mt-10 w-full max-w-md" />

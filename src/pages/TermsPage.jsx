@@ -10,7 +10,7 @@ export default function TermsPage() {
       <div className="mt-8 space-y-8">
         <LegalSection title="Agreement to Terms">
           <p>
-            ChromaForge (chromaforge.app) is operated by Aaron Ezra Sterczewski ("we," "us"). By
+            Chromaforge (chromaforge.app) is operated by Aaron Ezra Sterczewski ("we," "us"). By
             creating an account, saving a design, or placing an order, you agree to these Terms.
             If you don't agree, please don't use the site.
           </p>
@@ -18,7 +18,7 @@ export default function TermsPage() {
 
         <LegalSection title="The Service">
           <p>
-            ChromaForge is a generative art tool: you create artwork from an algorithmic
+            Chromaforge is a generative art tool: you create artwork from an algorithmic
             generator, save designs to your account, browse a public gallery of designs shared
             by other users, and optionally order the artwork printed on apparel. Printing and
             shipping is fulfilled by a third-party partner, Printful, Inc. ("Printful") — we
@@ -39,7 +39,7 @@ export default function TermsPage() {
           <p>
             Designs you generate are yours — you can save them privately, order them printed, or
             share them to the public gallery. Anything you mark as public is visible to any
-            visitor of the site, not just other account holders. The ChromaForge generator
+            visitor of the site, not just other account holders. The Chromaforge generator
             software, site design, and branding remain our property; saving or sharing a design
             doesn't transfer any rights in the underlying software.
           </p>
@@ -87,7 +87,7 @@ export default function TermsPage() {
 
         <LegalSection title="Prohibited Uses">
           <p>
-            Don't use ChromaForge to generate, save, or share content that's illegal, infringes
+            Don't use Chromaforge to generate, save, or share content that's illegal, infringes
             someone else's rights, or is intended to harass or deceive others. Don't attempt to
             disrupt the service (e.g. abusing the render pipeline, scraping at scale, or trying
             to bypass account/order limits).
@@ -96,7 +96,7 @@ export default function TermsPage() {
 
         <LegalSection title="Third-Party Services">
           <p>
-            ChromaForge relies on Supabase (accounts, data storage), Stripe (payment
+            Chromaforge relies on Supabase (accounts, data storage), Stripe (payment
             processing), Printful (printing and shipping), and optionally Google (sign-in). Your
             use of those features is also subject to those providers' own terms — we aren't
             responsible for their acts or omissions, including shipping delays or carrier
@@ -116,7 +116,7 @@ export default function TermsPage() {
 
         <LegalSection title="Changes to These Terms">
           <p>
-            We may update these Terms as the service changes. Continuing to use ChromaForge
+            We may update these Terms as the service changes. Continuing to use Chromaforge
             after an update means you accept the revised Terms.
           </p>
         </LegalSection>

@@ -15,7 +15,7 @@ export const supabase = isSupabaseConfigured ? createClient(url, anonKey) : null
 if (!isSupabaseConfigured && import.meta.env.DEV) {
   // eslint-disable-next-line no-console
   console.warn(
-    '[ChromaForge] Supabase not configured — set VITE_SUPABASE_URL and ' +
+    '[Chromaforge] Supabase not configured — set VITE_SUPABASE_URL and ' +
       'VITE_SUPABASE_ANON_KEY in .env.local to enable accounts and the gallery.'
   );
 }

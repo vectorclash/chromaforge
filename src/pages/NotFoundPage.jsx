@@ -7,7 +7,7 @@ export default function NotFoundPage() {
   return (
     <PageContainer title="Page not found" subtitle="Nothing's generated at this address.">
       <Button as={Link} to="/">
-        Back to ChromaForge
+        Back to Chromaforge
       </Button>
     </PageContainer>
   );

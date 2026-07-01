@@ -99,9 +99,9 @@ function evolve(dt) {
 
 export function tickAt(now, dt) {
   harmony.tick(now);
-  try { bassVoice.tick(now); } catch (e) { console.warn('[ChromaForge audio] bassVoice.tick error:', e); }
+  try { bassVoice.tick(now); } catch (e) { console.warn('[Chromaforge audio] bassVoice.tick error:', e); }
   for (const v of activeVoices) {
-    try { v.tick(now); } catch (e) { console.warn('[ChromaForge audio] voice tick error:', v.name, e); }
+    try { v.tick(now); } catch (e) { console.warn('[Chromaforge audio] voice tick error:', v.name, e); }
   }
   evolve(dt);
 }

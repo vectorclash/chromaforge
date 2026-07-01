@@ -708,7 +708,7 @@ export default class DisplayCanvas extends React.Component {
 
     if (audioCodec) {
       audioBuffer = await generateAudioBuffer(totalDurationSec, audioSampleRate).catch(e => {
-        console.warn('[ChromaForge audio] generateAudioBuffer failed:', e);
+        console.warn('[Chromaforge audio] generateAudioBuffer failed:', e);
         return null;
       });
     }
@@ -890,7 +890,7 @@ export default class DisplayCanvas extends React.Component {
           this.setState({ exportProgress: Math.round(94 + p * 5) });
         });
       } catch (e) {
-        console.warn('[ChromaForge] Audio encoding failed:', e);
+        console.warn('[Chromaforge] Audio encoding failed:', e);
         this.setState({ isExporting: false, exportProgress: 0 });
         alert('Export failed: audio encoding error. Try disabling music in settings.');
         return;
@@ -903,7 +903,7 @@ export default class DisplayCanvas extends React.Component {
       const blob = new Blob([target.buffer], { type: 'video/mp4' });
       saveAs(blob, `${FileName()}.mp4`);
     } catch (e) {
-      console.error('[ChromaForge] Export finalize failed:', e);
+      console.error('[Chromaforge] Export finalize failed:', e);
       alert('Export failed. Please try again.');
     } finally {
       this.setState({ isExporting: false, exportProgress: 0 });

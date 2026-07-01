@@ -10,7 +10,7 @@ export default function PrivacyPage() {
       <div className="mt-8 space-y-8">
         <LegalSection title="Overview">
           <p>
-            This page explains what information ChromaForge (chromaforge.app, operated by Aaron
+            This page explains what information Chromaforge (chromaforge.app, operated by Aaron
             Ezra Sterczewski) collects, why, and who it's shared with. We collect only what's
             needed to run the site and fulfill orders — we don't use advertising trackers or
             sell your data.
@@ -92,7 +92,7 @@ export default function PrivacyPage() {
 
         <LegalSection title="Children's Privacy">
           <p>
-            ChromaForge isn't directed at children under 13, and we don't knowingly collect
+            Chromaforge isn't directed at children under 13, and we don't knowingly collect
             personal information from them.
           </p>
         </LegalSection>
