@@ -224,6 +224,9 @@ export default function ProductPage() {
 
   const product = detail?.product;
   const variants = detail?.variants;
+  // Store-wide purchasing kill switch (see supabase/functions/_shared/storeStatus.ts) --
+  // browsing/mockups stay fully operational regardless, only the real purchase is gated.
+  const storeEnabled = detail?.storeEnabled ?? true;
   const variant = variants ? variants.find(v => v.id === selectedVariantId) || variants[0] : null;
 
   // Switching artwork or variant: restore an already-generated mockup for this exact combo
@@ -486,7 +489,7 @@ export default function ProductPage() {
             ) : (
               <Button
                 className="mt-4 w-full"
-                disabled={!hasMockup || checkoutBusy}
+                disabled={!storeEnabled || !hasMockup || checkoutBusy}
                 aria-busy={checkoutBusy}
                 onClick={onBuyNowClick}
               >
@@ -494,7 +497,12 @@ export default function ProductPage() {
               </Button>
             )}
             <div className="mt-4 space-y-1.5">
-              {user && !hasMockup && (
+              {user && !storeEnabled && (
+                <p className="text-xs leading-tight text-accent">
+                  Store purchasing is temporarily offline. Please check back soon.
+                </p>
+              )}
+              {user && storeEnabled && !hasMockup && (
                 <p className="text-xs leading-tight text-text-muted">
                   Generate a mockup above before you check out.
                 </p>

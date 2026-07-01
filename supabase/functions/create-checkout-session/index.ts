@@ -20,6 +20,7 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { applyMarkup } from "../_shared/pricing.ts";
+import { isStoreEnabled } from "../_shared/storeStatus.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
@@ -45,6 +46,16 @@ Deno.serve(async req => {
   }
   if (req.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405, headers: corsHeaders });
+  }
+
+  // Defense in depth: ProductPage.jsx already hides/disables Buy Now when the store is
+  // flagged off, but a tab left open from before the flag was flipped could still hit this
+  // endpoint directly -- reject here too rather than trusting the client-side check alone.
+  if (!isStoreEnabled()) {
+    return Response.json(
+      { error: "Store purchasing is temporarily offline. Please check back soon." },
+      { status: 503, headers: corsHeaders }
+    );
   }
 
   const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");

@@ -44,7 +44,14 @@ export async function getCatalogProduct(productId) {
     method: 'GET'
   });
   if (error) throw error;
-  return { ...data.result, variants: sortVariantsBySize(data.result.variants) };
+  return {
+    ...data.result,
+    variants: sortVariantsBySize(data.result.variants),
+    // Store-wide purchasing kill switch (see supabase/functions/_shared/storeStatus.ts) --
+    // defaults to enabled if the field is ever missing, matching the Edge Function's own
+    // fail-open default.
+    storeEnabled: data.storeEnabled !== false
+  };
 }
 
 // Printful's GET /products/:id doesn't guarantee variant order -- it's whatever order the

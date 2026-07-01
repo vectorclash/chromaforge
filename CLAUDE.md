@@ -229,6 +229,18 @@ from print rendering above (video vs. still images) — don't conflate the two.
   `supabase/migrations/0005_orders_schema.sql` + `0006_order_items_product_options.sql`
   (`orders`/`order_items`, owner-read-only RLS, **no client insert/update policy at all** —
   only the service role, used exclusively by these two functions, writes orders).
+  - **Store-wide purchasing kill switch**: `supabase/functions/_shared/storeStatus.ts`'s
+    `isStoreEnabled()`, gated on the `STORE_ENABLED` secret (same instant-toggle pattern as
+    `PRICE_MARKUP_PERCENT` in `pricing.ts` — `npx supabase secrets set STORE_ENABLED=false`,
+    takes effect on the next request, no redeploy). Only pauses checkout: `printful-catalog`
+    attaches `storeEnabled` to its single-product response (the one `ProductPage.jsx`
+    already fetches, so no extra request), which disables Buy Now and shows "Store
+    purchasing is temporarily offline" — browsing, mockups, the gallery, and the studio all
+    stay fully operational. `create-checkout-session` independently rejects with a 503 if
+    the flag is off too (defense in depth against a tab left open from before the flag
+    flipped, not just trusting the client-side check). Unset/anything other than the
+    literal string `"false"` means enabled, so a fresh project isn't accidentally locked
+    out. No effect on the signed-out flow, which already shows "Sign in to buy" regardless.
   - `create-checkout-session` (`verify_jwt = true`): re-prices server-side against
     Printful's catalog (never trusts the client's price), inserts a `pending` order +
     item *before* creating the Stripe session, and stashes just the order id in the
