@@ -14,6 +14,15 @@ function client() {
 // null and `needsConfirmation` is true — the caller should tell the user to check their
 // inbox. Otherwise they're signed in immediately.
 //
+// Supabase deliberately returns the *same* shape (200, session: null) whether this is a
+// genuine new signup or the email already has an account — an anti-enumeration measure so
+// the API response itself can't be used to probe which emails are registered. Without
+// distinguishing these, a returning user hitting "create account" is told to check an
+// inbox that will never receive anything. The documented way to tell them apart client-side
+// is `user.identities`: empty for an existing account (confirmed live, 2026-07-01 — no
+// confirmation email was sent and no new row appeared), populated for a real new signup.
+// `alreadyRegistered` lets the caller redirect them to sign in instead.
+//
 // emailRedirectTo is set to the current origin rather than left to Supabase's dashboard
 // "Site URL" default, so the confirmation link lands back on whichever environment the
 // user actually signed up from (localhost in dev, chromaforge.app in prod) instead of
@@ -27,7 +36,13 @@ export async function signUpWithEmail(email, password) {
     options: { emailRedirectTo: window.location.origin }
   });
   if (error) throw error;
-  return { user: data.user, session: data.session, needsConfirmation: !data.session };
+  const alreadyRegistered = !data.session && data.user?.identities?.length === 0;
+  return {
+    user: data.user,
+    session: data.session,
+    alreadyRegistered,
+    needsConfirmation: !data.session && !alreadyRegistered
+  };
 }
 
 export async function signInWithEmail(email, password) {

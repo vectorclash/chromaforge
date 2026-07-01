@@ -173,6 +173,36 @@ from print rendering above (video vs. still images) — don't conflate the two.
   the link targets whichever environment the user actually signed up from; both
   `localhost:5173` and `chromaforge.app` need to be in Supabase Auth → URL Configuration's
   redirect allow-list for this to work (already added).
+- **Email confirmation is live and required** (`enable_confirmations = true`, matching the
+  live project — `config.toml` previously had this wrong as `false`, don't trust it without
+  checking the Dashboard). Confirmation/recovery/etc. emails go out via **custom SMTP
+  through a dedicated Hostinger mailbox** (`no-reply@chromaforge.app`, `smtp.hostinger.com`
+  port 465, auth via a Hostinger **App Password** not the mailbox login password) — needed
+  because Supabase's built-in mailer caps at 2 emails/hour and only delivers to project-team
+  addresses; custom SMTP raises that to a configurable 30+/hour and lifts the
+  team-address-only restriction. Configured in the Dashboard's Auth → Emails → SMTP
+  Settings (hosted projects only — the CLI/`config.toml`'s `[auth.email.smtp]` block is
+  local-dev-only parity, same caveat as the template below). Deliberately a *separate*
+  mailbox from `support@chromaforge.app` (which stays human-monitored, linked on the legal
+  pages) — keeps automated/bot-prone signup traffic from risking the reputation of the
+  address people expect real replies from.
+- **Branded "Confirm signup" email template**, `supabase/templates/confirmation.html` —
+  table-based/inline-styled HTML (with an Outlook VML button fallback) matching the site's
+  actual design tokens (Exo/Quicksand, the studio-green wordmark treatment, the spectrum
+  gradient bar, the exact `.cf-btn-primary` purple→magenta CTA gradient) rather than a
+  generic template. `config.toml`'s `[auth.email.template.confirmation]` points at it for
+  local dev; the **hosted project needs this HTML pasted directly into the Dashboard's Auth
+  → Email Templates → "Confirm signup"** — the CLI does not push email templates to hosted
+  projects. Live-verified 2026-07-01: real signup → real Hostinger-delivered email,
+  correctly branded, working confirmation link.
+- **Gotcha, fixed:** GoTrue's anti-enumeration behavior means `signUp()` returns the same
+  shape (`session: null`) whether it's a genuine new signup or the email already has a
+  confirmed account — without handling this, a returning user hitting "Create account" was
+  told to check an inbox that would never receive anything. `signUpWithEmail` (`auth.js`)
+  now detects this via `user.identities.length === 0` (confirmed live: this is `[]` for an
+  existing account, populated for a real new signup) and returns `alreadyRegistered: true`;
+  `AccountPage.jsx` switches to sign-in mode and shows "An account with this email already
+  exists. Sign in instead." instead of the misleading confirmation message.
 
 ### Merch pipeline: Printful catalog → mockup preview → Stripe checkout → real order
 - `src/lib/printful.js` — catalog browsing (`listCatalogProducts`/`getCatalogProduct`/

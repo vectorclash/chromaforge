@@ -223,7 +223,9 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# Already true on the live project (confirmed 2026-07-01) -- this file previously had it
+# false, which didn't match reality; local dev now mirrors the live setting.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
@@ -233,15 +235,31 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# Custom SMTP via the Hostinger mailbox already set up for the domain
+# (support@chromaforge.app) -- avoids Supabase's built-in mailer's fixed 2/hour cap (only
+# raisable by switching to custom SMTP at all, see auth.rate_limits.email docs) and costs
+# nothing extra since the mailbox is already included in the existing Hostinger plan. Applies
+# to local dev only -- the hosted project's SMTP settings are configured separately in the
+# Dashboard (Authentication -> Emails -> SMTP Settings), the CLI doesn't push this config to
+# hosted projects (same caveat as the email templates above).
+# HOSTINGER_SMTP_PASSWORD is the support@chromaforge.app mailbox password, set locally via
+# .env.local or shell env -- never commit it.
+[auth.email.smtp]
+enabled = true
+host = "smtp.hostinger.com"
+port = 465
+user = "support@chromaforge.app"
+pass = "env(HOSTINGER_SMTP_PASSWORD)"
+admin_email = "support@chromaforge.app"
+sender_name = "ChromaForge"
+
+# Applies to local dev only (`supabase start`) -- for the hosted project, this HTML must
+# also be pasted into the Dashboard's Authentication -> Email Templates -> "Confirm signup"
+# (the CLI doesn't push email templates to hosted projects, see
+# supabase/templates/confirmation.html's own header comment).
+[auth.email.template.confirmation]
+subject = "Confirm your email address"
+content_path = "./supabase/templates/confirmation.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

@@ -259,8 +259,11 @@ export default function AccountPage() {
     setMessage(null);
     try {
       if (mode === 'signup') {
-        const { needsConfirmation } = await signUpWithEmail(email, password);
-        if (needsConfirmation) {
+        const { needsConfirmation, alreadyRegistered } = await signUpWithEmail(email, password);
+        if (alreadyRegistered) {
+          setMode('signin');
+          setError('An account with this email already exists. Sign in instead.');
+        } else if (needsConfirmation) {
           setMessage('Check your email to confirm your account, then sign in.');
         }
       } else {
