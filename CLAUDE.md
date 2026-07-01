@@ -145,10 +145,6 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   resolution via the Edge Function above). Mockup previews are untouched by design — no
   reason to add render-service cost to something already free and good enough for picking
   artwork/variant.
-- **Known gap, still open**: Printful order submission failure after a successful Stripe
-  charge still isn't auto-refunded (unchanged from before this work — see the "Known gap"
-  note under Merch pipeline below). This session didn't touch that path.
-
 ### MP4 export: client-side (WebCodecs), not server-side
 Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`,
 `AudioEncoder`/`AudioData`) muxed with `mp4-muxer`. All in
@@ -302,9 +298,27 @@ from print rendering above (video vs. still images) — don't conflate the two.
     guessed). Stripe's "Managed Payments" (merchant-of-record tax/fraud handling) was
     explored but is **ineligible for physical goods** — it's a digital-goods-only program;
     this account uses standard Stripe Checkout instead.
-  - **Known gap, not yet built:** Printful order submission failure after a successful
-    Stripe charge is not auto-refunded — `orders.status` goes to `'failed'`, surfaced
-    distinctly in order history, but a human needs to notice and act.
+  - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
+    failure could be a fixable data issue (bad address, stale variant) that's
+    resubmittable, not necessarily a "give the money back" situation, so this is a
+    deliberate human-judgment-call gap, not an oversight. What *is* now built:
+    `stripe-webhook` retries the Printful create/confirm calls once before giving up (same
+    pattern as `useMockup.js`'s retry for Printful's occasional transient "Internal Server
+    Error" — the created draft order id is tracked across attempts so a confirm-only
+    failure retries just the confirm, not a second `POST /orders`, which would otherwise
+    leave an orphaned duplicate draft), and sends an email alert
+    (`sendOrderFailureAlert`, `npm:nodemailer` over raw SMTP against the same Hostinger
+    mailbox used for Auth emails — needs its own `ORDER_ALERT_SMTP_*`/`ORDER_ALERT_EMAIL_TO`
+    secrets since Edge Functions can't reach Supabase Auth's own SMTP config) so a human
+    finds out promptly instead of stumbling onto a `'failed'` order days later.
+    **Deliberately untested for actual delivery** — Supabase's own docs recommend an HTTP
+    email API (Resend) over raw SMTP from Edge Functions specifically because serverless
+    runtimes commonly block outbound SMTP ports; this was a known bet when reusing the
+    already-configured Hostinger mailbox instead. Confirm a real alert actually lands
+    before trusting this — if the port's blocked, `sendOrderFailureAlert` fails silently
+    (by design, so a broken alert channel never blocks order processing) and only logs
+    the error, so a blocked port wouldn't be obvious without checking `stripe-webhook`'s
+    logs directly.
   - Print files now ship at true print resolution via the Fly.io render-service (see
     "Server-side print rendering" below) — the earlier capped-browser-render gap here is
     closed, live-verified end to end (2026-07-01).
