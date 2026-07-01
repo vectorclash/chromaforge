@@ -311,14 +311,14 @@ from print rendering above (video vs. still images) — don't conflate the two.
     mailbox used for Auth emails — needs its own `ORDER_ALERT_SMTP_*`/`ORDER_ALERT_EMAIL_TO`
     secrets since Edge Functions can't reach Supabase Auth's own SMTP config) so a human
     finds out promptly instead of stumbling onto a `'failed'` order days later.
-    **Deliberately untested for actual delivery** — Supabase's own docs recommend an HTTP
-    email API (Resend) over raw SMTP from Edge Functions specifically because serverless
-    runtimes commonly block outbound SMTP ports; this was a known bet when reusing the
-    already-configured Hostinger mailbox instead. Confirm a real alert actually lands
-    before trusting this — if the port's blocked, `sendOrderFailureAlert` fails silently
-    (by design, so a broken alert channel never blocks order processing) and only logs
-    the error, so a blocked port wouldn't be obvious without checking `stripe-webhook`'s
-    logs directly.
+    **Raw SMTP confirmed working from Supabase Edge Functions** (2026-07-02, live-tested
+    via a throwaway `test-order-alert` function, since deleted) — Supabase's own docs
+    recommend an HTTP email API (Resend) over raw SMTP specifically because serverless
+    runtimes commonly block outbound SMTP ports, so this was a real open question, not a
+    formality; settled by an actual received test email, not just a clean API response.
+    Note for future debugging: `sendOrderFailureAlert` still fails silently by design (a
+    broken alert channel must never block order processing) and only logs the error, so a
+    regression here wouldn't be obvious without checking `stripe-webhook`'s logs directly.
   - Print files now ship at true print resolution via the Fly.io render-service (see
     "Server-side print rendering" below) — the earlier capped-browser-render gap here is
     closed, live-verified end to end (2026-07-01).
