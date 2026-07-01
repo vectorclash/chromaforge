@@ -1,6 +1,6 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
-import { getSizeScale } from '../../render/scale';
+import { getCountScale, getSizeScale } from '../../render/scale';
 
 export default class GenerateGeometricShape {
   constructor(width, height, shapeNum, colors = [], rng = Math.random) {
@@ -25,9 +25,16 @@ export default class GenerateGeometricShape {
 
     this.points = this.pointsArray(this.shapeSize);
 
+    // shapeNum (from generateArtwork.js) is unscaled -- this loop always builds the full,
+    // size-independent count (each buildShape() call's rng() consumption doesn't depend on
+    // width/height, only on this.colors.length, which is fixed per design) and only a
+    // size-scaled subset is kept, same fixed-generate-then-truncate reasoning as
+    // GenerateStarField/GenerateLargeRadialField -- see render/scale.js.
     for (let i = 0; i < shapeNum; i++) {
       config.shapes.push(this.buildShape());
     }
+    let keepCount = Math.max(1, Math.round(shapeNum * getCountScale(width, height)));
+    config.shapes = config.shapes.slice(0, keepCount);
 
     return config;
   }

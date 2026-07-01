@@ -45,21 +45,37 @@ the actual print, generated the same deterministic way.
   sizing stars off its narrow axis only), and element counts scale off canvas area relative
   to the studio's actual default resolution (3840×2160) instead of fixed constants (a
   320×320 thumbnail was getting literally the same star counts as a 4200×5400 print).
-  Count scaling is `sqrt(area ratio)`, not the raw ratio — tested against real renders
-  (`render-service`'s local render pipeline, one-off comparison script, not committed):
+  Count scaling is `sqrt(area ratio)`, not the raw ratio — tested against real renders and
   plain linear area scaling collapsed thumbnail-size renders to nearly nothing, since
   320×320 is ~1.2% of the reference area but the old fixed counts already looked
-  reasonable there — the actual bug showed up more at the size *extremes* than in the
-  everyday small-to-medium range. Verified visually across thumbnail (320×320), the
-  studio default, a tall print (3150×5550), and 4200×5400, isolating the star layer alone
-  (radial field/geometry/overlay temporarily forced off, then reverted) to judge density
-  without the confound of other randomized layers reshuffling alongside count changes.
-  **Consequence, accepted deliberately:** this changes output for every existing seed (the
-  count changes shift how many `rng()` calls each generator makes, desyncing the whole
-  downstream sequence) — old `v2` saved designs render differently now and fail
-  render-service's version check for printing until re-saved. Same treatment as pre-seed
-  (`v1`) designs already got — best-effort only, not a blocker, and nothing is live to
-  real customers yet so the timing cost is low.
+  reasonable there.
+  - **Real bug caught and fixed mid-implementation**: the first version scaled each
+    generation loop's *trip count* directly by the size factor. That desyncs `rng()`
+    consumption across sizes — every layer generated after a size-scaled loop (radial
+    field → star field → geometry → overlay, in that order) draws from a different
+    position in the sequence depending on how many stars/gradients happened to be
+    generated at that specific width/height. Confirmed live: **the same seed would gain or
+    lose an entire geometry-shape layer purely depending on what size it was rendered
+    at** — directly breaking the "mockup and its print are the same underlying piece"
+    guarantee `renderArtwork`'s method-4 recompose-per-ratio design depends on. Fixed by
+    always generating the *original fixed* count (exactly matching pre-fix `rng()`
+    consumption, so every downstream draw lands in the same position regardless of size)
+    and only **slicing** the result down to a size-scaled subset afterward — sizes at or
+    above the reference resolution keep everything generated (unchanged density from
+    before `v3`); only smaller canvases keep a reduced slice. Verified live with a script
+    that inspects `generateArtwork`'s output directly (not just pixels): confirmed
+    `radialFieldConfig`/`geometryConfig`/`overlayConfig` presence is now identical for the
+    same seed across thumbnail/moderate/studio-default/tall-print/print sizes, both for a
+    seed with geometry on and one with it off.
+  - Also verified visually across the same five sizes, isolating the star layer alone
+    (radial field/geometry/overlay temporarily forced off in a local test, then reverted)
+    to judge density without other randomized layers reshuffling alongside count changes.
+  **Consequence, accepted deliberately:** this still changes output for every existing
+  seed (the fixed-then-slice approach preserves rng() *position* consistency across sizes
+  for `v3`, but `v3`'s formulas still differ from `v2`'s) — old `v2` saved designs render
+  differently now and fail render-service's version check for printing until re-saved.
+  Same treatment as pre-seed (`v1`) designs already got — best-effort only, not a
+  blocker, and nothing is live to real customers yet so the timing cost is low.
 
 ### Server-side print rendering: `render-service/` — built, deployed, wired into checkout, live-verified
 `render-service/` (new top-level dir, separate from the Vite app) runs the actual,

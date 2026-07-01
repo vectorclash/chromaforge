@@ -9,10 +9,22 @@ export default class GenerateStarField {
     config.height = height;
 
     // Sizes off the smaller dimension (not width alone) so a tall/narrow canvas doesn't
-    // size stars off its narrow axis only; counts scaled by area so density (stars per unit
-    // area) stays roughly constant instead of a fixed count looking cluttered at thumbnail
-    // size and sparse at print size -- see render/scale.js.
+    // size stars off its narrow axis only -- see render/scale.js. This alone can't desync
+    // rng() consumption (same number of draws either way, just a different value fed into
+    // each), so it's safe on its own.
     let sizeScale = getSizeScale(width, height);
+
+    // Counts scale by area so a thumbnail doesn't get literally the same star counts as a
+    // print (the original bug) -- but the loops below always run their ORIGINAL fixed trip
+    // count (5/50/200/tiered-small, exactly as before this fix) and only KEEP a
+    // size-scaled subset of what gets generated. This is deliberate: if the loop trip count
+    // itself varied by size, rng() consumption would too, which shifts every downstream
+    // draw (geometryChance, overlayChance, etc.) -- meaning the same seed could gain or
+    // lose an entire geometry-shape layer purely depending on what size it's rendered at,
+    // breaking the recompose-per-ratio guarantee that a mockup and its print are the same
+    // underlying piece. Confirmed live: this was exactly what happened before this fix.
+    // Sizes at/above the reference resolution keep everything generated (unchanged density
+    // from before); only smaller canvases keep a reduced subset.
     let countScale = getCountScale(width, height);
 
     let gradientComplexity = Math.round(rng() * 4);
@@ -29,73 +41,55 @@ export default class GenerateStarField {
 
     let xlStarSizeMax = sizeScale / 4;
     let xlStarSizeMin = sizeScale / 30;
-    let xlStarCount = Math.max(1, Math.round(5 * countScale));
+    let xlStars = [];
 
-    for (let i = 0; i < xlStarCount; i++) {
+    for (let i = 0; i < 5; i++) {
       let ranSize = Math.round(xlStarSizeMin + rng() * xlStarSizeMax);
       let ranX = Math.round(-100 + rng() * width + 100);
       let ranY = Math.round(-100 + rng() * height + 100);
 
-      let star = {
-        x: ranX,
-        y: ranY,
-        size: ranSize,
-        image: 'star-large'
-      };
-
-      stars.push(star);
+      xlStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-large' });
     }
+    stars.push(...xlStars.slice(0, Math.max(1, Math.round(5 * countScale))));
 
     let largeStarSizeMax = sizeScale / 7;
     let largeStarSizeMin = sizeScale / 200;
-    let largeStarCount = Math.max(1, Math.round(50 * countScale));
+    let largeStars = [];
 
-    for (let i = 0; i < largeStarCount; i++) {
+    for (let i = 0; i < 50; i++) {
       let ranSize = Math.round(largeStarSizeMin + rng() * largeStarSizeMax);
       let ranX = Math.round(-100 + rng() * width + 100);
       let ranY = Math.round(-100 + rng() * height + 100);
 
-      let star = {
-        x: ranX,
-        y: ranY,
-        size: ranSize,
-        image: 'star-large'
-      };
-
-      stars.push(star);
+      largeStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-large' });
     }
+    stars.push(...largeStars.slice(0, Math.max(1, Math.round(50 * countScale))));
 
     let mediumStarSizeMax = sizeScale / 100;
     let mediumStarSizeMin = sizeScale / 3000;
-    let mediumStarCount = Math.max(1, Math.round(200 * countScale));
+    let mediumStars = [];
 
-    for (let i = 0; i < mediumStarCount; i++) {
+    for (let i = 0; i < 200; i++) {
       let ranSize = Math.round(mediumStarSizeMin + rng() * mediumStarSizeMax);
       let ranX = Math.round(-100 + rng() * width + 100);
       let ranY = Math.round(-100 + rng() * height + 100);
 
-      let star = {
-        x: ranX,
-        y: ranY,
-        size: ranSize,
-        image: 'star-small'
-      };
-
-      stars.push(star);
+      mediumStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-small' });
     }
+    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(200 * countScale))));
 
     let smallStarChance = rng();
     let smallStarAmount;
 
     if (smallStarChance < 0.7) {
-      smallStarAmount = Math.round(5000 * countScale);
+      smallStarAmount = 5000;
     } else if (smallStarChance > 0.7 && smallStarChance < 0.9) {
-      smallStarAmount = Math.round((50 + rng() * 200) * countScale);
+      smallStarAmount = Math.round(50 + rng() * 200);
     } else {
-      smallStarAmount = Math.round((5000 + rng() * 100000) * countScale);
+      smallStarAmount = Math.round(5000 + rng() * 100000);
     }
 
-    config.smallStarAmount = smallStarAmount;
+    config.smallStarAmount = Math.max(1, Math.round(smallStarAmount * countScale));
 
     // Fine star layer — previously generated with Math.random() at render time, which made
     // the same design render differently every time. Now seeded and resolved here so the
@@ -111,7 +105,7 @@ export default class GenerateStarField {
       smallStars.push({ x: ranX, y: ranY, size: ranSize });
     }
 
-    config.smallStars = smallStars;
+    config.smallStars = smallStars.slice(0, config.smallStarAmount);
 
     config.stars = stars;
 

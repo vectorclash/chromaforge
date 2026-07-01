@@ -9,7 +9,6 @@ import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialFi
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import { makeRng, randomSeed } from './prng';
-import { getCountScale } from './scale';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
 // seed, so old designs can be detected and (re)rendered with matching behaviour.
@@ -80,9 +79,11 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
 
   if (geometryChance >= 0.6) {
     config.thirdBlend = randomBlendMode(rng);
-    // Shape count scaled by area, same reasoning as the star/radial-field counts -- see
-    // render/scale.js.
-    let shapeNum = Math.max(1, Math.round((10 + rng() * 30) * getCountScale(width, height)));
+    // Unscaled -- exactly one rng() draw, matching pre-fix behavior. GenerateGeometricShape
+    // itself builds this many shapes (fixed, size-independent rng() consumption) and only
+    // keeps a size-scaled subset -- see its own comment for why the trip count can't vary
+    // by size directly.
+    let shapeNum = 10 + Math.round(rng() * 30);
     config.geometryConfig = new GenerateGeometricShape(
       width,
       height,
