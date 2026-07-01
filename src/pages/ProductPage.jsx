@@ -10,7 +10,8 @@ import {
   getPrintfileSpecs,
   getMockupConfigForProduct,
   resolvePlacementEntries,
-  renderAndUploadPrintFiles
+  renderAndUploadPrintFiles,
+  renderPrintFileStrategy
 } from '../lib/printful';
 import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
@@ -93,8 +94,7 @@ export default function ProductPage() {
     currentDesign,
     previewUrl: studioPreviewUrl,
     printQueueDesign,
-    setPrintQueueDesign,
-    renderDesignBlob
+    setPrintQueueDesign
   } = useStudio();
   const { user } = useAuth();
   const {
@@ -272,7 +272,7 @@ export default function ProductPage() {
       const printFileUrls = await renderAndUploadPrintFiles(entries, {
         printfileSpecs,
         design: selectedDesign,
-        renderDesignBlob
+        renderOne: renderPrintFileStrategy
       });
       const cfg = getMockupConfigForProduct(product.id);
       const { url, orderId } = await createCheckoutSession({

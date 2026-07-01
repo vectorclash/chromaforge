@@ -4,7 +4,8 @@ import {
   getMockupTask,
   getMockupConfigForProduct,
   resolvePlacementEntries,
-  renderAndUploadPrintFiles
+  renderAndUploadPrintFiles,
+  capRenderStrategy
 } from '../lib/printful';
 import { useStudio } from '../context/StudioContext';
 
@@ -104,7 +105,11 @@ export function useMockup() {
       setError(null);
       setImages([]);
       try {
-        const urls = await renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderDesignBlob });
+        const urls = await renderAndUploadPrintFiles(entries, {
+          printfileSpecs,
+          design,
+          renderOne: capRenderStrategy(renderDesignBlob)
+        });
 
         const placements = entries.map(([placementKey]) => ({
           placement: placementKey,

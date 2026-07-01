@@ -222,27 +222,54 @@ export function resolvePlacementEntries(printfileSpecs, variant, placementFilter
 // separate phase -- see CLAUDE.md).
 const RENDER_CAP = 1200;
 
-// Renders the design at each printfile's capped resolution and uploads it (one render per
-// unique printfile id -- placements often share one, e.g. a hoodie's body placements all
-// use the same printfile), returning { [placement]: url }. Shared by mockup previews
-// (useMockup.js) and real checkout (lib/checkout.js); `entries` comes from
-// resolvePlacementEntries above, with whatever placement filter the caller needs.
-export async function renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderDesignBlob }) {
+// Renders the design for each printfile and uploads it (one render per unique printfile id
+// -- placements often share one, e.g. a hoodie's body placements all use the same
+// printfile), returning { [placement]: url }. Shared by mockup previews (useMockup.js) and
+// real checkout (ProductPage.jsx); `entries` comes from resolvePlacementEntries above, with
+// whatever placement filter the caller needs. `renderOne(design, spec, printfileId)` is the
+// actual render+upload strategy -- mockups use capRenderStrategy (cheap, capped, client-side);
+// checkout uses renderPrintFileStrategy (true print resolution, via render-service).
+export async function renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderOne }) {
   const printfileIdToUrl = {};
   const urls = {};
   for (const [placementKey, printfileId] of entries) {
     if (!printfileIdToUrl[printfileId]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       if (!spec) continue;
-      const scale = RENDER_CAP / Math.max(spec.width, spec.height);
-      const width = Math.round(spec.width * scale);
-      const height = Math.round(spec.height * scale);
-      const blob = await renderDesignBlob(design, width, height);
-      printfileIdToUrl[printfileId] = await uploadMockupSourceImage(blob, printfileId);
+      printfileIdToUrl[printfileId] = await renderOne(design, spec, printfileId);
     }
     urls[placementKey] = printfileIdToUrl[printfileId];
   }
   return urls;
+}
+
+// Mockups: cheap, capped, client-side, free -- well below Printful's real printfile dims,
+// same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
+export function capRenderStrategy(renderDesignBlob) {
+  return async (design, spec, printfileId) => {
+    const scale = RENDER_CAP / Math.max(spec.width, spec.height);
+    const width = Math.round(spec.width * scale);
+    const height = Math.round(spec.height * scale);
+    const blob = await renderDesignBlob(design, width, height);
+    return uploadMockupSourceImage(blob, printfileId);
+  };
+}
+
+// Real checkout: true print resolution (spec.width/height ARE the print resolution already
+// -- no RENDER_CAP scaling), rendered server-side by the Fly.io render-service via the
+// render-print-file Edge Function (see supabase/functions/render-print-file/index.ts and
+// CLAUDE.md's "Server-side print rendering" section) so mobile Safari's ~16.7 Mpx canvas
+// limit never comes into play and the print file matches the approved mockup exactly
+// (GENERATOR_VERSION-checked server-side).
+export async function renderPrintFileStrategy(design, spec, printfileId) {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase.functions.invoke('render-print-file', {
+    method: 'POST',
+    body: { design, width: spec.width, height: spec.height, label: printfileId }
+  });
+  if (error) throw await unwrapFunctionsError(error);
+  if (data.error) throw new Error(data.error.message || 'Print file render failed');
+  return data.url;
 }
 
 // Uploads a rendered design image so Printful's mockup-generator can fetch it. Must be a

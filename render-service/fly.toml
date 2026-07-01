@@ -1,5 +1,7 @@
 # Deploy from repo root (build context needs ../src and ../public -- see Dockerfile header):
-#   flyctl deploy . --config render-service/fly.toml --dockerfile render-service/Dockerfile
+#   flyctl deploy . --config render-service/fly.toml
+# Note: paths in this file (dockerfile below) resolve relative to this config file's own
+# directory (render-service/), not the repo root -- confirmed via flyctl v0.4.63.
 #
 # RENDER_SERVICE_KEY is a secret, not set here -- after the app exists:
 #   flyctl secrets set RENDER_SERVICE_KEY=<value> --config render-service/fly.toml
@@ -9,7 +11,7 @@ app = "chromaforge-render"
 primary_region = "iad" # TODO: confirm/adjust to match the Supabase project's region for lower latency
 
 [build]
-  dockerfile = "render-service/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [http_service]
   internal_port = 8080
@@ -20,4 +22,8 @@ primary_region = "iad" # TODO: confirm/adjust to match the Supabase project's re
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  # 512mb OOM-killed mid-render on a real product's printfile spec (confirmed live,
+  # 2026-07-01 -- anon-rss hit 412MB and the kernel killed the node process). Some
+  # printfiles run up to ~6000x6000px; the raw RGBA buffer alone is ~144MB, plus Skia/Node
+  # overhead and PNG encoding headroom on top.
+  memory = "1024mb"

@@ -439,3 +439,12 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/stripe-webhook/deno.json"
 entrypoint = "./functions/stripe-webhook/index.ts"
+
+# User-initiated (checkout's print-file render step) -- triggers real Fly.io render-service
+# compute, so must be signed in, same rationale as create-checkout-session. No import_map --
+# uses plain fetch() against Supabase's REST endpoints, no external deps (see index.ts's
+# header comment for why: the supabase-js SDK's bundle repeatedly timed out on deploy).
+[functions.render-print-file]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/render-print-file/index.ts"

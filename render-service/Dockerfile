@@ -12,6 +12,7 @@ WORKDIR /app
 COPY render-service/package.json render-service/package-lock.json ./render-service/
 RUN cd render-service && npm ci
 COPY src/render ./src/render
+COPY src/components/Canvas ./src/components/Canvas
 COPY render-service/entry.js render-service/build.js ./render-service/
 RUN cd render-service && node build.js
 

@@ -45,14 +45,14 @@ the actual print, generated the same deterministic way.
   visual judgment call, not pure math. Old pre-seed saved designs (absolute-pixel, no
   seed) can only be reflowed, not recomposed — treat as best-effort, not a blocker.
 
-### Server-side print rendering: `render-service/` — core built + verified, not yet deployed
+### Server-side print rendering: `render-service/` — built, deployed, wired into checkout, live-verified
 `render-service/` (new top-level dir, separate from the Vite app) runs the actual,
 unmodified `generateArtwork.js`/`renderArtwork.js`/`Generate*.js` files in plain Node —
 **no headless browser** (Puppeteer/Chromium were both considered and rejected: a managed
 screenshot API is a recurring per-render vendor bill the project owner explicitly doesn't
-want; a real browser needs a ~1GB+ RAM host for something this can now do in ~250MB).
-Verified this session, with real test code against real output (not assumed): every
-`globalCompositeOperation` this app uses, gradient rendering, and the one
+want; a real browser needs a ~1GB+ RAM host for something this can now do in ~1GB, see
+memory note below). Verified this session, with real test code against real output (not
+assumed): every `globalCompositeOperation` this app uses, gradient rendering, and the one
 non-Canvas2D dependency (`GeometricShape.js`'s use of createjs/EaselJS) all render
 correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) plus
 `render-service/shim.js`'s `document`/`window`/createjs polyfill.
@@ -72,14 +72,50 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   port**, just resolving Vite-style extensionless imports that Node's native ESM loader
   can't handle; the executed logic is byte-for-byte the same as what ships to the
   browser. Re-run `npm run build` in `render-service/` after any change to `src/render`.
-- Confirmed working end-to-end against a real saved design (`render-service/spike-test.js`,
-  not wired into anything yet): 4200×5400 (true 300 DPI) in ~2s, no browser boot.
-- **Not yet done**: `Dockerfile`/`fly.toml` (hosting: Fly.io, chosen over Hostinger-VPS-self-admin
-  and DigitalOcean App Platform's flat $10-12/mo for cost + lower ops burden — real
-  compute cost at this store's volume should be near-zero, scale-to-zero billing), the
-  `render-print-file` Supabase Edge Function, and wiring into `ProductPage.jsx`'s checkout
-  flow (currently still uses the old capped client-side render for real orders). See
-  `/Users/aaronsterczewski/.claude/plans/polished-rolling-anchor.md` for the full plan.
+- **Deployed to Fly.io** (`chromaforge-render.fly.dev`, `iad` region, scale-to-zero) and
+  **live-verified end to end** (2026-07-01): a real `onBuyNowClick` through the actual app
+  produced a `print_file_urls` entry at **3150×5550px** (true print resolution — the old
+  capped client-side path tops out at `RENDER_CAP = 1200`), confirmed by downloading the
+  real uploaded file and checking its pixel dimensions, not just that the request
+  succeeded. The Dockerfile's build stage needed `COPY src/components/Canvas` added (it
+  only copied `src/render`, but `generateArtwork.js`/`renderArtwork.js` import from
+  `../components/Canvas/*` — missed until a real Docker build surfaced it, since the local
+  `npm run build` sanity check runs inside the full repo checkout and never hit the gap).
+  `fly.toml`'s `[build] dockerfile` path resolves relative to `fly.toml`'s own directory
+  (`render-service/`), not the repo root, despite `flyctl deploy`'s own `--dockerfile` flag
+  docs implying otherwise — confirmed via flyctl v0.4.63; the file's header comment
+  reflects the working invocation.
+- **Real capacity bug, not just a deploy-config one**: the initial 512MB Fly machine size
+  got OOM-killed mid-render on a real product's printfile spec (confirmed in Fly's logs —
+  `anon-rss:412116kB` at kill time). Some printfiles run up to ~6000×6000px; the raw RGBA
+  buffer alone is ~144MB before Skia/Node overhead and PNG encoding headroom. Bumped to
+  1024MB in `fly.toml` and reverified live — no further OOM kills. If future products push
+  printfile sizes higher, watch for this failure mode again (Fly logs show
+  `Out of memory: Killed process ... (node)` distinctly from any application-level error).
+- `supabase/functions/render-print-file/index.ts` deliberately uses plain `fetch()` against
+  Supabase's Auth (`/auth/v1/user`) and Storage (`/storage/v1/object/...`) REST endpoints
+  instead of the `@supabase/supabase-js` SDK every other function uses — pulling in the
+  full SDK (which drags in `realtime-js`'s Node polyfills) made this function's bundle step
+  repeatedly time out on deploy (`Bundle generation timed out` / a `deno.land` fetch
+  timeout inside `realtime-js`), confirmed reproducible across multiple attempts. No
+  `deno.json`/import map needed as a result. If this function ever needs more than
+  "verify a JWT" + "upload a file," reconsider whether the SDK's bundle-time cost is worth
+  it, but don't reach for it by default here.
+- `RENDER_SERVICE_KEY` (shared secret, `X-Render-Key` header) is set both as a Fly.io
+  secret (`flyctl secrets set RENDER_SERVICE_KEY=... --app chromaforge-render`) and as the
+  `render-print-file` Edge Function's `RENDER_SERVICE_KEY` secret — same value, two places,
+  no code ties them together automatically if one is rotated. `RENDER_SERVICE_URL` is the
+  Edge Function's only other secret (`https://chromaforge-render.fly.dev`).
+- `src/lib/printful.js`'s `renderAndUploadPrintFiles` takes an injected `renderOne(design,
+  spec, printfileId)` strategy instead of being hardcoded to one render path:
+  `capRenderStrategy(renderDesignBlob)` (mockups, `useMockup.js` — cheap, capped, client-side,
+  unchanged behavior) vs. `renderPrintFileStrategy` (checkout, `ProductPage.jsx` — true print
+  resolution via the Edge Function above). Mockup previews are untouched by design — no
+  reason to add render-service cost to something already free and good enough for picking
+  artwork/variant.
+- **Known gap, still open**: Printful order submission failure after a successful Stripe
+  charge still isn't auto-refunded (unchanged from before this work — see the "Known gap"
+  note under Merch pipeline below). This session didn't touch that path.
 
 ### MP4 export: client-side (WebCodecs), not server-side
 Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`,
@@ -194,9 +230,10 @@ from print rendering above (video vs. still images) — don't conflate the two.
     this account uses standard Stripe Checkout instead.
   - **Known gap, not yet built:** Printful order submission failure after a successful
     Stripe charge is not auto-refunded — `orders.status` goes to `'failed'`, surfaced
-    distinctly in order history, but a human needs to notice and act. v1 also ships print
-    files at the same capped browser-render resolution the mockup previews use, not true
-    300 DPI — see the renderer section above for why that's a separate, still-open phase.
+    distinctly in order history, but a human needs to notice and act.
+  - Print files now ship at true print resolution via the Fly.io render-service (see
+    "Server-side print rendering" below) — the earlier capped-browser-render gap here is
+    closed, live-verified end to end (2026-07-01).
 
 ### Styling: Tailwind v4, fully migrated (not partial)
 The whole app was migrated from SCSS to Tailwind v4 + a small custom-CSS layer — this was
@@ -247,11 +284,15 @@ order. `PRINTFUL_SKIP_CONFIRM` is still set (intentionally, for continued testin
 order can be confirmed/billed/produced yet — check whether it's still set before assuming
 real customers can complete a purchase.
 
-**In progress:** server-side print-resolution rendering — core render pipeline built and
-pixel-verified (see "Server-side print rendering" above), not yet deployed or wired into
-checkout. **Not yet started:** ratio-aware generation tuning. (Printful catalog/mockups
-and Stripe checkout scaffolding are both built now —
-update this line again once checkout has been live-verified.)
+Server-side print-resolution rendering is **built, deployed (Fly.io + a new
+render-print-file Edge Function), wired into checkout, and live-verified** (see
+"Server-side print rendering" above) — the print-resolution gap called out in the Merch
+pipeline section above is closed. The `render-service`/`printful.js`/`ProductPage.jsx`
+changes landed on `feature/account-gallery-ui`, not yet merged to `master`, so this isn't
+live on chromaforge.app until that branch merges and pushes — the Fly.io/Supabase Edge
+Function deploys themselves are already live regardless of that merge (they're deployed
+directly, not via the GitHub Actions → FTP flow). **Not yet started:** ratio-aware
+generation tuning.
 
 ## Local setup (new machine / clone)
 
