@@ -1382,7 +1382,12 @@ export default class DisplayCanvas extends React.Component {
 
     return (
       <div
-        className="display-canvas fixed left-0 top-0 flex h-full w-full items-center justify-center overflow-hidden"
+        // bg-ink-900 (not the page's neutral bg-ink-950) so the loading/generating state
+        // (before the canvas paints over it) reads as its own distinct surface -- both here
+        // (the compact homepage hero, nested inside Hero.jsx's section) and standalone at
+        // /studio (StudioPage renders this with no wrapping section of its own to carry a
+        // background), so it belongs on this root rather than duplicated per-wrapper.
+        className="display-canvas fixed left-0 top-0 flex h-full w-full items-center justify-center overflow-hidden bg-ink-900"
         ref={mount => {
           this.mount = mount;
         }}
