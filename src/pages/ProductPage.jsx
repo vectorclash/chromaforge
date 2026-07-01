@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { gsap, ScrambleTextPlugin } from 'gsap/all';
+import { gsap, TextPlugin } from 'gsap/all';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import FadeImage from '../components/ui/FadeImage';
@@ -20,7 +20,7 @@ import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import { useHoverScroll } from '../hooks/useHoverScroll';
 
-gsap.registerPlugin(ScrambleTextPlugin);
+gsap.registerPlugin(TextPlugin);
 
 const STATUS_LABEL = {
   rendering: 'Rendering design…',
@@ -44,11 +44,20 @@ const STATUS_TIMELINE = [
   { at: 32, text: 'Cross-referencing thousands of known textile patterns. None match yours precisely.' },
   { at: 45, text: 'Compiling photographic angles of the finished garment.' },
   { at: 60, text: 'Running within expected parameters, though slightly behind my initial estimate.' },
-  { at: 80, text: "Apologies for the delay -- the production servers appear to require additional time." },
+  { at: 80, text: 'Apologies for the delay -- the production servers appear to require additional time.' },
   { at: 105, text: 'I assure you: I have not malfunctioned. Still computing.' },
   { at: 135, text: 'Curious. This is taking longer than most prior attempts. Continuing regardless.' },
   { at: 165, text: 'Patience, I am told, is a virtue. I am simulating it admirably.' }
 ];
+
+// Glues the last two words together with a non-breaking space so the final wrapped
+// line can never end up as a lone orphan word, regardless of the narration line's
+// length or the panel's width.
+function preventOrphan(text) {
+  const lastSpace = text.lastIndexOf(' ');
+  if (lastSpace === -1) return text;
+  return text.slice(0, lastSpace) + ' ' + text.slice(lastSpace + 1);
+}
 
 function statusNarration(elapsedSeconds) {
   let line = STATUS_TIMELINE[0].text;
@@ -56,7 +65,7 @@ function statusNarration(elapsedSeconds) {
     if (entry.at > elapsedSeconds) break;
     line = entry.text;
   }
-  return line;
+  return preventOrphan(line);
 }
 
 // Decodes each STATUS_TIMELINE line in via GSAP's ScrambleTextPlugin instead of an instant
@@ -67,25 +76,32 @@ function statusNarration(elapsedSeconds) {
 // elapsedSeconds even though the line only changes at STATUS_TIMELINE thresholds).
 function ScrambleText({ text, className }) {
   const ref = useRef(null);
-  const prevText = useRef(text);
+  const prevText = useRef(null);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || prevText.current === text) return;
+    if (!el) return;
+    // First mount: nothing to transition from -- just set the text directly.
+    if (prevText.current === null) {
+      el.textContent = text;
+      prevText.current = text;
+      return;
+    }
+    if (prevText.current === text) return;
     prevText.current = text;
     gsap.to(el, {
-      duration: 0.45,
+      duration: 1,
       ease: 'none',
-      scrambleText: { text, chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', revealDelay: 0.05 }
+      text: text
     });
     return () => gsap.killTweensOf(el);
   }, [text]);
 
-  return (
-    <p ref={ref} className={className}>
-      {text}
-    </p>
-  );
+  // Deliberately no {text} child here -- TextPlugin needs the DOM's current
+  // textContent to still hold the *previous* line when the tween starts, so it has
+  // something to interpolate away from. Rendering {text} in JSX would let React
+  // commit the new string first, making the tween a same-to-same no-op.
+  return <p ref={ref} className={className} />;
 }
 
 export default function ProductPage() {
@@ -324,11 +340,17 @@ export default function ProductPage() {
                 title={c.label}
                 style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
                 className={
-                  'relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition animate-fade-slide-up ' +
+                  'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition animate-fade-slide-up ' +
                   (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                 }
               >
-                {c.thumb && <FadeImage src={c.thumb} alt={c.label} className="h-full w-full object-cover" />}
+                {c.thumb && (
+                  <FadeImage
+                    src={c.thumb}
+                    alt={c.label}
+                    className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.2]"
+                  />
+                )}
               </button>
             );
           })}
@@ -363,7 +385,15 @@ export default function ProductPage() {
             "useless" blank photo elsewhere on the page. */}
         <div>
           <div className="relative aspect-square overflow-hidden rounded-xl border border-hairline bg-ink-900">
-            <FadeImage src={heroImage} alt={product.title} className="h-full w-full object-cover" />
+            <FadeImage
+              key={hasMockup && images.length > 1 ? activeImageIndex : 'hero'}
+              src={heroImage}
+              alt={product.title}
+              className={
+                'h-full w-full object-cover' +
+                (hasMockup && images.length > 1 ? ' animate-pop-in' : '')
+              }
+            />
             {!hasMockup && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6">
                 {!user ? (
@@ -407,11 +437,15 @@ export default function ProductPage() {
                   title={m.display_name}
                   style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
                   className={
-                    'relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-fade-slide-up ' +
+                    'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-fade-slide-up ' +
                     (i === activeImageIndex ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
-                  <FadeImage src={m.mockup_url} alt={m.display_name} className="h-full w-full object-cover" />
+                  <FadeImage
+                    src={m.mockup_url}
+                    alt={m.display_name}
+                    className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.2]"
+                  />
                 </button>
               ))}
             </div>
