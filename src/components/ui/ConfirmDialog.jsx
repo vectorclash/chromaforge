@@ -43,11 +43,11 @@ export default function ConfirmDialog({
           {title}
         </h2>
         {message && <p className="mt-2 text-sm text-text-secondary">{message}</p>}
-        <div className="mt-6 flex justify-end gap-3">
-          <Button type="button" variant="secondary" onClick={onCancel}>
+        <div className="mt-6 flex gap-3">
+          <Button type="button" variant="secondary" className="flex-1" onClick={onCancel}>
             {cancelLabel}
           </Button>
-          <Button type="button" onClick={onConfirm} autoFocus>
+          <Button type="button" className="flex-1" onClick={onConfirm} autoFocus>
             {confirmLabel}
           </Button>
         </div>
