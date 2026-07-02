@@ -258,6 +258,25 @@ tracks what's true now, not history.
       2` (header + all 8 cards, not just the header), a mid-scroll screenshot shows the
       cascade actually in progress (one card in, others still waiting their turn), and the
       reverse-on-scroll-back-up still works with the new per-item structure.
+      **Two more fixes, same day.** (1) Aaron caught the gallery card slide starting slow
+      then suddenly speeding up -- `.cf-card` has its own CSS `transition: transform 0.2s`
+      (an unrelated hover-lift effect) on the *same* `transform` property GSAP animates via
+      inline styles every frame, so the CSS transition was additionally easing each of
+      GSAP's own per-frame updates on top of GSAP's own curve. Fixed by forcing
+      `transition: none` on the reveal targets for the duration of the tween, handing it
+      back via `clearProps` once it (or its reverse) completes. Verified by sampling the
+      actual transform Y-offset every frame: now a smooth, monotonically decelerating
+      curve, and confirmed the hover-lift transition is correctly restored afterward. (2)
+      Aaron caught `ShopCarousel`'s reveal firing while the section was still off-screen.
+      Root cause: its cards are sized off `cardWidth` (`aspect-square`, so 0 width collapses
+      height to ~0 too), which only gets measured a tick *after* `loading` turns false via a
+      separate layout effect -- the `ScrollTrigger` was built against that transient,
+      collapsed-height layout, and once the stage expanded to its real size the
+      already-calculated trigger point was stale. Fixed by adding `cardWidth` to the hook's
+      deps (`useScrollTriggerReveal([loading, cardWidth])`). Verified live: swept scroll
+      position against the section's actual bounding box -- opacity correctly stays `0`
+      while genuinely off-screen (confirmed at a position where the section's top was still
+      800px below the viewport) and only reaches `1` once meaningfully visible.
 - [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
       the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
 - [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,

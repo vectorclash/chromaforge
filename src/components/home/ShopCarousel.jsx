@@ -38,9 +38,13 @@ export default function ShopCarousel() {
   const [error, setError] = useState(null);
   const [cardWidth, setCardWidth] = useState(0);
 
-  // The carousel stage only exists once the fetch below resolves -- see
-  // useScrollTriggerReveal's own comment on why `[loading]` has to be passed here.
-  const revealRef = useScrollTriggerReveal([loading]);
+  // Depends on cardWidth too, not just loading: cards are sized off cardWidth (aspect-square,
+  // so 0 width collapses their height to ~0 too), which only gets measured a tick *after*
+  // loading turns false via the layout effect below. Building the ScrollTrigger against
+  // that transient, collapsed-height layout made it fire at the wrong scroll position --
+  // by the time the stage expanded to its real size, the already-calculated trigger point
+  // was stale, so the reveal ended up playing while the section was still off-screen.
+  const revealRef = useScrollTriggerReveal([loading, cardWidth]);
   const stageRef = useRef(null);
   const trackRef = useRef(null);
   const positionRef = useRef(0);
