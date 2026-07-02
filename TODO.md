@@ -26,10 +26,10 @@ tracks what's true now, not history.
       interested in being on Meta platforms). If a YouTube channel happens later, adding
       its icon/link back is a small, isolated change whenever there's a real URL to point
       at — don't add a placeholder speculatively before that exists.
-- [ ] **Deploy the reworked shipping calc** (see "Code" section below for what changed) and
-      run a live test purchase, trying a couple of different regions in the shipping-option
-      picker, to confirm the right rate is charged and the totals look right. Deploy with:
-      `npx supabase functions deploy create-checkout-session`.
+- [x] **Deployed the reworked shipping calc** (2026-07-02) — `create-checkout-session` is
+      live with the weight-class + region rates. **Still needs**: one live test purchase,
+      trying a couple of different regions in the shipping-option picker, to confirm the
+      right rate is charged and the totals look right.
 - [x] **Confirm `ORDER_ALERT_*` secrets are set** — all 5 present (`ORDER_ALERT_EMAIL_TO`,
       `ORDER_ALERT_SMTP_HOST`, `ORDER_ALERT_SMTP_PASSWORD`, `ORDER_ALERT_SMTP_PORT`,
       `ORDER_ALERT_SMTP_USER`), confirmed 2026-07-02 via `npx supabase secrets list`. Names
