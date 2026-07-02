@@ -344,7 +344,7 @@ export default function ProductPage() {
                 title={c.label}
                 style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
                 className={
-                  'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition animate-fade-slide-up ' +
+                  'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                   (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                 }
               >
@@ -441,7 +441,7 @@ export default function ProductPage() {
                   title={m.display_name}
                   style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
                   className={
-                    'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-fade-slide-up ' +
+                    'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                     (i === activeImageIndex ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
@@ -474,7 +474,7 @@ export default function ProductPage() {
                   onClick={() => setSelectedVariantId(v.id)}
                   aria-pressed={selected}
                   className={
-                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition ' +
+                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                     (selected
                       ? 'border-accent bg-accent text-white'
                       : 'border-hairline text-text-secondary hover:border-text')

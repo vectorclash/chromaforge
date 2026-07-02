@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useNavigate } from 'react-router-dom';
 import { onAuthChange } from '../lib/auth';
 import { getMyProfile } from '../lib/profiles';
+import { useToastNotice } from '../hooks/useToastNotice';
+import Toast from '../components/ui/Toast';
 
 // App-wide auth state, reachable from any route (header, account, gallery, studio save).
 // Also owns the Supabase auth-redirect handling (moved here from DisplayCanvas) so it works
@@ -12,7 +14,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [notice, setNotice] = useState(null); // { type: 'success'|'error', message }
+  const [notice, setNotice] = useToastNotice(); // { type: 'success'|'error', message }
   const [avatarUrl, setAvatarUrl] = useState(null);
   // Set once a password-recovery link's session lands (see the hash-parsing effect below).
   // AccountPage reads this to show the set-new-password form instead of the normal
@@ -79,12 +81,6 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    if (!notice) return;
-    const t = setTimeout(() => setNotice(null), notice.type === 'error' ? 8000 : 5000);
-    return () => clearTimeout(t);
-  }, [notice]);
-
   return (
     <AuthContext.Provider
       value={{
@@ -97,16 +93,7 @@ export function AuthProvider({ children }) {
       }}
     >
       {children}
-      {notice && (
-        <div
-          className={
-            'fixed left-1/2 top-5 z-50 -translate-x-1/2 rounded-xl px-5 py-3 text-center text-sm shadow-lg backdrop-blur-md ' +
-            (notice.type === 'error' ? 'bg-red-900/85 text-red-50' : 'bg-neutral-900/85 text-white')
-          }
-        >
-          {notice.message}
-        </div>
-      )}
+      <Toast notice={notice} />
     </AuthContext.Provider>
   );
 }

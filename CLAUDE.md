@@ -276,11 +276,28 @@ from print rendering above (video vs. still images) — don't conflate the two.
     creating the Stripe session, and stashes just the order id in the session's `metadata`
     (Stripe metadata caps at 500 chars — nowhere near enough for a design jsonb, so the
     design/print-file URLs live in our own DB row instead).
-  - **Shipping + tax are charged at checkout** (2026-07-01): flat-rate shipping via the
-    `SHIPPING_FLAT_CENTS` secret (default 599 = $5.99, same instant-toggle pattern as the
-    markup; 0 disables the line) — flat rather than per-address-quoted deliberately, since
-    hosted Checkout collects the address *after* the session exists, so an exact Printful
-    quote is impossible anyway. Stripe Tax via `automatic_tax` (kill switch:
+  - **Shipping + tax are charged at checkout** (2026-07-01, shipping calc reworked
+    2026-07-02): `supabase/functions/_shared/shipping.ts` replaces the original single
+    `SHIPPING_FLAT_CENTS` flat rate with a **weight-class × region rate table**, verified
+    against Printful's real AOP shipping-rate tables — the flat $5.99 was checked against
+    those tables and found to be losing money on almost every order (up to $6 on an AOP
+    hoodie to Australia/NZ, every Canada order, every hoodie/sweatshirt/jacket order).
+    Product weight class (`"light"` t-shirts/shorts vs. `"heavy"` hoodies/sweatshirts/
+    jackets/joggers) is known automatically server-side since the product being bought is
+    already known at session-creation time — no guessing there. Destination region isn't
+    known that early though: true per-address dynamic shipping requires switching hosted
+    Checkout to Stripe's embedded (Elements) Checkout, which also disables Apple Pay/Google
+    Pay entirely (confirmed via Stripe's docs) — decided against that trade. Instead, Stripe's
+    `shipping_options` offers one correctly-priced choice per region (US/Canada/UK/Europe/
+    Australia-NZ) in the same session, and the customer picks whichever matches their own
+    address — Stripe doesn't cross-check the selected option against the address they
+    actually type, so an honest customer picking the wrong region is a known, accepted gap,
+    not a bug. The 3 non-clothing starter products (tote bag, crossbody bag, pillow) aren't
+    covered by Printful's clothing rate tables and are approximated as `"light"` pending a
+    real look-up. `SHIPPING_FLAT_CENTS` still works as an emergency override to a single
+    flat rate (or 0 to disable shipping entirely), same instant-toggle pattern as the
+    markup, no redeploy needed — leave it unset to use the new table. Stripe Tax via
+    `automatic_tax` (kill switch:
     `STRIPE_AUTOMATIC_TAX=false`), `tax_behavior: "exclusive"` on both the item and the
     shipping rate. **Requires one-time Stripe dashboard activation (Settings → Tax) or
     session creation errors** — see TODO.md. The pending order row's totals are estimates;

@@ -4,6 +4,7 @@ import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import ShirtIcon from '../components/buttons/ShirtIcon';
 import HeartIcon from '../components/buttons/HeartIcon';
 import {
@@ -33,6 +34,7 @@ export default function GalleryPage() {
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const load = useCallback(async which => {
     setLoading(true);
@@ -99,9 +101,14 @@ export default function GalleryPage() {
     return () => observer.disconnect();
   }, [tab, hasMore, loadingMore, designs.length]);
 
-  const onDelete = async (e, design) => {
+  const onDelete = (e, design) => {
     e.stopPropagation();
-    if (!window.confirm('Delete this design? This can’t be undone.')) return;
+    setPendingDelete(design);
+  };
+
+  const confirmDelete = async () => {
+    const design = pendingDelete;
+    setPendingDelete(null);
     try {
       await deleteDesign(design.id);
       setDesigns(d => d.filter(x => x.id !== design.id));
@@ -166,7 +173,7 @@ export default function GalleryPage() {
   };
 
   const tabClass = active =>
-    'cursor-pointer font-quicksand text-sm pb-2 border-b-2 transition ' +
+    'cursor-pointer font-quicksand text-sm pb-2 border-b-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
     (active ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text');
 
   return (
@@ -285,6 +292,15 @@ export default function GalleryPage() {
           {loadingMore && <p className="text-sm text-text-muted">Loading more…</p>}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete this design?"
+        message="This can’t be undone."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </PageContainer>
   );
 }

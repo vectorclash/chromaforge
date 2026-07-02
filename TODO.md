@@ -19,14 +19,24 @@ tracks what's true now, not history.
       CDTFA.** Once that arrives: Stripe → Tax → Registrations → Add registration →
       California → "I've already registered" → enter the permit number. That's the last
       step before this item is actually done.
-- [ ] **Enable receipt emails** in Stripe (Settings → Customer emails). Test mode never sends
-      them, so this can't be verified until live mode.
-- [ ] **Set the real Instagram URL** in `src/components/ui/SiteFooter.jsx` (currently a bare
-      `https://instagram.com` placeholder) — or drop the icon.
-- [ ] **Tune `SHIPPING_FLAT_CENTS`** if $5.99 flat isn't right (defaults to 599; compare
-      against Printful's actual rates for the starter products, especially international).
-- [ ] Confirm `ORDER_ALERT_*` secrets are set on stripe-webhook (alert failures are silent
-      by design — check the function logs after any test).
+- [x] **Enable receipt emails** in Stripe (Settings → Business → Customer emails →
+      "Successful payments" toggle) — done 2026-07-02. Still can't be verified end-to-end
+      until live mode, since test mode never actually sends them.
+- [x] **Instagram icon removed** from `SiteFooter.jsx` (2026-07-02, Aaron's call — not
+      interested in being on Meta platforms). If a YouTube channel happens later, adding
+      its icon/link back is a small, isolated change whenever there's a real URL to point
+      at — don't add a placeholder speculatively before that exists.
+- [ ] **Deploy the reworked shipping calc** (see "Code" section below for what changed) and
+      run a live test purchase, trying a couple of different regions in the shipping-option
+      picker, to confirm the right rate is charged and the totals look right. Deploy with:
+      `npx supabase functions deploy create-checkout-session`.
+- [x] **Confirm `ORDER_ALERT_*` secrets are set** — all 5 present (`ORDER_ALERT_EMAIL_TO`,
+      `ORDER_ALERT_SMTP_HOST`, `ORDER_ALERT_SMTP_PASSWORD`, `ORDER_ALERT_SMTP_PORT`,
+      `ORDER_ALERT_SMTP_USER`), confirmed 2026-07-02 via `npx supabase secrets list`. Names
+      being set doesn't guarantee the values are correct (e.g. a typo'd password) — that
+      still needs a real send to confirm, which the live test-purchase step above will
+      cover (check `stripe-webhook`'s logs afterward for a clean send vs. the "alert not
+      sent" error).
 
 ## Go-live sequence (in order, last step flips the switch)
 
@@ -44,6 +54,21 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
+- [x] **Weight-class + region shipping** (2026-07-02) — replaces the single
+      `SHIPPING_FLAT_CENTS` flat rate. New `supabase/functions/_shared/shipping.ts`: product
+      weight class (light t-shirts/shorts vs. heavy hoodies/sweatshirts/jackets/joggers) is
+      known automatically from the product being bought, so that part isn't a guess. Region
+      isn't known until checkout though — true dynamic per-address shipping needs Stripe's
+      embedded (Elements) Checkout instead of hosted Checkout, which also kills Apple
+      Pay/Google Pay, so instead `create-checkout-session` now offers 5 region-labeled
+      `shipping_options` (US/Canada/UK/Europe/Australia-NZ) in the same session and the
+      customer picks whichever matches their address — Stripe doesn't cross-check the pick
+      against the typed address, a known accepted gap. Rates are Printful's real AOP costs
+      (verified against Printful's live rate tables, 2026-07-02) plus a ~$1.50 margin
+      buffer. `SHIPPING_FLAT_CENTS` still works as an emergency override/kill switch. Not
+      yet deployed or live-tested — see the "Blocking launch" item above. The 3 non-clothing
+      products (tote bag, crossbody bag, pillow) are approximated as "light" pending a real
+      Printful bag/home-goods rate lookup (noted in `shipping.ts`'s header comment).
 - [x] **Password reset flow** — "Forgot password?" on AccountPage (signed-out, sign-in mode
       only) → `requestPasswordReset` (`src/lib/auth.js`) → branded email
       (`supabase/templates/recovery.html`, wired in `config.toml`) → AuthContext detects
@@ -76,14 +101,44 @@ tracks what's true now, not history.
       is gone. Verified live (Playwright): every route (`/`, `/shop`, `/gallery`,
       `/account`, `/terms`, `/privacy`, `/studio`, an unknown path) loads with the correct
       title and zero console errors, both cold and on repeat visits.
-- [ ] **Toast/confirm system on design tokens**: replace `window.confirm` for design delete
-      and the raw-color (`bg-neutral-900`/`bg-red-900`) AuthContext notice banner with shared
-      Toast + ConfirmDialog components; reuse for save/checkout feedback.
-- [ ] **Shared focus-visible ring** (`--color-interactive`) for the ad-hoc Tailwind buttons
-      (variant picker, gallery tabs, thumbnail strips) — `cf-btn-*` already has one.
-      Verify visually against live styles before landing (project convention).
-- [ ] **GSAP reduced-motion in the studio**: the new `prefers-reduced-motion` CSS only
-      covers CSS-driven motion; DisplayCanvas's GSAP morphs need `gsap.matchMedia()`.
+- [x] **Toast/confirm system on design tokens** (2026-07-02) — new
+      `src/components/ui/Toast.jsx` (presentational; error uses the same `accent` token
+      AccountPage/ShopPage/ProductPage already use for errors, not the old raw
+      `bg-red-900`/`bg-neutral-900` pairing) + `src/hooks/useToastNotice.js` (the
+      auto-dismiss timing, extracted so future save/checkout call sites can reuse it without
+      re-deriving the timer). `AuthContext` now uses both instead of owning the markup
+      itself. New `src/components/ui/ConfirmDialog.jsx` (a real modal — `SolidPanel` +
+      backdrop, Escape-to-cancel) replaces `window.confirm` for design delete in
+      `GalleryPage.jsx`. Verified live: the error toast renders in the accent treatment with
+      no console errors (via a real `error_description` hash), and `ConfirmDialog` opens
+      (screenshotted), closes on Escape, with no console errors — the actual authenticated
+      delete click-through wasn't driven end-to-end (no test-account credentials available
+      in this session), so give the real "My Designs → Delete" flow one manual pass when
+      convenient.
+- [x] **Shared focus-visible ring** (2026-07-02) — added
+      `focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+      focus-visible:outline-interactive` (compiles to the same `outline: 2px solid
+      var(--color-interactive); outline-offset: 2px;` `cf-btn-*` already had) to
+      `ProductPage.jsx`'s artwork-picker thumbnails, mockup filmstrip thumbnails, and
+      size/color variant picker, plus `GalleryPage.jsx`'s Public/My Designs tabs. Repeated
+      as a literal utility string at each site rather than a new shared class/component --
+      only 4 call sites, consistent with Tailwind's own utility-repetition idiom. Verified
+      live: confirmed the cyan ring renders correctly on the gallery tab, the artwork
+      thumbnail (not clipped by its own `overflow-hidden`, since CSS outlines paint outside
+      the box regardless), and the size-variant button.
+- [x] **GSAP reduced-motion** (2026-07-02) — `App.jsx` now registers `gsap.matchMedia()`
+      for `(prefers-reduced-motion: reduce)` once at the app root, scaling
+      `gsap.globalTimeline.timeScale()` to 100 rather than editing each individual
+      `gsap.to()`/`from()`/`fromTo()` call's duration across DisplayCanvas's panel morphs,
+      ShopCarousel's loop, and ProductPage's TextPlugin scramble — keeps every
+      `onComplete`-driven sequencing those already rely on intact, same "still fires
+      completion, just ~instant" approach the CSS side already takes (0.01ms, not 0).
+      Deliberately registered at the app root, not inside `DisplayCanvas` itself —
+      `DisplayCanvas` unmounts on most route changes (only `/` and `/studio` render it),
+      but the user's OS-level preference doesn't change with the route, so this needs to
+      outlive any single component's mount/unmount. Verified live: `gsap.globalTimeline
+      .timeScale()` reads `1` normally and `100` with reduced-motion emulated, confirmed
+      across `/`, `/studio`, and `/shop` with zero console errors.
 
 ## Code — worth doing, lower urgency
 
@@ -106,9 +161,11 @@ tracks what's true now, not history.
 
 - **No auto-refund on Printful failure after payment** — deliberate human-judgment gap;
   alert email + 'Needs attention' status is the design.
-- **Flat-rate shipping** (not per-address quotes) — hosted Checkout collects the address
-  after session creation, so exact quoting isn't possible anyway. Revisit only if margins
-  say so.
+- **True per-address dynamic shipping** (Stripe calculating the exact rate off the address
+  the customer types) — would require switching hosted Checkout to Stripe's embedded
+  (Elements) Checkout, which also disables Apple Pay/Google Pay entirely. Decided against
+  that trade (2026-07-02); weight-class + customer-selected region (see "Code" above) is
+  the compromise instead.
 - **Supabase's other auth email templates (Invite user, Magic Link, Change Email Address,
   Reauthentication) are intentionally left unbranded** — nothing in the app currently
   triggers them (no invite flow, no magic-link sign-in, no email-change UI, and
