@@ -30,8 +30,38 @@ export const BUSY_STATUSES = ['rendering', 'creating', 'polling'];
 // different print file), so all of them correctly share one cache entry -- but the pillow's
 // sizes resolve to genuinely different printfile ids (18x18 vs 22x22 vs 20x12 are different
 // print areas), so they correctly miss the cache and regenerate. Module-level so it survives
-// switching choices and even navigating to a different product and back, for the tab's life.
+// switching choices and even navigating to a different product and back -- and mirrored to
+// localStorage so it also survives reloads/dev restarts, since each cache miss costs a
+// 30-90s Printful round trip. The TTL stays well inside the ~72h lifetime of Printful's
+// mockup image URLs, so a restored entry's images are still fetchable; persistence is
+// best-effort (quota errors / unavailable storage just mean a per-tab cache, as before).
 const mockupCache = new Map();
+const CACHE_STORAGE_KEY = 'cf-mockup-cache';
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+try {
+  const stored = JSON.parse(localStorage.getItem(CACHE_STORAGE_KEY) || '{}');
+  const now = Date.now();
+  for (const [key, entry] of Object.entries(stored)) {
+    if (now - entry.t <= CACHE_TTL_MS) mockupCache.set(key, entry.images);
+  }
+} catch {
+  /* corrupt or unavailable storage -- start with an empty cache */
+}
+
+function persistMockup(key, images) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(CACHE_STORAGE_KEY) || '{}');
+    const now = Date.now();
+    for (const k of Object.keys(stored)) {
+      if (now - stored[k].t > CACHE_TTL_MS) delete stored[k];
+    }
+    stored[key] = { t: now, images };
+    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    /* best-effort -- the in-memory cache above still has it */
+  }
+}
 
 // failure_reasons is an array of { type, detail, source, valid_values } objects, not
 // strings -- joining it directly (as this used to) renders as "[object Object]".
@@ -165,6 +195,7 @@ export function useMockup() {
           (a, b) => cfg.mockupStyleIds.indexOf(a.style_id) - cfg.mockupStyleIds.indexOf(b.style_id)
         );
         mockupCache.set(key, unique);
+        persistMockup(key, unique);
         setImages(unique);
         setStatus('completed');
       } catch (err) {

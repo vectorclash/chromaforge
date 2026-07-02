@@ -3,7 +3,7 @@
 -- uploadMockupSourceImage() (src/lib/printful.js) renders the design off-canvas and uploads
 -- it here so Printful's mockup-generator worker can fetch it by URL -- it needs a stable,
 -- directly-fetchable address (confirmed live that redirect-based hosts leave the render task
--- stuck pending forever). Object path is `${user_id}/mockup-${timestamp}-${label}.jpg`, same
+-- stuck pending forever). Object path is `${user_id}/mockup-${contenthash}-${label}.jpg`, same
 -- folder-keyed-by-owner approach as design-thumbnails (0002), so RLS can check ownership
 -- from the path alone.
 --

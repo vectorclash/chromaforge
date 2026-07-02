@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabase';
+import { cachedFetch } from './catalogCache';
 
 // Catalog browsing only -- goes through the printful-catalog Edge Function so the
 // Printful private API key (which can create real orders) never reaches the browser.
@@ -30,20 +31,41 @@ export const STARTER_PRODUCT_IDS = [
   83, // All-Over Print Basic Pillow
 ];
 
+// All three catalog fetchers below cache through lib/catalogCache.js (localStorage + TTL +
+// in-flight dedupe) -- the catalog is near-static and re-fetching it on every page mount
+// was the dominant source of Supabase egress (see that file's header).
+
 export async function listCatalogProducts({ categoryId = null } = {}) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const path = categoryId ? `printful-catalog?category_id=${categoryId}` : 'printful-catalog';
-  const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
-  if (error) throw error;
-  return data.result;
+  return cachedFetch(path, async () => {
+    const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
+    if (error) throw error;
+    return data.result;
+  });
 }
+
+// Cached with a shorter TTL than the other catalog calls: this response also carries the
+// storeEnabled kill switch, and a cache hit delays the Buy Now button reacting to a flag
+// flip by up to the TTL. Acceptable -- create-checkout-session independently rejects with
+// a 503 when the store is off (defense in depth, see CLAUDE.md), so a stale button can't
+// actually start a checkout.
+const PRODUCT_TTL_MS = 10 * 60 * 1000;
 
 export async function getCatalogProduct(productId) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.functions.invoke(`printful-catalog?id=${productId}`, {
-    method: 'GET'
-  });
-  if (error) throw error;
+  const data = await cachedFetch(
+    `printful-catalog?id=${productId}`,
+    async () => {
+      const { data, error } = await supabase.functions.invoke(
+        `printful-catalog?id=${productId}`,
+        { method: 'GET' }
+      );
+      if (error) throw error;
+      return data;
+    },
+    PRODUCT_TTL_MS
+  );
   return {
     ...data.result,
     variants: sortVariantsBySize(data.result.variants),
@@ -86,12 +108,12 @@ function sortVariantsBySize(variants) {
 // front/back and its sleeves -- needed before generating any real print file.
 export async function getPrintfileSpecs(productId) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.functions.invoke(
-    `printful-catalog?id=${productId}&printfiles=1`,
-    { method: 'GET' }
-  );
-  if (error) throw error;
-  return data.result;
+  const path = `printful-catalog?id=${productId}&printfiles=1`;
+  return cachedFetch(path, async () => {
+    const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
+    if (error) throw error;
+    return data.result;
+  });
 }
 
 const MOCKUP_BUCKET = 'design-mockups';
@@ -291,7 +313,15 @@ export async function uploadMockupSourceImage(blob, label) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error('You must be signed in to generate a mockup.');
 
-  const path = `${user.id}/mockup-${Date.now()}-${label}.jpg`;
+  // Content-hashed path (was `mockup-${Date.now()}-...`) so re-rendering the same design at
+  // the same size upserts over the existing object instead of accumulating a new file per
+  // run -- the renderer is deterministic, so identical inputs produce identical bytes. The
+  // bucket's owner UPDATE policy (migration 0003) is what lets the upsert path work.
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  const hash = [...new Uint8Array(digest).slice(0, 8)]
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  const path = `${user.id}/mockup-${hash}-${label}.jpg`;
   const { error } = await supabase.storage
     .from(MOCKUP_BUCKET)
     .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
