@@ -54,6 +54,16 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
+- [x] **Fixed a real Supabase egress bug** (2026-07-02) — `designs` rows were up to 2.3MB
+      each (a resolved `starFieldConfig` can be 5MB+), driving 93.6% of daily egress via
+      `select('*')` on every gallery/homepage load. Root cause: `MiniGenerator.jsx`'s Save
+      button skipped the compaction step DisplayCanvas's own Save button already did.
+      Fixed by centralizing compaction inside `StudioContext.saveCurrentDesign` (new shared
+      `src/render/compactDesign.js`) so no future save path can reintroduce this. **Existing
+      bloated rows backfilled directly in the database** — `designs` table: ~7MB+ → ~5.2KB
+      across 46 image rows (1 animation row was already fine). See `CLAUDE.md`'s Gallery
+      section for the full writeup. Verified live: gallery renders identically, a
+      backfilled design still regenerates correctly from just its seed/colors.
 - [x] **Weight-class + region shipping** (2026-07-02) — replaces the single
       `SHIPPING_FLAT_CENTS` flat rate. New `supabase/functions/_shared/shipping.ts`: product
       weight class (light t-shirts/shorts vs. heavy hoodies/sweatshirts/jackets/joggers) is

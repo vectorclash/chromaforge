@@ -9,6 +9,7 @@ import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
 import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
+import { toCompactDesign } from '../render/compactDesign';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -577,20 +578,6 @@ export default class DisplayCanvas extends React.Component {
     // Keeping it for potential future use
   }
 
-  // Strips a fully-resolved generateArtwork() config down to the part that's actually
-  // worth persisting -- { generatorVersion, seed, colors }. Everything else (starFieldConfig,
-  // geometryConfig, etc.) is deterministically derived from those three and regenerated fresh
-  // on load via buildConfig/generateArtwork, the same pattern already used for `initialDesign`
-  // continuity. This matters in practice, not just in principle: GenerateStarField bakes a
-  // fully-resolved star list (up to ~100k {x,y,size} objects) into starFieldConfig, which made
-  // a single image ~400KB and a 20-frame animation ~5.5MB -- well past localStorage's quota,
-  // which is what generateShareUrl falls back to once a URL gets too long. Saving the compact
-  // form instead keeps every design a few hundred bytes, matching generateArtwork.js's own
-  // documented contract ("the stored design is just { generatorVersion, seed, colors }").
-  toCompactConfig(config) {
-    return { generatorVersion: config.generatorVersion, seed: config.seed, colors: config.colors };
-  }
-
   onSaveButtonClick(e) {
     const { isSaving, isSaved, animationMode } = this.state;
 
@@ -599,8 +586,8 @@ export default class DisplayCanvas extends React.Component {
       // went through the generation below, so this.shareUrl can still be unset here.
       if (!this.shareUrl) {
         const loadedData = animationMode
-          ? { animation: true, frames: this.animationConfigs.map(c => this.toCompactConfig(c)) }
-          : this.toCompactConfig(this.mainConfig);
+          ? { animation: true, frames: this.animationConfigs.map(toCompactDesign) }
+          : toCompactDesign(this.mainConfig);
         this.shareUrl = generateShareUrl(loadedData);
       }
       this.openSavePanel();
@@ -609,8 +596,8 @@ export default class DisplayCanvas extends React.Component {
 
     const kind = animationMode ? 'animation' : 'image';
     const data = animationMode
-      ? { animation: true, frames: this.animationConfigs.map(c => this.toCompactConfig(c)) }
-      : this.toCompactConfig(this.mainConfig);
+      ? { animation: true, frames: this.animationConfigs.map(toCompactDesign) }
+      : toCompactDesign(this.mainConfig);
     const ready = animationMode
       ? this.animationConfigs && this.animationConfigs.length > 0
       : !!this.mainConfig;

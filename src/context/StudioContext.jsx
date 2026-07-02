@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
+import { toCompactDesign } from '../render/compactDesign';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -117,10 +118,21 @@ export function StudioProvider({ children }) {
   const saveCurrentDesign = useCallback(
     async (kind, data) => {
       if (!user) throw new Error('Sign in to save designs.');
-      const row = await saveDesign({ kind, data, title: FileName(), isPublic: true });
+      // Compact here -- not left to each caller -- so a future save path can't repeat a
+      // real bug this fixed: the mini-generator widget's Save button passed the raw,
+      // uncompacted generateArtwork() output straight through (no compaction at all),
+      // which let some rows balloon to multi-megabyte jsonb (a resolved starFieldConfig
+      // alone can be several MB) and was the dominant driver of this project's Supabase
+      // egress. toCompactDesign is idempotent, so this is a no-op for callers (DisplayCanvas's
+      // own Save button) that already compact before calling this.
+      const compactData =
+        data.animation && data.frames
+          ? { animation: true, frames: data.frames.map(toCompactDesign) }
+          : toCompactDesign(data);
+      const row = await saveDesign({ kind, data: compactData, title: FileName(), isPublic: true });
       if (kind === 'image') setSavedDesign(data);
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
-      const source = data.animation && data.frames ? data.frames[0] : data;
+      const source = compactData.animation && compactData.frames ? compactData.frames[0] : compactData;
       if (source?.seed !== undefined) {
         renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE)
           .then(blob => uploadDesignThumbnail(row.id, blob))

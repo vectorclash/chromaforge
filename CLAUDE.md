@@ -192,6 +192,24 @@ from print rendering above (video vs. still images) — don't conflate the two.
   designs saved before this existed. My Designs has a per-row Delete (wired to the
   existing `deleteDesign`); the Public tab pages 20 at a time via `listPublicDesigns`'s
   `before` cursor with a "Load More" button.
+- **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
+  egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
+  `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every
+  `listPublicDesigns`/`listMyDesigns`/`listTopLikedDesigns` call does `select('*')`. Root
+  cause: `MiniGenerator.jsx`'s Save button called `saveCurrentDesign('image', currentDesign)`
+  with the **raw, uncompacted** `generateArtwork()` output — unlike DisplayCanvas's own Save
+  button, which already compacted via a (now-removed) private `toCompactConfig` method
+  first. Fixed by centralizing compaction inside `StudioContext.saveCurrentDesign` itself
+  (new shared `src/render/compactDesign.js`, used by both `StudioContext` and
+  `DisplayCanvas`) so it's applied regardless of what shape any caller passes —
+  `toCompactDesign` is idempotent, so already-compact callers are unaffected. **Existing
+  bloated rows were backfilled directly in the database** (all `kind = 'image'` rows
+  recompacted to `{ generatorVersion, seed, colors }` — same seed/colors regenerates the
+  identical artwork, so nothing changed visually): total `designs` table size went from
+  ~7MB+ to ~5.2KB across 46 image rows + 1 animation row (animations were never affected --
+  they only ever save through DisplayCanvas's already-correct path). Verified live: the
+  gallery renders identically post-backfill, and opening a backfilled design into the
+  studio regenerates the same artwork from just its seed/colors.
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable
