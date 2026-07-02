@@ -6,6 +6,7 @@ import HeartIcon from '../buttons/HeartIcon';
 import { listTopLikedDesigns, listMyLikedIds, toggleLike, getThumbnailUrl } from '../../lib/designs';
 import { generateShareUrl } from '../../utils/urlConfig';
 import { useAuth } from '../../context/AuthContext';
+import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 
 // Homepage preview of the gallery -- the 8 most-liked public designs. Solid surface (no
 // live art behind the grid as a whole; the artworks themselves are the content). Thumbnails
@@ -14,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 export default function GallerySection() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const ref = useScrollTriggerReveal();
   const [designs, setDesigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -89,7 +91,7 @@ export default function GallerySection() {
 
   if (!loading && (error || designs.length === 0)) {
     return (
-      <section id="gallery" className="bg-ink-200">
+      <section id="gallery" ref={ref} className="bg-ink-200">
         <div className="mx-auto max-w-5xl px-6 py-24 text-center">
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
             Community favorites
@@ -112,7 +114,7 @@ export default function GallerySection() {
   }
 
   return (
-    <section id="gallery" className="bg-ink-200">
+    <section id="gallery" ref={ref} className="bg-ink-200">
       <div className="mx-auto max-w-5xl px-6 py-24">
         <div className="mb-10 flex items-end justify-between gap-4">
           <div>

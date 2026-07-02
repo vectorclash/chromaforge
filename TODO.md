@@ -226,15 +226,24 @@ tracks what's true now, not history.
       generated-art preview (same `previewUrl` the ambient `MiniGenerator` widget uses)
       above the message, plus a "Go create one" link on the My Designs tab. Verified live
       via a temporary forced-empty override (real data never naturally empties either tab).
-- [x] **Homepage scroll-reveal audit** (2026-07-02) — traced the actual gap: the card grids'
-      existing `animate-fade-slide-up` isn't a real scroll trigger at all, it just happens
-      to coincide with `GallerySection`'s async data fetch resolving, which may or may not
-      still be pending by the time a user scrolls that far. `AboutSection` had nothing at
-      all. Added a small reusable `useScrollReveal` hook (`IntersectionObserver`, fires
-      once, starts already-revealed under `prefers-reduced-motion`) and applied it to
-      `AboutSection`. Didn't touch `GallerySection`/`ShopCarousel`'s existing mechanism --
-      out of scope for this pass, not literally broken. Verified live: hidden before
-      scrolling into view, revealed after, zero console errors.
+- [x] **Homepage scroll-reveal, upgraded to real GSAP ScrollTrigger** (2026-07-02) —
+      Aaron's ask: every homepage section below the hero should enter as it scrolls into
+      frame and *reverse* if you scroll back up past it. The initial audit pass added a
+      one-shot `IntersectionObserver`-based `useScrollReveal` (fires once, never reverses)
+      to `AboutSection` only; superseded same day by `useScrollTriggerReveal` (GSAP
+      ScrollTrigger, bundled free as of GSAP 3.13+, already installed at 3.15) applied to
+      `AboutSection`, `GallerySection` (both its empty and populated render branches), and
+      `ShopCarousel`. `toggleActions: 'play none none reverse'` -- play once scrolling
+      down into it, leave it alone scrolling further down past it, reverse only when
+      scrolling back up past where it started. **Real gotcha caught before testing**:
+      `html`/`body` are `overflow: hidden` site-wide (the studio needs a locked full-bleed
+      canvas), so the homepage scrolls its own div, not the window -- ScrollTrigger
+      defaults to the window and would've simply never fired without explicitly passing
+      `scroller: el.closest('.overflow-y-auto')`, the same pattern `GalleryPage`'s own
+      `IntersectionObserver` already uses to find its real scroll ancestor. Verified live
+      by scrolling the actual container programmatically and sampling computed opacity:
+      hidden before scroll, `1` after scrolling a section into view, back to `0` after
+      scrolling all the way back to the top -- confirmed the reverse, not just the enter.
 - [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
       the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
 - [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,

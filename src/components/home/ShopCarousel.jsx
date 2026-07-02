@@ -5,6 +5,7 @@ import Card from '../ui/Card';
 import FadeImage from '../ui/FadeImage';
 import ArrowIcon from '../buttons/ArrowIcon';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../../lib/printful';
+import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 
 const VISIBLE_COUNT = 3; // full-opacity "active" cards
 const GAP_PX = 20; // matches gap-5
@@ -37,6 +38,7 @@ export default function ShopCarousel() {
   const [error, setError] = useState(null);
   const [cardWidth, setCardWidth] = useState(0);
 
+  const revealRef = useScrollTriggerReveal();
   const stageRef = useRef(null);
   const trackRef = useRef(null);
   const positionRef = useRef(0);
@@ -177,7 +179,7 @@ export default function ShopCarousel() {
   const peekWidth = PEEK_FRACTION * cardWidth;
 
   return (
-    <section id="shop" className="mx-auto max-w-5xl px-6 py-24">
+    <section id="shop" ref={revealRef} className="mx-auto max-w-5xl px-6 py-24">
       <div className="mb-10 flex items-end justify-between gap-4">
         <div>
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
