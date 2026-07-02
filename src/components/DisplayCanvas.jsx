@@ -424,7 +424,12 @@ export default class DisplayCanvas extends React.Component {
       // Pulse the confirmation in once React has actually rendered it -- same
       // "delayedCall after setState" pattern used elsewhere in this file for exactly this
       // (querying a class name immediately after setState can run before the DOM update
-      // it targets exists, since setState doesn't re-render synchronously).
+      // it targets exists, since setState doesn't re-render synchronously). The element
+      // itself has a static opacity-0 class in the JSX below so it's already invisible
+      // the instant React mounts it -- without that, this 50ms delay meant the confirmation
+      // was fully visible first, then this fromTo yanked it to invisible before animating
+      // back in (a real, visible flash/flicker, confirmed by sampling computed opacity
+      // frame-by-frame).
       gsap.delayedCall(0.05, () => {
         gsap.fromTo(
           '.gallery-saved-alert',
@@ -1306,7 +1311,11 @@ export default class DisplayCanvas extends React.Component {
     // silent no-op, so "Copied to clipboard" was just popping in with no animation at all.
     // Also needed the same "wait a tick for React to render" delayedCall already used
     // elsewhere in this file -- querying a class immediately after setState can run before
-    // the DOM update it targets actually exists.
+    // the DOM update it targets actually exists. The span itself has a static opacity-0
+    // class below so it's already invisible from React's very first render of it --
+    // without that, this 50ms gap meant the text was fully visible first, then this
+    // fromTo snapped it to invisible before animating back in (confirmed by sampling
+    // computed opacity frame-by-frame: opacity:1 for ~40ms, then a hard cut to 0).
     gsap.delayedCall(0.05, () => {
       gsap.fromTo('.alert', { alpha: 0, y: 10 }, { alpha: 1, y: 0, duration: DURATION_BASE, ease: 'bounce.out' });
     });
@@ -1699,7 +1708,7 @@ export default class DisplayCanvas extends React.Component {
               {user ? (
                 <>
                   {galleryStatus === 'saved' ? (
-                    <div className="gallery-saved-alert">
+                    <div className="gallery-saved-alert opacity-0">
                       <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
                         <span className="text-[#a6e000]">✓ </span>Saved to your gallery
                       </h6>
@@ -1768,7 +1777,7 @@ export default class DisplayCanvas extends React.Component {
                 {this.shareUrl}
               </div>
               {linkCopied && (
-                <span className="alert mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000]">
+                <span className="alert mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000] opacity-0">
                   ✓ Copied to clipboard
                 </span>
               )}

@@ -74,6 +74,20 @@ tracks what's true now, not history.
       state changes (Playwright) with the animation actually visible in the DOM and zero
       console errors; `ConfirmDialog` checked via a temporary forced-open override (no
       test-account credentials available to drive it via a real delete).
+      **Follow-up fix, same day**: Aaron caught a real regression in the first pass --
+      the two GSAP-based animations (copy-link, gallery-saved) were popping in fully
+      visible, then snapping to hidden, then animating in. Root cause: `gsap.delayedCall(
+      0.05, ...)` deliberately waits for React to render before querying the DOM, but
+      nothing hid the element *during* that 50ms gap, so it rendered at its natural
+      (fully visible) opacity first, and only then did the GSAP `fromTo` yank it back to
+      invisible before tweening up. Confirmed frame-by-frame by sampling computed opacity
+      every `requestAnimationFrame`: opacity 1 for ~40ms, then a hard cut to 0 at the
+      moment `fromTo` fired. Fixed with a static `opacity-0` class on both elements in the
+      JSX, so they're already invisible from React's very first render, before GSAP ever
+      touches them. The CSS-token-based ones (`Toast`/`ConfirmDialog`/`AccountPage`/
+      `ProductPage`, all using `animation-fill-mode: both` present in the className from
+      first render, no JS delay involved) were checked the same way and don't have this
+      problem -- confirmed via the same frame-sampling technique, not assumed.
 - [x] **Fixed a real Supabase egress bug** (2026-07-02) — `designs` rows were up to 2.3MB
       each (a resolved `starFieldConfig` can be 5MB+), driving 93.6% of daily egress via
       `select('*')` on every gallery/homepage load. Root cause: `MiniGenerator.jsx`'s Save
