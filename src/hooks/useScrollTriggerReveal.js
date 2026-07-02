@@ -30,6 +30,16 @@ export function useScrollTriggerReveal(deps = []) {
     const items = el.querySelectorAll('.reveal-item');
     const targets = items.length ? items : el;
 
+    // Some reveal targets (.cf-card, via GallerySection's Card) have their own CSS
+    // `transition: transform ...` for an unrelated hover-lift effect. Since GSAP also
+    // animates `transform` here (the y slide) via inline styles on every frame, the CSS
+    // transition tries to *additionally* ease each of those per-frame updates on top of
+    // GSAP's own easing -- two competing animation systems on the same property, which is
+    // exactly what produced the "starts slow, then suddenly speeds up" motion. Force it off
+    // for the duration of this tween, then hand it back so hover still works normally
+    // afterward.
+    gsap.set(targets, { transition: 'none' });
+
     const tween = gsap.fromTo(
       targets,
       { opacity: 0, y: 36 },
@@ -39,6 +49,8 @@ export function useScrollTriggerReveal(deps = []) {
         duration: DURATION_BASE,
         ease: 'power2.out',
         stagger: 0.12,
+        onComplete: () => gsap.set(targets, { clearProps: 'transition' }),
+        onReverseComplete: () => gsap.set(targets, { clearProps: 'transition' }),
         scrollTrigger: {
           trigger: el,
           // html/body are overflow:hidden site-wide (the studio needs a locked full-bleed
