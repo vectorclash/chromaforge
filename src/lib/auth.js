@@ -63,6 +63,31 @@ export async function signInWithGoogle() {
   if (error) throw error;
 }
 
+// Sends a password-reset email with a recovery link. Supabase doesn't reveal whether the
+// email actually belongs to an account (same anti-enumeration principle as signUp's
+// identities check above) -- there's no signal to branch on here, so the caller always
+// shows a generic "check your email" message regardless of whether anything was sent.
+//
+// redirectTo is the bare origin (not a specific path) so it reuses the same Supabase
+// dashboard redirect allow-list entries already set up for signUpWithEmail/signInWithGoogle
+// -- AuthContext detects `type=recovery` in the returned hash and routes to /account itself,
+// so no extra allow-list entry is needed.
+export async function requestPasswordReset(email) {
+  const { error } = await client().auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin
+  });
+  if (error) throw error;
+}
+
+// Sets a new password for the currently-authenticated session. Only meaningful right after
+// a recovery-link session lands (see AuthContext's recoveryMode) -- Supabase's recovery
+// link itself signs the user in, so this is just a normal authenticated update, not a
+// separate token exchange.
+export async function updatePassword(newPassword) {
+  const { error } = await client().auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
 export async function signOut() {
   const { error } = await client().auth.signOut();
   if (error) throw error;

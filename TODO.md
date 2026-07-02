@@ -36,12 +36,39 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
-- [ ] **Password reset flow** (top priority of these): "Forgot password?" on AccountPage →
-      `supabase.auth.resetPasswordForEmail` + a set-new-password screen on the redirect
-      back. Reuse the branded email template style for the recovery email (paste into the
-      Dashboard's Auth → Email Templates, same as confirmation — CLI doesn't push these).
-- [ ] **Route-level code splitting**: `React.lazy` the pages (especially the studio /
-      DisplayCanvas out of the store routes) — single 713 KB chunk today.
+- [x] **Password reset flow** — "Forgot password?" on AccountPage (signed-out, sign-in mode
+      only) → `requestPasswordReset` (`src/lib/auth.js`) → branded email
+      (`supabase/templates/recovery.html`, wired in `config.toml`) → AuthContext detects
+      `type=recovery` in the returned hash and routes straight to `/account` (needed
+      `AuthProvider` moved inside `BrowserRouter` in `App.jsx` so it can call `useNavigate`)
+      → AccountPage's `recoveryMode` branch shows a set-new-password form →
+      `updatePassword`. Verified locally: build clean, the forgot-password request/response
+      round-tripped against the real Supabase project, and the recovery-hash routing was
+      exercised headlessly (Playwright) with no console errors. **Not yet verified with a
+      real emailed link** — that needs an actual "Forgot password?" click against a real
+      inbox. Also caught and fixed a real pre-existing bug this surfaced: `setImage()` in
+      `DisplayCanvas.jsx` had an unguarded `document.querySelector('.image-container')` in
+      a `gsap.delayedCall(1, ...)` with no unmount cancellation — harmless before since
+      nothing navigated away from a freshly-mounted homepage that fast, but the recovery
+      redirect does exactly that every time. Now null-guarded like the neighboring
+      `#controls-main` lookup already was.
+      **Still needs, before this is real for users:** paste
+      `supabase/templates/recovery.html` into the Dashboard's Auth → Email Templates →
+      "Reset password" (hosted projects don't get templates from the CLI, same caveat as
+      "Confirm signup"); this is on `feature/account-gallery-ui`, not merged yet.
+- [x] **Route-level code splitting**: `ShopPage`/`ProductPage`/`GalleryPage`/`AccountPage`/
+      `CheckoutSuccessPage`/`TermsPage`/`PrivacyPage`/`NotFoundPage` are now `React.lazy` in
+      `App.jsx`, with the `Suspense` boundary scoped to `SiteLayout`'s `<Outlet />` (not the
+      whole layout, so header/footer/mini-generator never flash away between routes).
+      `HomePage`/`StudioPage` deliberately stay eager — `Hero.jsx` statically imports
+      `StudioPage` (the homepage hero *is* the compact studio), so lazy-splitting `/studio`
+      itself would just duplicate the DisplayCanvas/GSAP/createjs code into a second chunk
+      rather than removing it from either. Real, measured result: main chunk
+      718 KB → 397 KB (gzip 217 KB → 129 KB); Supabase's SDK (201 KB) and each page now
+      split into their own on-demand chunks; the "chunks larger than 500 KB" build warning
+      is gone. Verified live (Playwright): every route (`/`, `/shop`, `/gallery`,
+      `/account`, `/terms`, `/privacy`, `/studio`, an unknown path) loads with the correct
+      title and zero console errors, both cold and on repeat visits.
 - [ ] **Toast/confirm system on design tokens**: replace `window.confirm` for design delete
       and the raw-color (`bg-neutral-900`/`bg-red-900`) AuthContext notice banner with shared
       Toast + ConfirmDialog components; reuse for save/checkout feedback.
@@ -75,5 +102,9 @@ tracks what's true now, not history.
 - **Flat-rate shipping** (not per-address quotes) — hosted Checkout collects the address
   after session creation, so exact quoting isn't possible anyway. Revisit only if margins
   say so.
-- **three.js is installed but unused** — reserved for an upcoming feature; it costs nothing
-  at runtime (never imported, so never bundled). Don't "clean it up."
+- **Supabase's other auth email templates (Invite user, Magic Link, Change Email Address,
+  Reauthentication) are intentionally left unbranded** — nothing in the app currently
+  triggers them (no invite flow, no magic-link sign-in, no email-change UI, and
+  `secure_password_change = false` means no reauth prompt either). Invite user is a
+  plausible future feature (inviting someone to view/collaborate?) — revisit branding it
+  if that gets built, not before.

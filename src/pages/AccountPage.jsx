@@ -5,7 +5,14 @@ import GoogleIcon from '../components/buttons/GoogleIcon';
 import FadeImage from '../components/ui/FadeImage';
 import { Field, Input } from '../components/ui/Field';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { signInWithEmail, signUpWithEmail, signInWithGoogle, signOut } from '../lib/auth';
+import {
+  signInWithEmail,
+  signUpWithEmail,
+  signInWithGoogle,
+  signOut,
+  requestPasswordReset,
+  updatePassword
+} from '../lib/auth';
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../lib/profiles';
 import { getMyDesignStats } from '../lib/designs';
 import { listMyOrders } from '../lib/checkout';
@@ -31,14 +38,20 @@ const ORDER_STATUS_DISPLAY = {
 export default function AccountPage() {
   // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
   // is immediately reflected in SiteHeader's tiny avatar too, without a second fetch.
-  const { user, avatarUrl, setAvatarUrl } = useAuth();
+  const { user, avatarUrl, setAvatarUrl, recoveryMode, clearRecoveryMode, showNotice } = useAuth();
   usePageTitle(user ? 'Account' : 'Sign in');
-  const [mode, setMode] = useState('signin'); // signin | signup
+  const [mode, setMode] = useState('signin'); // signin | signup | forgot
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+
+  // Set-new-password form (recoveryMode branch only, but hooks stay unconditional).
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState(null);
 
   // Profile form (signed-in branch only, but hooks stay unconditional).
   const [username, setUsername] = useState('');
@@ -118,6 +131,65 @@ export default function AccountPage() {
     return (
       <PageContainer title="Account" subtitle="Accounts are not configured in this environment.">
         <p className="text-text-secondary">Set Supabase credentials to enable sign-in.</p>
+      </PageContainer>
+    );
+  }
+
+  // A landed recovery link signs the user in (see AuthContext's recoveryMode) -- show the
+  // set-new-password form instead of the normal profile view until it's done, regardless
+  // of whether they had a session already.
+  if (user && recoveryMode) {
+    const onSetNewPassword = async e => {
+      e.preventDefault();
+      setResetError(null);
+      if (newPassword !== confirmPassword) {
+        setResetError('Passwords do not match.');
+        return;
+      }
+      setResetBusy(true);
+      try {
+        await updatePassword(newPassword);
+        showNotice({ type: 'success', message: 'Password updated.' });
+        clearRecoveryMode();
+      } catch (err) {
+        setResetError(err.message);
+      } finally {
+        setResetBusy(false);
+      }
+    };
+
+    return (
+      <PageContainer title="Set a new password" subtitle={`Signed in as ${user.email}`}>
+        <form onSubmit={onSetNewPassword} className="max-w-sm space-y-4">
+          <Field label="New password" htmlFor="new-password">
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+          </Field>
+          <Field label="Confirm new password" htmlFor="confirm-password">
+            <Input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+          </Field>
+          {resetError && <p className="text-sm text-accent">{resetError}</p>}
+          <Button type="submit" className="w-full" disabled={resetBusy} aria-busy={resetBusy}>
+            {resetBusy ? 'Saving…' : 'Save new password'}
+          </Button>
+        </form>
       </PageContainer>
     );
   }
@@ -278,10 +350,35 @@ export default function AccountPage() {
     }
   };
 
+  // Supabase doesn't reveal whether the email actually has an account (see
+  // requestPasswordReset), so the message here is deliberately non-committal either way.
+  const onForgotPassword = async e => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await requestPasswordReset(email);
+      setMessage('If an account exists for that email, a reset link is on its way.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const switchMode = next => {
+    setMode(next);
+    setError(null);
+    setMessage(null);
+  };
+
   return (
     <PageContainer
-      title={mode === 'signup' ? 'Create account' : 'Sign in'}
-      subtitle="Save your designs and order prints."
+      title={mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Reset password' : 'Sign in'}
+      subtitle={
+        mode === 'forgot' ? "We'll email you a link to choose a new password." : 'Save your designs and order prints.'
+      }
     >
       {/* Prominent, hard-to-miss confirmation/error banner -- placed above the form so
           submitting never looks like it did nothing, even on a fast local response. */}
@@ -299,58 +396,95 @@ export default function AccountPage() {
         </div>
       )}
 
-      <form onSubmit={onSubmit} className="max-w-sm space-y-4">
-        <Field label="Email" htmlFor="email">
-          <Input
-            id="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-          />
-        </Field>
-        <Field label="Password" htmlFor="password">
-          <Input
-            id="password"
-            type="password"
-            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-          />
-        </Field>
+      {mode === 'forgot' ? (
+        <form onSubmit={onForgotPassword} className="max-w-sm space-y-4">
+          <Field label="Email" htmlFor="email">
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </Field>
+          <Button type="submit" className="w-full" disabled={busy} aria-busy={busy}>
+            {busy ? 'Sending…' : 'Send reset link'}
+          </Button>
+        </form>
+      ) : (
+        <form onSubmit={onSubmit} className="max-w-sm space-y-4">
+          <Field label="Email" htmlFor="email">
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </Field>
+          <Field label="Password" htmlFor="password">
+            <Input
+              id="password"
+              type="password"
+              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+            />
+          </Field>
+          {mode === 'signin' && (
+            <p className="text-right">
+              <button
+                type="button"
+                className="cursor-pointer text-sm text-accent underline"
+                onClick={() => switchMode('forgot')}
+              >
+                Forgot password?
+              </button>
+            </p>
+          )}
 
-        <Button type="submit" className="w-full" disabled={busy} aria-busy={busy}>
-          {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full flex items-center justify-center gap-2"
-          onClick={signInWithGoogle}
-          disabled={busy}
-        >
-          <GoogleIcon size={18} />
-          Continue with Google
-        </Button>
-      </form>
+          <Button type="submit" className="w-full" disabled={busy} aria-busy={busy}>
+            {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full flex items-center justify-center gap-2"
+            onClick={signInWithGoogle}
+            disabled={busy}
+          >
+            <GoogleIcon size={18} />
+            Continue with Google
+          </Button>
+        </form>
+      )}
 
       <p className="mt-6 text-sm text-text-secondary">
-        {mode === 'signup' ? 'Already have an account?' : 'New here?'}{' '}
-        <button
-          type="button"
-          className="cursor-pointer text-accent underline"
-          onClick={() => {
-            setMode(mode === 'signup' ? 'signin' : 'signup');
-            setError(null);
-            setMessage(null);
-          }}
-        >
-          {mode === 'signup' ? 'Sign in' : 'Create one'}
-        </button>
+        {mode === 'forgot' ? (
+          <>
+            Remembered it?{' '}
+            <button type="button" className="cursor-pointer text-accent underline" onClick={() => switchMode('signin')}>
+              Back to sign in
+            </button>
+          </>
+        ) : (
+          <>
+            {mode === 'signup' ? 'Already have an account?' : 'New here?'}{' '}
+            <button
+              type="button"
+              className="cursor-pointer text-accent underline"
+              onClick={() => switchMode(mode === 'signup' ? 'signin' : 'signup')}
+            >
+              {mode === 'signup' ? 'Sign in' : 'Create one'}
+            </button>
+          </>
+        )}
       </p>
     </PageContainer>
   );

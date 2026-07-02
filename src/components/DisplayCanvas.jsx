@@ -453,6 +453,11 @@ export default class DisplayCanvas extends React.Component {
     imageLoader.addEventListener('load', () => {
       gsap.delayedCall(1, () => {
         let imageContainer = document.querySelector('.image-container');
+        // This delayed call isn't cancelled on unmount, so it can still fire after the
+        // route has changed away from whatever page mounted this DisplayCanvas (e.g. a
+        // password-recovery link redirecting straight to /account) -- guard the same way
+        // '#controls-main' already is a few lines below.
+        if (!imageContainer) return;
         imageContainer.style.backgroundImage = 'url(' + url + ')';
 
         // Animate backdrop-filter from 0 alongside the image fade. Because GSAP updates

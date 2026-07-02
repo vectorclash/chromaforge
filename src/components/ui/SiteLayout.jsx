@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { Suspense, useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
 import MiniGenerator from './MiniGenerator';
+import PageContainer from './PageContainer';
 
 // Dark site chrome for the store/account/gallery routes -- the same ink base as the studio,
 // using solid surfaces rather than glass (see SolidPanel). Because html/body are
@@ -25,7 +26,12 @@ export default function SiteLayout() {
       {/* Keyed on the path so navigation replays the enter animation (and remounts the
           page, which is what a route change does anyway for distinct routes). */}
       <main key={pathname} className="animate-page-enter mx-auto w-full max-w-6xl flex-1 px-6 py-24">
-        <Outlet />
+        {/* Every route rendered here is React.lazy (see App.jsx) -- this Suspense boundary
+            is what shows while its chunk downloads. Scoped to just <Outlet />, not the
+            whole layout, so the header/footer/mini-generator never flash away mid-navigation. */}
+        <Suspense fallback={<PageContainer title="Loading…" />}>
+          <Outlet />
+        </Suspense>
       </main>
       <SiteFooter />
       {/* Rendered once here (not per-page) so the ambient generator widget is present across

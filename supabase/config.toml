@@ -261,6 +261,12 @@ sender_name = "ChromaForge"
 subject = "Confirm your email address"
 content_path = "./supabase/templates/confirmation.html"
 
+# Same hosted-project caveat as the confirmation template above -- this HTML must also be
+# pasted into the Dashboard's Authentication -> Email Templates -> "Reset password".
+[auth.email.template.recovery]
+subject = "Reset your password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
