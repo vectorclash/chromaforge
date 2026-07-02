@@ -383,7 +383,7 @@ export default function AccountPage() {
       {/* Prominent, hard-to-miss confirmation/error banner -- placed above the form so
           submitting never looks like it did nothing, even on a fast local response. */}
       {message && (
-        <div className="mb-6 max-w-sm rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
+        <div className="mb-6 max-w-sm animate-pop-in rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
           <p className="text-sm font-bold text-text">
             <span className="text-accent">✓ </span>
             {message}
@@ -391,7 +391,7 @@ export default function AccountPage() {
         </div>
       )}
       {error && (
-        <div className="mb-6 max-w-sm rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
+        <div className="mb-6 max-w-sm animate-pop-in rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
           <p className="text-sm font-bold text-accent">{error}</p>
         </div>
       )}

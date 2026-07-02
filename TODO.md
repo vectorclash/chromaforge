@@ -54,6 +54,26 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
+- [x] **Snappy entrance animations for "new content just appears" moments** (2026-07-02) —
+      Aaron's ask, plus a real bug found while doing it: `DisplayCanvas.jsx`'s "Copied to
+      clipboard" indicator already had a `gsap.fromTo('.alert', ...)` call meant to animate
+      it in, but no element in the JSX actually had `className="alert"` (drifted at some
+      point) -- animating a selector with zero matches is a silent no-op, so it was just
+      popping in with no animation at all, and the share-link box was visibly resizing to
+      fit it with no transition ("the box gets bigger" per Aaron's report). Fixed the class
+      + a real render-timing race (`gsap.fromTo` querying the DOM immediately after
+      `setState`, before React had actually rendered the new element -- same
+      `gsap.delayedCall(0.05, ...)` pattern already used elsewhere in this file for exactly
+      this). Added the matching treatment to the "✓ Saved to your gallery" confirmation,
+      which had no entrance at all before. Extended the same "snappy, fun" language
+      site-wide: new `--animate-toast-in`/`--animate-fade-in` tokens (`@theme`, same
+      overshoot bezier as the existing `--animate-pop-in`, on the fast 200ms tier) for
+      `Toast` and `ConfirmDialog`'s backdrop+panel; reused the existing `--animate-pop-in`
+      for `AccountPage`'s message/error banners and `ProductPage`'s mockup-failed state.
+      Verified live: the copy-link and account-banner flows round-tripped against real
+      state changes (Playwright) with the animation actually visible in the DOM and zero
+      console errors; `ConfirmDialog` checked via a temporary forced-open override (no
+      test-account credentials available to drive it via a real delete).
 - [x] **Fixed a real Supabase egress bug** (2026-07-02) — `designs` rows were up to 2.3MB
       each (a resolved `starFieldConfig` can be 5MB+), driving 93.6% of daily egress via
       `select('*')` on every gallery/homepage load. Root cause: `MiniGenerator.jsx`'s Save

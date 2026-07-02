@@ -29,11 +29,11 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/60 px-6 backdrop-blur-sm"
       onClick={onCancel}
     >
       <SolidPanel
-        className="w-full max-w-sm p-6"
+        className="w-full max-w-sm animate-pop-in p-6"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"

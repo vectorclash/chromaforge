@@ -415,7 +415,7 @@ export default function ProductPage() {
                     <p className="font-mono text-[11px] text-text-muted">{elapsedSeconds}s elapsed</p>
                   </div>
                 ) : status === 'failed' ? (
-                  <div className="flex flex-col items-center gap-3 text-center">
+                  <div className="flex animate-pop-in flex-col items-center gap-3 text-center">
                     <p className="max-w-xs text-sm text-accent">{mockupError}</p>
                     <Button onClick={onGenerateClick} disabled={!selectedDesign}>
                       Try again

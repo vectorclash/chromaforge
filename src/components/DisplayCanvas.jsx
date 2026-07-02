@@ -421,6 +421,17 @@ export default class DisplayCanvas extends React.Component {
     try {
       await this.props.saveCurrentDesign(kind, data);
       this.setState({ galleryStatus: 'saved' });
+      // Pulse the confirmation in once React has actually rendered it -- same
+      // "delayedCall after setState" pattern used elsewhere in this file for exactly this
+      // (querying a class name immediately after setState can run before the DOM update
+      // it targets exists, since setState doesn't re-render synchronously).
+      gsap.delayedCall(0.05, () => {
+        gsap.fromTo(
+          '.gallery-saved-alert',
+          { opacity: 0, y: 8, scale: 0.96 },
+          { duration: DURATION_BASE, opacity: 1, y: 0, scale: 1, ease: 'back.out(1.7)' }
+        );
+      });
     } catch (err) {
       this.setState({ galleryStatus: null, galleryError: err.message });
     }
@@ -1290,7 +1301,15 @@ export default class DisplayCanvas extends React.Component {
 
   onCopySuccess() {
     this.setState({ linkCopied: true, linkCopyFailed: false });
-    gsap.fromTo('.alert', { alpha: 0, y: 10 }, { alpha: 1, y: 0, duration: DURATION_BASE, ease: 'bounce.out' });
+    // This was already here, but with no matching .alert element in the JSX below (a
+    // rename drifted at some point) -- gsap.fromTo on a selector with zero matches is a
+    // silent no-op, so "Copied to clipboard" was just popping in with no animation at all.
+    // Also needed the same "wait a tick for React to render" delayedCall already used
+    // elsewhere in this file -- querying a class immediately after setState can run before
+    // the DOM update it targets actually exists.
+    gsap.delayedCall(0.05, () => {
+      gsap.fromTo('.alert', { alpha: 0, y: 10 }, { alpha: 1, y: 0, duration: DURATION_BASE, ease: 'bounce.out' });
+    });
   }
 
   // Neither copy mechanism can succeed without browser/OS cooperation (e.g. the document
@@ -1679,20 +1698,21 @@ export default class DisplayCanvas extends React.Component {
             <div className="mb-6">
               {user ? (
                 <>
-                  <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
-                    {galleryStatus === 'saving' && 'Saving…'}
-                    {galleryStatus === 'saved' && (
-                      <>
+                  {galleryStatus === 'saved' ? (
+                    <div className="gallery-saved-alert">
+                      <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
                         <span className="text-[#a6e000]">✓ </span>Saved to your gallery
-                      </>
-                    )}
-                    {galleryError && 'Save failed'}
-                    {!galleryStatus && !galleryError && 'Saved to your gallery'}
-                  </h6>
-                  {galleryStatus === 'saved' && (
-                    <p className="mt-2 text-sm leading-snug text-white/60">
-                      Your design is in your gallery — view it any time or put it on a product.
-                    </p>
+                      </h6>
+                      <p className="mt-2 text-sm leading-snug text-white/60">
+                        Your design is in your gallery — view it any time or put it on a product.
+                      </p>
+                    </div>
+                  ) : (
+                    <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
+                      {galleryStatus === 'saving' && 'Saving…'}
+                      {galleryError && 'Save failed'}
+                      {!galleryStatus && !galleryError && 'Saved to your gallery'}
+                    </h6>
                   )}
                   {galleryError && <p className="mt-2 text-sm text-red-300">{galleryError}</p>}
                 </>
@@ -1748,7 +1768,7 @@ export default class DisplayCanvas extends React.Component {
                 {this.shareUrl}
               </div>
               {linkCopied && (
-                <span className="mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000]">
+                <span className="alert mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000]">
                   ✓ Copied to clipboard
                 </span>
               )}

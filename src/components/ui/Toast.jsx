@@ -12,7 +12,7 @@ export default function Toast({ notice }) {
     <div
       role="status"
       className={
-        'fixed left-1/2 top-5 z-50 -translate-x-1/2 rounded-xl border px-5 py-3 text-center font-quicksand text-sm shadow-lg backdrop-blur-md ' +
+        'fixed left-1/2 top-5 z-50 animate-toast-in rounded-xl border px-5 py-3 text-center font-quicksand text-sm shadow-lg backdrop-blur-md ' +
         (notice.type === 'error'
           ? 'border-accent/30 bg-accent/10 font-bold text-accent'
           : 'border-hairline bg-ink-800/90 text-text')

@@ -82,6 +82,18 @@
      transform makes <main> the containing block for any position:fixed descendant a page
      might ever add, silently pinning it to the page instead of the viewport. */
   --animate-page-enter: page-enter 0.25s ease-out backwards;
+
+  /* Toast (AuthContext notices, ...) -- snappy on purpose, same "fun" overshoot bezier as
+     pop-in above but on the fast tier: a status banner should feel immediate, not like it's
+     settling in for a while. `both` (not `backwards`) so the centering transform (baked
+     into the keyframe itself, replacing a separate -translate-x-1/2 utility) holds once the
+     animation ends -- there's no competing hover transform on this element to be out-ranked. */
+  --animate-toast-in: toast-in var(--duration-fast) cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+  /* Modal backdrops (ConfirmDialog, ...) -- a plain fade, no overshoot. The panel itself
+     gets the "fun" pop-in treatment (--animate-pop-in above); a full-screen dim layer
+     bouncing would just look like a rendering glitch. */
+  --animate-fade-in: fade-in var(--duration-fast) ease-out both;
 }
 
 @keyframes fade-slide-up {
@@ -118,6 +130,29 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    /* translateX(-50%) is the centering transform Toast used to apply via a separate
+       -translate-x-1/2 utility -- baked in here since the keyframe now owns transform
+       for the whole animation. */
+    transform: translateX(-50%) translateY(-10px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
   }
 }
 
