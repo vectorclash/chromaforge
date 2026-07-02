@@ -69,10 +69,11 @@ tracks what's true now, not history.
       fixed with a mirrored `supabase/functions/_shared/compactDesign.ts` (Edge Functions
       can't share the frontend module directly, different runtime) and backfilled (191KB →
       77 bytes). Storage buckets checked and look legitimate, not bloated. Two
-      lower-priority, real-but-not-urgent findings from Supabase's own performance advisor,
-      not yet acted on: RLS policies re-evaluating `auth.<function>()` per-row on several
-      tables, and an unindexed FK on `likes.design_id` — worth fixing eventually, nowhere
-      near the severity of the design-data bug.
+      lower-priority findings from Supabase's own performance advisor — RLS policies
+      re-evaluating `auth.<function>()` per-row on several tables, and an unindexed FK on
+      `likes.design_id` — also fixed same session:
+      `supabase/migrations/0007_rls_performance_fixes.sql`. Advisor re-run after applying:
+      zero performance warnings left.
 - [x] **Weight-class + region shipping** (2026-07-02) — replaces the single
       `SHIPPING_FLAT_CENTS` flat rate. New `supabase/functions/_shared/shipping.ts`: product
       weight class (light t-shirts/shorts vs. heavy hoodies/sweatshirts/jackets/joggers) is

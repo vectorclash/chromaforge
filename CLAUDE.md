@@ -222,10 +222,17 @@ from print rendering above (video vs. still images) — don't conflate the two.
   same fix, applied on both sides) applied right before the `order_items` insert. Backfilled
   the one bloated row the same way (191KB → 77 bytes). The audit also checked Storage
   (`design-mockups`/`design-thumbnails`/`avatars` sizes all look like legitimate real images,
-  not bloat) and Supabase's own performance advisor (RLS policies re-evaluating
-  `auth.<function>()` per-row on `profiles`/`designs`/`likes`/`orders`/`order_items`, and an
-  unindexed FK on `likes.design_id` — real, but standard scale-related suggestions, not
-  remotely the same severity as the two design-data findings above; not yet acted on).
+  not bloat) and Supabase's own performance advisor, which flagged RLS policies
+  re-evaluating `auth.<function>()` per-row on `profiles`/`designs`/`likes`/`orders`/
+  `order_items`, and an unindexed FK on `likes.design_id` — real, but standard scale-related
+  suggestions, nowhere near the severity of the two design-data findings above. Both fixed
+  same session: `supabase/migrations/0007_rls_performance_fixes.sql` wraps every
+  `auth.uid()` call in `(select auth.uid())` (lets Postgres's planner evaluate it once via
+  an InitPlan instead of once per row — Supabase's own documented fix, no behavior change)
+  and adds `likes_design_id_idx`. Re-ran the advisor after applying: zero performance
+  warnings left. Verified live: the public gallery (which exercises the rewritten
+  `designs`/`profiles` policies) still renders all 22 cards correctly with zero console
+  errors.
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable
