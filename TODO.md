@@ -298,6 +298,24 @@ tracks what's true now, not history.
       visibility throughout the same continuous scroll (confirmed `ScrollTrigger.getAll()
       .length === 3`, one per section, ruling out React StrictMode's double-effect-invoke
       leaving duplicate/conflicting triggers as a cause).
+      **Final rework, same day: the architecture itself was wrong for a grid.** Aaron
+      caught it precisely: "the animations are at near completion as soon as the sections
+      are visible." Root cause -- the hook used one `ScrollTrigger` on the *section*, with
+      GSAP's `stagger` giving each `.reveal-item` a fixed time/index-based delay from when
+      the section's top started entering. That has no relationship to where any individual
+      card actually sits on the page: for a multi-row grid (Gallery), cards several rows
+      down could finish their stagger slot before they'd even scrolled into view, so by the
+      time you could actually see a row, it already looked done. Rebuilt so every
+      `.reveal-item` gets its **own independent** `ScrollTrigger`, keyed to its own position
+      (`start: 'top bottom'` / `end: 'top center'`, scrubbed) -- items in the same row
+      naturally end up triggering together since they sit at the same height, giving the
+      same top-to-bottom cascade without an artificial delay, and each item is now
+      *guaranteed* to still be mid-reveal as it actually enters the viewport, regardless of
+      section height or row count. Verified live (real continuous `mouse.wheel()` scroll):
+      sampled every gallery item's own opacity against its own visible fraction -- e.g. the
+      second row of cards was still at 0.89 opacity while already 96% visible, not finished
+      before it could be seen. Re-confirmed the transform-smoothness fix and Shop's
+      visibility-tracking both still hold with the new per-item structure.
 - [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
       the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
 - [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,
