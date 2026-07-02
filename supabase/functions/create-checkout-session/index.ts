@@ -21,6 +21,7 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { applyMarkup } from "../_shared/pricing.ts";
 import { isStoreEnabled } from "../_shared/storeStatus.ts";
+import { buildShippingOptions, estimateShippingCents } from "../_shared/shipping.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
@@ -125,17 +126,14 @@ Deno.serve(async req => {
   const unitPriceCents = applyMarkup(Math.round(parseFloat(variant.price) * 100));
   const totalCents = unitPriceCents * qty;
 
-  // Flat-rate shipping, charged to the customer at checkout -- without this, customers paid
-  // $0 shipping while Printful billed its real rate to the store owner on every order.
-  // Flat (not quoted per-address) because hosted Checkout collects the address AFTER the
-  // session exists, so an exact quote isn't possible anyway; Printful's rates vary a little
-  // by product/destination and this averages out. Tunable the same way as the markup:
-  //   npx supabase secrets set SHIPPING_FLAT_CENTS=599
-  // Takes effect on the next request. 0 disables the shipping line entirely.
-  const shippingCents = (() => {
-    const parsed = Number(Deno.env.get("SHIPPING_FLAT_CENTS") ?? "599");
-    return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 599;
-  })();
+  // Weight-class + region shipping (see _shared/shipping.ts for the real Printful rates
+  // this is derived from, and why hosted Checkout can't calculate this live off the address
+  // the customer types). Multiple region-labeled options are offered in the same session;
+  // the customer picks whichever matches their own address. SHIPPING_FLAT_CENTS still works
+  // as an emergency override back to a single flat rate (or 0 to disable shipping
+  // entirely), no redeploy needed -- same escape hatch as before.
+  const shippingOptions = buildShippingOptions(productId);
+  const estimatedShippingCents = estimateShippingCents(productId);
 
   // Stripe Tax (automatic_tax) -- requires one-time activation in the Stripe dashboard
   // (Settings -> Tax: origin address + a registration). If a session errors with a tax
@@ -157,11 +155,12 @@ Deno.serve(async req => {
       status: "pending",
       stripe_session_id: crypto.randomUUID(), // placeholder, overwritten below once the real session exists
       currency: "usd",
-      // Estimates: shipping is known here but tax isn't (Stripe computes it at checkout,
-      // after the address is collected). stripe-webhook overwrites both with Stripe's
-      // authoritative amount_subtotal/amount_total once payment completes.
+      // Estimates: shipping is a US-rate estimate here (the customer hasn't picked their
+      // region yet -- see _shared/shipping.ts) and tax isn't known at all (Stripe computes
+      // it at checkout, after the address is collected). stripe-webhook overwrites both
+      // with Stripe's authoritative amount_subtotal/amount_total once payment completes.
       subtotal_cents: totalCents,
-      total_cents: totalCents + shippingCents
+      total_cents: totalCents + estimatedShippingCents
     })
     .select()
     .single();
@@ -205,20 +204,7 @@ Deno.serve(async req => {
         }
       ],
       automatic_tax: { enabled: automaticTax },
-      ...(shippingCents > 0
-        ? {
-            shipping_options: [
-              {
-                shipping_rate_data: {
-                  display_name: "Standard shipping",
-                  type: "fixed_amount",
-                  fixed_amount: { amount: shippingCents, currency: "usd" },
-                  tax_behavior: "exclusive"
-                }
-              }
-            ]
-          }
-        : {}),
+      ...(shippingOptions.length > 0 ? { shipping_options: shippingOptions } : {}),
       shipping_address_collection: { allowed_countries: ALLOWED_SHIPPING_COUNTRIES },
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/shop/${productId}?checkout=canceled`,
