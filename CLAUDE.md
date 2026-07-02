@@ -233,6 +233,21 @@ from print rendering above (video vs. still images) — don't conflate the two.
   warnings left. Verified live: the public gallery (which exercises the rewritten
   `designs`/`profiles` policies) still renders all 22 cards correctly with zero console
   errors.
+- **Real duplicate-save bug found by manual testing (2026-07-02, unrelated to the egress
+  bugs above but touching the same save path)**: save a design from the homepage hero's
+  studio panel, then visit a route with the `MiniGenerator` widget (e.g. the gallery) --
+  it still showed "Save" as available instead of "Saved," and clicking it inserted a
+  duplicate row. Root cause: `StudioContext`'s `isCurrentDesignSaved` was **reference**
+  equality (`savedDesign === currentDesign`). That only ever held for `MiniGenerator`'s own
+  save (it passes `currentDesign` straight through, same object) -- `DisplayCanvas`'s Save
+  button always builds a fresh object via `toCompactDesign(this.mainConfig)`, never `===`
+  to `currentDesign` even though it's the exact same design. Fixed by comparing the actual
+  identity of a design (seed + colors) instead of object identity, via a new `isSameDesign`
+  helper. Verified against real generated data (not a synthetic mock, via a temporary debug
+  hook since driving a full authenticated save wasn't possible in-session): a compacted
+  snapshot of the current design correctly matches itself (`true`), and a stale snapshot
+  from *before* clicking Generate correctly stops matching once a genuinely new design is
+  generated (`false`).
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable

@@ -25,6 +25,17 @@ import s2 from '../assets/images/star-sprite-small.png';
 const PREVIEW_SIZE = 480;
 const THUMBNAIL_SIZE = 320;
 
+// Two designs are "the same" if they'd regenerate identical artwork -- same seed, same
+// palette -- regardless of whether they're literally the same object in memory (a saved
+// design is always a distinct compacted object from whatever full generateArtwork() output
+// produced it). See isCurrentDesignSaved's own comment for why reference equality was wrong.
+function isSameDesign(a, b) {
+  if (!a || !b || a.seed !== b.seed) return false;
+  const ac = a.colors || [];
+  const bc = b.colors || [];
+  return ac.length === bc.length && ac.every((c, i) => c === bc[i]);
+}
+
 const StudioContext = createContext(null);
 
 export function StudioProvider({ children }) {
@@ -150,7 +161,15 @@ export function StudioProvider({ children }) {
     renderDesignBlob,
     generateRandom,
     saveCurrentDesign,
-    isCurrentDesignSaved: savedDesign === currentDesign,
+    // Real bug, found by manual testing: this used to be reference equality
+    // (savedDesign === currentDesign), which only happened to hold for MiniGenerator's own
+    // save (it passes currentDesign straight through, same object). DisplayCanvas's Save
+    // button always builds a fresh compacted object (toCompactDesign(this.mainConfig)),
+    // never === to currentDesign even though it's the exact same design -- so saving from
+    // the homepage hero's studio panel, then visiting a route with MiniGenerator (e.g. the
+    // gallery), showed "Save" as still available and produced a duplicate row. Compare by
+    // the actual identity of a design (seed + colors) instead of by object reference.
+    isCurrentDesignSaved: isSameDesign(savedDesign, currentDesign),
     queueReady,
     printQueueDesign,
     setPrintQueueDesign
