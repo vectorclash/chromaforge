@@ -210,6 +210,22 @@ from print rendering above (video vs. still images) — don't conflate the two.
   they only ever save through DisplayCanvas's already-correct path). Verified live: the
   gallery renders identically post-backfill, and opening a backfilled design into the
   studio regenerates the same artwork from just its seed/colors.
+  **A follow-up full audit (same session) found the identical bug pattern a second time:**
+  `order_items.design_data` (checkout's audit-trail copy of what was ordered) had one row at
+  191KB, because checking out with "Current studio design" selected sends
+  `StudioContext.currentDesign` — always the raw, uncompacted `generateArtwork()` output —
+  straight through to `create-checkout-session`, which inserted it as-is.  `design_data` is
+  write-only (grepped the whole frontend and every other Edge Function -- nothing ever reads
+  it back), so compacting it loses nothing. Fixed with a small mirrored
+  `supabase/functions/_shared/compactDesign.ts` (Edge Functions are a separate Deno runtime
+  from the Vite frontend, so this couldn't literally share `src/render/compactDesign.js` --
+  same fix, applied on both sides) applied right before the `order_items` insert. Backfilled
+  the one bloated row the same way (191KB → 77 bytes). The audit also checked Storage
+  (`design-mockups`/`design-thumbnails`/`avatars` sizes all look like legitimate real images,
+  not bloat) and Supabase's own performance advisor (RLS policies re-evaluating
+  `auth.<function>()` per-row on `profiles`/`designs`/`likes`/`orders`/`order_items`, and an
+  unindexed FK on `likes.design_id` — real, but standard scale-related suggestions, not
+  remotely the same severity as the two design-data findings above; not yet acted on).
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable

@@ -22,6 +22,7 @@ import { createClient } from "@supabase/supabase-js";
 import { applyMarkup } from "../_shared/pricing.ts";
 import { isStoreEnabled } from "../_shared/storeStatus.ts";
 import { buildShippingOptions, estimateShippingCents } from "../_shared/shipping.ts";
+import { toCompactDesign } from "../_shared/compactDesign.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
@@ -176,7 +177,7 @@ Deno.serve(async req => {
     variant_label: variantLabel,
     quantity: qty,
     unit_price_cents: unitPriceCents,
-    design_data: design,
+    design_data: toCompactDesign(design),
     print_file_urls: printFileUrls,
     product_options: productOptions ?? null
   });

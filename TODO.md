@@ -64,6 +64,15 @@ tracks what's true now, not history.
       across 46 image rows (1 animation row was already fine). See `CLAUDE.md`'s Gallery
       section for the full writeup. Verified live: gallery renders identically, a
       backfilled design still regenerates correctly from just its seed/colors.
+      **Full follow-up audit found the same bug a second time**: `order_items.design_data`
+      (checkout's "Current studio design" path, always uncompacted) had one row at 191KB —
+      fixed with a mirrored `supabase/functions/_shared/compactDesign.ts` (Edge Functions
+      can't share the frontend module directly, different runtime) and backfilled (191KB →
+      77 bytes). Storage buckets checked and look legitimate, not bloated. Two
+      lower-priority, real-but-not-urgent findings from Supabase's own performance advisor,
+      not yet acted on: RLS policies re-evaluating `auth.<function>()` per-row on several
+      tables, and an unindexed FK on `likes.design_id` — worth fixing eventually, nowhere
+      near the severity of the design-data bug.
 - [x] **Weight-class + region shipping** (2026-07-02) — replaces the single
       `SHIPPING_FLAT_CENTS` flat rate. New `supabase/functions/_shared/shipping.ts`: product
       weight class (light t-shirts/shorts vs. heavy hoodies/sweatshirts/jackets/joggers) is
