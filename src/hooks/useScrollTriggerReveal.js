@@ -5,20 +5,21 @@ import { DURATION_BASE } from '../utils/motionTokens';
 
 gsap.registerPlugin(ScrollTrigger);
 
-// Fades + slides a homepage section's own '.reveal-item' children in, staggered top to
-// bottom, as the section scrolls into view -- and reverses if the user scrolls back up
-// past where it started. Each section marks whichever of its own elements should cascade
-// in with that class (a shared class rather than e.g. ':scope > *', since the sections
-// don't share a consistent DOM shape -- some have an inner content wrapper, some don't).
-// Falls back to animating the whole container as one block if a section has no
-// '.reveal-item' children marked.
+// Scrub-driven reveal: scroll position directly controls progress through a homepage
+// section's own '.reveal-item' children fading + sliding in, staggered top to bottom.
+// Scrolling down advances the timeline; scrolling back up rewinds it, continuously, in
+// real time -- this is `scrub`, not a discrete "play once, maybe reverse" trigger (that
+// was an earlier, wrong version of this hook -- toggleActions only ever calls play()/
+// reverse() on the tween as a one-shot command at two fixed points, it doesn't tie
+// progress to scroll position the way scrub does).
 //
-// `deps` matters for sections that fetch their real content async (GallerySection,
-// ShopCarousel): this effect runs once on mount by default, which for those sections is
-// *before* the fetch resolves -- at that point the only '.reveal-item' in the DOM is the
-// static header, since the cards are still gated behind a loading state. Pass e.g.
-// `[loading]` so this re-queries the DOM (and rebuilds the ScrollTrigger against the real,
-// now-rendered set of items) once the content that actually needs to stagger exists.
+// Each section marks whichever of its own elements should cascade in with the shared
+// '.reveal-item' class (rather than e.g. ':scope > *', since the sections don't share a
+// consistent DOM shape). Falls back to animating the whole container as one block if a
+// section has no '.reveal-item' children marked.
+//
+// `deps` matters for sections that fetch/measure their real content async
+// (GallerySection, ShopCarousel) -- see each call site's own comment for why.
 export function useScrollTriggerReveal(deps = []) {
   const ref = useRef(null);
 
@@ -32,12 +33,19 @@ export function useScrollTriggerReveal(deps = []) {
 
     // Some reveal targets (.cf-card, via GallerySection's Card) have their own CSS
     // `transition: transform ...` for an unrelated hover-lift effect. Since GSAP also
-    // animates `transform` here (the y slide) via inline styles on every frame, the CSS
-    // transition tries to *additionally* ease each of those per-frame updates on top of
-    // GSAP's own easing -- two competing animation systems on the same property, which is
-    // exactly what produced the "starts slow, then suddenly speeds up" motion. Force it off
-    // for the duration of this tween, then hand it back so hover still works normally
-    // afterward.
+    // animates `transform` here (the y slide) via inline styles on every scrub update,
+    // the CSS transition tries to *additionally* ease each of those updates on top of
+    // GSAP's own scrub-driven values -- two competing animation systems on the same
+    // property, which is what produced the "starts slow, then suddenly speeds up" motion.
+    //
+    // Disabled unconditionally, immediately, rather than waiting for an onEnter callback:
+    // onEnter/onEnterBack only fire on a threshold *crossing*, which a fast/discrete
+    // scroll (or the page loading already past the trigger point) can skip entirely,
+    // leaving the CSS transition active for the whole scrub range with nothing to ever
+    // disable it. Only the *restore* side needs onLeave/onLeaveBack -- that's a smaller
+    // gap (worst case, hover briefly snaps instead of easing) than the reveal motion
+    // itself fighting the CSS transition.
+    const restoreTransition = () => gsap.set(targets, { clearProps: 'transition' });
     gsap.set(targets, { transition: 'none' });
 
     const tween = gsap.fromTo(
@@ -49,8 +57,6 @@ export function useScrollTriggerReveal(deps = []) {
         duration: DURATION_BASE,
         ease: 'power2.out',
         stagger: 0.12,
-        onComplete: () => gsap.set(targets, { clearProps: 'transition' }),
-        onReverseComplete: () => gsap.set(targets, { clearProps: 'transition' }),
         scrollTrigger: {
           trigger: el,
           // html/body are overflow:hidden site-wide (the studio needs a locked full-bleed
@@ -59,16 +65,24 @@ export function useScrollTriggerReveal(deps = []) {
           // Same closest('.overflow-y-auto') pattern GalleryPage's own IntersectionObserver
           // already uses to find its real scroll ancestor for the identical reason.
           scroller: el.closest('.overflow-y-auto') || undefined,
-          // 70%, not 85% -- the section needs to be meaningfully on-screen before it
-          // reveals, not just barely peeking in at the very bottom edge of the viewport.
-          start: 'top 70%',
-          end: 'top 30%',
-          toggleActions: 'play none none reverse'
+          start: 'top 90%',
+          end: 'top 35%',
+          scrub: 0.3,
+          onLeave: restoreTransition,
+          onLeaveBack: restoreTransition
         }
       }
     );
 
+    // Safety net: sections whose real content loads/measures asynchronously (images,
+    // ShopCarousel's cardWidth) can still settle into their final layout slightly after
+    // the deps below re-run this effect, leaving the trigger's cached start/end positions
+    // calculated against a not-quite-final layout. A follow-up refresh a beat later
+    // recalculates against whatever actually ended up on screen.
+    const refreshId = requestAnimationFrame(() => ScrollTrigger.refresh());
+
     return () => {
+      cancelAnimationFrame(refreshId);
       tween.scrollTrigger?.kill();
       tween.kill();
     };

@@ -277,6 +277,27 @@ tracks what's true now, not history.
       position against the section's actual bounding box -- opacity correctly stays `0`
       while genuinely off-screen (confirmed at a position where the section's top was still
       800px below the viewport) and only reaches `1` once meaningfully visible.
+      **Bigger rework, same day: this whole hook was solving the wrong problem.** Aaron's
+      actual ask was that scroll position *scrub* each section's reveal in real time --
+      scroll down to advance the timeline, scroll back up to rewind it continuously -- not
+      a discrete "play once, reverse if you scroll back" trigger (`toggleActions`, what the
+      hook actually did). Rebuilt on GSAP's `scrub` instead, which ties the tween's progress
+      directly to scroll position between `start`/`end`. Also found the real reason the
+      gallery-motion and Shop-visibility fixes above hadn't fully stuck: (a) the CSS
+      `transition: none` override was only applied via `onEnter`/`onEnterBack` callbacks,
+      which only fire on a threshold *crossing* -- a fast/discrete scroll (or the tests
+      that "verified" the earlier fixes, which jumped straight to scroll positions instead
+      of scrolling continuously) can skip that crossing entirely, leaving the CSS
+      transition active with nothing to ever disable it. Now disabled unconditionally,
+      immediately, the moment the tween is created. Verified this round with real
+      continuous `mouse.wheel()` events instead of instant `scrollTo` jumps (closer to how
+      Aaron actually found these): confirmed genuine scrubbing (an intermediate scroll
+      position produces an intermediate opacity, and scrolling back to that exact position
+      returns the same value), the gallery card's Y-offset decreases smoothly with no jump
+      across a full continuous scroll, and Shop's opacity tracks its real on-screen
+      visibility throughout the same continuous scroll (confirmed `ScrollTrigger.getAll()
+      .length === 3`, one per section, ruling out React StrictMode's double-effect-invoke
+      leaving duplicate/conflicting triggers as a cause).
 - [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
       the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
 - [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,
