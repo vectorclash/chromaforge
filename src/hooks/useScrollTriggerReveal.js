@@ -58,7 +58,7 @@ export function useScrollTriggerReveal(deps = []) {
 
       return gsap.fromTo(
         target,
-        { opacity: 0, y: 36 },
+        { opacity: 0, y: 48 },
         {
           opacity: 1,
           y: 0,
@@ -72,13 +72,25 @@ export function useScrollTriggerReveal(deps = []) {
             // IntersectionObserver already uses to find its real scroll ancestor for the
             // identical reason.
             scroller,
-            // Starts the instant this specific item first touches the viewport (0%
-            // visible) and finishes once it's reached the vertical center -- a generous,
-            // clearly-perceptible scroll distance per item, so it's still visibly
-            // revealing as it approaches full view, not finished before you can see it.
-            start: 'top bottom',
-            end: 'top center',
-            scrub: 0.3,
+            // Starts when this specific item first touches the viewport bottom, finishes
+            // once its top reaches the vertical center. clamp() (GSAP 3.12+) adjusts both
+            // for items too close to either end of the page to ever physically reach
+            // those positions -- without it, an item near the page bottom whose top can
+            // never scroll up to viewport-center would freeze permanently half-revealed.
+            start: 'clamp(top bottom)',
+            end: 'clamp(top center)',
+            // 2s catch-up, deliberately -- this number is the whole reason the reveal is
+            // perceptible at all. A real trackpad flick moves the page 500-1500px in a
+            // fraction of a second; with a near-instant scrub (0.3 was tried) the
+            // animation tracks scroll so tightly that one flick carries an item through
+            // its entire range before the eye gets there, so everything looked "already
+            // done" the moment it was visible. With the longer smoothing the tween keeps
+            // easing toward the scroll position after the gesture ends (measured: a card
+            // landing mid-range at opacity ~0.4 visibly finishes over the following
+            // ~500ms of stationary time, longer with real momentum scrolling feeding it)
+            // -- and it's still fully scroll-driven: pausing mid-range holds it partially
+            // revealed, scrolling back rewinds it.
+            scrub: 2,
             onLeave: restoreTransition,
             onLeaveBack: restoreTransition
           }

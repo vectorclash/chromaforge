@@ -316,6 +316,22 @@ tracks what's true now, not history.
       second row of cards was still at 0.89 opacity while already 96% visible, not finished
       before it could be seen. Re-confirmed the transform-smoothness fix and Shop's
       visibility-tracking both still hold with the new per-item structure.
+      **Fifth and hopefully final round, same day -- the test methodology itself was the
+      bug.** Aaron reported reveals still completing the moment things became visible.
+      Every prior verification scrolled unrealistically gently (30px wheel ticks with
+      pauses -- a slow crawl), which is why tests kept passing while real scrolling kept
+      failing: a real trackpad flick moves 500-1500px in a fraction of a second, and with
+      `scrub: 0.3` the animation tracks scroll so tightly that one flick carries an item
+      through its whole trigger range before the eye gets there. Fixed by raising the
+      scrub catch-up to `scrub: 2` (the tween keeps visibly easing toward the scroll
+      position after the gesture ends -- still fully scroll-driven: pausing mid-range
+      holds it, scrolling back rewinds it), bumping the slide distance to 48px, and
+      switching start/end to GSAP's `clamp()` variants so items near the page bottom
+      (which can never physically reach viewport-center) don't freeze half-revealed.
+      Verified with a realistic fast flick this time (~1450px in ~150ms, then sampling
+      while stationary): the first-row card lands at opacity ~0.4 and visibly finishes
+      over the following ~500ms of stationary time (longer on real hardware, where
+      momentum scrolling keeps feeding the scrub), and flicking back up rewinds it to 0.
 - [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
       the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
 - [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,
