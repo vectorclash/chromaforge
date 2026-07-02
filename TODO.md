@@ -244,6 +244,20 @@ tracks what's true now, not history.
       by scrolling the actual container programmatically and sampling computed opacity:
       hidden before scroll, `1` after scrolling a section into view, back to `0` after
       scrolling all the way back to the top -- confirmed the reverse, not just the enter.
+      **Follow-up same day**: Aaron found the first version underwhelming -- each section
+      animated as one flat block, and the `top 85%` trigger fired too early (barely
+      visible). Reworked to stagger each section's own elements top-to-bottom (a shared
+      `.reveal-item` class, since the 3 sections don't share a consistent DOM shape) and
+      moved the trigger to `top 70%`. Caught a second real bug before it shipped: for
+      `GallerySection`/`ShopCarousel`, the hook's `querySelectorAll('.reveal-item')` ran
+      once on mount, which for those two is *before* their async catalog/gallery fetch
+      resolves -- at that point the only `.reveal-item` in the DOM is the static header,
+      completely missing the cards that mount later. Fixed by giving the hook a `deps`
+      array (`useScrollTriggerReveal([loading])`) so it re-queries once the real content
+      exists. Verified live: `.reveal-item` counts came back `about: 4, gallery: 9, shop:
+      2` (header + all 8 cards, not just the header), a mid-scroll screenshot shows the
+      cascade actually in progress (one card in, others still waiting their turn), and the
+      reverse-on-scroll-back-up still works with the new per-item structure.
 - [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
       the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
 - [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,

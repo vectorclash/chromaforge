@@ -15,11 +15,14 @@ import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 export default function GallerySection() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const ref = useScrollTriggerReveal();
   const [designs, setDesigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
+  // The real content this needs to stagger (the cards, or the empty/error message) only
+  // exists once the fetch below resolves -- see useScrollTriggerReveal's own comment on
+  // why `[loading]` has to be passed here.
+  const ref = useScrollTriggerReveal([loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,14 +96,14 @@ export default function GallerySection() {
     return (
       <section id="gallery" ref={ref} className="bg-ink-200">
         <div className="mx-auto max-w-5xl px-6 py-24 text-center">
-          <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
+          <p className="reveal-item font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
             Community favorites
           </p>
-          <h2 className="mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
+          <h2 className="reveal-item mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
           {error ? (
-            <p className="mt-4 text-accent">Couldn't load the gallery right now.</p>
+            <p className="reveal-item mt-4 text-accent">Couldn't load the gallery right now.</p>
           ) : (
-            <p className="mt-4 text-ink-950/70">
+            <p className="reveal-item mt-4 text-ink-950/70">
               No public designs yet -- be the first to{' '}
               <Link to="/studio" state={{ from: '/' }} className="text-accent underline">
                 save one
@@ -116,7 +119,7 @@ export default function GallerySection() {
   return (
     <section id="gallery" ref={ref} className="bg-ink-200">
       <div className="mx-auto max-w-5xl px-6 py-24">
-        <div className="mb-10 flex items-end justify-between gap-4">
+        <div className="reveal-item mb-10 flex items-end justify-between gap-4">
           <div>
             <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
               Community favorites
@@ -132,11 +135,10 @@ export default function GallerySection() {
           <p className="text-ink-950/70">Loading&hellip;</p>
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-            {designs.map((design, i) => (
+            {designs.map(design => (
               <Card
                 key={design.id}
-                className="group cursor-pointer animate-fade-slide-up"
-                style={{ animationDelay: `${i * 50}ms` }}
+                className="reveal-item group cursor-pointer"
                 onClick={() => onOpen(design)}
               >
                 <div className="relative aspect-square overflow-hidden bg-ink-800">

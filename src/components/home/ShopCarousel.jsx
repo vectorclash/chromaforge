@@ -38,7 +38,9 @@ export default function ShopCarousel() {
   const [error, setError] = useState(null);
   const [cardWidth, setCardWidth] = useState(0);
 
-  const revealRef = useScrollTriggerReveal();
+  // The carousel stage only exists once the fetch below resolves -- see
+  // useScrollTriggerReveal's own comment on why `[loading]` has to be passed here.
+  const revealRef = useScrollTriggerReveal([loading]);
   const stageRef = useRef(null);
   const trackRef = useRef(null);
   const positionRef = useRef(0);
@@ -180,7 +182,7 @@ export default function ShopCarousel() {
 
   return (
     <section id="shop" ref={revealRef} className="mx-auto max-w-5xl px-6 py-24">
-      <div className="mb-10 flex items-end justify-between gap-4">
+      <div className="reveal-item mb-10 flex items-end justify-between gap-4">
         <div>
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
             Wear it
@@ -197,7 +199,7 @@ export default function ShopCarousel() {
       ) : error ? (
         <p className="text-accent">Couldn't load the shop right now.</p>
       ) : (
-        <div className="flex items-center gap-4">
+        <div className="reveal-item flex items-center gap-4">
           <button
             type="button"
             onClick={goPrev}
