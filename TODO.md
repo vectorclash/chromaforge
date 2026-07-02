@@ -7,10 +7,18 @@ tracks what's true now, not history.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
-- [ ] **Activate Stripe Tax** in the Stripe dashboard (Settings → Tax: origin address +
-      home-state registration). `create-checkout-session` now sends `automatic_tax: enabled`,
-      so the *next checkout attempt errors* until this is done. Escape hatch while sorting it
+- [ ] **Activate Stripe Tax** in the Stripe dashboard (the dedicated **Tax** product in the
+      sidebar, not Settings → Tax — that page is just default price-level tax behavior and
+      isn't the blocker). `create-checkout-session` now sends `automatic_tax: enabled`, so
+      the *next checkout attempt errors* until this is done. Escape hatch while sorting it
       out: `npx supabase secrets set STRIPE_AUTOMATIC_TAX=false`.
+      **In progress (2026-07-02):** Stripe Tax is a paid add-on (per-transaction fee, not
+      bundled) — worth checking "View plans" pricing if that matters. California seller's
+      permit application submitted to CDTFA (Printful listed as supplier: Printful, Inc.,
+      11025 Westlake Dr, Charlotte, NC 28273) — **pending a permit number back from
+      CDTFA.** Once that arrives: Stripe → Tax → Registrations → Add registration →
+      California → "I've already registered" → enter the permit number. That's the last
+      step before this item is actually done.
 - [ ] **Enable receipt emails** in Stripe (Settings → Customer emails). Test mode never sends
       them, so this can't be verified until live mode.
 - [ ] **Set the real Instagram URL** in `src/components/ui/SiteFooter.jsx` (currently a bare
@@ -52,10 +60,9 @@ tracks what's true now, not history.
       nothing navigated away from a freshly-mounted homepage that fast, but the recovery
       redirect does exactly that every time. Now null-guarded like the neighboring
       `#controls-main` lookup already was.
-      **Still needs, before this is real for users:** paste
-      `supabase/templates/recovery.html` into the Dashboard's Auth → Email Templates →
-      "Reset password" (hosted projects don't get templates from the CLI, same caveat as
-      "Confirm signup"); this is on `feature/account-gallery-ui`, not merged yet.
+      Recovery template pasted into the Dashboard's Auth → Email Templates → "Reset
+      password" (Aaron, done). Still not merged to `master`, so not live on
+      chromaforge.app yet.
 - [x] **Route-level code splitting**: `ShopPage`/`ProductPage`/`GalleryPage`/`AccountPage`/
       `CheckoutSuccessPage`/`TermsPage`/`PrivacyPage`/`NotFoundPage` are now `React.lazy` in
       `App.jsx`, with the `Suspense` boundary scoped to `SiteLayout`'s `<Outlet />` (not the
