@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { gsap, MorphSVGPlugin } from 'gsap/all';
+import { DURATION_SLOW } from '../../utils/motionTokens';
 
 gsap.registerPlugin(MorphSVGPlugin);
 
@@ -19,11 +20,11 @@ export default function PlayPauseButton({ paused }) {
     }
 
     if (paused) {
-      gsap.to('#pp-bar1', { duration: 0.45, morphSVG: '#pp-play1', ease: 'bounce.out' });
-      gsap.to('#pp-bar2', { duration: 0.45, morphSVG: '#pp-play2', ease: 'bounce.out' });
+      gsap.to('#pp-bar1', { duration: DURATION_SLOW, morphSVG: '#pp-play1', ease: 'bounce.out' });
+      gsap.to('#pp-bar2', { duration: DURATION_SLOW, morphSVG: '#pp-play2', ease: 'bounce.out' });
     } else {
-      gsap.to('#pp-bar1', { duration: 0.45, morphSVG: '#pp-pause1', ease: 'bounce.out' });
-      gsap.to('#pp-bar2', { duration: 0.45, morphSVG: '#pp-pause2', ease: 'bounce.out' });
+      gsap.to('#pp-bar1', { duration: DURATION_SLOW, morphSVG: '#pp-pause1', ease: 'bounce.out' });
+      gsap.to('#pp-bar2', { duration: DURATION_SLOW, morphSVG: '#pp-pause2', ease: 'bounce.out' });
     }
   }, [paused]);
 

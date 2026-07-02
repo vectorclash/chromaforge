@@ -49,6 +49,15 @@
   /* hairlines */
   --color-hairline: rgba(255, 255, 255, 0.08);
 
+  /* motion -- three tiers, consolidating what used to be five near-duplicate ad-hoc values
+     (0.2/0.3/0.35/0.45/0.5s) scattered across components and this file's own --animate-*
+     shorthands below. Mirrored in src/utils/motionTokens.js for GSAP's JS-level tweens,
+     which can't read CSS custom properties without a runtime getComputedStyle lookup --
+     not worth the cost for hot animation code, so those are kept in sync by hand. */
+  --duration-fast: 200ms; /* quick UI feedback -- icon morphs, small fades */
+  --duration-base: 350ms; /* standard transitions -- most panel/element animation */
+  --duration-slow: 500ms; /* slower, more deliberate entrances/crossfades */
+
   /* entrance animation -- grid/card reveals (gallery, shop). Paired with an inline
      animation-delay per item for the staggered effect; see @keyframes below.
      `backwards` (not `forwards`/`both`) only holds the first-keyframe state during the
@@ -56,14 +65,14 @@
      matters because .cf-card's hover-lift (components.css) also animates `transform`.
      A held end-state would out-rank that :hover rule in the cascade and silently kill
      the lift effect on every card forever after its entrance played once. */
-  --animate-fade-slide-up: fade-slide-up 0.5s ease-out backwards;
+  --animate-fade-slide-up: fade-slide-up var(--duration-slow) ease-out backwards;
 
   /* Hero mockup swap (ProductPage) -- a quick scale-overshoot "pop" rather than a
      plain fade, so cycling through multiple returned mockup angles reads as a
      deliberate, snappy switch instead of just content replacing itself. `both`
      (not `backwards`) since there's no separate hover transform on the hero image
      to be out-ranked once the animation ends, unlike fade-slide-up's card case above. */
-  --animate-pop-in: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-pop-in: pop-in var(--duration-base) cubic-bezier(0.34, 1.56, 0.64, 1) both;
 
   /* Route-enter transition -- SiteLayout keys <main> on the pathname so every store/
      account/gallery navigation replays this. Short and subtle on purpose: it should read

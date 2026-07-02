@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
+import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
@@ -25,7 +26,7 @@ const PAGE_SIZE = 20;
 export default function GalleryPage() {
   usePageTitle('Gallery');
   const { user } = useAuth();
-  const { setPrintQueueDesign } = useStudio();
+  const { setPrintQueueDesign, previewUrl } = useStudio();
   const navigate = useNavigate();
   const [tab, setTab] = useState('public');
   const [designs, setDesigns] = useState([]);
@@ -201,9 +202,26 @@ export default function GalleryPage() {
         </p>
       )}
       {!loading && !error && designs.length === 0 && (
-        <p className="text-text-secondary">
-          {tab === 'mine' ? 'You haven’t saved any designs yet.' : 'No public designs yet.'}
-        </p>
+        <div className="flex flex-col items-center gap-5 py-12 text-center">
+          {/* The studio's own live preview, not a stock illustration -- an empty gallery
+              should still look like this is a generative art tool, not a blank state from
+              any other app. Same previewUrl the ambient MiniGenerator widget shows. */}
+          {previewUrl && (
+            <img
+              src={previewUrl}
+              alt=""
+              className="h-36 w-36 rounded-2xl border border-hairline object-cover opacity-90"
+            />
+          )}
+          <p className="text-text-secondary">
+            {tab === 'mine' ? 'You haven’t saved any designs yet.' : 'No public designs yet.'}
+          </p>
+          {tab === 'mine' && (
+            <Button as={Link} to="/studio" variant="secondary" size="sm">
+              Go create one
+            </Button>
+          )}
+        </div>
       )}
 
       {!loading && designs.length > 0 && (

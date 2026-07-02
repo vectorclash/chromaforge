@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Static routes only -- /shop/:productId is dynamic (Printful's catalog), /account and
+     /checkout/success are auth-gated/transactional, neither worth a search engine's time. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://chromaforge.app/</loc>
+  </url>
+  <url>
+    <loc>https://chromaforge.app/studio</loc>
+  </url>
+  <url>
+    <loc>https://chromaforge.app/shop</loc>
+  </url>
+  <url>
+    <loc>https://chromaforge.app/gallery</loc>
+  </url>
+  <url>
+    <loc>https://chromaforge.app/terms</loc>
+  </url>
+  <url>
+    <loc>https://chromaforge.app/privacy</loc>
+  </url>
+</urlset>

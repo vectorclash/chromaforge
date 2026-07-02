@@ -10,6 +10,7 @@ import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
+import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -171,7 +172,7 @@ export default class DisplayCanvas extends React.Component {
   init() {
     // Compact mode doesn't render .controls-open (the legacy reopen icon) at all.
     if (!this.props.compact) {
-      gsap.to('.controls-open', { opacity: 1, duration: 0.4, delay: 0.2 });
+      gsap.to('.controls-open', { opacity: 1, duration: DURATION_BASE, delay: 0.2 });
     }
 
     const config = getConfigFromUrl();
@@ -432,7 +433,7 @@ export default class DisplayCanvas extends React.Component {
     });
 
     gsap.to('.image-container', {
-      duration: 0.2,
+      duration: DURATION_FAST,
       alpha: 0,
       ease: 'power2.inOut'
     });
@@ -471,7 +472,7 @@ export default class DisplayCanvas extends React.Component {
           const f = { blur: 0, brightness: 1 };
           gsap.to(f, {
             blur: cssBlur, brightness: cssBrightness,
-            duration: 0.5,
+            duration: DURATION_SLOW,
             ease: 'power2.inOut',
             onUpdate: () => { panel.style.backdropFilter = `blur(${f.blur}px) brightness(${f.brightness})`; },
             onComplete: () => { panel.style.backdropFilter = ''; }
@@ -479,7 +480,7 @@ export default class DisplayCanvas extends React.Component {
         }
 
         gsap.to('.image-container', {
-          duration: 0.5,
+          duration: DURATION_SLOW,
           alpha: 1,
           ease: 'power2.inOut'
         });
@@ -496,7 +497,7 @@ export default class DisplayCanvas extends React.Component {
     gsap.set('#controls-settings .color-container', { opacity: 1 });
     const els = '#controls-settings .settings-field, #controls-settings .row';
     gsap.set(els, { alpha: 0, y: 20 });
-    gsap.to(els, { duration: 0.4, alpha: 1, y: 0, stagger: 0.06, ease: 'back.out(1.7)' });
+    gsap.to(els, { duration: DURATION_BASE, alpha: 1, y: 0, stagger: 0.06, ease: 'back.out(1.7)' });
   }
 
   animateColors() {
@@ -508,7 +509,7 @@ export default class DisplayCanvas extends React.Component {
           alpha: 0
         },
         {
-          duration: 0.2,
+          duration: DURATION_FAST,
           y: 0,
           alpha: 1,
           stagger: 0.02,
@@ -532,7 +533,7 @@ export default class DisplayCanvas extends React.Component {
 
   openSavePanel() {
     gsap.to('#controls-main', {
-      duration: 0.2,
+      duration: DURATION_FAST,
       alpha: 0.5,
       scale: 0.9,
       filter: 'blur(3px)',
@@ -540,7 +541,7 @@ export default class DisplayCanvas extends React.Component {
     });
 
     gsap.from('#controls-save', {
-      duration: 0.2,
+      duration: DURATION_FAST,
       alpha: 0,
       scale: 1.2,
       ease: 'back.out(1.7)'
@@ -922,7 +923,7 @@ export default class DisplayCanvas extends React.Component {
         }
 
         gsap.to('.image-container', {
-          duration: 0.2,
+          duration: DURATION_FAST,
           alpha: 0,
           ease: 'power2.inOut'
         });
@@ -940,7 +941,7 @@ export default class DisplayCanvas extends React.Component {
         this.buildAnimationFrames();
       } else {
         gsap.to('.image-container', {
-          duration: 0.2,
+          duration: DURATION_FAST,
           alpha: 0,
           ease: 'power2.inOut'
         });
@@ -991,7 +992,7 @@ export default class DisplayCanvas extends React.Component {
       } else {
         this.animationConfigs = null;
         this.shareUrl = null;
-        gsap.to('.image-container', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
+        gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
         this.setState({
           animationMode: true,
           animationFrames: [],
@@ -1058,7 +1059,7 @@ export default class DisplayCanvas extends React.Component {
     gsap.delayedCall(0.05, () => {
       gsap.fromTo('.panel-tab.active',
         { opacity: 0.3, scale: 0.94 },
-        { duration: 0.35, opacity: 1, scale: 1, ease: 'back.out(1.7)' }
+        { duration: DURATION_BASE, opacity: 1, scale: 1, ease: 'back.out(1.7)' }
       );
     });
   }
@@ -1084,15 +1085,15 @@ export default class DisplayCanvas extends React.Component {
       if (controlsAreOpen) {
         this.setState({ controlsAreOpen: false });
 
-        gsap.to('#copyright', { duration: 0.3, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
-        gsap.to('.row, .logo, .panel-tabs, .go-to-studio-btn', { duration: 0.2, alpha: 0, ease: 'power2.inOut' });
+        gsap.to('#copyright', { duration: DURATION_BASE, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
+        gsap.to('.row, .logo, .panel-tabs, .go-to-studio-btn', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
 
         const el = document.querySelector('.controls-inner');
         const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(el);
         const panelOut = { blur: cssBlur, brightness: cssBrightness, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4 };
         gsap.to(panelOut, {
           blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0,
-          duration: 0.2,
+          duration: DURATION_FAST,
           ease: 'power2.inOut',
           onUpdate: () => {
             el.style.backdropFilter = `blur(${panelOut.blur}px) brightness(${panelOut.brightness})`;
@@ -1125,7 +1126,7 @@ export default class DisplayCanvas extends React.Component {
         const panelIn = { blur: 0, brightness: 1, bgAlpha: 0, shadow: 0, shadowAlpha: 0, borderOpacity: 0 };
         gsap.to(panelIn, {
           blur: cssBlurIn, brightness: cssBrightnessIn, bgAlpha: 0.15, shadow: 40, shadowAlpha: 0.4, borderOpacity: 0.75,
-          duration: 0.4,
+          duration: DURATION_BASE,
           ease: 'power2.inOut',
           onUpdate: () => {
             elIn.style.backdropFilter = `blur(${panelIn.blur}px) brightness(${panelIn.brightness})`;
@@ -1143,7 +1144,7 @@ export default class DisplayCanvas extends React.Component {
 
         gsap.fromTo('.row, .logo, .panel-tabs, .go-to-studio-btn',
           { alpha: 0, y: 42 },
-          { duration: 0.5, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
+          { duration: DURATION_SLOW, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
         );
       }
     }
@@ -1151,7 +1152,7 @@ export default class DisplayCanvas extends React.Component {
 
   onSettingsButtonClick(e) {
     gsap.to('#controls-main', {
-      duration: 0.2,
+      duration: DURATION_FAST,
       alpha: 0.5,
       scale: 0.9,
       filter: 'blur(3px)',
@@ -1159,7 +1160,7 @@ export default class DisplayCanvas extends React.Component {
     });
 
     gsap.from('#controls-settings', {
-      duration: 0.2,
+      duration: DURATION_FAST,
       alpha: 0,
       scale: 1.2,
       ease: 'back.out(1.7)'
@@ -1170,7 +1171,7 @@ export default class DisplayCanvas extends React.Component {
 
   onSettingsCloseButtonClick(e) {
     gsap.to('#controls-main', {
-      duration: 0.2,
+      duration: DURATION_FAST,
       alpha: 0.9,
       scale: 1,
       filter: 'blur(0px)',
@@ -1289,7 +1290,7 @@ export default class DisplayCanvas extends React.Component {
 
   onCopySuccess() {
     this.setState({ linkCopied: true, linkCopyFailed: false });
-    gsap.fromTo('.alert', { alpha: 0, y: 10 }, { alpha: 1, y: 0, duration: 0.3, ease: 'bounce.out' });
+    gsap.fromTo('.alert', { alpha: 0, y: 10 }, { alpha: 1, y: 0, duration: DURATION_BASE, ease: 'bounce.out' });
   }
 
   // Neither copy mechanism can succeed without browser/OS cooperation (e.g. the document
@@ -1387,7 +1388,7 @@ export default class DisplayCanvas extends React.Component {
         {isLoading ? <HexagonLoader /> : ''}
         {!compact && (
           <div
-            className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
+            className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
             onClick={this.onCloseButtonClick.bind(this)}
           >
             <CloseButton isOpen={controlsAreOpen} />
@@ -1411,7 +1412,7 @@ export default class DisplayCanvas extends React.Component {
         )}
         {animationFrames.length > 0 && (
           <button
-            className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[5em] w-[5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-300 ease-[ease] [-webkit-tap-highlight-color:transparent]"
+            className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[5em] w-[5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
             onClick={e => { e.stopPropagation(); this.setState({ animationPaused: !animationPaused }); }}
             aria-label={animationPaused ? 'Play' : 'Pause'}
           >

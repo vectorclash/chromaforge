@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
+import { DURATION_SLOW } from '../utils/motionTokens';
 
 const SCALE_END        = 1.45;
 const STAR_SCALE_END   = 1.15;
@@ -55,7 +56,7 @@ export default function AnimationPreview({
     const startAnimation = () => {
       if (cancelled || killRef.current) return;
 
-      gsap.fromTo(containerRef.current, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: 'power2.inOut' });
+      gsap.fromTo(containerRef.current, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut' });
 
       gsap.set(imgs, { opacity: 0, scale: 1, transformOrigin: 'center center' });
       gsap.set(imgs[0], { opacity: 1 });

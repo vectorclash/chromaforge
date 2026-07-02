@@ -5,8 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
 import { generateShareUrl } from '../../utils/urlConfig';
-
-const CROSSFADE_MS = 450;
+import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
 function RefreshIcon({ spinning }) {
   return (

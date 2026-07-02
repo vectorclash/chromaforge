@@ -84,8 +84,19 @@ export async function listMyDesigns() {
 }
 
 export async function deleteDesign(id) {
-  const { error } = await client().from('designs').delete().eq('id', id);
+  const sb = client();
+  const user = await currentUser();
+  const { error } = await sb.from('designs').delete().eq('id', id);
   if (error) throw error;
+  // Best-effort: the design row is already gone at this point, so a thumbnail-removal
+  // failure shouldn't surface as a failed delete -- a stray orphaned thumbnail is far
+  // cheaper than telling the user their delete didn't work. Path matches
+  // uploadDesignThumbnail's own scheme; a design with no thumbnail (pre-dates the
+  // thumbnail feature, or the upload never succeeded) just 404s here, same as it already
+  // does client-side via <img onError>.
+  if (user) {
+    await sb.storage.from(THUMBNAIL_BUCKET).remove([`${user.id}/${id}.jpg`]).catch(() => {});
+  }
 }
 
 // Lightweight count + total-likes for the signed-in user's own designs, for the account

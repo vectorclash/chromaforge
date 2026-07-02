@@ -1,5 +1,6 @@
 import React from 'react';
 import { gsap, Bounce, MorphSVGPlugin } from 'gsap/all';
+import { DURATION_SLOW } from '../../utils/motionTokens';
 
 export default class CloseButton extends React.Component {
   componentDidMount() {
@@ -16,33 +17,33 @@ export default class CloseButton extends React.Component {
 
     if (isOpen) {
       gsap.to('#lineOne', {
-        duration: 0.5,
+        duration: DURATION_SLOW,
         opacity: 1,
         morphSVG: '#lineOne-EX',
         ease: Bounce.easeOut
       });
 
       gsap.to('#lineTwo', {
-        duration: 0.5,
+        duration: DURATION_SLOW,
         opacity: 1,
         morphSVG: '#lineTwo-EX',
         ease: Bounce.easeOut
       });
 
       gsap.to('#outer, #inner', {
-        duration: 0.5,
+        duration: DURATION_SLOW,
         morphSVG: '#dot-EX',
         ease: Bounce.easeOut
       });
     } else {
       gsap.to('#outer', {
-        duration: 0.5,
+        duration: DURATION_SLOW,
         morphSVG: '#outer',
         ease: Bounce.easeOut
       });
 
       gsap.to('#inner', {
-        duration: 0.5,
+        duration: DURATION_SLOW,
         delay: 0.3,
         morphSVG: '#inner',
         ease: Bounce.easeOut
@@ -50,7 +51,7 @@ export default class CloseButton extends React.Component {
 
       gsap.to('#lineOne, #lineTwo', {
         opacity: 0,
-        duration: 0.5,
+        duration: DURATION_SLOW,
         morphSVG: '#center-EX',
         ease: Bounce.easeOut
       });

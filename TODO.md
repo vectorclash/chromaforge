@@ -162,20 +162,56 @@ tracks what's true now, not history.
 
 ## Code — worth doing, lower urgency
 
-- [ ] Storage cleanup: `deleteDesign` leaves the public thumbnail behind; `design-mockups`
-      accumulates every mockup source forever. (Keep *order* print files deliberately —
-      audit trail.)
-- [ ] Motion token migration: define 2–3 duration/easing tokens in `@theme` and replace the
-      ad-hoc 0.2/0.3/0.35/0.45/0.5s values.
-- [ ] Empty states (gallery "no designs yet", etc.): use generated art instead of plain
-      text — MiniGenerator already exists for this.
-- [ ] Homepage scroll-reveal audit: sections below the hero vs. the card entrances the
-      grids already have.
-- [ ] Delete CRA leftovers: `src/serviceWorker.js`, `src/App.test.js`.
-- [ ] `sitemap.xml` (static routes only) + decide on privacy-friendly analytics or none
-      (Privacy page currently promises no trackers — keep it true either way).
+- [x] **Storage cleanup, partial** (2026-07-02) — `deleteDesign` now also removes the
+      design's thumbnail (best-effort; a removal failure doesn't undo the already-succeeded
+      row delete). `design-mockups`'s unbounded growth is deliberately **not** fixed:
+      deleting `storage.objects` rows directly via SQL (the approach used for the earlier
+      data backfills) does not actually free the underlying files -- Storage's real
+      deletion goes through its REST API, not a DB trigger on that metadata table, so a
+      SQL-only "cleanup" would silently orphan billed bytes while hiding them from
+      listings. A real fix needs a scheduled Edge Function using the actual Storage API;
+      not urgent at today's 17MB, so deferred rather than risking a wrong fix.
+- [x] **Motion token migration** (2026-07-02) — `tailwind.css`'s `@theme` now has
+      `--duration-fast/base/slow` (200/350/500ms), used in the existing
+      `--animate-fade-slide-up`/`--animate-pop-in` shorthands and via
+      `duration-[var(--duration-*)]` on `ColorField`/`DisplayCanvas`'s Tailwind utility
+      classes (`--duration-*` isn't a namespace Tailwind v4 auto-generates utilities from --
+      confirmed by checking the compiled CSS, a plain `duration-base` class compiled to
+      nothing before catching it). Mirrored in new `src/utils/motionTokens.js` for GSAP's
+      JS-level tweens (can't read CSS custom properties without a runtime
+      `getComputedStyle` lookup) -- consolidates the old ad-hoc 0.2/0.3/0.35/0.4/0.45/0.5s
+      values across `DisplayCanvas`/`CloseButton`/`PlayPauseButton`/`AnimationPreview` down
+      to three tiers, plus the two independently-declared `CROSSFADE_MS = 450` constants in
+      `MiniGenerator`/`SiteFooter` now both import the same `DURATION_SLOW_MS`. Left
+      `Logo.jsx` untouched (already-established: unused, don't migrate speculatively) and
+      the three ~0.1s micro-timings in `DisplayCanvas.jsx` (genuinely distinct/faster,
+      never in the original ad-hoc list). Verified live: the studio's settings/color-editor
+      panel and its Close button (now on `DURATION_SLOW`) render and animate correctly with
+      zero console errors.
+- [x] **Empty states** (2026-07-02) — Gallery's "no designs yet" now shows the studio's live
+      generated-art preview (same `previewUrl` the ambient `MiniGenerator` widget uses)
+      above the message, plus a "Go create one" link on the My Designs tab. Verified live
+      via a temporary forced-empty override (real data never naturally empties either tab).
+- [x] **Homepage scroll-reveal audit** (2026-07-02) — traced the actual gap: the card grids'
+      existing `animate-fade-slide-up` isn't a real scroll trigger at all, it just happens
+      to coincide with `GallerySection`'s async data fetch resolving, which may or may not
+      still be pending by the time a user scrolls that far. `AboutSection` had nothing at
+      all. Added a small reusable `useScrollReveal` hook (`IntersectionObserver`, fires
+      once, starts already-revealed under `prefers-reduced-motion`) and applied it to
+      `AboutSection`. Didn't touch `GallerySection`/`ShopCarousel`'s existing mechanism --
+      out of scope for this pass, not literally broken. Verified live: hidden before
+      scrolling into view, revealed after, zero console errors.
+- [x] **Deleted CRA leftovers** (2026-07-02): `src/serviceWorker.js`, `src/App.test.js`, and
+      the now-dangling `serviceWorker.unregister()` call + import in `src/index.jsx`.
+- [x] **`sitemap.xml`** (2026-07-02) — static routes only (`/`, `/studio`, `/shop`,
+      `/gallery`, `/terms`, `/privacy`; excludes the dynamic `/shop/:productId` and the
+      auth-gated/transactional `/account`, `/checkout/success`), referenced from
+      `robots.txt`. **Analytics: decided none**, keeping the Privacy page's existing "we
+      don't use analytics or trackers" promise true rather than revisiting it — flag if you
+      want that reconsidered.
 - [ ] Expand `ALLOWED_SHIPPING_COUNTRIES` deliberately (checked against Printful coverage)
-      as demand appears.
+      as demand appears. Still correctly untouched -- no signal of actual demand yet, and
+      this item is explicitly conditional on that, not something to do speculatively.
 
 ## Explicitly deferred / decisions made
 

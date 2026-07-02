@@ -4,8 +4,8 @@ import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import MiniGenerator from './MiniGenerator';
 import logo from '../../assets/images/logo.svg';
+import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
-const CROSSFADE_MS = 450;
 const RENDER_WIDTH = 1600;
 const RENDER_HEIGHT = 500;
 
