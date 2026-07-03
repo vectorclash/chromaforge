@@ -10,6 +10,7 @@ import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
+import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
 
 import Copyright from './Copyright';
@@ -109,6 +110,7 @@ export default class DisplayCanvas extends React.Component {
       settingsTab: 'color',
       animTiming: null,
       settingsDirty: false,
+      geometrySettings: { ...DEFAULT_GEOMETRY_SETTINGS },
       galleryStatus: null,
       galleryError: null,
     };
@@ -130,6 +132,7 @@ export default class DisplayCanvas extends React.Component {
 
   componentWillUnmount() {
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
+    clearTimeout(this.geometryRegenTimer);
   }
 
   componentDidUpdate(prevProps) {
@@ -139,11 +142,13 @@ export default class DisplayCanvas extends React.Component {
       this.props.initialDesign !== this.mainConfig
     ) {
       this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+      this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
         this.props.width,
         this.props.height,
-        this.props.initialDesign.colors
+        this.props.initialDesign.colors,
+        this.props.initialDesign.settings ?? null
       );
       this.buildImage(built);
     }
@@ -185,6 +190,10 @@ export default class DisplayCanvas extends React.Component {
           generateDisabled: true,
           animationProgress: 0
         });
+        // All frames of one animation share their generation settings (they're built in a
+        // single session with the sliders in one position), so the first frame's are the
+        // animation's.
+        this.adoptDesignSettings(config.frames[0]?.settings);
         this.loadAnimationFromConfigs(config.frames);
       } else {
         this.setState({ isLoading: true, isSaved: true });
@@ -197,11 +206,13 @@ export default class DisplayCanvas extends React.Component {
       // under the user. Same seed + colors is a pure function (generateArtwork), so this
       // reproduces it pixel-for-pixel rather than approximating it.
       this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+      this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
         this.props.width,
         this.props.height,
-        this.props.initialDesign.colors
+        this.props.initialDesign.colors,
+        this.props.initialDesign.settings ?? null
       );
       this.buildImage(built);
     } else {
@@ -227,18 +238,26 @@ export default class DisplayCanvas extends React.Component {
   }
 
   // Thin wrapper over the pure generateArtwork() orchestrator. Defaults to a fresh seed
-  // at the live on-screen size with the current UI palette; pass explicit args to
-  // regenerate a stored design at any size (e.g. portrait print) deterministically.
+  // at the live on-screen size with the current UI palette + geometry sliders; pass
+  // explicit args to regenerate a stored design at any size (e.g. portrait print)
+  // deterministically. `settings` distinguishes "not given" (undefined -> use the live
+  // slider state) from "this design has none" (null -> generator defaults) -- load paths
+  // pass the stored design's own settings so a loaded design never picks up whatever the
+  // sliders happen to be set to.
   buildConfig(
     seed = randomSeed(),
     width = this.props.width,
     height = this.props.height,
-    colorValues = null
+    colorValues = null,
+    settings = undefined
   ) {
     if (!colorValues) {
       colorValues = this.state.colors.map(c => c.value || c);
     }
-    const config = generateArtwork(seed, width, height, colorValues);
+    if (settings === undefined) {
+      settings = { geometry: this.state.geometrySettings };
+    }
+    const config = generateArtwork(seed, width, height, colorValues, settings);
     this.mainConfig = config;
     // Mirror the current design into StudioContext (via StudioPage) so store routes can
     // render mockups of it without the canvas being mounted. No-op when rendered outside
@@ -349,7 +368,7 @@ export default class DisplayCanvas extends React.Component {
     // this.animationConfigs holds fully-resolved configs everywhere else (buildAnimationFrames,
     // onModeToggle's snapshot/restore), so resolving here keeps that invariant.
     const resolvedConfigs = configs.map(c =>
-      generateArtwork(c.seed, this.props.width, this.props.height, c.colors)
+      generateArtwork(c.seed, this.props.width, this.props.height, c.colors, c.settings ?? null)
     );
     this.animationConfigs = resolvedConfigs;
     const frames = [];
@@ -454,11 +473,27 @@ export default class DisplayCanvas extends React.Component {
       ease: 'power2.inOut'
     });
 
-    // `config` from a share link / gallery row is the compact { seed, colors } form --
-    // buildConfig regenerates the full composition (and sets this.mainConfig) before we
-    // render it, same as the `initialDesign` continuity path in init().
-    const built = this.buildConfig(config.seed, this.props.width, this.props.height, config.colors);
+    // `config` from a share link / gallery row is the compact { seed, colors, settings? }
+    // form -- buildConfig regenerates the full composition (and sets this.mainConfig)
+    // before we render it, same as the `initialDesign` continuity path in init().
+    this.adoptDesignSettings(config.settings);
+    const built = this.buildConfig(
+      config.seed,
+      this.props.width,
+      this.props.height,
+      config.colors,
+      config.settings ?? null
+    );
     this.buildImage(built);
+  }
+
+  // Sync the geometry sliders to a loaded design's stored settings (or back to defaults
+  // when it has none), so a Generate right after loading produces work in the same style
+  // the user is looking at -- without this, loading a coherent-geometry design would show
+  // it correctly (buildConfig gets the stored settings explicitly) but leave the sliders,
+  // and therefore the next Generate, wherever they last were.
+  adoptDesignSettings(settings) {
+    this.setState({ geometrySettings: getGeometrySettings(settings) });
   }
 
   setImage(blob) {
@@ -917,6 +952,48 @@ export default class DisplayCanvas extends React.Component {
     } finally {
       this.setState({ isExporting: false, exportProgress: 0 });
     }
+  }
+
+  // Geometry slider moved. Update the state immediately (the value readout tracks the
+  // thumb live), then regenerate the CURRENT seed with the new settings after a short
+  // debounce -- so dragging a slider visibly reshapes the artwork on screen rather than
+  // only affecting the next Generate. Settings are part of a design's identity (see
+  // StudioContext.isSameDesign), so the result counts as unsaved. In animation mode a
+  // regenerate means rebuilding every frame (a 30s+ job), so there it only marks settings
+  // dirty -- the same "regenerate to apply" notice the video settings already use.
+  onGeometrySettingChange(patch) {
+    this.setState(
+      s => ({ geometrySettings: { ...s.geometrySettings, ...patch } }),
+      () => {
+        if (this.state.animationMode) {
+          this.setState({ settingsDirty: true });
+          return;
+        }
+        clearTimeout(this.geometryRegenTimer);
+        this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
+      }
+    );
+  }
+
+  regenerateCurrentSeed() {
+    if (!this.mainConfig || this.state.animationMode || this.state.isExporting) return;
+    if (this.state.generateDisabled) {
+      // A build is already in flight (e.g. the previous slider tick's regen) -- try again
+      // shortly instead of dropping the newest slider position on the floor.
+      this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
+      return;
+    }
+    this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+    // Same seed + palette, new settings (buildConfig reads the live slider state) -- the
+    // "same" piece, reshaped. mainConfig.colors is the palette that was passed in (possibly
+    // empty for auto-palette designs), which regenerates deterministically either way.
+    const config = this.buildConfig(
+      this.mainConfig.seed,
+      this.props.width,
+      this.props.height,
+      this.mainConfig.colors
+    );
+    this.buildImage(config);
   }
 
   onGenerateButtonClick(e) {
@@ -1391,6 +1468,7 @@ export default class DisplayCanvas extends React.Component {
       settingsTab,
       animTiming,
       settingsDirty,
+      geometrySettings,
       galleryStatus,
       galleryError,
     } = this.state;
@@ -1605,6 +1683,12 @@ export default class DisplayCanvas extends React.Component {
                 Color
               </button>
               <button
+                className={'settings-tab-btn' + (settingsTab === 'geometry' ? ' active' : '')}
+                onClick={() => this.setState({ settingsTab: 'geometry' }, () => this.animateSettingsTab())}
+              >
+                Geometry
+              </button>
+              <button
                 className={'settings-tab-btn' + (settingsTab === 'video' ? ' active' : '')}
                 onClick={() => this.setState({ settingsTab: 'video' }, () => this.animateSettingsTab())}
               >
@@ -1639,6 +1723,105 @@ export default class DisplayCanvas extends React.Component {
                   <button onClick={this.onRainbowColors.bind(this)} className="button-small">
                     ADD 🌈
                   </button>
+                </div>
+              </>
+            )}
+
+            {settingsTab === 'geometry' && (
+              <>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Chance
+                    <span className="settings-label-note">
+                      {' '}
+                      {geometrySettings.chance <= 0
+                        ? 'never'
+                        : geometrySettings.chance >= 1
+                          ? 'always'
+                          : `${Math.round(geometrySettings.chance * 100)}%`}
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    className="settings-range"
+                    min="0"
+                    max="100"
+                    value={Math.round(geometrySettings.chance * 100)}
+                    style={{ '--range-fill': `${Math.round(geometrySettings.chance * 100)}%` }}
+                    aria-label="Geometry chance"
+                    onChange={e =>
+                      this.onGeometrySettingChange({ chance: Number(e.target.value) / 100 })
+                    }
+                  />
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Points
+                    <span className="settings-label-note">
+                      {' '}
+                      {geometrySettings.pointsMin === geometrySettings.pointsMax
+                        ? geometrySettings.pointsMin
+                        : `${geometrySettings.pointsMin}–${geometrySettings.pointsMax}`}
+                    </span>
+                  </span>
+                  {/* Two stacked native ranges; only the thumbs take pointer events (see
+                      components.css), so each thumb drags independently over the shared
+                      track. Min and max may meet (pinning the vertex count) but never cross. */}
+                  <div
+                    className="settings-range-dual"
+                    style={{
+                      '--range-min': `${((geometrySettings.pointsMin - 3) / 9) * 100}%`,
+                      '--range-max': `${((geometrySettings.pointsMax - 3) / 9) * 100}%`
+                    }}
+                  >
+                    <input
+                      type="range"
+                      min="3"
+                      max="12"
+                      value={geometrySettings.pointsMin}
+                      aria-label="Minimum points"
+                      // Keep the min thumb on top when both sit high, so it stays grabbable
+                      // after being dragged all the way to the max.
+                      style={geometrySettings.pointsMin > 7 ? { zIndex: 4 } : undefined}
+                      onChange={e =>
+                        this.onGeometrySettingChange({
+                          pointsMin: Math.min(Number(e.target.value), geometrySettings.pointsMax)
+                        })
+                      }
+                    />
+                    <input
+                      type="range"
+                      min="3"
+                      max="12"
+                      value={geometrySettings.pointsMax}
+                      aria-label="Maximum points"
+                      onChange={e =>
+                        this.onGeometrySettingChange({
+                          pointsMax: Math.max(Number(e.target.value), geometrySettings.pointsMin)
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Coherence
+                    <span className="settings-label-note">
+                      {' '}{Math.round(geometrySettings.coherence * 100)}%
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    className="settings-range"
+                    min="0"
+                    max="100"
+                    value={Math.round(geometrySettings.coherence * 100)}
+                    style={{ '--range-fill': `${Math.round(geometrySettings.coherence * 100)}%` }}
+                    aria-label="Geometry coherence"
+                    onChange={e =>
+                      this.onGeometrySettingChange({ coherence: Number(e.target.value) / 100 })
+                    }
+                  />
                 </div>
               </>
             )}

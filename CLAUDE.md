@@ -40,6 +40,33 @@ the actual print, generated the same deterministic way.
   around 16.7 Mpx, and 150 DPI print (4200×5400 = 22.7 Mpx) exceeds that. Desktop Chrome
   handles it fine (proven up to 300 DPI), but mobile can't — this is why a render service
   is still needed before the print pipeline is real.
+- **Studio generation settings (geometry sliders), 2026-07-02**: the design JSON's
+  `settings` field is now real — `{ settings: { geometry: { chance, pointsMin, pointsMax,
+  coherence } } }`, edited via a new "Geometry" tab in the studio settings panel (chance
+  slider, dual min/max points slider, coherence slider; moving one live-regenerates the
+  *current seed* with the new settings after a 350ms debounce). `src/render/designSettings.js`
+  owns the defaults/normalization (it's a separate module because the `Generate*` classes
+  need it and generateArtwork imports those — circular otherwise). Key invariants:
+  **defaults are byte-identical to the pre-settings generator** (chance 0.4 ≡ the old
+  `rng() >= 0.6`; points 3–12 ≡ the old `3 + round(rng()*9)`; coherence 0 skips every new
+  code path — verified against a bundle of the pre-change committed code, 900 config
+  comparisons), which is why `GENERATOR_VERSION` stayed at 3 and old designs are untouched;
+  `settings` is only persisted when non-default (`compactSettings`); settings are part of a
+  design's *identity* like seed/colors (`isSameDesign` compares them — a slider tweak on a
+  saved design correctly reads as unsaved); and settings-dependent rng() consumption is
+  size-independent, so the cross-size determinism guarantee below still holds (verified at
+  5 sizes incl. print). Coherence semantics: 0 = today's chaos (unbounded size, arbitrary
+  triangles), 1 = every lattice cell of the polygon filled (a `latticeCells()` tessellation,
+  deliberately NOT sliced by `getCountScale` — a thumbnail must show the same complete
+  polygon as the print) sized to fit with 12.5% clearance off the short dimension; between,
+  size lerps and chaotic triangles trade off against filled cells. The chance draw always
+  consumes exactly one rng() regardless of the setting so downstream layers stay aligned.
+  Settings ride through every regeneration path: compactDesign (both the JS and the Deno
+  `_shared/compactDesign.ts` mirror), StudioContext's renderDesignBlob (mockups/thumbnails),
+  share links, gallery loads, `render-print-file` → render-service. The Edge Functions were
+  redeployed with this; **the Fly.io render-service still needs `flyctl deploy` from
+  `render-service/`** (bundle already rebuilt) — until then a non-default-settings design
+  would print without its settings applied (version check alone won't catch it, still v3).
 - **Generators are now ratio-aware** (`GENERATOR_VERSION = 3`, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
   sizing stars off its narrow axis only), and element counts scale off canvas area relative

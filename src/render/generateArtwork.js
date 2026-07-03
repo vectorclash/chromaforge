@@ -9,6 +9,7 @@ import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialFi
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import { makeRng, randomSeed } from './prng';
+import { getGeometrySettings, compactSettings } from './designSettings';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
 // seed, so old designs can be detected and (re)rendered with matching behaviour.
@@ -37,10 +38,16 @@ function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
 
-// generateArtwork(seed, width, height, colorValues) -> composition config.
-// The stored design is just { generatorVersion, seed, colors }; everything else here
-// is derived deterministically and can be regenerated at any (width, height).
-export function generateArtwork(seed = randomSeed(), width, height, colorValues = []) {
+// generateArtwork(seed, width, height, colorValues, settings) -> composition config.
+// The stored design is just { generatorVersion, seed, colors, settings? }; everything else
+// here is derived deterministically and can be regenerated at any (width, height).
+// `settings` (see render/designSettings.js) is part of a design's identity the same way
+// seed/colors are -- the same seed with different settings is a different design. At the
+// default settings, output is byte-identical to the pre-settings generator (same rng()
+// draws throughout), so absent-settings designs are unaffected and GENERATOR_VERSION
+// stays at 3. Settings values must never vary rng() consumption BY SIZE (they're
+// size-independent inputs, so they can't) -- see render/scale.js for why that matters.
+export function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null) {
   const rng = makeRng(seed);
 
   const config = {
@@ -50,6 +57,9 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
     height,
     colors: colorValues.slice()
   };
+
+  const compactedSettings = compactSettings(settings);
+  if (compactedSettings) config.settings = compactedSettings;
 
   config.gradientBackgroundConfig = new GenerateLinearGradient(
     width,
@@ -75,9 +85,15 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
 
   config.starFieldConfig = new GenerateStarField(width, height, colorValues.slice(), rng);
 
+  // Always exactly one draw regardless of the chance setting, so the rest of the sequence
+  // (overlay draws below) stays aligned whether or not geometry appears. The default
+  // chance of 0.4 makes the threshold 0.6 -- the exact pre-settings `>= 0.6` comparison.
+  // chance 1 -> threshold 0 (always passes); chance 0 -> threshold 1 (never passes, since
+  // the PRNG's range is [0, 1)).
   let geometryChance = rng();
+  const geometry = getGeometrySettings(settings);
 
-  if (geometryChance >= 0.6) {
+  if (geometryChance >= 1 - geometry.chance) {
     config.thirdBlend = randomBlendMode(rng);
     // Unscaled -- exactly one rng() draw, matching pre-fix behavior. GenerateGeometricShape
     // itself builds this many shapes (fixed, size-independent rng() consumption) and only
@@ -89,7 +105,8 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
       height,
       shapeNum,
       colorValues.slice(),
-      rng
+      rng,
+      settings
     );
   }
 

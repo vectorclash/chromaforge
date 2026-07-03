@@ -7,10 +7,16 @@
 // always the raw generateArtwork() output, never compacted) sent it straight through to this
 // insert, uncompacted. design_data is write-only (nothing reads it back -- it's an audit
 // trail of what was ordered), so the compact form loses nothing that matters.
+//
+// `settings` (the studio's generation settings, e.g. the geometry sliders -- see the
+// frontend's src/render/designSettings.js) is part of a design's identity like seed/colors:
+// the frontend only attaches it when non-default, so passing it through as-is (no
+// re-normalization here) keeps this an accurate audit copy without bloat.
 export function toCompactDesign(design: Record<string, unknown>) {
   return {
     generatorVersion: design.generatorVersion,
     seed: design.seed,
-    colors: design.colors
+    colors: design.colors,
+    ...(design.settings ? { settings: design.settings } : {})
   };
 }

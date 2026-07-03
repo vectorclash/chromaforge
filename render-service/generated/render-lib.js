@@ -277,8 +277,35 @@ var GenerateStarField = class {
 
 // ../src/components/Canvas/GenerateGeometricShape.js
 import tinycolor3 from "tinycolor2";
+
+// ../src/render/designSettings.js
+var DEFAULT_GEOMETRY_SETTINGS = {
+  // Probability the geometry layer appears at all: 0 = never, 1 = always.
+  chance: 0.4,
+  // Lattice vertex-count range (a "points" value of 6 makes hexagonal lattices). Equal
+  // min/max pins the shape: min = max = 6 means every design gets a hexagon.
+  pointsMin: 3,
+  pointsMax: 12,
+  // 0 = fully chaotic (unbounded size, random unrecognizable triangles, panels mostly
+  // unfilled); 1 = a clean regular polygon, every lattice cell filled, sized to sit fully
+  // inside the canvas with clearance on all sides.
+  coherence: 0
+};
+function getGeometrySettings(settings) {
+  return { ...DEFAULT_GEOMETRY_SETTINGS, ...settings?.geometry || null };
+}
+function compactSettings(settings) {
+  const geometry = getGeometrySettings(settings);
+  const isDefault = Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(
+    (key) => geometry[key] === DEFAULT_GEOMETRY_SETTINGS[key]
+  );
+  return isDefault ? void 0 : { geometry };
+}
+
+// ../src/components/Canvas/GenerateGeometricShape.js
 var GenerateGeometricShape = class {
-  constructor(width, height, shapeNum, colors = [], rng = Math.random) {
+  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null) {
+    const geometry = getGeometrySettings(settings);
     let config = {
       width,
       height,
@@ -286,17 +313,50 @@ var GenerateGeometricShape = class {
     };
     this.rng = rng;
     this.colors = colors;
-    this.shapeVertices = 3 + Math.round(rng() * 9);
+    this.shapeVertices = geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
     this.shapeDepth = 2 + Math.round(rng() * 4);
     this.shapeAng = 360 / this.shapeVertices;
-    this.shapeSize = 150 + Math.round(rng() * getSizeScale(width, height) / 3);
+    const chaoticSize = 150 + Math.round(rng() * getSizeScale(width, height) / 3);
+    const coherentSize = getSizeScale(width, height) * 0.375 / this.shapeDepth;
+    this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
     this.points = this.pointsArray(this.shapeSize);
     for (let i = 0; i < shapeNum; i++) {
       config.shapes.push(this.buildShape());
     }
     let keepCount = Math.max(1, Math.round(shapeNum * getCountScale(width, height)));
+    if (geometry.coherence > 0) {
+      keepCount = Math.min(keepCount, Math.round(shapeNum * (1 - geometry.coherence)));
+    }
     config.shapes = config.shapes.slice(0, keepCount);
+    if (geometry.coherence > 0) {
+      const cells = this.latticeCells();
+      this.shuffle(cells);
+      const cellKeep = Math.round(cells.length * geometry.coherence);
+      for (let i = 0; i < cellKeep; i++) {
+        config.shapes.push(this.buildShape(cells[i]));
+      }
+    }
     return config;
+  }
+  // Index triples (into this.points) of every cell in the lattice: a fan of triangles
+  // from the centre to ring 1, then each ring-to-ring band split into two triangles per
+  // angular step. Derives points-per-ring from the array itself rather than assuming
+  // shapeVertices iterations, so a floating-point wobble in pointsArray's `ang < 360`
+  // accumulation could never desync the indexing.
+  latticeCells() {
+    const perRing = (this.points.length - 1) / this.shapeDepth;
+    const idx = (ring, k) => 1 + (ring - 1) * perRing + k % perRing;
+    const cells = [];
+    for (let k = 0; k < perRing; k++) {
+      cells.push([0, idx(1, k), idx(1, k + 1)]);
+    }
+    for (let ring = 2; ring <= this.shapeDepth; ring++) {
+      for (let k = 0; k < perRing; k++) {
+        cells.push([idx(ring - 1, k), idx(ring, k), idx(ring, k + 1)]);
+        cells.push([idx(ring - 1, k), idx(ring - 1, k + 1), idx(ring, k + 1)]);
+      }
+    }
+    return cells;
   }
   pointsArray(r) {
     let radius = r;
@@ -312,17 +372,29 @@ var GenerateGeometricShape = class {
     }
     return points;
   }
-  buildShape() {
+  // With no argument: the original chaotic behaviour, three random lattice points (one
+  // between() shuffle of rng() draws). With `pointIndices` (a lattice cell from
+  // latticeCells()): those exact points, no positional rng() at all -- the colors below
+  // still draw identically either way.
+  buildShape(pointIndices = null) {
     let shape = {
       colors: [],
       points: []
     };
-    let randomPoints = this.between(0, this.points.length - 1);
-    shape.points.push(
-      this.points[randomPoints[0]],
-      this.points[randomPoints[1]],
-      this.points[randomPoints[2]]
-    );
+    if (pointIndices) {
+      shape.points.push(
+        this.points[pointIndices[0]],
+        this.points[pointIndices[1]],
+        this.points[pointIndices[2]]
+      );
+    } else {
+      let randomPoints = this.between(0, this.points.length - 1);
+      shape.points.push(
+        this.points[randomPoints[0]],
+        this.points[randomPoints[1]],
+        this.points[randomPoints[2]]
+      );
+    }
     if (this.colors.length > 0) {
       this.shuffleColors(this.colors);
       if (this.colors.length === 1) {
@@ -397,7 +469,7 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = []) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null) {
   const rng = makeRng(seed);
   const config = {
     generatorVersion: GENERATOR_VERSION,
@@ -406,6 +478,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = []) {
     height,
     colors: colorValues.slice()
   };
+  const compactedSettings = compactSettings(settings);
+  if (compactedSettings) config.settings = compactedSettings;
   config.gradientBackgroundConfig = new GenerateLinearGradient(
     width,
     height,
@@ -426,7 +500,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = []) {
   config.secondBlend = randomBlendMode(rng);
   config.starFieldConfig = new GenerateStarField(width, height, colorValues.slice(), rng);
   let geometryChance = rng();
-  if (geometryChance >= 0.6) {
+  const geometry = getGeometrySettings(settings);
+  if (geometryChance >= 1 - geometry.chance) {
     config.thirdBlend = randomBlendMode(rng);
     let shapeNum = 10 + Math.round(rng() * 30);
     config.geometryConfig = new GenerateGeometricShape(
@@ -434,7 +509,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = []) {
       height,
       shapeNum,
       colorValues.slice(),
-      rng
+      rng,
+      settings
     );
   }
   let overlayChance = rng();

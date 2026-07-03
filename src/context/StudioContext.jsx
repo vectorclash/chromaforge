@@ -3,6 +3,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
+import { isSameSettings } from '../render/designSettings';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -26,14 +27,18 @@ const PREVIEW_SIZE = 480;
 const THUMBNAIL_SIZE = 320;
 
 // Two designs are "the same" if they'd regenerate identical artwork -- same seed, same
-// palette -- regardless of whether they're literally the same object in memory (a saved
-// design is always a distinct compacted object from whatever full generateArtwork() output
-// produced it). See isCurrentDesignSaved's own comment for why reference equality was wrong.
+// palette, same generation settings -- regardless of whether they're literally the same
+// object in memory (a saved design is always a distinct compacted object from whatever full
+// generateArtwork() output produced it). See isCurrentDesignSaved's own comment for why
+// reference equality was wrong. Settings joined this comparison when the geometry sliders
+// landed: the same seed at different settings renders differently, so treating them as one
+// design would wrongly show "Saved" after tweaking a slider on an already-saved design.
 function isSameDesign(a, b) {
   if (!a || !b || a.seed !== b.seed) return false;
   const ac = a.colors || [];
   const bc = b.colors || [];
-  return ac.length === bc.length && ac.every((c, i) => c === bc[i]);
+  if (!(ac.length === bc.length && ac.every((c, i) => c === bc[i]))) return false;
+  return isSameSettings(a.settings, b.settings);
 }
 
 const StudioContext = createContext(null);
@@ -83,7 +88,7 @@ export function StudioProvider({ children }) {
   // ratio (regenerate from seed/colors), not a downscaled screenshot.
   const renderDesignBlob = useCallback(async (config, width, height) => {
     if (!queueRef.current) throw new Error('Render assets are still loading.');
-    const built = generateArtwork(config.seed, width, height, config.colors);
+    const built = generateArtwork(config.seed, width, height, config.colors, config.settings);
     const canvas = renderArtwork(built, queueRef.current);
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
     canvas.width = 0;

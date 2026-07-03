@@ -30,12 +30,14 @@ function loadStarImages() {
   return imagesPromise;
 }
 
-// design = { seed, colors, generatorVersion }. Caller (server.js) is responsible for
-// checking generatorVersion against GENERATOR_VERSION before calling this -- this function
-// always renders with whatever code is currently loaded, same as the rest of the app.
-export async function renderDesign({ seed, colors, width, height }) {
+// design = { seed, colors, settings?, generatorVersion }. Caller (server.js) is responsible
+// for checking generatorVersion against GENERATOR_VERSION before calling this -- this
+// function always renders with whatever code is currently loaded, same as the rest of the
+// app. `settings` (the studio's generation settings, e.g. geometry sliders) rides along
+// like seed/colors: absent means the generator defaults, exactly like the frontend.
+export async function renderDesign({ seed, colors, width, height, settings = null }) {
   const images = await loadStarImages();
-  const config = generateArtwork(seed, width, height, colors);
+  const config = generateArtwork(seed, width, height, colors, settings);
   const canvas = renderArtwork(config, images);
   return canvas.toBuffer('image/png');
 }

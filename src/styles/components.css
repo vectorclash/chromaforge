@@ -944,6 +944,130 @@
   padding: 0 4px;
 }
 
+/* Geometry sliders. Single sliders (.settings-range) paint their own progress fill via
+   --range-fill (set inline from React, since native ranges can't style "the part left of
+   the thumb" cross-browser); the fill gradient matches .settings-toggle.on. The dual
+   slider is two stacked native ranges over one shared visual track: the inputs themselves
+   ignore pointer events and only the thumbs take them, so each thumb drags independently.
+   --range-min/--range-max (inline, from React) place the filled span between the thumbs.
+   Thumb styling is duplicated across ::-webkit-slider-thumb and ::-moz-range-thumb because
+   a selector list containing an unknown pseudo-element invalidates the whole rule. */
+.display-canvas .controls-inner .settings-range,
+.display-canvas .controls-inner .settings-range-dual {
+  width: 190px;
+  flex-shrink: 0;
+}
+.display-canvas .controls-inner .settings-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, #4c00ff, var(--color-accent)) 0 0 / var(--range-fill, 50%) 100%
+      no-repeat,
+    rgba(250, 250, 250, 0.15);
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+}
+.display-canvas .controls-inner .settings-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #fafafa;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  transition: transform 0.15s ease;
+}
+.display-canvas .controls-inner .settings-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.display-canvas .controls-inner .settings-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #fafafa;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  transition: transform 0.15s ease;
+}
+.display-canvas .controls-inner .settings-range::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
+.display-canvas .controls-inner .settings-range-dual {
+  position: relative;
+  height: 16px;
+}
+.display-canvas .controls-inner .settings-range-dual::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(250, 250, 250, 0.15);
+}
+.display-canvas .controls-inner .settings-range-dual::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  height: 4px;
+  border-radius: 2px;
+  left: var(--range-min, 0%);
+  width: calc(var(--range-max, 100%) - var(--range-min, 0%));
+  background: linear-gradient(90deg, #4c00ff, var(--color-accent));
+}
+.display-canvas .controls-inner .settings-range-dual input[type='range'] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  outline: none;
+  pointer-events: none;
+  z-index: 3;
+}
+.display-canvas .controls-inner .settings-range-dual input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #fafafa;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  pointer-events: auto;
+  transition: transform 0.15s ease;
+}
+.display-canvas .controls-inner .settings-range-dual input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.display-canvas .controls-inner .settings-range-dual input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #fafafa;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  pointer-events: auto;
+  transition: transform 0.15s ease;
+}
+.display-canvas .controls-inner .settings-range-dual input[type='range']::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
 /* Color palette row + its close-button svg */
 .display-canvas .controls-inner .row.colors {
   position: relative;

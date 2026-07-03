@@ -97,6 +97,9 @@ Deno.serve(async req => {
       body: JSON.stringify({
         seed: design.seed,
         colors: design.colors ?? [],
+        // Generation settings (geometry sliders etc.) are part of the design's identity --
+        // omitting them here would print a different composition than the mockup showed.
+        settings: design.settings ?? null,
         width,
         height,
         generatorVersion: design.generatorVersion

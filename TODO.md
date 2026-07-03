@@ -40,6 +40,11 @@ tracks what's true now, not history.
 
 ## Go-live sequence (in order, last step flips the switch)
 
+0. [ ] `flyctl deploy` from `render-service/` (Aaron — the 2026-07-02 geometry-settings
+       change is in the rebuilt bundle and the Edge Functions are already redeployed, but
+       the Fly deploy needs manual approval). Until this runs, a design saved with
+       non-default geometry settings would print *without* them (the version check can't
+       catch it — still v3). Must land before anyone can buy a settings-carrying design.
 1. [ ] Merge `feature/account-gallery-ui` → `master` (nothing on that branch is live on
        chromaforge.app until then; the Supabase/Fly deploys are already live regardless).
 2. [ ] Verify deep links work on the live site (`chromaforge.app/shop` direct hit) — the

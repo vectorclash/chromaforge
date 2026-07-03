@@ -1,4 +1,4 @@
-// POST /render { seed, colors, width, height, generatorVersion } -> PNG bytes.
+// POST /render { seed, colors, settings?, width, height, generatorVersion } -> PNG bytes.
 //
 // Runs on Fly.io, called only by the render-print-file Supabase Edge Function -- this is
 // real, paid-for compute, so it's gated by a shared secret (RENDER_SERVICE_KEY), not left
@@ -38,7 +38,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const { seed, colors, width, height, generatorVersion } = payload;
+  const { seed, colors, settings, width, height, generatorVersion } = payload;
   if (!seed || !width || !height) {
     send(res, 400, { error: 'Missing required fields: seed, width, height' });
     return;
@@ -51,7 +51,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const png = await renderDesign({ seed, colors: colors || [], width, height });
+    const png = await renderDesign({ seed, colors: colors || [], width, height, settings: settings || null });
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
     res.end(png);
   } catch (err) {
