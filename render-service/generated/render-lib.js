@@ -338,36 +338,46 @@ var GenerateGeometricShape = class {
     }
     return config;
   }
-  // Index triples (into this.points) of every cell in the lattice: a fan of triangles
-  // from the centre to ring 1, then each ring-to-ring band split into two triangles per
-  // angular step. Derives points-per-ring from the array itself rather than assuming
-  // shapeVertices iterations, so a floating-point wobble in pointsArray's `ang < 360`
-  // accumulation could never desync the indexing.
+  // Point triples (literal [x,y] coordinates, not indices) of every cell in the lattice: a
+  // fan of triangles from the centre to ring 1, then each ring-to-ring band ALSO fanned --
+  // from its own quad's centroid to its 4 corners -- rather than split by a diagonal.
+  // Derives points-per-ring from the array itself rather than assuming shapeVertices
+  // iterations, so a floating-point wobble in pointsArray's `ang < 360` accumulation could
+  // never desync the indexing.
   //
-  // Each band is a trapezoid quad (innerK, innerK+1, outerK, outerK+1) that a canvas
-  // triangle pair can only tile by picking ONE of its two diagonals. Every vertex sits on
-  // a plain, non-rotated radial spoke -- but a fixed diagonal direction repeated across
-  // every concentric ring compounds into a visible pinwheel/spiral (confirmed live: a
-  // pinned-square lattice showed a clear twist that had no rotation in the underlying
-  // point data). Alternating the diagonal by ring parity cancels the net drift while
-  // still fully tiling every quad with no gaps or overlaps.
+  // This went through two failed approaches first, both confirmed live via a plotted
+  // wireframe + a coordinate/index dump of every generated cell (not just eyeballing the
+  // colored render, which two real, separate color-state bugs were muddying at the same
+  // time): a trapezoid quad (innerK, innerK+1, outerK, outerK+1) can only be tiled by a
+  // 2-triangle split by picking ONE of its two diagonals, and EVERY quad in a ring is the
+  // same shape just rotated by the ring's own angular step -- so any single consistent
+  // diagonal choice, applied to all of them, necessarily rotates in lockstep with the
+  // quads themselves, producing a real (not illusory) windmill/pinwheel in the wireframe
+  // itself. Alternating the diagonal by ring parity didn't fix it (verified: nearly
+  // identical wireframe) since the bias within any ONE ring's 6 quads was untouched.
+  // Alternating by k (angular position) instead was closer but still visibly asymmetric,
+  // and leaves an uncancelled seam wherever perRing is odd. Fanning each quad from its own
+  // centroid sidesteps the whole problem: there's no diagonal to choose at all, so there's
+  // nothing that can rotate. It mirrors ring 1's fan-from-the-true-centre, which never had
+  // this problem for the same reason.
   latticeCells() {
     const perRing = (this.points.length - 1) / this.shapeDepth;
     const idx = (ring, k) => 1 + (ring - 1) * perRing + k % perRing;
     const cells = [];
     for (let k = 0; k < perRing; k++) {
-      cells.push([0, idx(1, k), idx(1, k + 1)]);
+      cells.push([this.points[0], this.points[idx(1, k)], this.points[idx(1, k + 1)]]);
     }
     for (let ring = 2; ring <= this.shapeDepth; ring++) {
-      const alternateDiagonal = ring % 2 === 0;
       for (let k = 0; k < perRing; k++) {
-        if (alternateDiagonal) {
-          cells.push([idx(ring - 1, k), idx(ring, k), idx(ring - 1, k + 1)]);
-          cells.push([idx(ring - 1, k + 1), idx(ring, k), idx(ring, k + 1)]);
-        } else {
-          cells.push([idx(ring - 1, k), idx(ring, k), idx(ring, k + 1)]);
-          cells.push([idx(ring - 1, k), idx(ring - 1, k + 1), idx(ring, k + 1)]);
-        }
+        const a = this.points[idx(ring - 1, k)];
+        const b = this.points[idx(ring - 1, k + 1)];
+        const c = this.points[idx(ring, k + 1)];
+        const d = this.points[idx(ring, k)];
+        const centroid = [(a[0] + b[0] + c[0] + d[0]) / 4, (a[1] + b[1] + c[1] + d[1]) / 4];
+        cells.push([centroid, a, b]);
+        cells.push([centroid, b, c]);
+        cells.push([centroid, c, d]);
+        cells.push([centroid, d, a]);
       }
     }
     return cells;
@@ -387,20 +397,17 @@ var GenerateGeometricShape = class {
     return points;
   }
   // With no argument: the original chaotic behaviour, three random lattice points (one
-  // between() shuffle of rng() draws). With `pointIndices` (a lattice cell from
-  // latticeCells()): those exact points, no positional rng() at all -- the colors below
-  // still draw identically either way.
-  buildShape(pointIndices = null) {
+  // between() shuffle of rng() draws). With `cellPoints` (a literal [x,y] triple from
+  // latticeCells(), which may include a computed centroid not in this.points at all): those
+  // exact points, no positional rng() at all -- the colors below still draw identically
+  // either way.
+  buildShape(cellPoints = null) {
     let shape = {
       colors: [],
       points: []
     };
-    if (pointIndices) {
-      shape.points.push(
-        this.points[pointIndices[0]],
-        this.points[pointIndices[1]],
-        this.points[pointIndices[2]]
-      );
+    if (cellPoints) {
+      shape.points.push(cellPoints[0], cellPoints[1], cellPoints[2]);
     } else {
       let randomPoints = this.between(0, this.points.length - 1);
       shape.points.push(
@@ -410,22 +417,22 @@ var GenerateGeometricShape = class {
       );
     }
     if (this.colors.length > 0) {
-      this.shuffleColors(this.colors);
-      if (this.colors.length === 1) {
+      const spun = this.shuffleColors(this.colors);
+      if (spun.length === 1) {
         let ranGrayScale = Math.round(this.rng() * 255);
         shape.colors.push(
-          this.colors[0],
+          spun[0],
           tinycolor3({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale }),
-          tinycolor3(this.colors[0]).spin(-40 + this.rng() * 80).toHexString()
+          tinycolor3(spun[0]).spin(-40 + this.rng() * 80).toHexString()
         );
-      } else if (this.colors.length === 2) {
+      } else if (spun.length === 2) {
         shape.colors.push(
-          this.colors[0],
-          this.colors[1],
-          tinycolor3(this.colors[0]).spin(-20 + this.rng() * 40).toHexString()
+          spun[0],
+          spun[1],
+          tinycolor3(spun[0]).spin(-20 + this.rng() * 40).toHexString()
         );
       } else {
-        shape.colors = this.colors;
+        shape.colors = spun;
       }
     } else {
       shape.colors.push(
@@ -437,10 +444,12 @@ var GenerateGeometricShape = class {
     this.shuffle(shape.colors);
     return shape;
   }
+  // Pure -- returns a new array, same length, each entry independently spun +-10 degrees.
+  // Deliberately does not mutate `array` (see buildShape's comment on why a mutating
+  // version caused a cumulative hue drift across shapes). Same number of rng() draws
+  // either way (one per element), so this doesn't change rng() consumption/determinism.
   shuffleColors(array) {
-    for (let i = 0; i < array.length; i++) {
-      array[i] = tinycolor3(array[i]).spin(-10 + this.rng() * 20).toHexString();
-    }
+    return array.map((c) => tinycolor3(c).spin(-10 + this.rng() * 20).toHexString());
   }
   shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {

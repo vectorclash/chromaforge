@@ -63,10 +63,49 @@ the actual print, generated the same deterministic way.
   consumes exactly one rng() regardless of the setting so downstream layers stay aligned.
   Settings ride through every regeneration path: compactDesign (both the JS and the Deno
   `_shared/compactDesign.ts` mirror), StudioContext's renderDesignBlob (mockups/thumbnails),
-  share links, gallery loads, `render-print-file` → render-service. The Edge Functions were
-  redeployed with this; **the Fly.io render-service still needs `flyctl deploy` from
-  `render-service/`** (bundle already rebuilt) — until then a non-default-settings design
-  would print without its settings applied (version check alone won't catch it, still v3).
+  share links, gallery loads, `render-print-file` → render-service. Deployed everywhere:
+  both Edge Functions and the Fly.io render-service (`flyctl deploy` run from the repo
+  root — **not** `render-service/`, since the Dockerfile's build context is the repo root;
+  see its own header comment).
+  **Real bug found and fixed same day, via user report**: full coherence rendered with an
+  obvious, unwanted pinwheel/spiral rather than the clean faceted look the feature
+  describes. Took real debugging to pin down, not a one-line fix — two genuinely separate,
+  pre-existing bugs (both predating this feature, in the original chaotic-mode code) were
+  found and fixed along the way but turned out NOT to be the primary cause: (1) `buildShape`'s
+  3+-color branch did `shape.colors = this.colors` — a bare reference, not a copy — so
+  every shape in a design silently shared, and retroactively mutated, the exact same color
+  array (confirmed live: dumped colors from 66 lattice cells, all byte-identical, all the
+  same object); (2) `shuffleColors` mutated that shared array in place on every call, so
+  colors drifted cumulatively across a design's shapes rather than each being an
+  independent perturbation of the true original palette — invisible noise for randomly
+  positioned chaotic shapes, but for the first time visible once shapes had a spatial
+  order (the lattice) to correlate with. Both real, both fixed (`.slice()` copy;
+  `shuffleColors` now pure, spinning fresh from the untouched palette every call) — but the
+  spiral persisted after fixing both, proving neither was the actual cause. Root cause,
+  found by rendering a flat-colored wireframe (removing color/gradient from the picture
+  entirely) and dumping raw cell coordinates: each concentric ring band is a trapezoid quad
+  that a 2-triangle split can only tile by picking one of its two diagonals, and every quad
+  in a ring is the same shape just rotated by the ring's own angular step — so ANY single
+  consistent diagonal choice, applied to all of them, necessarily rotates in lockstep with
+  the quads themselves. This is a real geometric windmill, not a color artifact or an
+  optical illusion, and it survives alternating the diagonal by ring parity (verified live:
+  nearly identical wireframe) or by angular position (closer, still visibly asymmetric,
+  plus an uncancelled seam wherever perRing is odd) — neither escapes the bias, they just
+  move it around. Fixed properly by fanning each quad from its own centroid (4 triangles,
+  not 2) instead of splitting it by a diagonal at all: no diagonal to choose means nothing
+  can rotate. Mirrors ring 1's original fan-from-the-true-centre, which never had this
+  problem for the same reason (a fan has no diagonal-choice ambiguity) — which is also why
+  the very centre of a coherent design always looked clean to the eye even before this fix,
+  while the outer rings visibly spiraled. Verified live: a plotted wireframe of the new
+  tessellation is now a genuinely symmetric concentric lattice with no bias in any
+  direction, and the colored render matches (checked at both a pinned hexagon and a
+  deep/high-vertex-count coherent shape). This changed the lattice cell count formula (was
+  `V*(2d-1)`, now `V*(4d-3)` for V vertices/depth d, since each band quad is 4 triangles
+  now, not 2) and, combined with the two color-state fixes above, means **any existing
+  design with geometry present and 3+ palette colors will render its geometry layer's
+  colors differently now** (positions/counts/every other layer are untouched — verified via
+  a structural-equality check with colors stripped, 900 configs) — same
+  nothing-live-yet-so-accepted tradeoff as the ratio-aware (`v3`) change below.
 - **Generators are now ratio-aware** (`GENERATOR_VERSION = 3`, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
   sizing stars off its narrow axis only), and element counts scale off canvas area relative
