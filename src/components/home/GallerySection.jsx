@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import Card from '../ui/Card';
 import FadeImage from '../ui/FadeImage';
 import HeartIcon from '../buttons/HeartIcon';
+import AnimationIcon from '../buttons/AnimationIcon';
 import { listTopLikedDesigns, listMyLikedIds, toggleLike, getThumbnailUrl } from '../../lib/designs';
-import { generateShareUrl } from '../../utils/urlConfig';
 import { useAuth } from '../../context/AuthContext';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 
@@ -46,11 +46,10 @@ export default function GallerySection() {
   }, []);
 
   // Load a saved design into the full studio -- same approach as GalleryPage.onOpen,
-  // routing to /studio's share-link query so getConfigFromUrl reconstructs it on mount.
+  // routing to its real database id so /studio's getDesignIdFromUrl/getDesign path fetches
+  // and reconstructs it on mount (see utils/urlConfig.js).
   const onOpen = design => {
-    const url = generateShareUrl(design.data);
-    const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/studio' + query, { state: { from: '/' } });
+    navigate(`/studio?id=${design.id}`, { state: { from: '/' } });
   };
 
   // Same optimistic toggle as GalleryPage.onToggleLike -- see that file for the rationale on
@@ -151,6 +150,18 @@ export default function GallerySection() {
                     className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                   />
                   <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.4)_22%,rgba(0,0,0,0.1)_40%,transparent_60%)]" />
+                  {/* Always visible, not hidden-until-hover -- see GalleryPage.jsx's own copy
+                      of this badge for why (a thumbnail alone can't distinguish an animation
+                      from a still image, and this card doesn't even show a title to fall
+                      back on). */}
+                  {design.kind === 'animation' && (
+                    <div
+                      className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 text-text backdrop-blur-sm"
+                      title="Animation"
+                    >
+                      <AnimationIcon size={12} />
+                    </div>
+                  )}
                   <div className="absolute inset-x-0 bottom-0 overflow-hidden p-3">
                     <div className="translate-y-5 transition-transform duration-300 ease-out group-hover:translate-y-0">
                       {design.profiles && (

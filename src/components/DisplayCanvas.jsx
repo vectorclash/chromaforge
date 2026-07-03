@@ -1,11 +1,12 @@
 import React from 'react';
-import { gsap } from 'gsap';
+import { gsap, TextPlugin } from 'gsap/all';
 import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
-import { getConfigFromUrl, generateShareUrl } from '../utils/urlConfig';
+import { getDesignIdFromUrl, getShareUrlPrefix, buildShareUrl } from '../utils/urlConfig';
+import { getDesign } from '../lib/designs';
 import { randomSeed } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
@@ -30,6 +31,8 @@ import ColorField from './ColorField';
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
 import logo from '../assets/images/logo.svg';
+
+gsap.registerPlugin(TextPlugin);
 
 async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
   const left        = audioBuffer.getChannelData(0);
@@ -80,6 +83,16 @@ async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
     }
   });
 }
+
+// Shape-matches a real Supabase row id (a UUID) so the share-link box's id slot always has
+// *something* the right size/shape to show the instant a save starts, rather than looking
+// like a chunk of the URL is simply missing. Also gives the "fill in" animation a consistent
+// state to animate FROM every single time (see saveToGallery's GSAP TextPlugin call) --
+// previously it animated from whatever this.shareDesignId happened to still hold from a
+// prior save, which was empty on a true first save (no visible animation at all) and a
+// stale real id on any save after a Generate click that hadn't cleared it (see
+// onGenerateButtonClick's own fix for that).
+const SHARE_LINK_ID_PLACEHOLDER = 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX';
 
 export default class DisplayCanvas extends React.Component {
   constructor(props) {
@@ -184,25 +197,43 @@ export default class DisplayCanvas extends React.Component {
       gsap.to('.controls-open', { opacity: 1, duration: DURATION_BASE, delay: 0.2 });
     }
 
-    const config = getConfigFromUrl();
-    if (config) {
-      if (config.animation && config.frames) {
-        this.setState({
-          animationMode: true,
-          isLoading: true,
-          isSaved: true,
-          generateDisabled: true,
-          animationProgress: 0
+    const designId = getDesignIdFromUrl();
+    if (designId) {
+      this.setState({ isLoading: true, generateDisabled: true });
+      getDesign(designId)
+        .then(row => {
+          this.shareUrl = buildShareUrl(designId);
+          this.shareDesignId = designId;
+          const config = row.data;
+          if (config.animation && config.frames) {
+            this.setState({
+              animationMode: true,
+              isSaved: true,
+              generateDisabled: true,
+              animationProgress: 0
+            });
+            // All frames of one animation share their generation settings (they're built
+            // in a single session with the sliders in one position), so the first frame's
+            // are the animation's.
+            this.adoptDesignSettings(config.frames[0]?.settings);
+            this.loadAnimationFromConfigs(config.frames);
+          } else {
+            this.loadImageFromUrl(config);
+          }
+        })
+        .catch(err => {
+          // A dead link (deleted design, mistyped id) shouldn't strand the user on a
+          // permanent loading state -- fall back to a fresh random design, same as
+          // visiting /studio with no query param at all. onGenerateButtonClick no-ops
+          // unless generateDisabled is currently false (it assumes it's firing from an
+          // idle state, e.g. a real click), so the generateDisabled: true set above --
+          // needed to show a loading state while the fetch was in flight -- has to be
+          // cleared first or this fallback silently does nothing and leaves the loading
+          // state stuck forever. Confirmed live: without this reset, a dead id hung on
+          // "Generating" indefinitely.
+          console.error('Failed to load shared design:', err);
+          this.setState({ generateDisabled: false }, () => this.onGenerateButtonClick());
         });
-        // All frames of one animation share their generation settings (they're built in a
-        // single session with the sliders in one position), so the first frame's are the
-        // animation's.
-        this.adoptDesignSettings(config.frames[0]?.settings);
-        this.loadAnimationFromConfigs(config.frames);
-      } else {
-        this.setState({ isLoading: true, isSaved: true });
-        this.loadImageFromUrl(config);
-      }
     } else if (this.props.initialDesign) {
       // Continuity with whatever's already "active" (e.g. the homepage hero's showcase,
       // via StudioContext.currentDesign) -- render that exact design instead of a fresh
@@ -433,32 +464,43 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  // Persist the design to the signed-in user's gallery -- the primary save action.
-  // Silently no-ops when signed out (those users can still grab an optional share link).
-  // Delegates the actual save + thumbnail upload to StudioContext.saveCurrentDesign (passed
-  // down by StudioPage), shared with the mini-generator widget's Save button.
+  // Persist the design to the signed-in user's gallery -- the primary save action. Silently
+  // no-ops when signed out -- there's no longer a share link available for an unsaved design
+  // at all (see utils/urlConfig.js), only Download. Delegates the actual save + thumbnail
+  // upload to StudioContext.saveCurrentDesign (passed down by StudioPage), shared with the
+  // mini-generator widget's Save button.
   async saveToGallery(kind, data) {
     if (!this.props.user) return;
 
     this.setState({ galleryStatus: 'saving', galleryError: null });
     try {
-      await this.props.saveCurrentDesign(kind, data);
-      this.setState({ galleryStatus: 'saved' });
-      // Pulse the confirmation in once React has actually rendered it -- same
-      // "delayedCall after setState" pattern used elsewhere in this file for exactly this
-      // (querying a class name immediately after setState can run before the DOM update
-      // it targets exists, since setState doesn't re-render synchronously). The element
-      // itself has a static opacity-0 class in the JSX below so it's already invisible
-      // the instant React mounts it -- without that, this 50ms delay meant the confirmation
-      // was fully visible first, then this fromTo yanked it to invisible before animating
-      // back in (a real, visible flash/flicker, confirmed by sampling computed opacity
-      // frame-by-frame).
+      const row = await this.props.saveCurrentDesign(kind, data);
+      // isSaved/shareUrl flip together, only once the real row (and therefore a real,
+      // permanent id to link to) exists -- see onSaveButtonClick's own comment.
+      this.shareUrl = buildShareUrl(row.id);
+      this.shareDesignId = row.id;
+      this.setState({ galleryStatus: 'saved', isSaved: true });
+      // Pulse the confirmation in, and type the id onto the share-link box's already-visible
+      // prefix, once React has actually rendered both -- same "delayedCall after setState"
+      // pattern used elsewhere in this file for exactly this (querying a class name
+      // immediately after setState can run before the DOM update it targets exists, since
+      // setState doesn't re-render synchronously). The confirmation element itself has a
+      // static opacity-0 class in the JSX below so it's already invisible the instant React
+      // mounts it -- without that, this 50ms delay meant the confirmation was fully visible
+      // first, then this fromTo yanked it to invisible before animating back in (a real,
+      // visible flash/flicker, confirmed by sampling computed opacity frame-by-frame).
+      //
+      // The id itself uses GSAP's TextPlugin (same mechanism as ProductPage.jsx's mockup
+      // status narration) rather than a fade -- it "types" onto the .share-link-id span,
+      // which the JSX below deliberately renders with no text child so the DOM's current
+      // (empty, while saving) textContent is what the tween types from.
       gsap.delayedCall(0.05, () => {
         gsap.fromTo(
           '.gallery-saved-alert',
           { opacity: 0, y: 8, scale: 0.96 },
           { duration: DURATION_BASE, opacity: 1, y: 0, scale: 1, ease: 'back.out(1.7)' }
         );
+        gsap.to('.share-link-id', { duration: 1, ease: 'none', text: this.shareDesignId });
       });
     } catch (err) {
       this.setState({ galleryStatus: null, galleryError: err.message });
@@ -638,14 +680,9 @@ export default class DisplayCanvas extends React.Component {
     const { isSaving, isSaved, animationMode } = this.state;
 
     if (isSaved) {
-      // Designs loaded via a share/gallery link arrive with isSaved already true but never
-      // went through the generation below, so this.shareUrl can still be unset here.
-      if (!this.shareUrl) {
-        const loadedData = animationMode
-          ? { animation: true, frames: this.animationConfigs.map(toCompactDesign) }
-          : toCompactDesign(this.mainConfig);
-        this.shareUrl = generateShareUrl(loadedData);
-      }
+      // isSaved is only ever set true alongside this.shareUrl -- once by init()'s
+      // getDesign() load, once by saveToGallery()'s own success handler below -- so there's
+      // no "isSaved but no shareUrl yet" case left to patch over here.
       this.openSavePanel();
       return;
     }
@@ -659,11 +696,13 @@ export default class DisplayCanvas extends React.Component {
       : !!this.mainConfig;
     if (!ready || isSaving) return;
 
-    // Gallery (DB) save is the primary action; the share link is secondary but always
-    // shown (not gated behind an extra click) -- generateShareUrl is synchronous, so this
-    // costs nothing to do eagerly.
-    this.shareUrl = generateShareUrl(data);
-    this.setState({ isSaved: true, isSaving: false, showBranchNotice: false });
+    // The gallery (DB) save is now the only source of a share link -- unlike the old
+    // generateShareUrl approach, there's no data to eagerly encode client-side anymore, so
+    // isSaved/shareUrl can't flip true until saveToGallery's real row comes back. The panel
+    // still opens immediately (openSavePanel, below) showing its own "Saving…" state
+    // (galleryStatus) in the meantime -- see the share-link box's isSaved gate in the JSX,
+    // which naturally covers this in-flight moment the same way it covers signed-out users.
+    this.setState({ showBranchNotice: false });
     this.openSavePanel();
     this.saveToGallery(kind, data); // no-ops when signed out
   }
@@ -1023,6 +1062,16 @@ export default class DisplayCanvas extends React.Component {
     if (!generateDisabled) {
       // Clear URL when generating new image
       window.history.pushState({}, '', window.location.pathname);
+      // isSaved (React state, below) isn't enough on its own -- this.shareUrl/shareDesignId
+      // are plain instance fields, so without this they'd keep pointing at whatever design
+      // was last saved/loaded, surviving straight through a brand new, never-saved
+      // generation. Confirmed live: this let the share-link box's ref callback (meant only
+      // for a design that arrived already-saved via ?id=) fire on stale data the instant the
+      // panel reopened, skipping the GSAP fill-in animation entirely -- and made the *next*
+      // save's animation look like it was transitioning from a real previous id, when it was
+      // actually transitioning from this leftover one.
+      this.shareUrl = null;
+      this.shareDesignId = null;
 
       if (animationMode) {
         // Revoke existing blob URLs to free memory
@@ -1086,15 +1135,18 @@ export default class DisplayCanvas extends React.Component {
         blobUrl: this.imageBlobUrl,
         config: this.mainConfig,
         isSaved,
-        shareUrl: this.shareUrl
+        shareUrl: this.shareUrl,
+        shareDesignId: this.shareDesignId
       };
 
       // Restore previous animation state if available
       if (this.animationModeState) {
-        const { frames, starFrames, configs, isSaved: wasSaved, shareUrl } = this.animationModeState;
+        const { frames, starFrames, configs, isSaved: wasSaved, shareUrl, shareDesignId } =
+          this.animationModeState;
         this.animationModeState = null;
         this.animationConfigs = configs;
         this.shareUrl = shareUrl || null;
+        this.shareDesignId = shareDesignId || null;
         this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
         this.setState({
           animationMode: true,
@@ -1108,6 +1160,7 @@ export default class DisplayCanvas extends React.Component {
       } else {
         this.animationConfigs = null;
         this.shareUrl = null;
+        this.shareDesignId = null;
         gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
         this.setState({
           animationMode: true,
@@ -1129,19 +1182,22 @@ export default class DisplayCanvas extends React.Component {
           starFrames: animationStarFrames,
           configs: this.animationConfigs,
           isSaved,
-          shareUrl: this.shareUrl
+          shareUrl: this.shareUrl,
+          shareDesignId: this.shareDesignId
         };
       }
       this.animationConfigs = null;
 
       // Restore previous image state if available
       if (this.imageModeState && this.imageModeState.blobUrl) {
-        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl } = this.imageModeState;
+        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl, shareDesignId } =
+          this.imageModeState;
         this.imageModeState = null;
         this.blob = blob;
         this.imageBlobUrl = blobUrl;
         this.mainConfig = config;
         this.shareUrl = shareUrl || null;
+        this.shareDesignId = shareDesignId || null;
         this.changeGradient(config.gradientBackgroundConfig.colors);
 
         const imageContainer = document.querySelector('.image-container');
@@ -1161,6 +1217,7 @@ export default class DisplayCanvas extends React.Component {
         });
       } else {
         this.shareUrl = null;
+        this.shareDesignId = null;
         this.setState({
           animationMode: false,
           animationFrames: [],
@@ -1949,7 +2006,9 @@ export default class DisplayCanvas extends React.Component {
                         <span className="text-[#a6e000]">✓ </span>Saved to your gallery
                       </h6>
                       <p className="mt-2 text-sm leading-snug text-white/60">
-                        Your design is in your gallery — view it any time or put it on a product.
+                        {animationMode
+                          ? 'Your animation is in your gallery — view it any time.'
+                          : 'Your design is in your gallery — view it any time or put it on a product.'}
                       </p>
                     </div>
                   ) : (
@@ -1967,7 +2026,8 @@ export default class DisplayCanvas extends React.Component {
                     Save your design
                   </h6>
                   <p className="mt-2 text-sm leading-snug text-white/60">
-                    Sign in to save this to your gallery — or create a share link to keep it.
+                    Sign in to save this to your gallery, or use Download to keep a copy —
+                    share links only exist for saved designs.
                   </p>
                 </>
               )}
@@ -1985,44 +2045,82 @@ export default class DisplayCanvas extends React.Component {
                   Sign in
                 </button>
               )}
-              <button onClick={() => this.props.onNavigate?.('/shop')} className="button-medium">
-                <span className="inline-flex items-center justify-center gap-1.5">
-                  <ShirtIcon size={14} /> Shop
-                </span>
-              </button>
+              {/* Animations aren't printable -- the merch pipeline expects a flat
+                  { seed, colors } design, not a frames array (same reason the Gallery hides
+                  its own "Print this" action for kind === 'animation'). Sending someone to
+                  /shop right after saving an animation would land them on a picker that
+                  correctly excludes the thing they just saved, which reads as broken rather
+                  than intentional. */}
+              {!animationMode && (
+                <button onClick={() => this.props.onNavigate?.('/shop')} className="button-medium">
+                  <span className="inline-flex items-center justify-center gap-1.5">
+                    <ShirtIcon size={14} /> Shop
+                  </span>
+                </button>
+              )}
             </div>
 
-            {/* Share link -- secondary to the gallery save, always visible (generated eagerly
-                on save, not gated behind an extra click or a separate button). The box itself
-                is the click target, with a small inline indicator on success. */}
-            <div className="mt-4">
-              <div
-                onClick={this.onDirectLinkClick.bind(this)}
-                style={{
-                  cursor: 'pointer',
-                  padding: '10px',
-                  background: 'rgba(0,0,0,0.25)',
-                  borderRadius: '4px',
-                  maxHeight: '100px',
-                  overflow: 'auto',
-                  wordBreak: 'break-all',
-                  fontSize: '12px',
-                  color: 'white'
-                }}
-              >
-                {this.shareUrl}
+            {/* Share link -- shown as soon as a save is in flight (galleryStatus === 'saving')
+                or already exists (isSaved && this.shareUrl), never for a signed-out/unsaved
+                design (saveToGallery no-ops before ever setting galleryStatus there -- see
+                that method). The url prefix (origin + pathname + "?id=") is static and always
+                visible the moment the box appears; the id itself -- and therefore the ability
+                to actually copy a working link, since onDirectLinkClick checks this.shareUrl
+                -- only exists once the real database row does. For a design that arrived
+                already-saved (loaded via ?id=) that's instant (the ref callback below sets it
+                directly, no animation, since nothing is "completing" this session). For a
+                fresh save, it's typed onto the end of the already-visible prefix via GSAP's
+                TextPlugin once saveToGallery's row comes back (see that method) -- the same
+                text-reveal mechanism ProductPage.jsx's mockup status narration uses -- rather
+                than the whole box popping in only once everything is ready. */}
+            {(galleryStatus === 'saving' || (isSaved && this.shareUrl)) && (
+              <div className="mt-4">
+                <div
+                  onClick={this.onDirectLinkClick.bind(this)}
+                  style={{
+                    cursor: this.shareUrl ? 'pointer' : 'default',
+                    opacity: this.shareUrl ? 1 : 0.5,
+                    transition: 'opacity 0.2s ease-out',
+                    padding: '10px',
+                    background: 'rgba(0,0,0,0.25)',
+                    borderRadius: '4px',
+                    maxHeight: '100px',
+                    overflow: 'auto',
+                    wordBreak: 'break-all',
+                    fontSize: '12px',
+                    color: 'white'
+                  }}
+                >
+                  {getShareUrlPrefix()}
+                  {/* Deliberately no text child here -- same reason as ProductPage.jsx's
+                      ScrambleText: TextPlugin needs the DOM's current textContent to still
+                      be there when the tween starts, and rendering the id here would let
+                      React commit it first, making the tween a same-to-same no-op. First
+                      mount always sets *something* directly (never left empty): the real id
+                      if one already exists (a design loaded via ?id=, no animation needed),
+                      otherwise the placeholder -- which saveToGallery's GSAP call then
+                      always has to animate away from, on every save, not just some. */}
+                  <span
+                    className="share-link-id"
+                    ref={el => {
+                      if (el && !el.textContent) {
+                        el.textContent = this.shareUrl ? this.shareDesignId : SHARE_LINK_ID_PLACEHOLDER;
+                      }
+                    }}
+                  />
+                </div>
+                {linkCopied && (
+                  <span className="alert mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000] opacity-0">
+                    ✓ Copied to clipboard
+                  </span>
+                )}
+                {linkCopyFailed && (
+                  <p className="mt-1.5 text-xs text-white/50">
+                    Couldn't copy automatically — select the text above and copy it manually.
+                  </p>
+                )}
               </div>
-              {linkCopied && (
-                <span className="alert mt-1.5 inline-flex items-center text-xs font-bold text-[#a6e000] opacity-0">
-                  ✓ Copied to clipboard
-                </span>
-              )}
-              {linkCopyFailed && (
-                <p className="mt-1.5 text-xs text-white/50">
-                  Couldn't copy automatically — select the text above and copy it manually.
-                </p>
-              )}
-            </div>
+            )}
 
             <div className="row">
               <button

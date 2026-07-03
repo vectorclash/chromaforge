@@ -8,6 +8,7 @@ import SkeletonGrid from '../components/ui/SkeletonGrid';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import ShirtIcon from '../components/buttons/ShirtIcon';
 import HeartIcon from '../components/buttons/HeartIcon';
+import AnimationIcon from '../components/buttons/AnimationIcon';
 import {
   listPublicDesigns,
   listMyDesigns,
@@ -16,7 +17,6 @@ import {
   deleteDesign,
   getThumbnailUrl
 } from '../lib/designs';
-import { generateShareUrl } from '../utils/urlConfig';
 import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -118,13 +118,14 @@ export default function GalleryPage() {
     }
   };
 
-  // Load a saved design into the full studio by routing to its share URL -- /studio's
-  // existing getConfigFromUrl path reconstructs it on mount. (Not "/" -- the homepage hero
-  // is the compact Generate/Save view now, not the full tool; see StudioPage's `compact`.)
+  // Load a saved design into the full studio by routing to its real database id -- /studio's
+  // getDesignIdFromUrl/getDesign path fetches and reconstructs it on mount (see
+  // utils/urlConfig.js). Every design in this list already has a real, permanent id, so
+  // there's nothing to encode -- no need for generateShareUrl's old data-in-URL approach.
+  // (Not "/" -- the homepage hero is the compact Generate/Save view now, not the full tool;
+  // see StudioPage's `compact`.)
   const onOpen = design => {
-    const url = generateShareUrl(design.data);
-    const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/studio' + query, { state: { from: '/gallery' } });
+    navigate(`/studio?id=${design.id}`, { state: { from: '/gallery' } });
   };
 
   // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage
@@ -243,6 +244,20 @@ export default function GalleryPage() {
                   className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                 />
                 <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.9)_0%,rgba(0,0,0,0.5)_28%,rgba(0,0,0,0.15)_50%,transparent_70%)]" />
+                {/* Always visible (not hidden-until-hover like the like/print/delete pill) --
+                    a thumbnail is a single still JPEG either way (see lib/designs.js's
+                    uploadDesignThumbnail), so nothing else about the image itself hints this
+                    is an animation. The title-text fallback ("Untitled animation") only
+                    covered untitled ones and only surfaced on hover; this covers every
+                    animation, titled or not, without needing to interact with the card. */}
+                {design.kind === 'animation' && (
+                  <div
+                    className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 text-text backdrop-blur-sm"
+                    title="Animation"
+                  >
+                    <AnimationIcon size={12} />
+                  </div>
+                )}
                 <div className="absolute inset-x-0 bottom-0 min-w-0 overflow-hidden p-3">
                   <div className="translate-y-5 transition-transform duration-300 ease-out group-hover:translate-y-0">
                     <span className="block truncate text-sm font-bold text-text">

@@ -4,7 +4,6 @@ import { useStudio } from '../../context/StudioContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
-import { generateShareUrl } from '../../utils/urlConfig';
 import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
 function RefreshIcon({ spinning }) {
@@ -65,10 +64,22 @@ export default function MiniGenerator({ inline = false }) {
     }
   };
 
+  // Plain navigate, no ?config= URL -- StudioPage already passes StudioContext's
+  // currentDesign through as DisplayCanvas's `initialDesign` prop on every /studio mount,
+  // so the design carries over via React state, not the URL (same pattern as
+  // DisplayCanvas's own compact "Go to studio" button). This used to build a share-style
+  // URL instead (generateShareUrl(toCompactDesign(currentDesign))), which caused two real
+  // bugs: an uncompacted currentDesign could blow past the URL length limit and throw on
+  // navigate() (fixed once by compacting first), and -- the reason it's gone now, not just
+  // patched -- DisplayCanvas.jsx's init() treats *any* design loaded via a `?config=` URL
+  // as already-saved (isSaved: true), which is correct for a real share/gallery link but
+  // wrong here: this design may never have been saved at all. Confirmed live: generating in
+  // the mini-widget without saving, then clicking through to the studio, showed "Saved"
+  // for a design that was never actually persisted. The `initialDesign` prop path
+  // DisplayCanvas already has for this exact "hand off the live design" case correctly
+  // sets isSaved: false instead.
   const onOpenStudio = () => {
-    const url = generateShareUrl(currentDesign);
-    const query = url && url.includes('?') ? url.slice(url.indexOf('?')) : '';
-    navigate('/studio' + query, { state: { from: location.pathname } });
+    navigate('/studio', { state: { from: location.pathname } });
   };
 
   // 1. Inline (Docked in Footer) Version: Horizontal Layout, buttons on left, image on right

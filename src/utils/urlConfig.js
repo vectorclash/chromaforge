@@ -1,86 +1,28 @@
-// Utility functions for encoding/decoding configuration to/from URL
-// Uses localStorage for large configs that exceed URL limits
+// Share links only ever exist for a design that's already saved to Supabase (see
+// DisplayCanvas.jsx's shareUrl construction, set only alongside isSaved: true) -- an
+// unsaved design has no permanent home to link to, and can still be kept via Download.
+// That means a share link is just `?id=<the design's real database row id>`, resolved via
+// lib/designs.js's getDesign(id): no encoding/decoding, no length limit, no localStorage
+// fallback. This replaces an earlier version that base64-encoded the full design payload
+// into the URL (with a localStorage-backed short-id fallback for oversized ones) -- that
+// approach produced multi-hundred/thousand-character URLs for animations (each frame adds
+// its own seed/colors), and the "too long" fallback wasn't a real fix anyway: a
+// localStorage-backed id only resolves on the same browser that generated it, so it could
+// never actually be shared with anyone. Real database ids are short (a UUID), have no
+// practical length ceiling regardless of frame count, and work on any device.
 
-const MAX_URL_LENGTH = 2000; // Safe limit for most browsers
-
-function generateShortId() {
-  return Math.random().toString(36).substring(2, 9);
+export function getDesignIdFromUrl() {
+  return new URLSearchParams(window.location.search).get('id');
 }
 
-export function encodeConfigToUrl(config) {
-  try {
-    const jsonString = JSON.stringify(config);
-    const base64 = btoa(jsonString);
-    // Make URL-safe by replacing characters
-    const urlSafe = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    return urlSafe;
-  } catch (error) {
-    console.error('Error encoding config:', error);
-    return null;
-  }
+// Split out from buildShareUrl so the share-link UI can show this part immediately (even
+// mid-save, before the real id exists) and reveal just the id once it's known -- see
+// DisplayCanvas.jsx's share-link box, which types the id in via GSAP's TextPlugin onto this
+// static prefix rather than swapping the whole string in at once.
+export function getShareUrlPrefix() {
+  return `${window.location.origin}${window.location.pathname}?id=`;
 }
 
-export function decodeConfigFromUrl(encoded) {
-  try {
-    // Restore base64 characters
-    let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-    // Add padding if needed
-    while (base64.length % 4) {
-      base64 += '=';
-    }
-    const jsonString = atob(base64);
-    const config = JSON.parse(jsonString);
-    return config;
-  } catch (error) {
-    console.error('Error decoding config:', error);
-    return null;
-  }
-}
-
-export function getConfigFromUrl() {
-  const urlParams = new URLSearchParams(window.location.search);
-
-  // Check for short ID first (localStorage reference)
-  const shortId = urlParams.get('id');
-  if (shortId) {
-    const stored = localStorage.getItem(`chromaforge_${shortId}`);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (error) {
-        console.error('Error loading from localStorage:', error);
-      }
-    }
-  }
-
-  // Fall back to inline config
-  const encoded = urlParams.get('config');
-  if (encoded) {
-    return decodeConfigFromUrl(encoded);
-  }
-
-  return null;
-}
-
-export function generateShareUrl(config) {
-  const encoded = encodeConfigToUrl(config);
-  if (!encoded) return null;
-
-  const baseUrl = window.location.origin + window.location.pathname;
-  const testUrl = `${baseUrl}?config=${encoded}`;
-
-  // If URL is too long, use localStorage with short ID
-  if (testUrl.length > MAX_URL_LENGTH) {
-    const shortId = generateShortId();
-    try {
-      localStorage.setItem(`chromaforge_${shortId}`, JSON.stringify(config));
-      return `${baseUrl}?id=${shortId}`;
-    } catch (error) {
-      console.error('localStorage not available, URL may be too long:', error);
-      // Fall back to long URL even though it might not work
-      return testUrl;
-    }
-  }
-
-  return testUrl;
+export function buildShareUrl(designId) {
+  return getShareUrlPrefix() + designId;
 }
