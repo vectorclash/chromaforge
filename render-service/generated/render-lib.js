@@ -135,6 +135,11 @@ function getCountScale(width, height) {
 function getSizeScale(width, height) {
   return Math.min(width, height);
 }
+var REFERENCE_ASPECT = REFERENCE_WIDTH / REFERENCE_HEIGHT;
+function getElementSizeScale(width, height) {
+  const canvasAspect = Math.max(width, height) / Math.min(width, height);
+  return getSizeScale(width, height) * (canvasAspect / REFERENCE_ASPECT) ** 2;
+}
 
 // ../src/components/Canvas/GenerateLargeRadialField.js
 var GenerateLargeRadialField = class {
@@ -208,7 +213,7 @@ var GenerateStarField = class {
     let config = {};
     config.width = width;
     config.height = height;
-    let sizeScale = getSizeScale(width, height);
+    let sizeScale = getElementSizeScale(width, height);
     let countScale = getCountScale(width, height);
     let gradientComplexity = Math.round(rng() * 4);
     let gradientConfig = new GenerateLinearGradient(
@@ -321,9 +326,10 @@ var GenerateGeometricShape = class {
     this.rng = rng;
     this.colors = colors;
     this.shapeVertices = geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
-    this.shapeDepth = 2 + Math.round(rng() * 4);
+    const maxShapeDepth = 6 - Math.round(2 * geometry.coherence);
+    this.shapeDepth = 2 + Math.round(rng() * (maxShapeDepth - 2));
     this.shapeAng = 360 / this.shapeVertices;
-    const chaoticSize = 150 + Math.round(rng() * getSizeScale(width, height) / 3);
+    const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height) / 3);
     const coherentSize = getSizeScale(width, height) * 0.375 / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
     this.points = this.pointsArray(this.shapeSize);

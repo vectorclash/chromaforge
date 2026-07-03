@@ -9,8 +9,18 @@ export default class GenerateLargeRadialField {
     config.width = width;
     config.height = height;
 
-    // Sized off the smaller dimension, same reasoning as GenerateStarField -- see
-    // render/scale.js.
+    // Deliberately plain getSizeScale (min-based), NOT getElementSizeScale -- these blobs
+    // are the composition's main color-carrying layer (the big saturated "glow" regions),
+    // and getElementSizeScale's aspect-ratio correction (built for the chaotic-geometry
+    // layer's "few huge dominant triangles" problem, see that formula's own comments) was
+    // never actually verified for this layer before being applied here too. Confirmed live,
+    // after a real complaint of "losing color depth" on a shirt panel: the correction was
+    // shrinking these blobs on portrait canvases (down to ~400px from an original ~780px on
+    // a 1556x2000 panel) while growing them on landscape ones (up to ~1160px from ~560px) --
+    // exactly backwards from what a color-depth-carrying layer wants, and not something the
+    // original "zoomed in" complaint was ever about (that was specifically the chaotic
+    // triangles overlapping into flat color blocks, not this layer). Plain min(w,h) is what
+    // this class used before any of that tuning and is what actually looked right here.
     config.radGradSize = getSizeScale(width, height) / 2;
 
     // `amount` (the loop trip count) is computed unscaled -- exactly one rng() draw,

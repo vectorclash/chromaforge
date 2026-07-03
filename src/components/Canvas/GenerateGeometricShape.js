@@ -1,6 +1,6 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
-import { getCountScale, getSizeScale } from '../../render/scale';
+import { getCountScale, getSizeScale, getElementSizeScale } from '../../render/scale';
 import { getGeometrySettings } from '../../render/designSettings';
 
 export default class GenerateGeometricShape {
@@ -18,20 +18,32 @@ export default class GenerateGeometricShape {
 
     this.shapeVertices =
       geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
-    this.shapeDepth = 2 + Math.round(rng() * 4);
+    // Ring count (shapeDepth): 2-6 at coherence 0 (unchanged from before coherence existed --
+    // chaotic triangles hide the ring structure, so more rings never looked odd there), reined
+    // in to 2-4 at full coherence, where every ring is a fully visible band and 5-6 of them
+    // packed inside the fixed coherentSize clearance below reads as too busy/thin. Interpolated
+    // linearly so partial coherence isn't a hard cutoff. Still exactly one rng() draw regardless
+    // of coherence, preserving the "settings-dependent rng() consumption is size-independent"
+    // invariant the rest of this generator depends on.
+    const maxShapeDepth = 6 - Math.round(2 * geometry.coherence);
+    this.shapeDepth = 2 + Math.round(rng() * (maxShapeDepth - 2));
     this.shapeAng = 360 / this.shapeVertices;
-    // Sized off the smaller dimension, not width alone (see render/scale.js) -- the "width *
-    // height / (height * 3)" this replaces algebraically reduced to just "width / 3" anyway,
-    // so this wasn't the area-based formula it looked like. The "150 +" floor is left as an
+    // Orientation-independent (see render/scale.js's getElementSizeScale) -- chaotic shapes
+    // have no containment requirement (unlike coherentSize below), so there's no reason to
+    // anchor their size to the short axis only, which was making them relatively bigger on
+    // near-square/portrait canvases than on wide ones. The "150 +" floor is left as an
     // intentional absolute minimum (avoids degenerate near-zero shapes at tiny sizes), not
-    // part of the aspect-ratio bug this fixes.
-    const chaoticSize = 150 + Math.round((rng() * getSizeScale(width, height)) / 3);
+    // part of the aspect-ratio behavior this changes.
+    const chaoticSize = 150 + Math.round((rng() * getElementSizeScale(width, height)) / 3);
     // At full coherence the whole lattice (radius = shapeSize * shapeDepth, drawn from the
     // canvas centre) must sit inside the visible design with clearance on all sides: 75% of
-    // the short dimension's half, i.e. a 12.5% margin at the closest edge. In between,
-    // interpolate -- the chaotic size can be far larger than the canvas (that off-screen
-    // bleed IS the chaos), so raising coherence steadily reins it in. Pure arithmetic on
-    // the single draw above; no rng() consumption depends on the coherence value here.
+    // the short dimension's half, i.e. a 12.5% margin at the closest edge. This is a hard
+    // containment requirement, so it deliberately keeps using getSizeScale (min(w,h)), not
+    // getElementSizeScale -- switching it would let the polygon bleed past the short axis
+    // on non-square canvases. In between, interpolate -- the chaotic size can be far larger
+    // than the canvas (that off-screen bleed IS the chaos), so raising coherence steadily
+    // reins it in. Pure arithmetic on the single draw above; no rng() consumption depends on
+    // the coherence value here.
     const coherentSize = (getSizeScale(width, height) * 0.375) / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
 

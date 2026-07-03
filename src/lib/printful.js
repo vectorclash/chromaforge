@@ -247,9 +247,20 @@ export function resolvePlacementEntries(printfileSpecs, variant, placementFilter
 
 // Mockups are previews, not the final print file -- cap render size well below Printful's
 // real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
-// limit. v1 checkout reuses this same cap (true print-resolution rendering is a later,
-// separate phase -- see CLAUDE.md).
-const RENDER_CAP = 1200;
+// limit. Real checkout renders at true print resolution instead (renderPrintFileStrategy,
+// below), uncapped.
+//
+// Bumped from 1200 after a live comparison showed the preview reading as noticeably sparser
+// than the actual print: at 1200, a 4200x5400 shirt front panel renders at a capped 933x1200,
+// which (see render/scale.js's getCountScale) keeps only ~37% of the generator's
+// reference-tuned element count -- while the real, uncapped 4200x5400 print keeps all of it
+// (its own count-scale factor already exceeds 1). That's a ~4.5x density gap between what a
+// customer previews and what they'd actually receive, on top of (and independent from) the
+// aspect-ratio-driven size differences getElementSizeScale addresses. 2000 narrows that gap
+// substantially (~61% of reference count for the same panel) while staying well under the
+// iOS canvas limit even for the largest catalog printfiles (6000x6000 capped at 2000 is still
+// only 4 Mpx, versus the ~16.7 Mpx ceiling).
+const RENDER_CAP = 2000;
 
 // A placement counts as "front" for settings.geometry.frontOnly purposes -- t-shirts use
 // 'default' for their front placement, every other product here uses 'front' (see
