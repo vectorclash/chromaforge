@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Makes a horizontally-scrollable strip follow the cursor's position instead of requiring
 // an explicit scroll/drag gesture to discover it has more content -- hovering near the
@@ -6,30 +6,39 @@ import { useCallback, useRef } from 'react';
 // engages on real pointer devices (`hover: hover` + `pointer: fine`); touch devices are
 // untouched since native swipe-scrolling there is already the intuitive gesture.
 //
+// `enabled` lets a caller hold off engaging this until its content has actually settled --
+// e.g. ProductPage's artwork strip appends a batch of saved-design thumbnails after an async
+// fetch, each fading/sliding in with a stagger (see tailwind.css's fade-slide-up). Without
+// gating, a user hovering near an edge at that exact moment gets the auto-scroll animating
+// scrollLeft at the same time new items are sliding into the strip -- confirmed live to read
+// as genuinely messy, not just a one-off glitch. Passing `enabled={false}` while the caller's
+// content is still loading, then flipping it true once settled, avoids that collision. Kept
+// as a boolean rather than tracking "loaded" internally since only the caller knows what
+// "settled" means for its own content.
+//
 // Returns a callback ref (not a plain ref object) deliberately: the strip this attaches to
 // is often behind a loading/data-fetch gate, so the DOM node doesn't exist on first render.
-// A `useEffect([ref])` would only ever see `ref.current === null` on that first render and
-// never re-fire once the real node mounts, since the ref *object's* identity never changes.
-// A callback ref is invoked by React exactly when the node attaches/detaches, sidestepping
-// that timing gap entirely.
-export function useHoverScroll() {
+// Backed by useState (not useRef) so the effect below can react to the node actually
+// attaching, and can re-run when `enabled` flips after the node is already mounted.
+export function useHoverScroll(enabled = true) {
+  const [el, setEl] = useState(null);
   const targetRef = useRef(0);
-  const cleanupRef = useRef(null);
 
-  return useCallback(el => {
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-    if (!el) return;
-    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  const ref = useCallback(node => setEl(node), []);
+
+  useEffect(() => {
+    if (!el || !enabled) return undefined;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return undefined;
 
     targetRef.current = el.scrollLeft;
 
     // The outer 12% of either edge snaps fully to that end -- without this, reaching the
     // true min/max scroll needs the cursor at the exact pixel edge of the strip, which
     // never quite happens in practice, so the last item could never cleanly settle into
-    // view. The middle 76% still maps proportionally, just rescaled to fill 0..1.
+    // view. The middle 76% still maps proportionally, just rescaled to fill 0..1. (A wider
+    // 18% snap zone + halved speed was tried and reverted -- confirmed live it read as
+    // unnatural and made the strip feel like it never fully reached the left edge, since
+    // the slower easing just took too long to visually converge.)
     //
     // The right edge targets a small overshoot past the true max (not the full
     // el.scrollWidth) -- scrollWidth minus clientWidth is an unreliable way to compute the
@@ -82,9 +91,11 @@ export function useHoverScroll() {
     rafId = requestAnimationFrame(tick);
 
     el.addEventListener('mousemove', onMouseMove);
-    cleanupRef.current = () => {
+    return () => {
       el.removeEventListener('mousemove', onMouseMove);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [el, enabled]);
+
+  return ref;
 }

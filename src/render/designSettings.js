@@ -55,3 +55,19 @@ export function isSameSettings(a, b) {
   const gb = getGeometrySettings(b);
   return Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(key => ga[key] === gb[key]);
 }
+
+// Two designs are "the same" if they'd regenerate identical artwork -- same seed, same
+// palette, same generation settings -- regardless of whether they're literally the same
+// object in memory (a saved design is always a distinct compacted object from whatever full
+// generateArtwork() output produced it). Lives here (not StudioContext.jsx, where it
+// originated) because mixing a plain function export in with a file that also exports a
+// React hook (useStudio) breaks Vite's Fast Refresh boundary for that file -- confirmed live
+// via the dev server's "Could not Fast Refresh" HMR warning once both were exported
+// together. This file already has no React exports, so it's a clean, correct home.
+export function isSameDesign(a, b) {
+  if (!a || !b || a.seed !== b.seed) return false;
+  const ac = a.colors || [];
+  const bc = b.colors || [];
+  if (!(ac.length === bc.length && ac.every((c, i) => c === bc[i]))) return false;
+  return isSameSettings(a.settings, b.settings);
+}

@@ -16,6 +16,7 @@ import {
 import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
 import { useStudio } from '../context/StudioContext';
+import { isSameDesign } from '../render/designSettings';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import { useHoverScroll } from '../hooks/useHoverScroll';
@@ -33,22 +34,118 @@ const STATUS_LABEL = {
 // well past its typical 30-90s (the track jacket's automatic retry, see useMockup, can
 // roughly double it) -- silence past that estimate reads as "broken," so this narrates
 // progress the whole way through. Voice is deliberately a bit Data-from-TNG: precise,
-// faintly amused by the concept of waiting, never breaks character. Ordered by elapsed
-// seconds; statusNarration below picks the latest entry that's been reached, so it reads
-// as one continuous narration rather than a random rotation, and gracefully holds on the
-// last line for runs that go long.
+// faintly amused by the concept of waiting, never breaks character -- but the composure
+// thins as elapsed time grows, from crisp status reports early on to thinly-veiled concern
+// by the later thresholds. Ordered by elapsed seconds; statusNarration below picks the
+// latest threshold that's been reached, then one line at random from that threshold's
+// `texts` (memoized per run so it doesn't reshuffle every second -- see narrationPicksRef),
+// so repeat/long generations don't recite the exact same script twice, and gracefully holds
+// on a random line from the last threshold for runs that go long.
 const STATUS_TIMELINE = [
-  { at: 0, text: 'Initiating mockup sequence.' },
-  { at: 6, text: 'Rendering your artwork at full resolution. A trivial calculation.' },
-  { at: 14, text: "Transmitting to Printful's production servers." },
-  { at: 22, text: 'Calculating optimal seam and panel alignment.' },
-  { at: 32, text: 'Cross-referencing thousands of known textile patterns. None match yours precisely.' },
-  { at: 45, text: 'Compiling photographic angles of the finished garment.' },
-  { at: 60, text: 'Running within expected parameters, though slightly behind my initial estimate.' },
-  { at: 80, text: 'Apologies for the delay -- the production servers appear to require additional time.' },
-  { at: 105, text: 'I assure you: I have not malfunctioned. Still computing.' },
-  { at: 135, text: 'Curious. This is taking longer than most prior attempts. Continuing regardless.' },
-  { at: 165, text: 'Patience, I am told, is a virtue. I am simulating it admirably.' }
+  {
+    at: 0,
+    texts: [
+      'Initiating mockup sequence.',
+      'Beginning mockup generation. Standby.',
+      'Sequence initiated. Compiling initial parameters.'
+    ]
+  },
+  {
+    at: 6,
+    texts: [
+      'Rendering your artwork at full resolution. A trivial calculation.',
+      'Composing final pixel values from your seed. Elementary, but not instantaneous.',
+      'Resolving your design to production resolution.'
+    ]
+  },
+  {
+    at: 14,
+    texts: [
+      "Transmitting to Printful's production servers.",
+      'Uploading the rendered artwork now.',
+      "Handing your design off to the print pipeline."
+    ]
+  },
+  {
+    at: 22,
+    texts: [
+      'Calculating optimal seam and panel alignment.',
+      "Mapping your artwork onto the garment's cut pattern.",
+      'Aligning print placement across each panel.'
+    ]
+  },
+  {
+    at: 32,
+    texts: [
+      'Cross-referencing thousands of known textile patterns. None match yours precisely.',
+      'Comparing against the production catalog. Yours remains unique.',
+      'Consulting the pattern library. No duplicates found, as expected.'
+    ]
+  },
+  {
+    at: 45,
+    texts: [
+      'Compiling photographic angles of the finished garment.',
+      'Assembling mockup renders from several camera angles.',
+      'Generating preview photography of the finished product.'
+    ]
+  },
+  {
+    at: 60,
+    texts: [
+      'Running within expected parameters, though slightly behind my initial estimate.',
+      'This is taking marginally longer than projected. Continuing.',
+      'A minor deviation from the expected timeline. Nothing concerning, yet.'
+    ]
+  },
+  {
+    at: 80,
+    texts: [
+      'Apologies for the delay -- the production servers appear to require additional time.',
+      'The servers are proving more deliberate than usual today.',
+      'I did not anticipate this particular delay. Recalibrating expectations.'
+    ]
+  },
+  {
+    at: 105,
+    texts: [
+      'I assure you: I have not malfunctioned. Still computing.',
+      'Rest assured, no errors have been detected. Merely a slow process.',
+      'I remain operational. The wait, regrettably, does not.'
+    ]
+  },
+  {
+    at: 135,
+    texts: [
+      'Curious. This is taking longer than most prior attempts. Continuing regardless.',
+      'This exceeds ninety-seven percent of previous run times. Noted, with mild concern.',
+      'I am now genuinely curious what the servers are doing over there.'
+    ]
+  },
+  {
+    at: 165,
+    texts: [
+      'Patience, I am told, is a virtue. I am simulating it admirably.',
+      'I confess a small degree of concern is now warranted. Continuing to monitor.',
+      'This is unusual. I wanted that noted for the record.'
+    ]
+  },
+  {
+    at: 200,
+    texts: [
+      'This is now well outside normal parameters. I remain hopeful.',
+      'I have double-checked my calculations. The delay is not mine.',
+      'If I possessed the capacity to worry, I imagine this is what it would feel like.'
+    ]
+  },
+  {
+    at: 240,
+    texts: [
+      'I recommend against abandoning hope. Not yet, at least.',
+      'Still no response from the production servers. Still trying.',
+      'I will keep you informed the moment anything changes. Anything at all.'
+    ]
+  }
 ];
 
 // Glues the last two words together with a non-breaking space so the final wrapped
@@ -60,13 +157,21 @@ function preventOrphan(text) {
   return text.slice(0, lastSpace) + ' ' + text.slice(lastSpace + 1);
 }
 
-function statusNarration(elapsedSeconds) {
-  let line = STATUS_TIMELINE[0].text;
-  for (const entry of STATUS_TIMELINE) {
-    if (entry.at > elapsedSeconds) break;
-    line = entry.text;
+// `picks` is a Map (one per generation run, see narrationPicksRef below) caching which line
+// was rolled for each threshold index the first time it's reached -- without it, re-picking
+// randomly on every one-second tick would make the line flicker between options instead of
+// holding steady until the next threshold.
+function statusNarration(elapsedSeconds, picks) {
+  let idx = 0;
+  for (let i = 0; i < STATUS_TIMELINE.length; i++) {
+    if (STATUS_TIMELINE[i].at > elapsedSeconds) break;
+    idx = i;
   }
-  return preventOrphan(line);
+  if (!picks.has(idx)) {
+    const options = STATUS_TIMELINE[idx].texts;
+    picks.set(idx, options[Math.floor(Math.random() * options.length)]);
+  }
+  return preventOrphan(picks.get(idx));
 }
 
 // Decodes each STATUS_TIMELINE line in via GSAP's ScrambleTextPlugin instead of an instant
@@ -93,7 +198,18 @@ function ScrambleText({ text, className }) {
     gsap.to(el, {
       duration: 1,
       ease: 'none',
-      text: text
+      text: text,
+      // TextPlugin's own final render silently collapses the non-breaking space (U+00A0)
+      // preventOrphan() glues the last two words with -- confirmed live via a char-code
+      // dump of el.textContent after the tween: it types the string through an
+      // innerHTML/whitespace-normalizing path that turns U+00A0 back into a plain U+0020,
+      // so the orphan guard was never actually surviving this tween -- only the very first
+      // line ever shown (set via direct textContent assignment above, not this tween) had
+      // it. Forcing the exact source string back on once the tween settles guarantees the
+      // steady-state text matches what preventOrphan produced.
+      onComplete: () => {
+        el.textContent = text;
+      }
     });
     return () => gsap.killTweensOf(el);
   }, [text]);
@@ -134,6 +250,19 @@ export default function ProductPage() {
   const [checkoutNotice, setCheckoutNotice] = useState(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
 
+  // One random narration line per STATUS_TIMELINE threshold, rolled lazily as each is first
+  // reached (see statusNarration) and cleared at the start of every new mockup run so back-
+  // to-back generations don't always recite the exact same script. 'rendering' is always the
+  // first busy status useMockup's generate() sets, so that's the transition to key off.
+  const narrationPicksRef = useRef(new Map());
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    if (status === 'rendering' && prevStatusRef.current !== 'rendering') {
+      narrationPicksRef.current = new Map();
+    }
+    prevStatusRef.current = status;
+  }, [status]);
+
   // Stripe bounces back here with ?checkout=canceled on cancel_url -- no dedicated cancel
   // page, just surface it through the existing checkoutNotice mechanism.
   useEffect(() => {
@@ -152,7 +281,23 @@ export default function ProductPage() {
   const [queuedChoice, setQueuedChoice] = useState(null);
   const [selectedKey, setSelectedKey] = useState('current');
   const consumedQueueRef = useRef(false);
-  const artworkStripRef = useHoverScroll();
+
+  // Holds off the artwork strip's hover-driven auto-scroll (see useHoverScroll) until the
+  // saved-designs fetch has resolved AND the resulting batch of thumbnails has finished its
+  // staggered fade-slide-up entrance (up to 500ms delay + 500ms duration, see
+  // tailwind.css) -- engaging it any earlier meant a user hovering near an edge right as
+  // designs finished loading got the auto-scroll animating scrollLeft at the same time new
+  // items were still sliding into the strip, which read as genuinely messy.
+  const [artworkStripSettled, setArtworkStripSettled] = useState(!myDesignsLoading);
+  useEffect(() => {
+    if (myDesignsLoading) {
+      setArtworkStripSettled(false);
+      return;
+    }
+    const timer = setTimeout(() => setArtworkStripSettled(true), 1000);
+    return () => clearTimeout(timer);
+  }, [myDesignsLoading]);
+  const artworkStripRef = useHoverScroll(artworkStripSettled);
 
   // Fetch product detail + printfile specs.
   useEffect(() => {
@@ -181,12 +326,19 @@ export default function ProductPage() {
   }, [productId]);
 
   // Consume the Gallery's queued "Print this" design exactly once -- StudioContext clears
-  // it right after so it doesn't silently reapply on a later visit.
+  // it right after so it doesn't silently reapply on a later visit. Animations are rejected
+  // here too, not just left to Gallery hiding its own "Print this" button for them -- the
+  // mockup pipeline expects a flat { seed, colors } design, not a frames array, so a queued
+  // animation would otherwise reach renderDesignBlob with the wrong shape.
+  // Belt and suspenders: the Gallery UI is the only path that can set this today, but this
+  // hand-off shouldn't rely on staying in sync with every future caller of setPrintQueueDesign.
   useEffect(() => {
     if (consumedQueueRef.current || !printQueueDesign) return;
     consumedQueueRef.current = true;
-    setQueuedChoice(printQueueDesign);
-    setSelectedKey('queued');
+    if (printQueueDesign.kind !== 'animation') {
+      setQueuedChoice(printQueueDesign);
+      setSelectedKey('queued');
+    }
     setPrintQueueDesign(null);
   }, [printQueueDesign, setPrintQueueDesign]);
 
@@ -232,6 +384,16 @@ export default function ProductPage() {
       : []),
     ...myDesigns
       .filter(d => !queuedChoice || d.id !== queuedChoice.id)
+      // Drop a saved design that's identical (seed/colors/settings) to the live studio
+      // design already shown as "Current studio design" above -- without this, saving from
+      // the studio and landing here straight after showed the same artwork twice: once as
+      // the live 480x480 preview (StudioContext's PREVIEW_SIZE), once as the just-uploaded
+      // 320x320 stored thumbnail (THUMBNAIL_SIZE). Both are legitimate recompose-per-ratio
+      // renders of the identical seed at genuinely different resolutions (see scale.js's
+      // getCountScale -- a smaller canvas keeps a smaller slice of the same generated
+      // element set), so they're subtly different images of what's actually one design,
+      // which read as confusing duplicates rather than the same choice shown twice.
+      .filter(d => !isSameDesign(currentDesign, d.data))
       .map(d => ({
         key: d.id,
         label: d.title || 'Untitled',
@@ -409,7 +571,7 @@ export default function ProductPage() {
                     <HexagonLoader />
                     <p className="text-sm font-bold">{STATUS_LABEL[status]}</p>
                     <ScrambleText
-                      text={statusNarration(elapsedSeconds)}
+                      text={statusNarration(elapsedSeconds, narrationPicksRef.current)}
                       className="max-w-xs text-xs text-text-secondary"
                     />
                     <p className="font-mono text-[11px] text-text-muted">{elapsedSeconds}s elapsed</p>

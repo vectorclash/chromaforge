@@ -3,7 +3,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
-import { isSameSettings } from '../render/designSettings';
+import { isSameDesign } from '../render/designSettings';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -25,21 +25,6 @@ import s2 from '../assets/images/star-sprite-small.png';
 
 const PREVIEW_SIZE = 480;
 const THUMBNAIL_SIZE = 320;
-
-// Two designs are "the same" if they'd regenerate identical artwork -- same seed, same
-// palette, same generation settings -- regardless of whether they're literally the same
-// object in memory (a saved design is always a distinct compacted object from whatever full
-// generateArtwork() output produced it). See isCurrentDesignSaved's own comment for why
-// reference equality was wrong. Settings joined this comparison when the geometry sliders
-// landed: the same seed at different settings renders differently, so treating them as one
-// design would wrongly show "Saved" after tweaking a slider on an already-saved design.
-function isSameDesign(a, b) {
-  if (!a || !b || a.seed !== b.seed) return false;
-  const ac = a.colors || [];
-  const bc = b.colors || [];
-  if (!(ac.length === bc.length && ac.every((c, i) => c === bc[i]))) return false;
-  return isSameSettings(a.settings, b.settings);
-}
 
 const StudioContext = createContext(null);
 
