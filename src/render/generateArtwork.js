@@ -38,16 +38,29 @@ function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
 
-// generateArtwork(seed, width, height, colorValues, settings) -> composition config.
-// The stored design is just { generatorVersion, seed, colors, settings? }; everything else
-// here is derived deterministically and can be regenerated at any (width, height).
-// `settings` (see render/designSettings.js) is part of a design's identity the same way
-// seed/colors are -- the same seed with different settings is a different design. At the
-// default settings, output is byte-identical to the pre-settings generator (same rng()
-// draws throughout), so absent-settings designs are unaffected and GENERATOR_VERSION
-// stays at 3. Settings values must never vary rng() consumption BY SIZE (they're
-// size-independent inputs, so they can't) -- see render/scale.js for why that matters.
-export function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null) {
+// generateArtwork(seed, width, height, colorValues, settings, renderContext) -> composition
+// config. The stored design is just { generatorVersion, seed, colors, settings? };
+// everything else here is derived deterministically and can be regenerated at any
+// (width, height). `settings` (see render/designSettings.js) is part of a design's identity
+// the same way seed/colors are -- the same seed with different settings is a different
+// design. At the default settings, output is byte-identical to the pre-settings generator
+// (same rng() draws throughout), so absent-settings designs are unaffected and
+// GENERATOR_VERSION stays at 3. Settings values must never vary rng() consumption BY SIZE
+// (they're size-independent inputs, so they can't) -- see render/scale.js for why that
+// matters. `renderContext` is deliberately NOT part of a design's identity/persistence --
+// it's caller-supplied context about *this particular render* (currently just
+// isFrontPlacement, for settings.geometry.frontOnly -- see printful.js's
+// renderAndUploadPrintFiles, the only caller that knows which merch placement is being
+// rendered). Defaults to front so every other caller (studio canvas, thumbnails, share
+// links) is unaffected.
+export function generateArtwork(
+  seed = randomSeed(),
+  width,
+  height,
+  colorValues = [],
+  settings = null,
+  { isFrontPlacement = true } = {}
+) {
   const rng = makeRng(seed);
 
   const config = {
@@ -100,7 +113,11 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
     // keeps a size-scaled subset -- see its own comment for why the trip count can't vary
     // by size directly.
     let shapeNum = 10 + Math.round(rng() * 30);
-    config.geometryConfig = new GenerateGeometricShape(
+    // Constructed unconditionally (same rng() consumption whether or not it ends up
+    // attached below) so a frontOnly design's front and non-front placements stay
+    // rng-aligned with each other -- same discipline as geometryChance's unconditional
+    // draw above.
+    const geometryConfig = new GenerateGeometricShape(
       width,
       height,
       shapeNum,
@@ -108,6 +125,9 @@ export function generateArtwork(seed = randomSeed(), width, height, colorValues 
       rng,
       settings
     );
+    if (!(geometry.frontOnly && !isFrontPlacement)) {
+      config.geometryConfig = geometryConfig;
+    }
   }
 
   let overlayChance = rng();

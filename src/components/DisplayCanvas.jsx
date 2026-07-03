@@ -113,6 +113,10 @@ export default class DisplayCanvas extends React.Component {
       geometrySettings: { ...DEFAULT_GEOMETRY_SETTINGS },
       galleryStatus: null,
       galleryError: null,
+      // One-time notice: the first time a *loaded* design (isSaved was true) diverges via a
+      // geometry setting change, tell the user editing branches a new design rather than
+      // touching the one they opened -- see onGeometrySettingChange.
+      showBranchNotice: false,
     };
     this.nextColorId = 0;
   }
@@ -141,7 +145,7 @@ export default class DisplayCanvas extends React.Component {
       this.props.initialDesign !== prevProps.initialDesign &&
       this.props.initialDesign !== this.mainConfig
     ) {
-      this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+      this.setState({ isLoading: true, generateDisabled: true, isSaved: false, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
@@ -205,7 +209,7 @@ export default class DisplayCanvas extends React.Component {
       // random one, so expanding into the full tool doesn't swap the artwork out from
       // under the user. Same seed + colors is a pure function (generateArtwork), so this
       // reproduces it pixel-for-pixel rather than approximating it.
-      this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
+      this.setState({ isLoading: true, generateDisabled: true, isSaved: false, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
@@ -659,7 +663,7 @@ export default class DisplayCanvas extends React.Component {
     // shown (not gated behind an extra click) -- generateShareUrl is synchronous, so this
     // costs nothing to do eagerly.
     this.shareUrl = generateShareUrl(data);
-    this.setState({ isSaved: true, isSaving: false });
+    this.setState({ isSaved: true, isSaving: false, showBranchNotice: false });
     this.openSavePanel();
     this.saveToGallery(kind, data); // no-ops when signed out
   }
@@ -961,9 +965,22 @@ export default class DisplayCanvas extends React.Component {
   // StudioContext.isSameDesign), so the result counts as unsaved. In animation mode a
   // regenerate means rebuilding every frame (a 30s+ job), so there it only marks settings
   // dirty -- the same "regenerate to apply" notice the video settings already use.
+  //
+  // isSaved flips false here immediately (not just later inside regenerateCurrentSeed) so
+  // a burst of slider ticks within one debounce window only ever sees the "was this saved"
+  // transition once -- wasSaved, captured before the flip, is what gates showBranchNotice.
+  // Because it's derived from a real state transition rather than a separate remembered
+  // flag, it naturally fires exactly once per saved-design edit: the same design's next
+  // slider tick already has isSaved === false, and a freshly loaded/saved design starts
+  // this cycle over again.
   onGeometrySettingChange(patch) {
+    const wasSaved = this.state.isSaved;
     this.setState(
-      s => ({ geometrySettings: { ...s.geometrySettings, ...patch } }),
+      s => ({
+        geometrySettings: { ...s.geometrySettings, ...patch },
+        isSaved: false,
+        showBranchNotice: s.showBranchNotice || wasSaved
+      }),
       () => {
         if (this.state.animationMode) {
           this.setState({ settingsDirty: true });
@@ -973,6 +990,10 @@ export default class DisplayCanvas extends React.Component {
         this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
       }
     );
+  }
+
+  onDismissBranchNotice() {
+    this.setState({ showBranchNotice: false });
   }
 
   regenerateCurrentSeed() {
@@ -1025,6 +1046,7 @@ export default class DisplayCanvas extends React.Component {
           generateDisabled: true,
           isLoading: true,
           isSaved: false,
+          showBranchNotice: false,
           animationFrames: [],
           animationStarFrames: [],
           animationProgress: 0,
@@ -1042,7 +1064,8 @@ export default class DisplayCanvas extends React.Component {
         this.setState({
           isLoading: true,
           generateDisabled: true,
-          isSaved: false
+          isSaved: false,
+          showBranchNotice: false
         });
 
         const config = this.buildConfig();
@@ -1471,6 +1494,7 @@ export default class DisplayCanvas extends React.Component {
       geometrySettings,
       galleryStatus,
       galleryError,
+      showBranchNotice,
     } = this.state;
 
     // `user` now comes from the auth provider via props (StudioPage), not local state.
@@ -1631,6 +1655,18 @@ export default class DisplayCanvas extends React.Component {
               {animationMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
                 <div className="settings-dirty-notice">
                   Regenerate to apply new settings
+                </div>
+              )}
+              {showBranchNotice && (
+                <div className="branch-notice">
+                  <span>Editing creates a new design — your saved version is unchanged.</span>
+                  <button
+                    onClick={this.onDismissBranchNotice.bind(this)}
+                    aria-label="Dismiss"
+                    className="branch-notice-dismiss"
+                  >
+                    ×
+                  </button>
                 </div>
               )}
               <div className="row">
@@ -1822,6 +1858,23 @@ export default class DisplayCanvas extends React.Component {
                       this.onGeometrySettingChange({ coherence: Number(e.target.value) / 100 })
                     }
                   />
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Front Panel Only
+                    <span className="settings-label-note"> (merch prints)</span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (geometrySettings.frontOnly ? ' on' : '')}
+                    onClick={() =>
+                      this.onGeometrySettingChange({ frontOnly: !geometrySettings.frontOnly })
+                    }
+                    aria-label={
+                      geometrySettings.frontOnly ? 'Front panel only: on' : 'Front panel only: off'
+                    }
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
                 </div>
               </>
             )}

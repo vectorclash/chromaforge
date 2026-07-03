@@ -66,7 +66,7 @@ Deno.serve(async req => {
   const userId = userData.id;
 
   const body = await req.json();
-  const { design, width, height, label } = body;
+  const { design, width, height, label, isFrontPlacement } = body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
       { error: { message: "Missing required fields: design.seed, design.generatorVersion, width, height" } },
@@ -102,7 +102,12 @@ Deno.serve(async req => {
         settings: design.settings ?? null,
         width,
         height,
-        generatorVersion: design.generatorVersion
+        generatorVersion: design.generatorVersion,
+        // Render context, not design identity -- defaults to front (see
+        // generateArtwork.js's renderContext param) so callers that don't know about
+        // placements (there aren't any today besides lib/printful.js) get today's
+        // behavior unchanged.
+        isFrontPlacement: isFrontPlacement !== false
       })
     });
   } catch {

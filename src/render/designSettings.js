@@ -22,7 +22,14 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // 0 = fully chaotic (unbounded size, random unrecognizable triangles, panels mostly
   // unfilled); 1 = a clean regular polygon, every lattice cell filled, sized to sit fully
   // inside the canvas with clearance on all sides.
-  coherence: 0
+  coherence: 0,
+  // When true, the geometry layer is suppressed on any render explicitly marked as a
+  // non-front placement (see generateArtwork's isFrontPlacement render-context flag) --
+  // useful for full-coherence's centered "gem" shape, which looks fine on a front panel
+  // but odd on a narrow print placement like a sleeve. Renders that don't pass placement
+  // context (the main studio canvas, thumbnails, share links) default to front, so this
+  // never affects anything outside the merch print/mockup pipeline.
+  frontOnly: false
 };
 
 // Resolve a design's stored `settings` (possibly missing/partial) to a full geometry

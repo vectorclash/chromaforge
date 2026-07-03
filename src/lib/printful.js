@@ -251,23 +251,39 @@ export function resolvePlacementEntries(printfileSpecs, variant, placementFilter
 // separate phase -- see CLAUDE.md).
 const RENDER_CAP = 1200;
 
+// A placement counts as "front" for settings.geometry.frontOnly purposes -- t-shirts use
+// 'default' for their front placement, every other product here uses 'front' (see
+// PRODUCT_MOCKUP_CONFIG above). 'pocket' also counts: on every clothing product that has
+// one (hoodie, zip hoodie, track jacket), it's a kangaroo pocket sewn directly onto the
+// front torso panel, not a separate limb like a sleeve -- treating it as non-front produced
+// a visible hard seam where the front panel's geometry got cut off right above the pocket.
+function isFrontPlacementKey(placementKey) {
+  return placementKey === 'front' || placementKey === 'default' || placementKey === 'pocket';
+}
+
 // Renders the design for each printfile and uploads it (one render per unique printfile id
 // -- placements often share one, e.g. a hoodie's body placements all use the same
 // printfile), returning { [placement]: url }. Shared by mockup previews (useMockup.js) and
 // real checkout (ProductPage.jsx); `entries` comes from resolvePlacementEntries above, with
-// whatever placement filter the caller needs. `renderOne(design, spec, printfileId)` is the
-// actual render+upload strategy -- mockups use capRenderStrategy (cheap, capped, client-side);
-// checkout uses renderPrintFileStrategy (true print resolution, via render-service).
+// whatever placement filter the caller needs. `renderOne(design, spec, printfileId,
+// isFrontPlacement)` is the actual render+upload strategy -- mockups use capRenderStrategy
+// (cheap, capped, client-side); checkout uses renderPrintFileStrategy (true print
+// resolution, via render-service). The render cache is keyed by printfileId *and*
+// front/non-front (not just printfileId) so a frontOnly design's front placement can never
+// be served a non-front's cached (geometry-suppressed) render or vice versa, even if they
+// happened to share a printfile id.
 export async function renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderOne }) {
-  const printfileIdToUrl = {};
+  const rendered = {};
   const urls = {};
   for (const [placementKey, printfileId] of entries) {
-    if (!printfileIdToUrl[printfileId]) {
+    const isFront = isFrontPlacementKey(placementKey);
+    const cacheKey = `${printfileId}:${isFront}`;
+    if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       if (!spec) continue;
-      printfileIdToUrl[printfileId] = await renderOne(design, spec, printfileId);
+      rendered[cacheKey] = await renderOne(design, spec, printfileId, isFront);
     }
-    urls[placementKey] = printfileIdToUrl[printfileId];
+    urls[placementKey] = rendered[cacheKey];
   }
   return urls;
 }
@@ -275,11 +291,11 @@ export async function renderAndUploadPrintFiles(entries, { printfileSpecs, desig
 // Mockups: cheap, capped, client-side, free -- well below Printful's real printfile dims,
 // same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
 export function capRenderStrategy(renderDesignBlob) {
-  return async (design, spec, printfileId) => {
+  return async (design, spec, printfileId, isFrontPlacement) => {
     const scale = RENDER_CAP / Math.max(spec.width, spec.height);
     const width = Math.round(spec.width * scale);
     const height = Math.round(spec.height * scale);
-    const blob = await renderDesignBlob(design, width, height);
+    const blob = await renderDesignBlob(design, width, height, { isFrontPlacement });
     return uploadMockupSourceImage(blob, printfileId);
   };
 }
@@ -290,11 +306,11 @@ export function capRenderStrategy(renderDesignBlob) {
 // CLAUDE.md's "Server-side print rendering" section) so mobile Safari's ~16.7 Mpx canvas
 // limit never comes into play and the print file matches the approved mockup exactly
 // (GENERATOR_VERSION-checked server-side).
-export async function renderPrintFileStrategy(design, spec, printfileId) {
+export async function renderPrintFileStrategy(design, spec, printfileId, isFrontPlacement) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.functions.invoke('render-print-file', {
     method: 'POST',
-    body: { design, width: spec.width, height: spec.height, label: printfileId }
+    body: { design, width: spec.width, height: spec.height, label: printfileId, isFrontPlacement }
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Print file render failed');

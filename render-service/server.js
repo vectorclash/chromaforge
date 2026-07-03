@@ -38,7 +38,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const { seed, colors, settings, width, height, generatorVersion } = payload;
+  const { seed, colors, settings, width, height, generatorVersion, isFrontPlacement } = payload;
   if (!seed || !width || !height) {
     send(res, 400, { error: 'Missing required fields: seed, width, height' });
     return;
@@ -51,7 +51,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const png = await renderDesign({ seed, colors: colors || [], width, height, settings: settings || null });
+    const png = await renderDesign({
+      seed,
+      colors: colors || [],
+      width,
+      height,
+      settings: settings || null,
+      isFrontPlacement: isFrontPlacement !== false
+    });
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
     res.end(png);
   } catch (err) {

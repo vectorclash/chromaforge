@@ -35,9 +35,11 @@ function loadStarImages() {
 // function always renders with whatever code is currently loaded, same as the rest of the
 // app. `settings` (the studio's generation settings, e.g. geometry sliders) rides along
 // like seed/colors: absent means the generator defaults, exactly like the frontend.
-export async function renderDesign({ seed, colors, width, height, settings = null }) {
+// `isFrontPlacement` is render context (not design identity, see generateArtwork.js's
+// renderContext param) -- only relevant when settings.geometry.frontOnly is set.
+export async function renderDesign({ seed, colors, width, height, settings = null, isFrontPlacement = true }) {
   const images = await loadStarImages();
-  const config = generateArtwork(seed, width, height, colors, settings);
+  const config = generateArtwork(seed, width, height, colors, settings, { isFrontPlacement });
   const canvas = renderArtwork(config, images);
   return canvas.toBuffer('image/png');
 }

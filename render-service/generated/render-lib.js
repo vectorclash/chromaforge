@@ -289,7 +289,14 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // 0 = fully chaotic (unbounded size, random unrecognizable triangles, panels mostly
   // unfilled); 1 = a clean regular polygon, every lattice cell filled, sized to sit fully
   // inside the canvas with clearance on all sides.
-  coherence: 0
+  coherence: 0,
+  // When true, the geometry layer is suppressed on any render explicitly marked as a
+  // non-front placement (see generateArtwork's isFrontPlacement render-context flag) --
+  // useful for full-coherence's centered "gem" shape, which looks fine on a front panel
+  // but odd on a narrow print placement like a sleeve. Renders that don't pass placement
+  // context (the main studio canvas, thumbnails, share links) default to front, so this
+  // never affects anything outside the merch print/mockup pipeline.
+  frontOnly: false
 };
 function getGeometrySettings(settings) {
   return { ...DEFAULT_GEOMETRY_SETTINGS, ...settings?.geometry || null };
@@ -492,7 +499,7 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { isFrontPlacement = true } = {}) {
   const rng = makeRng(seed);
   const config = {
     generatorVersion: GENERATOR_VERSION,
@@ -527,7 +534,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
   if (geometryChance >= 1 - geometry.chance) {
     config.thirdBlend = randomBlendMode(rng);
     let shapeNum = 10 + Math.round(rng() * 30);
-    config.geometryConfig = new GenerateGeometricShape(
+    const geometryConfig = new GenerateGeometricShape(
       width,
       height,
       shapeNum,
@@ -535,6 +542,9 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       rng,
       settings
     );
+    if (!(geometry.frontOnly && !isFrontPlacement)) {
+      config.geometryConfig = geometryConfig;
+    }
   }
   let overlayChance = rng();
   if (overlayChance >= 0.7 && colorValues.length > 0) {
