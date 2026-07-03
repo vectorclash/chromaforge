@@ -946,12 +946,18 @@
 
 /* Geometry sliders. Single sliders (.settings-range) paint their own progress fill via
    --range-fill (set inline from React, since native ranges can't style "the part left of
-   the thumb" cross-browser); the fill gradient matches .settings-toggle.on. The dual
-   slider is two stacked native ranges over one shared visual track: the inputs themselves
-   ignore pointer events and only the thumbs take them, so each thumb drags independently.
-   --range-min/--range-max (inline, from React) place the filled span between the thumbs.
-   Thumb styling is duplicated across ::-webkit-slider-thumb and ::-moz-range-thumb because
-   a selector list containing an unknown pseudo-element invalidates the whole rule. */
+   the thumb" cross-browser); the fill gradient matches .animation-progress-bar (accent ->
+   interactive) rather than .settings-toggle.on's purple->accent -- that toggle's gradient
+   spans nearly the whole hue wheel, fine for a small 46px pill that's only ever fully on or
+   off, but reads as a jarring, disconnected jump stretched across a wide, always-partially-
+   filled slider (Aaron's call, 2026-07-03: "the color in the slider bars feels a bit
+   awkward"). Accent->interactive is an adjacent-hue pair already established for exactly
+   this kind of bar in this same panel. The dual slider is two stacked native ranges over
+   one shared visual track: the inputs themselves ignore pointer events and only the thumbs
+   take them, so each thumb drags independently. --range-min/--range-max (inline, from
+   React) place the filled span between the thumbs. Thumb styling is duplicated across
+   ::-webkit-slider-thumb and ::-moz-range-thumb because a selector list containing an
+   unknown pseudo-element invalidates the whole rule. */
 .display-canvas .controls-inner .settings-range,
 .display-canvas .controls-inner .settings-range-dual {
   width: 190px;
@@ -963,8 +969,8 @@
   height: 4px;
   border-radius: 2px;
   background:
-    linear-gradient(90deg, #4c00ff, var(--color-accent)) 0 0 / var(--range-fill, 50%) 100%
-      no-repeat,
+    linear-gradient(90deg, var(--color-accent), var(--color-interactive)) 0 0 /
+      var(--range-fill, 50%) 100% no-repeat,
     rgba(250, 250, 250, 0.15);
   outline: none;
   cursor: pointer;
@@ -1021,7 +1027,7 @@
   border-radius: 2px;
   left: var(--range-min, 0%);
   width: calc(var(--range-max, 100%) - var(--range-min, 0%));
-  background: linear-gradient(90deg, #4c00ff, var(--color-accent));
+  background: linear-gradient(90deg, var(--color-accent), var(--color-interactive));
 }
 .display-canvas .controls-inner .settings-range-dual input[type='range'] {
   position: absolute;
