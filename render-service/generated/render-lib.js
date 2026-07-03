@@ -343,6 +343,14 @@ var GenerateGeometricShape = class {
   // angular step. Derives points-per-ring from the array itself rather than assuming
   // shapeVertices iterations, so a floating-point wobble in pointsArray's `ang < 360`
   // accumulation could never desync the indexing.
+  //
+  // Each band is a trapezoid quad (innerK, innerK+1, outerK, outerK+1) that a canvas
+  // triangle pair can only tile by picking ONE of its two diagonals. Every vertex sits on
+  // a plain, non-rotated radial spoke -- but a fixed diagonal direction repeated across
+  // every concentric ring compounds into a visible pinwheel/spiral (confirmed live: a
+  // pinned-square lattice showed a clear twist that had no rotation in the underlying
+  // point data). Alternating the diagonal by ring parity cancels the net drift while
+  // still fully tiling every quad with no gaps or overlaps.
   latticeCells() {
     const perRing = (this.points.length - 1) / this.shapeDepth;
     const idx = (ring, k) => 1 + (ring - 1) * perRing + k % perRing;
@@ -351,9 +359,15 @@ var GenerateGeometricShape = class {
       cells.push([0, idx(1, k), idx(1, k + 1)]);
     }
     for (let ring = 2; ring <= this.shapeDepth; ring++) {
+      const alternateDiagonal = ring % 2 === 0;
       for (let k = 0; k < perRing; k++) {
-        cells.push([idx(ring - 1, k), idx(ring, k), idx(ring, k + 1)]);
-        cells.push([idx(ring - 1, k), idx(ring - 1, k + 1), idx(ring, k + 1)]);
+        if (alternateDiagonal) {
+          cells.push([idx(ring - 1, k), idx(ring, k), idx(ring - 1, k + 1)]);
+          cells.push([idx(ring - 1, k + 1), idx(ring, k), idx(ring, k + 1)]);
+        } else {
+          cells.push([idx(ring - 1, k), idx(ring, k), idx(ring, k + 1)]);
+          cells.push([idx(ring - 1, k), idx(ring - 1, k + 1), idx(ring, k + 1)]);
+        }
       }
     }
     return cells;
