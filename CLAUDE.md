@@ -56,10 +56,10 @@ the actual print, generated the same deterministic way.
   saved design correctly reads as unsaved); and settings-dependent rng() consumption is
   size-independent, so the cross-size determinism guarantee below still holds (verified at
   5 sizes incl. print). Coherence semantics: 0 = today's chaos (unbounded size, arbitrary
-  triangles), 1 = every lattice cell of the polygon filled (a `latticeCells()` tessellation,
-  deliberately NOT sliced by `getCountScale` — a thumbnail must show the same complete
-  polygon as the print) sized to fit with 12.5% clearance off the short dimension; between,
-  size lerps and chaotic triangles trade off against filled cells. The chance draw always
+  triangles), 1 = a "vector equilibrium" chord web (`latticeCells()`, reworked 2026-07-04
+  — see below; deliberately NOT sliced by `getCountScale` — a thumbnail must show the same
+  complete polygon as the print) sized to fit with 12.5% clearance off the short dimension;
+  between, size lerps and chaotic triangles trade off against filled cells. The chance draw always
   consumes exactly one rng() regardless of the setting so downstream layers stay aligned.
   Settings ride through every regeneration path: compactDesign (both the JS and the Deno
   `_shared/compactDesign.ts` mirror), StudioContext's renderDesignBlob (mockups/thumbnails),
@@ -81,31 +81,33 @@ the actual print, generated the same deterministic way.
   positioned chaotic shapes, but for the first time visible once shapes had a spatial
   order (the lattice) to correlate with. Both real, both fixed (`.slice()` copy;
   `shuffleColors` now pure, spinning fresh from the untouched palette every call) — but the
-  spiral persisted after fixing both, proving neither was the actual cause. Root cause,
-  found by rendering a flat-colored wireframe (removing color/gradient from the picture
-  entirely) and dumping raw cell coordinates: each concentric ring band is a trapezoid quad
-  that a 2-triangle split can only tile by picking one of its two diagonals, and every quad
-  in a ring is the same shape just rotated by the ring's own angular step — so ANY single
-  consistent diagonal choice, applied to all of them, necessarily rotates in lockstep with
-  the quads themselves. This is a real geometric windmill, not a color artifact or an
-  optical illusion, and it survives alternating the diagonal by ring parity (verified live:
-  nearly identical wireframe) or by angular position (closer, still visibly asymmetric,
-  plus an uncancelled seam wherever perRing is odd) — neither escapes the bias, they just
-  move it around. Fixed properly by fanning each quad from its own centroid (4 triangles,
-  not 2) instead of splitting it by a diagonal at all: no diagonal to choose means nothing
-  can rotate. Mirrors ring 1's original fan-from-the-true-centre, which never had this
-  problem for the same reason (a fan has no diagonal-choice ambiguity) — which is also why
-  the very centre of a coherent design always looked clean to the eye even before this fix,
-  while the outer rings visibly spiraled. Verified live: a plotted wireframe of the new
-  tessellation is now a genuinely symmetric concentric lattice with no bias in any
-  direction, and the colored render matches (checked at both a pinned hexagon and a
-  deep/high-vertex-count coherent shape). This changed the lattice cell count formula (was
-  `V*(2d-1)`, now `V*(4d-3)` for V vertices/depth d, since each band quad is 4 triangles
-  now, not 2) and, combined with the two color-state fixes above, means **any existing
-  design with geometry present and 3+ palette colors will render its geometry layer's
-  colors differently now** (positions/counts/every other layer are untouched — verified via
-  a structural-equality check with colors stripped, 900 configs) — same
-  nothing-live-yet-so-accepted tradeoff as the ratio-aware (`v3`) change below.
+  spiral persisted after fixing both, proving neither was the actual cause. The root cause
+  was a diagonal-choice bias in the then-current disjoint ring-band tessellation (any
+  single consistent 2-triangle quad split rotates in lockstep with the ring's own angular
+  step — a real geometric windmill), fixed at the time by fanning each quad from its own
+  centroid. **That whole disjoint tessellation has since been replaced (2026-07-04, user
+  request)**: it fully tiled the polygon but read as a faceted gemstone; the user wanted
+  the classic vector-equilibrium look (nested rings with every vertex chord-connected
+  across the whole figure). `latticeCells()` now emits overlapping long-chord cells —
+  per-ring star triangles (k, k+skip, k+2*skip) for every skip up to floor((V-1)/2) (the
+  bound excludes even-V's degenerate zero-area V/2 cells), plus symmetric splay triangles
+  (outer k, inner k±j) between every ring PAIR — blended by GeometricShape's `hard-light`
+  compositing (overlap is the look, not a bug; the windmill can't recur since no cell is a
+  split quad). Draw order is deterministic (user-approved final form): outer-ring-reaching
+  cells first (behind), center-connecting cells last (on top) — the shuffle only picks
+  WHICH cells survive a partial fill; sort keys are quantized to integer ring indices, not
+  raw radii, because pointsArray's pixel rounding varies with canvas size and raw-radius
+  ties could order same-ring cells differently across sizes, desyncing per-cell colors
+  between mockup and print (verified: per-cell colors byte-identical across 5 sizes). Full coherence also raises min ring depth 2→3 (depth 2 has only one ring
+  pair to splay and rendered washed-out; still one rng() draw). Structure was matched to
+  the user's reference image via a wireframe scratch harness (several candidate cell
+  families compared) and verified on real full-pipeline renders at 6/8/12 vertices, full
+  and half coherence; coherence-0 output re-verified byte-identical (PNG hashes) against a
+  build of the pre-change committed code, and full-coherence structure re-verified
+  identical across 5 sizes incl. print. As with the earlier tessellation change, **any
+  existing design with a non-zero coherence setting renders its geometry layer differently
+  now** — same nothing-live-yet-so-accepted tradeoff as the ratio-aware (`v3`) change
+  below; coherence-0 designs (all of them, until the sliders ship) are untouched.
 - **Generators are now ratio-aware** (`GENERATOR_VERSION = 3`, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
   sizing stars off its narrow axis only), and element counts scale off canvas area relative

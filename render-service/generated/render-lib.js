@@ -327,7 +327,8 @@ var GenerateGeometricShape = class {
     this.colors = colors;
     this.shapeVertices = geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
     const maxShapeDepth = 6 - Math.round(2 * geometry.coherence);
-    this.shapeDepth = 2 + Math.round(rng() * (maxShapeDepth - 2));
+    const minShapeDepth = 2 + Math.round(geometry.coherence);
+    this.shapeDepth = minShapeDepth + Math.round(rng() * (maxShapeDepth - minShapeDepth));
     this.shapeAng = 360 / this.shapeVertices;
     const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height) / 3);
     const coherentSize = getSizeScale(width, height) * 0.375 / this.shapeDepth;
@@ -345,52 +346,64 @@ var GenerateGeometricShape = class {
       const cells = this.latticeCells();
       this.shuffle(cells);
       const cellKeep = Math.round(cells.length * geometry.coherence);
-      for (let i = 0; i < cellKeep; i++) {
-        config.shapes.push(this.buildShape(cells[i]));
+      const ringOf = (p) => Math.round(Math.sqrt(p[0] * p[0] + p[1] * p[1]) / this.shapeSize);
+      const maxRing = (c) => Math.max(ringOf(c[0]), ringOf(c[1]), ringOf(c[2]));
+      const minRing = (c) => Math.min(ringOf(c[0]), ringOf(c[1]), ringOf(c[2]));
+      const kept = cells.slice(0, cellKeep);
+      kept.sort((a, b) => maxRing(b) - maxRing(a) || minRing(b) - minRing(a));
+      for (let i = 0; i < kept.length; i++) {
+        config.shapes.push(this.buildShape(kept[i]));
       }
     }
     return config;
   }
-  // Point triples (literal [x,y] coordinates, not indices) of every cell in the lattice: a
-  // fan of triangles from the centre to ring 1, then each ring-to-ring band ALSO fanned --
-  // from its own quad's centroid to its 4 corners -- rather than split by a diagonal.
-  // Derives points-per-ring from the array itself rather than assuming shapeVertices
-  // iterations, so a floating-point wobble in pointsArray's `ang < 360` accumulation could
-  // never desync the indexing.
-  //
-  // This went through two failed approaches first, both confirmed live via a plotted
-  // wireframe + a coordinate/index dump of every generated cell (not just eyeballing the
-  // colored render, which two real, separate color-state bugs were muddying at the same
-  // time): a trapezoid quad (innerK, innerK+1, outerK, outerK+1) can only be tiled by a
-  // 2-triangle split by picking ONE of its two diagonals, and EVERY quad in a ring is the
-  // same shape just rotated by the ring's own angular step -- so any single consistent
-  // diagonal choice, applied to all of them, necessarily rotates in lockstep with the
-  // quads themselves, producing a real (not illusory) windmill/pinwheel in the wireframe
-  // itself. Alternating the diagonal by ring parity didn't fix it (verified: nearly
-  // identical wireframe) since the bias within any ONE ring's 6 quads was untouched.
-  // Alternating by k (angular position) instead was closer but still visibly asymmetric,
-  // and leaves an uncancelled seam wherever perRing is odd. Fanning each quad from its own
-  // centroid sidesteps the whole problem: there's no diagonal to choose at all, so there's
-  // nothing that can rotate. It mirrors ring 1's fan-from-the-true-centre, which never had
-  // this problem for the same reason.
+  // Point triples (literal [x,y] coordinates, not indices) of the coherent structure's
+  // cells: a "vector equilibrium" web of long chords, not a disjoint tessellation. Two
+  // families, both spanning the figure vertex-to-vertex:
+  //   1. Per ring, every "star" chord triangle (k, k+skip, k+2*skip) for every skip up to
+  //      V/2 -- this traces the complete chord graph of each ring (same edge set as all
+  //      C(V,3) triangles, verified by wireframe comparison, at V*floor(V/2) cells per
+  //      ring instead of C(V,3), which matters at V=12 where C(V,3)=220).
+  //   2. Between every PAIR of rings (not just adjacent), for each outer-ring vertex k and
+  //      each skip j, the symmetric splay triangle (outer k, inner k+j, inner k-j) -- the
+  //      long chords fanning from each vertex down into every nested ring.
+  // This replaced an earlier disjoint fan/band tessellation (center fan + each ring-band
+  // quad fanned from its own centroid) that filled the polygon completely but read as a
+  // faceted gemstone; the user wanted the classic vector-equilibrium look (nested rings
+  // with every vertex chord-connected across the whole figure), reference-matched via
+  // rendered wireframes before landing. Cells now overlap heavily by design --
+  // GeometricShape.js fills with 'hard-light' compositing, so overlaps blend rather than
+  // occlude. Derives points-per-ring from the array itself rather than assuming
+  // shapeVertices iterations, so a floating-point wobble in pointsArray's `ang < 360`
+  // accumulation could never desync the indexing. No rng() here: cell geometry/count
+  // depends only on vertices/depth -- size-independent, preserving cross-size determinism.
   latticeCells() {
     const perRing = (this.points.length - 1) / this.shapeDepth;
-    const idx = (ring, k) => 1 + (ring - 1) * perRing + k % perRing;
+    const idx = (ring, k) => 1 + (ring - 1) * perRing + (k % perRing + perRing) % perRing;
+    const maxSkip = Math.floor((perRing - 1) / 2);
     const cells = [];
-    for (let k = 0; k < perRing; k++) {
-      cells.push([this.points[0], this.points[idx(1, k)], this.points[idx(1, k + 1)]]);
+    for (let ring = 1; ring <= this.shapeDepth; ring++) {
+      for (let skip = 1; skip <= maxSkip; skip++) {
+        for (let k = 0; k < perRing; k++) {
+          cells.push([
+            this.points[idx(ring, k)],
+            this.points[idx(ring, k + skip)],
+            this.points[idx(ring, k + 2 * skip)]
+          ]);
+        }
+      }
     }
-    for (let ring = 2; ring <= this.shapeDepth; ring++) {
-      for (let k = 0; k < perRing; k++) {
-        const a = this.points[idx(ring - 1, k)];
-        const b = this.points[idx(ring - 1, k + 1)];
-        const c = this.points[idx(ring, k + 1)];
-        const d = this.points[idx(ring, k)];
-        const centroid = [(a[0] + b[0] + c[0] + d[0]) / 4, (a[1] + b[1] + c[1] + d[1]) / 4];
-        cells.push([centroid, a, b]);
-        cells.push([centroid, b, c]);
-        cells.push([centroid, c, d]);
-        cells.push([centroid, d, a]);
+    for (let outer = 2; outer <= this.shapeDepth; outer++) {
+      for (let inner = 1; inner < outer; inner++) {
+        for (let k = 0; k < perRing; k++) {
+          for (let j = 1; j <= maxSkip; j++) {
+            cells.push([
+              this.points[idx(outer, k)],
+              this.points[idx(inner, k + j)],
+              this.points[idx(inner, k - j)]
+            ]);
+          }
+        }
       }
     }
     return cells;
