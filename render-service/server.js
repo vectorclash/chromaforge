@@ -38,10 +38,52 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const { seed, colors, settings, width, height, generatorVersion, isFrontPlacement } = payload;
+  const {
+    seed,
+    colors,
+    settings,
+    width,
+    height,
+    generatorVersion,
+    includeGeometry,
+    regions,
+    sourceWidth,
+    sourceHeight
+  } = payload;
   if (!seed || !width || !height) {
     send(res, 400, { error: 'Missing required fields: seed, width, height' });
     return;
+  }
+  // Optional regions composite (see render.js), for placements that continue a larger
+  // panel's artwork (hoodie/zip-hoodie pocket). A region's src window may overhang the
+  // source canvas slightly (the hoodie's solved window does; overhang is edge-clamped --
+  // see render.js), but only slightly: bounds here are sanity limits, not [0,1].
+  // Validated because this is paid compute: reject rather than render something
+  // malformed, and keep both the source and output canvases from exceeding what this
+  // machine is sized for.
+  if (regions != null) {
+    const isFrac = n => typeof n === 'number' && Number.isFinite(n) && n >= -0.5 && n <= 1.5;
+    const validRect = r =>
+      r && isFrac(r.x) && isFrac(r.y) && typeof r.w === 'number' && typeof r.h === 'number' && r.w > 0 && r.h > 0;
+    const valid =
+      Array.isArray(regions) &&
+      regions.length > 0 &&
+      regions.length <= 8 &&
+      regions.every(r => validRect(r.src) && validRect(r.dest)) &&
+      Number.isInteger(sourceWidth) &&
+      Number.isInteger(sourceHeight) &&
+      sourceWidth > 0 &&
+      sourceHeight > 0 &&
+      sourceWidth <= 6500 &&
+      sourceHeight <= 6500 &&
+      width <= 6500 &&
+      height <= 6500;
+    if (!valid) {
+      send(res, 400, {
+        error: 'Invalid regions/sourceWidth/sourceHeight: expected an array of { src, dest } fraction rects and valid source dims'
+      });
+      return;
+    }
   }
   if (generatorVersion !== GENERATOR_VERSION) {
     send(res, 422, {
@@ -57,7 +99,10 @@ const server = http.createServer(async (req, res) => {
       width,
       height,
       settings: settings || null,
-      isFrontPlacement: isFrontPlacement !== false
+      includeGeometry: includeGeometry !== false,
+      regions: regions || null,
+      sourceWidth: sourceWidth || null,
+      sourceHeight: sourceHeight || null
     });
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
     res.end(png);

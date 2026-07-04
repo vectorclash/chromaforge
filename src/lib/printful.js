@@ -161,7 +161,31 @@ const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
-    mockupStyleIds: [20169, 20170]
+    mockupStyleIds: [20169, 20170],
+    // The kangaroo pocket's physical region within the FRONT placement's own canvas, as a
+    // src->dest region mapping (see renderAndUploadPrintFiles/pocketCrop below for the
+    // general mechanism). Every placement on this product shares one 6000x6000 printfile
+    // that Printful "covers" each panel template with -- so by default the pocket panel
+    // got the same full artwork scaled down onto it, a small echo of the front floating on
+    // top of the front (looked bad, user-confirmed). With this set, the pocket placement
+    // instead uploads a region of the front canvas, so it visually continues the front
+    // artwork behind it. A single region whose `dest` fills the whole output (as here) is
+    // the simplest case of the general mechanism -- see the zip hoodie (717) below for a
+    // product needing more than one region.
+    // The `src` rect is SOLVED, not eyeballed: Printful's mockup-generator templates
+    // (printful-catalog?templates=1) are the actual cut-piece sewing patterns with
+    // print-area rects, so the pocket piece's side-seam lines (measured in its own
+    // template, least-squares fit at 5 rows) and the pocket notch dashed on the front
+    // torso template (same lines in front-file coordinates, slopes agreed within ~3%)
+    // give a solvable line-to-line mapping; the third constraint anchors the pocket
+    // piece's bottom cut edge to the torso piece's hem cut line (both are consumed by the
+    // same hem seam). The window falls slightly outside the front file (that's real: the
+    // pocket piece is physically wider at the hem than the front print's own bleed there)
+    // -- out-of-bounds areas land in cut-away bleed and are edge-clamped by drawRegion,
+    // never white. Residual error budget ~0.4in, under the ~1in garment sewing tolerance.
+    pocketCrop: {
+      regions: [{ src: { x: -0.012, y: 0.147, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+    }
   }, // hoodie
   320: {
     technique: 'cut-sew',
@@ -203,7 +227,31 @@ const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
-    mockupStyleIds: [257, 265]
+    mockupStyleIds: [257, 265],
+    // This product's FRONT is two separate zip panels side by side in one canvas (split
+    // by the center zipper), and 'pocket' is two separate welt pockets -- one per panel --
+    // combined into ONE placement file, on its OWN printfile (507, 5250x3750 landscape),
+    // a DIFFERENT aspect ratio than the front's (506, 5250x6000 portrait).
+    // ONE region fills the entire output canvas (dest {0,0,1,1}) -- confirmed across
+    // several real mockups to be the only structure that's ever defect-free here. Any
+    // attempt at a smaller/precisely-positioned dest (matching individual welt pockets,
+    // or a sub-rect read off a calibration grid) reliably produced a visible hard seam:
+    // whatever area falls outside a partial dest still gets covered by a differently-
+    // scaled fallback layer, and that mismatch is what shows as a seam -- there is no
+    // known layout for this product where a sub-rect dest doesn't hit this. With dest at
+    // 100%, there's no separate fallback area to ever show through, whatever portion the
+    // mockup pipeline itself later crops away is simply invisible, same as it would be
+    // for any upload.
+    // w=1, h=0.625 (=outH/srcH exactly, 3750/6000, both files 5250 wide) is a 1:1
+    // physical-pixel crop with zero overhang -- deliberately not adjusted, since overhang
+    // beyond a few percent produces its own defect (edge-clamp strips stretched into
+    // visible flat-color bars). y is the only tuned value: calibrated against a series of
+    // real mockups (increasing y visibly shifts the design "up", decreasing shifts "down")
+    // and landed at 0.36 -- close enough that the difference vs. a real print run is
+    // expected to matter more than further precision here.
+    pocketCrop: {
+      regions: [{ src: { x: 0, y: 0.36, w: 1, h: 0.625 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+    }
   }, // zip hoodie
   784: {
     technique: 'cut-sew',
@@ -218,6 +266,11 @@ const PRODUCT_MOCKUP_CONFIG = {
     // placements (see comment above). This set already covers every visible panel.
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'pocket'],
     mockupStyleIds: [23286, 23287]
+    // No pocketCrop here, deliberately: checked this product's 'pocket' placement against
+    // its mockup-generator templates (printful-catalog?id=801&templates=1, template
+    // 494610) and it's the INSIDE pocket bag lining -- never visible on the worn or
+    // photographed garment (same non-issue as the tote/crossbody bag's 'pocket'). There's
+    // no echo-of-the-front problem to fix because nobody ever sees this placement.
   }, // track jacket
   744: {
     technique: 'cut-sew',
@@ -229,6 +282,30 @@ const PRODUCT_MOCKUP_CONFIG = {
 
 export function getMockupConfigForProduct(productId) {
   return PRODUCT_MOCKUP_CONFIG[productId] || { technique: 'cut-sew' };
+}
+
+// Which placements a customer can toggle geometry on/off for, for a given product's
+// mockup config -- used by ProductPage.jsx to build its checkboxes and to default them
+// all to "on" (matching the generator's own everywhere-by-default behavior). Deliberately
+// excludes 'pocket' (it has no independent choice -- see includesGeometry above, it
+// always mirrors the front placement) and any label/inside/details placement (never
+// visible in a mockup or on the finished garment, so a checkbox for one would control
+// something the customer can never see). 'front'/'default' are unified under one 'front'
+// key here since only one of them is ever present per product and the customer shouldn't
+// need to know which internal name their product uses.
+const GEOMETRY_PLACEMENT_LABELS = [
+  { key: 'front', label: 'Front' },
+  { key: 'back', label: 'Back' },
+  { key: 'sleeve_left', label: 'Left sleeve' },
+  { key: 'sleeve_right', label: 'Right sleeve' },
+  { key: 'hood', label: 'Hood' }
+];
+
+export function getGeometryPlacementOptions(cfg) {
+  const placements = cfg?.placements || [];
+  return GEOMETRY_PLACEMENT_LABELS.filter(
+    ({ key }) => placements.includes(key) || (key === 'front' && placements.includes('default'))
+  );
 }
 
 // Placement -> printfile id for a given variant, optionally restricted to a subset of
@@ -262,14 +339,27 @@ export function resolvePlacementEntries(printfileSpecs, variant, placementFilter
 // only 4 Mpx, versus the ~16.7 Mpx ceiling).
 const RENDER_CAP = 2000;
 
-// A placement counts as "front" for settings.geometry.frontOnly purposes -- t-shirts use
-// 'default' for their front placement, every other product here uses 'front' (see
-// PRODUCT_MOCKUP_CONFIG above). 'pocket' also counts: on every clothing product that has
-// one (hoodie, zip hoodie, track jacket), it's a kangaroo pocket sewn directly onto the
-// front torso panel, not a separate limb like a sleeve -- treating it as non-front produced
-// a visible hard seam where the front panel's geometry got cut off right above the pocket.
-function isFrontPlacementKey(placementKey) {
-  return placementKey === 'front' || placementKey === 'default' || placementKey === 'pocket';
+// Every product's front placement key ('front' or 'default' for t-shirts).
+function frontPlacementKey(entries) {
+  const entry = entries.find(([key]) => key === 'front' || key === 'default');
+  return entry?.[0] ?? null;
+}
+
+// Whether a placement should include the geometry layer. `geometryPlacements` (a Set of
+// placement keys, or null) is the customer's choice from ProductPage.jsx's per-placement
+// checkboxes -- null (no selection made, e.g. any caller that predates that UI) means
+// "everywhere," matching the generator's own default. 'pocket' has no checkbox of its own:
+// on every clothing product that has one (hoodie, zip hoodie, track jacket), it's a
+// kangaroo/welt pocket physically continuous with the front torso panel (see the
+// pocketCrop configs above) -- it always mirrors whatever the front placement resolves to,
+// never an independent choice, so `frontKey` (not the literal 'pocket' key) is what gets
+// looked up for it. Placement keys are normalized to 'front' before the Set lookup
+// because the SET uses the UI-facing 'front' key uniformly (see
+// getGeometryPlacementOptions) while the actual placement key for t-shirts is 'default'.
+function includesGeometry(placementKey, frontKey, geometryPlacements) {
+  if (!geometryPlacements) return true;
+  const key = placementKey === 'pocket' && frontKey ? frontKey : placementKey;
+  return geometryPlacements.has(key === 'default' ? 'front' : key);
 }
 
 // Renders the design for each printfile and uploads it (one render per unique printfile id
@@ -277,37 +367,216 @@ function isFrontPlacementKey(placementKey) {
 // printfile), returning { [placement]: url }. Shared by mockup previews (useMockup.js) and
 // real checkout (ProductPage.jsx); `entries` comes from resolvePlacementEntries above, with
 // whatever placement filter the caller needs. `renderOne(design, spec, printfileId,
-// isFrontPlacement)` is the actual render+upload strategy -- mockups use capRenderStrategy
-// (cheap, capped, client-side); checkout uses renderPrintFileStrategy (true print
-// resolution, via render-service). The render cache is keyed by printfileId *and*
-// front/non-front (not just printfileId) so a frontOnly design's front placement can never
-// be served a non-front's cached (geometry-suppressed) render or vice versa, even if they
-// happened to share a printfile id.
-export async function renderAndUploadPrintFiles(entries, { printfileSpecs, design, renderOne }) {
+// includeGeometry, regionsConfig)` is the actual render+upload strategy -- mockups use
+// capRenderStrategy (cheap, capped, client-side); checkout uses renderPrintFileStrategy
+// (true print resolution, via render-service). The render cache is keyed by printfileId
+// *and* includeGeometry (not just printfileId) so a placement with geometry included can
+// never be served another placement's cached (geometry-suppressed) render or vice versa,
+// even if they happened to share a printfile id.
+// `pocketCrop` (optional, from the product's PRODUCT_MOCKUP_CONFIG entry): when set, the
+// 'pocket' placement is rendered as one or more regions cropped from the FRONT placement's
+// own composition instead of an independent render -- see the hoodie (388) and zip hoodie
+// (717) config comments for why. This needs the front placement's own printfile spec (as
+// the SOURCE resolution the region coordinates were measured against, and the aspect the
+// composition must be generated at -- see renderOne implementations for why that matters
+// when the pocket's own printfile has a different aspect ratio than the front's), so it's
+// looked up here from `entries` rather than passed in separately. The regions render gets
+// its own cache key (without this, pocket and front sharing a printfile id on these
+// products would dedupe to the same uploaded file, which is exactly the
+// mini-echo-of-the-front behavior being replaced).
+// `geometryPlacements` (optional Set of placement keys): the customer's per-placement
+// geometry choice from ProductPage.jsx -- see includesGeometry above.
+export async function renderAndUploadPrintFiles(
+  entries,
+  { printfileSpecs, design, renderOne, pocketCrop = null, geometryPlacements = null }
+) {
   const rendered = {};
   const urls = {};
+  const frontKey = frontPlacementKey(entries);
+  const frontSpec =
+    frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === entries.find(([k]) => k === frontKey)[1]);
+
   for (const [placementKey, printfileId] of entries) {
-    const isFront = isFrontPlacementKey(placementKey);
-    const cacheKey = `${printfileId}:${isFront}`;
+    const includeGeometry = includesGeometry(placementKey, frontKey, geometryPlacements);
+    const regionsConfig =
+      placementKey === 'pocket' && pocketCrop && frontSpec
+        ? { regions: pocketCrop.regions, sourceSpec: frontSpec }
+        : null;
+    const cacheKey = `${printfileId}:${includeGeometry}${regionsConfig ? ':pocket-regions' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       if (!spec) continue;
-      rendered[cacheKey] = await renderOne(design, spec, printfileId, isFront);
+      rendered[cacheKey] = await renderOne(design, spec, printfileId, includeGeometry, regionsConfig);
     }
     urls[placementKey] = rendered[cacheKey];
   }
   return urls;
 }
 
+// Composites `regions` (each { src, dest }, fractions of the source/output respectively)
+// from a rendered source blob onto a new outW x outH canvas. Used by the pocket-continuity
+// path (see renderAndUploadPrintFiles) on the client mockup strategy; the print-resolution
+// strategy composites server-side instead (render-service), same math (drawRegion is
+// mirrored there -- keep the two in sync).
+async function compositeRegionsBlob(sourceBlob, outW, outH, regions) {
+  const bitmap = await createImageBitmap(sourceBlob);
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  drawRegionsComposite(ctx, bitmap, bitmap.width, bitmap.height, outW, outH, regions);
+  bitmap.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Composite failed'))), 'image/jpeg', 0.92)
+  );
+}
+
+// Base layer (a cover-fit of the whole source) plus each region drawn on top. The base
+// layer only matters for compound placements whose regions don't tile the whole canvas --
+// e.g. the zip hoodie's two welt-pocket regions leave a gap between them (under the
+// zipper) that sits between two separate physical cut pieces and is genuinely never
+// visible on the real garment, but must still be SOME valid pixel data, not left blank.
+function drawRegionsComposite(ctx, source, srcW, srcH, outW, outH, regions) {
+  const coverScale = Math.max(outW / srcW, outH / srcH);
+  const cw = srcW * coverScale;
+  const ch = srcH * coverScale;
+  ctx.drawImage(source, (outW - cw) / 2, (outH - ch) / 2, cw, ch);
+  for (const { src, dest } of regions) {
+    drawRegion(ctx, source, srcW, srcH, src, {
+      x: dest.x * outW,
+      y: dest.y * outH,
+      w: dest.w * outW,
+      h: dest.h * outH
+    });
+  }
+}
+
+// Draws the `src` window (fractions of the source, MAY extend past [0,1] -- see the
+// hoodie's pocketCrop comment) into the `dest` rect (absolute pixels on ctx's canvas),
+// scaling to fit and edge-clamping any part of the window that falls outside the source.
+// Out-of-bounds src regions are real for the hoodie pocket (the solved window extends
+// slightly past the front file): they only ever land in the pocket piece's cut-away
+// bleed, but sewing tolerance can drag up to ~an inch of bleed into view, so they must
+// continue the edge colors rather than print white. For in-bounds regions (e.g. the zip
+// hoodie's welt pockets) the clamp strips are all zero-size and never draw.
+function drawRegion(ctx, source, srcW, srcH, src, dest) {
+  const winX = src.x * srcW;
+  const winY = src.y * srcH;
+  const winW = src.w * srcW;
+  const winH = src.h * srcH;
+  const scaleX = dest.w / winW;
+  const scaleY = dest.h / winH;
+  // in-bounds part of the window, in source pixels
+  const cx0 = Math.max(0, Math.round(winX));
+  const cy0 = Math.max(0, Math.round(winY));
+  const cx1 = Math.min(srcW, Math.round(winX + winW));
+  const cy1 = Math.min(srcH, Math.round(winY + winH));
+  const cw = cx1 - cx0;
+  const ch = cy1 - cy0;
+  // where that part lands within dest, scaled
+  const offX = (cx0 - winX) * scaleX;
+  const offY = (cy0 - winY) * scaleY;
+  const ddx = dest.x + offX;
+  const ddy = dest.y + offY;
+  const cdw = cw * scaleX;
+  const cdh = ch * scaleY;
+  // 9-patch: centre is the real (scaled) crop; strips/corners stretch the source's 1px
+  // border outward to fill whatever the window overhangs, within dest's own bounds.
+  const px = (sx, sy, sw, sh, ddx0, ddy0, dw, dh) => {
+    if (dw > 0.01 && dh > 0.01 && sw > 0 && sh > 0) ctx.drawImage(source, sx, sy, sw, sh, ddx0, ddy0, dw, dh);
+  };
+  px(cx0, cy0, cw, ch, ddx, ddy, cdw, cdh); // centre
+  px(cx0, cy0, cw, 1, ddx, dest.y, cdw, offY); // top strip
+  px(cx0, cy1 - 1, cw, 1, ddx, ddy + cdh, cdw, dest.h - offY - cdh); // bottom strip
+  px(cx0, cy0, 1, ch, dest.x, ddy, offX, cdh); // left strip
+  px(cx1 - 1, cy0, 1, ch, ddx + cdw, ddy, dest.w - offX - cdw, cdh); // right strip
+  px(cx0, cy0, 1, 1, dest.x, dest.y, offX, offY); // corners
+  px(cx1 - 1, cy0, 1, 1, ddx + cdw, dest.y, dest.w - offX - cdw, offY);
+  px(cx0, cy1 - 1, 1, 1, dest.x, ddy + cdh, offX, dest.h - offY - cdh);
+  px(cx1 - 1, cy1 - 1, 1, 1, ddx + cdw, ddy + cdh, dest.w - offX - cdw, dest.h - offY - cdh);
+}
+
+// TEMPORARY calibration mode -- when true, any placement using pocketCrop uploads a
+// labeled measurement grid instead of artwork, so a single mockup round reveals exactly
+// which part of the uploaded file Printful displays at the pocket's edges (the CAD
+// templates demonstrably don't describe the mockup renderer's real mapping, and three
+// rounds of solving from hand-measured artwork screenshots oscillated instead of
+// converging -- each solve amplified ~5% feature-measurement error). Read the corner
+// cell labels off the resulting mockup, compute the src rect directly, set it in the
+// product's pocketCrop, then FLIP THIS BACK TO FALSE. Never ship true: this replaces
+// real pocket artwork with a test pattern.
+const POCKET_CALIBRATION_GRID = false;
+
+// 10x8 labeled grid (columns A-J left to right, rows 1-8 top to bottom, cell label like
+// "C5" at every cell center) with a heavy magenta border at the file's exact edge and a
+// blue crosshair at its exact center. High-contrast + big type so labels survive
+// Printful's mockup compositing at pocket-photo scale.
+async function makeCalibrationGridBlob(width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const cols = 10;
+  const rows = 8;
+  const cw = width / cols;
+  const ch = height / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 ? '#ffffff' : '#d8f0d8';
+      ctx.fillRect(c * cw, r * ch, cw, ch);
+      ctx.fillStyle = '#111111';
+      ctx.font = `bold ${Math.round(ch * 0.42)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${String.fromCharCode(65 + c)}${r + 1}`, (c + 0.5) * cw, (r + 0.5) * ch);
+    }
+  }
+  ctx.strokeStyle = '#222222';
+  ctx.lineWidth = 2;
+  for (let c = 1; c < cols; c++) { ctx.beginPath(); ctx.moveTo(c * cw, 0); ctx.lineTo(c * cw, height); ctx.stroke(); }
+  for (let r = 1; r < rows; r++) { ctx.beginPath(); ctx.moveTo(0, r * ch); ctx.lineTo(width, r * ch); ctx.stroke(); }
+  ctx.strokeStyle = '#ff00cc';
+  ctx.lineWidth = Math.max(6, width * 0.008);
+  ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, width - ctx.lineWidth, height - ctx.lineWidth);
+  ctx.strokeStyle = '#0044ff';
+  ctx.lineWidth = Math.max(4, width * 0.004);
+  ctx.beginPath(); ctx.moveTo(width / 2, 0); ctx.lineTo(width / 2, height); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, height / 2); ctx.lineTo(width, height / 2); ctx.stroke();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Grid render failed'))), 'image/jpeg', 0.92)
+  );
+}
+
 // Mockups: cheap, capped, client-side, free -- well below Printful's real printfile dims,
 // same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
 export function capRenderStrategy(renderDesignBlob) {
-  return async (design, spec, printfileId, isFrontPlacement) => {
+  return async (design, spec, printfileId, includeGeometry, regionsConfig = null) => {
     const scale = RENDER_CAP / Math.max(spec.width, spec.height);
     const width = Math.round(spec.width * scale);
     const height = Math.round(spec.height * scale);
-    const blob = await renderDesignBlob(design, width, height, { isFrontPlacement });
-    return uploadMockupSourceImage(blob, printfileId);
+    if (!regionsConfig) {
+      const blob = await renderDesignBlob(design, width, height, { includeGeometry });
+      return uploadMockupSourceImage(blob, printfileId);
+    }
+    if (POCKET_CALIBRATION_GRID) {
+      const blob = await makeCalibrationGridBlob(width, height);
+      return uploadMockupSourceImage(blob, `${printfileId}-calibration-grid`);
+    }
+    // Generate the SOURCE composition at the FRONT's own aspect/resolution -- not the
+    // target placement's -- so it's the literal same composition the front placement
+    // uploads (this generator is ratio-aware; rendering at the wrong aspect would produce
+    // a structurally different, unrelated layout, defeating the whole point of this path).
+    // `includeGeometry` here is already resolved against the FRONT placement's own choice
+    // (see includesGeometry/renderAndUploadPrintFiles above) -- using it for the source
+    // keeps the pocket's content a true continuation of whatever the front actually shows,
+    // geometry included or not, rather than assuming the front always has geometry on.
+    const { regions, sourceSpec } = regionsConfig;
+    const srcScale = RENDER_CAP / Math.max(sourceSpec.width, sourceSpec.height);
+    const srcW = Math.round(sourceSpec.width * srcScale);
+    const srcH = Math.round(sourceSpec.height * srcScale);
+    const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry });
+    const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
+    return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
   };
 }
 
@@ -317,11 +586,35 @@ export function capRenderStrategy(renderDesignBlob) {
 // CLAUDE.md's "Server-side print rendering" section) so mobile Safari's ~16.7 Mpx canvas
 // limit never comes into play and the print file matches the approved mockup exactly
 // (GENERATOR_VERSION-checked server-side).
-export async function renderPrintFileStrategy(design, spec, printfileId, isFrontPlacement) {
+export async function renderPrintFileStrategy(
+  design,
+  spec,
+  printfileId,
+  includeGeometry,
+  regionsConfig = null
+) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  const body = {
+    design,
+    // width/height are the OUTPUT canvas dims -- spec's own (the target placement's
+    // printfile), same as any other placement. When regionsConfig is set, the render
+    // pipeline generates the SOURCE composition at sourceWidth/sourceHeight instead (the
+    // front's own dims/aspect -- see printful.js's capRenderStrategy for why that
+    // distinction matters) and composites `regions` from it into this output size, using
+    // this same includeGeometry value (already resolved against the front's own choice).
+    width: spec.width,
+    height: spec.height,
+    label: regionsConfig ? `${printfileId}-pocket` : printfileId,
+    includeGeometry
+  };
+  if (regionsConfig) {
+    body.regions = regionsConfig.regions;
+    body.sourceWidth = regionsConfig.sourceSpec.width;
+    body.sourceHeight = regionsConfig.sourceSpec.height;
+  }
   const { data, error } = await supabase.functions.invoke('render-print-file', {
     method: 'POST',
-    body: { design, width: spec.width, height: spec.height, label: printfileId, isFrontPlacement }
+    body
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Print file render failed');

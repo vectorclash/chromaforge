@@ -42,9 +42,10 @@ the actual print, generated the same deterministic way.
   is still needed before the print pipeline is real.
 - **Studio generation settings (geometry sliders), 2026-07-02**: the design JSON's
   `settings` field is now real — `{ settings: { geometry: { chance, pointsMin, pointsMax,
-  coherence } } }`, edited via a new "Geometry" tab in the studio settings panel (chance
-  slider, dual min/max points slider, coherence slider; moving one live-regenerates the
-  *current seed* with the new settings after a 350ms debounce). `src/render/designSettings.js`
+  coherence, size } } }` (`size` added 2026-07-04, see below), edited via a new "Geometry"
+  tab in the studio settings panel (chance slider, dual min/max points slider, coherence
+  slider, size slider; moving one live-regenerates the *current seed* with the new
+  settings after a 350ms debounce). `src/render/designSettings.js`
   owns the defaults/normalization (it's a separate module because the `Generate*` classes
   need it and generateArtwork imports those — circular otherwise). Key invariants:
   **defaults are byte-identical to the pre-settings generator** (chance 0.4 ≡ the old
@@ -108,6 +109,21 @@ the actual print, generated the same deterministic way.
   existing design with a non-zero coherence setting renders its geometry layer differently
   now** — same nothing-live-yet-so-accepted tradeoff as the ratio-aware (`v3`) change
   below; coherence-0 designs (all of them, until the sliders ship) are untouched.
+  **`size` setting added (2026-07-04, user request)**: a new `geometry.size` slider (0–1,
+  default 0.5) controls the coherent polygon's radius — 0.15×`getSizeScale` (fairly small)
+  to 0.6×`getSizeScale` (bleeds ~20% of the short dimension's half past the canvas edge,
+  deliberately allowed — the old behaviour was a hard "always fits with 12.5% margin"
+  containment rule the user explicitly wanted relaxed at the high end). The clever bit
+  requiring no extra interpolation logic: `shapeSize` was already
+  `chaoticSize + (coherentSize - chaoticSize) * coherence`, so swapping the old fixed
+  `0.375` factor inside `coherentSize` for `0.15 + size * 0.45` means the *existing*
+  coherence lerp automatically gates `size`'s influence — at coherence 0 the size term's
+  coefficient is exactly 0 regardless of `size`'s value (verified: identical shape points
+  across size 0/0.5/1 at coherence 0), and influence grows smoothly as coherence rises,
+  which is exactly the "the higher the coherence, the more accurate/controllable" behavior
+  asked for, with zero new branching. Default 0.5 reproduces the prior fixed-0.375 factor
+  exactly, so absent-`size` designs (everything saved before this) are byte-identical
+  (re-verified: same 3-seed PNG hashes as the lattice-rework verification above).
 - **Generators are now ratio-aware** (`GENERATOR_VERSION = 3`, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
   sizing stars off its narrow axis only), and element counts scale off canvas area relative
@@ -368,6 +384,59 @@ from print rendering above (video vs. still images) — don't conflate the two.
   (`cfg.placements`); a real **order** needs every placement regardless of visibility
   (left-out placements render as blank fabric on the actual garment) — checkout calls
   `resolvePlacementEntries` with no filter.
+  - **Pocket continuity, 2026-07-04**: on cut-sew products with a visible front pocket
+    (hoodie 388, zip hoodie 717), the `pocket` placement no longer gets its own
+    independently-generated composition — by default that produced a small, oddly-scaled
+    "echo" of the whole front design crammed onto the pocket (confirmed bad via real
+    mockups), since the generator is ratio-aware and a pocket's own printfile is a
+    different aspect ratio than the front's. Fixed via a `pocketCrop` config per product
+    (in `PRODUCT_MOCKUP_CONFIG`): `renderAndUploadPrintFiles` generates the FRONT
+    composition once, then composites one or more `{ src, dest }` fraction-rects
+    (`drawRegionsComposite`/`drawRegion`, mirrored byte-for-byte between
+    `lib/printful.js` for mockups and `render-service/render.js` for real print files) so
+    the pocket becomes a literal crop of the front instead of an unrelated render.
+    **Hard-won lesson, confirmed across ~8 real-mockup iterations**: a `dest` smaller than
+    the full output canvas is fragile — any area outside it falls back to a differently-
+    scaled cover-fit of the whole front, and the boundary between the two reads as a
+    visible seam/doubled content the moment the real garment's visible-crop assumption is
+    even slightly off (it was, twice — a hand-measured "safe area" from Printful's CAD
+    sewing templates, and separately a scale inferred from a labeled calibration-grid
+    upload, both produced this exact defect). The only structure that's been defect-free
+    is `dest` filling **100%** of the canvas (`{x:0,y:0,w:1,h:1}`) — whatever the garment's
+    own real crop discards is simply invisible, same as for any upload; only the `src`
+    window (with zero overhang, so no edge-clamp-stretch artifacts either — see below)
+    needs tuning, and only visually, from real mockups. The hoodie (388) needed one
+    `src` rect (solved from CAD template geometry, since its pocket panel and front share
+    one printfile at the same aspect). The zip hoodie (717) is structurally different —
+    two zip panels forming the front, a compound two-piece welt pocket on its own
+    differently-aspect-ratio printfile — and needed its `src` window's vertical offset
+    bisected empirically against real mockup feedback (`y=0.36`, see the 717 config
+    comment for the full trail); exact per-pocket registration was attempted and abandoned
+    for the same seam-defect reason above. The track jacket (801) has NO pocket-crop
+    config: its `pocket` placement is the inside pocket lining, never visible in any
+    mockup or on the worn garment, so there's nothing to fix. `drawRegion`'s 9-patch
+    edge-clamp (stretches the source's edge pixel outward) only matters for a `src` window
+    that overhangs the canvas by a few percent (388's does, by design, to reach a real
+    part of the design at its exact print scale) — overhang beyond roughly 20% produces
+    its own defect (visibly flat stretched color bars), so it's used sparingly.
+  - **Per-placement geometry picker, 2026-07-04**: `settings.geometry.frontOnly` (a
+    saved-design toggle for suppressing the geometry layer on non-front placements) was
+    removed — baking that choice into the design meant it was permanent for every product
+    the design was ever printed on, which didn't make sense once printing on multiple
+    products became real. Replaced with a per-order choice: `ProductPage.jsx` shows a
+    "Geometry placement" section (checkboxes for Front/Back/Left sleeve/Right
+    sleeve/Hood, filtered per-product via `getGeometryPlacementOptions`, defaulting to
+    all checked) whose selection — a plain `Set` of placement keys, never persisted —
+    flows through `renderAndUploadPrintFiles`'s `geometryPlacements` param into
+    `generateArtwork`'s `renderContext.includeGeometry` (renamed from the old
+    `isFrontPlacement`, which is now genuinely about "does this specific render include
+    geometry," not "is this the front"). `pocket` has no checkbox of its own — it always
+    mirrors whatever `front` resolves to, since its content is literally cropped from the
+    front's render (see pocket continuity above); this also fixed a latent bug where the
+    pocket crop's source generation had `includeGeometry` hardcoded true, which would
+    have silently mismatched a front rendered with geometry off. The selection is part of
+    the mockup cache key (`useMockup.js`) so toggling a checkbox correctly misses a stale
+    cached preview instead of silently reusing one rendered under a different selection.
 - `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2
   `mockup-tasks` via the `printful-mockup` edge function → poll → dedupe by camera angle →
   cache). Free, no money involved. One automatic retry on Printful's occasional transient

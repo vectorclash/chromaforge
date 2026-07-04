@@ -1918,20 +1918,30 @@ export default class DisplayCanvas extends React.Component {
                 </div>
                 <div className="settings-field">
                   <span className="settings-label">
-                    Front Panel Only
-                    <span className="settings-label-note"> (merch prints)</span>
+                    Size
+                    <span className="settings-label-note">
+                      {' '}
+                      {geometrySettings.coherence <= 0
+                        ? 'needs coherence'
+                        : geometrySettings.size <= 0
+                          ? 'small'
+                          : geometrySettings.size >= 1
+                            ? 'overflows canvas'
+                            : `${Math.round(geometrySettings.size * 100)}%`}
+                    </span>
                   </span>
-                  <button
-                    className={'settings-toggle' + (geometrySettings.frontOnly ? ' on' : '')}
-                    onClick={() =>
-                      this.onGeometrySettingChange({ frontOnly: !geometrySettings.frontOnly })
+                  <input
+                    type="range"
+                    className="settings-range"
+                    min="0"
+                    max="100"
+                    value={Math.round(geometrySettings.size * 100)}
+                    style={{ '--range-fill': `${Math.round(geometrySettings.size * 100)}%` }}
+                    aria-label="Geometry size"
+                    onChange={e =>
+                      this.onGeometrySettingChange({ size: Number(e.target.value) / 100 })
                     }
-                    aria-label={
-                      geometrySettings.frontOnly ? 'Front panel only: on' : 'Front panel only: off'
-                    }
-                  >
-                    <span className="settings-toggle-thumb" />
-                  </button>
+                  />
                 </div>
               </>
             )}

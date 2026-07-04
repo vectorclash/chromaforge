@@ -9,6 +9,7 @@ import {
   getCatalogProduct,
   getPrintfileSpecs,
   getMockupConfigForProduct,
+  getGeometryPlacementOptions,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   renderPrintFileStrategy
@@ -250,6 +251,33 @@ export default function ProductPage() {
   const [checkoutNotice, setCheckoutNotice] = useState(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
 
+  // Which placements include the geometry layer -- a per-order choice (see
+  // getGeometryPlacementOptions), not part of the saved design, so the same artwork can
+  // show its full-coherence "gem" on a hoodie's front only one order and front+back the
+  // next without ever touching the Studio. Defaults to every available placement checked,
+  // matching the generator's own everywhere-by-default behavior. Reset whenever the
+  // product changes, since a different product has a different available placement set
+  // (e.g. mesh shorts only ever have 'front', a hoodie has front/back/sleeves/hood).
+  const [geometryPlacements, setGeometryPlacements] = useState(new Set());
+  const geometryOptions = detail?.product
+    ? getGeometryPlacementOptions(getMockupConfigForProduct(detail.product.id))
+    : [];
+  useEffect(() => {
+    if (detail?.product) {
+      setGeometryPlacements(new Set(getGeometryPlacementOptions(getMockupConfigForProduct(detail.product.id)).map(o => o.key)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.product?.id]);
+
+  const toggleGeometryPlacement = key => {
+    setGeometryPlacements(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   // One random narration line per STATUS_TIMELINE threshold, rolled lazily as each is first
   // reached (see statusNarration) and cleared at the start of every new mockup run so back-
   // to-back generations don't always recite the exact same script. 'rendering' is always the
@@ -415,11 +443,12 @@ export default function ProductPage() {
   // instantly (e.g. every size of a t-shirt in the same color shares one print file, so
   // there's nothing new to render -- see useMockup's cache), otherwise drop back to idle so
   // the previous selection's mockup doesn't keep showing as if it were current.
+  const geometryPlacementsSignature = [...geometryPlacements].sort().join(',');
   useEffect(() => {
     if (!product || !variant || !printfileSpecs) return;
-    syncMockup({ product, printfileSpecs, variant, design: selectedDesign });
+    syncMockup({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, selectedVariantId, product, printfileSpecs]);
+  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature]);
 
   if (loading) {
     return (
@@ -441,25 +470,30 @@ export default function ProductPage() {
   const hasMockup = status === 'completed' && images.length > 0;
   const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
-  const onGenerateClick = () => generate({ product, printfileSpecs, variant, design: selectedDesign });
+  const onGenerateClick = () =>
+    generate({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements });
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
   // for why), then hand off to Stripe's hosted Checkout page. Gated behind a real mockup
   // existing (disabled below), since buying before seeing what you're printing doesn't make
-  // sense regardless of payments.
+  // sense regardless of payments. geometryPlacements rides along so the print files match
+  // exactly what the approved mockup showed -- the customer could otherwise toggle a
+  // checkbox after generating a mockup and buy something they never previewed.
   const onBuyNowClick = async () => {
     setCheckoutBusy(true);
     setCheckoutNotice(null);
     try {
       const entries = resolvePlacementEntries(printfileSpecs, variant);
       if (!entries) throw new Error('No printfile mapping for this variant.');
+      const cfg = getMockupConfigForProduct(product.id);
       const printFileUrls = await renderAndUploadPrintFiles(entries, {
         printfileSpecs,
         design: selectedDesign,
-        renderOne: renderPrintFileStrategy
+        renderOne: renderPrintFileStrategy,
+        pocketCrop: cfg.pocketCrop || null,
+        geometryPlacements
       });
-      const cfg = getMockupConfigForProduct(product.id);
       const { url, orderId } = await createCheckoutSession({
         productId: product.id,
         productTitle: product.title,
@@ -544,6 +578,45 @@ export default function ProductPage() {
           </p>
         )}
       </div>
+
+      {/* Step: which panels show the geometry layer -- a per-order choice (not saved to the
+          design), so the same artwork can be printed differently on different orders. Only
+          shown when the product actually has more than one selectable panel (see
+          getGeometryPlacementOptions) -- a single-panel product like mesh shorts has nothing
+          meaningful to toggle. Changing a checkbox invalidates the current mockup (see the
+          sync effect's geometryPlacementsSignature dependency) since it changes what would
+          actually render. */}
+      {geometryOptions.length > 1 && (
+        <div className="mb-8">
+          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+            Geometry placement
+          </h2>
+          <p className="mt-1 text-xs text-text-muted">
+            Choose which panels show the design's geometry layer, if it has one.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {geometryOptions.map(({ key, label }) => {
+              const checked = geometryPlacements.has(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleGeometryPlacement(key)}
+                  aria-pressed={checked}
+                  className={
+                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    (checked
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-hairline text-text-secondary hover:border-text')
+                  }
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[3fr_2fr]">
         {/* Gallery: one large hero image that upgrades in place from blank stock photo to

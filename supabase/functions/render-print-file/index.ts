@@ -66,7 +66,7 @@ Deno.serve(async req => {
   const userId = userData.id;
 
   const body = await req.json();
-  const { design, width, height, label, isFrontPlacement } = body;
+  const { design, width, height, label, includeGeometry, regions, sourceWidth, sourceHeight } = body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
       { error: { message: "Missing required fields: design.seed, design.generatorVersion, width, height" } },
@@ -103,11 +103,19 @@ Deno.serve(async req => {
         width,
         height,
         generatorVersion: design.generatorVersion,
-        // Render context, not design identity -- defaults to front (see
-        // generateArtwork.js's renderContext param) so callers that don't know about
-        // placements (there aren't any today besides lib/printful.js) get today's
-        // behavior unchanged.
-        isFrontPlacement: isFrontPlacement !== false
+        // Render context, not design identity -- whether the geometry layer appears on
+        // this specific placement (see generateArtwork.js's renderContext param), driven
+        // by ProductPage.jsx's per-placement checkboxes. Defaults to included so callers
+        // that don't know about placements get today's behavior unchanged.
+        includeGeometry: includeGeometry !== false,
+        // Optional region composite for placements that continue a larger panel's artwork
+        // (hoodie/zip-hoodie pocket) -- validated by render-service itself, just
+        // forwarded here. When set, sourceWidth/sourceHeight are the FRONT placement's own
+        // dims (what to generate at) and width/height above are the output/target
+        // placement's dims (what to composite into). Absent for every other placement.
+        regions: regions ?? null,
+        sourceWidth: sourceWidth ?? null,
+        sourceHeight: sourceHeight ?? null
       })
     });
   } catch {

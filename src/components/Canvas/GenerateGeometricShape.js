@@ -40,16 +40,25 @@ export default class GenerateGeometricShape {
     // intentional absolute minimum (avoids degenerate near-zero shapes at tiny sizes), not
     // part of the aspect-ratio behavior this changes.
     const chaoticSize = 150 + Math.round((rng() * getElementSizeScale(width, height)) / 3);
-    // At full coherence the whole lattice (radius = shapeSize * shapeDepth, drawn from the
-    // canvas centre) must sit inside the visible design with clearance on all sides: 75% of
-    // the short dimension's half, i.e. a 12.5% margin at the closest edge. This is a hard
-    // containment requirement, so it deliberately keeps using getSizeScale (min(w,h)), not
-    // getElementSizeScale -- switching it would let the polygon bleed past the short axis
-    // on non-square canvases. In between, interpolate -- the chaotic size can be far larger
-    // than the canvas (that off-screen bleed IS the chaos), so raising coherence steadily
-    // reins it in. Pure arithmetic on the single draw above; no rng() consumption depends on
-    // the coherence value here.
-    const coherentSize = (getSizeScale(width, height) * 0.375) / this.shapeDepth;
+    // At full coherence the lattice radius (shapeSize * shapeDepth, drawn from the canvas
+    // centre) is user-controlled via geometry.size: 0.15 * sizeScale (fairly small, ~30%
+    // of the short dimension's half) up to 0.6 * sizeScale (bleeds ~20% of that half past
+    // the edge -- deliberately allowed at the high end, unlike the old fixed-at-exactly-
+    // fits behaviour). 0.375 (size=0.5, the default) is the original fixed factor, so
+    // default settings still fit with the original 12.5% margin. Deliberately keeps using
+    // getSizeScale (min(w,h)), not getElementSizeScale -- containment/overflow amount
+    // should key off the short axis, not the orientation-independent element scale, so a
+    // non-square canvas doesn't bleed differently depending on which axis is short.
+    // In between coherence 0 and 1, interpolate -- the chaotic size can be far larger than
+    // the canvas (that off-screen bleed IS the chaos), so raising coherence steadily reins
+    // it in AND, as a side effect of this same lerp, steadily hands control to the size
+    // setting -- at coherence 0 shapeSize collapses to exactly chaoticSize regardless of
+    // size (0 * anything = 0), so the size slider has no effect until coherence rises,
+    // matching the "the higher the coherence, the more accurate/controllable" request.
+    // Pure arithmetic on the single depth draw above; no rng() consumption depends on
+    // coherence or size.
+    const sizeFactor = 0.15 + geometry.size * 0.45;
+    const coherentSize = (getSizeScale(width, height) * sizeFactor) / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
 
     this.points = this.pointsArray(this.shapeSize);

@@ -292,16 +292,25 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   pointsMin: 3,
   pointsMax: 12,
   // 0 = fully chaotic (unbounded size, random unrecognizable triangles, panels mostly
-  // unfilled); 1 = a clean regular polygon, every lattice cell filled, sized to sit fully
-  // inside the canvas with clearance on all sides.
+  // unfilled); 1 = a clean regular polygon, every lattice cell filled, sized per `size`
+  // below.
   coherence: 0,
-  // When true, the geometry layer is suppressed on any render explicitly marked as a
-  // non-front placement (see generateArtwork's isFrontPlacement render-context flag) --
-  // useful for full-coherence's centered "gem" shape, which looks fine on a front panel
-  // but odd on a narrow print placement like a sleeve. Renders that don't pass placement
-  // context (the main studio canvas, thumbnails, share links) default to front, so this
-  // never affects anything outside the merch print/mockup pipeline.
-  frontOnly: false
+  // How large the coherent polygon is: 0 = fairly small (a third of the canvas's half-
+  // dimension), 1 = large enough to bleed past the canvas edge a bit. Only takes effect at
+  // coherence > 0 -- see GenerateGeometricShape's shapeSize blend, which already
+  // interpolates the coherent size in proportion to coherence, so this setting naturally
+  // gains influence as coherence rises and has zero effect at coherence 0 (chaotic mode
+  // has never had a size dial). Default 0.5 is deliberately the exact midpoint of
+  // GenerateGeometricShape's [0.15, 0.6] size-factor range, reproducing the original
+  // fixed 0.375 "12.5% margin, fits exactly" full-coherence look byte-for-byte.
+  size: 0.5
+  // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
+  // non-front merch placements) but was removed 2026-07 -- baking that choice into the
+  // saved design meant it was permanent for every product the design was ever printed on.
+  // It's now a per-order choice instead: ProductPage.jsx's placement checkboxes, threaded
+  // through as `includeGeometry` render context (see generateArtwork's renderContext
+  // param) rather than a design setting. Old saved designs may still carry a stray
+  // `settings.geometry.frontOnly` key; it's simply never read anymore.
 };
 function getGeometrySettings(settings) {
   return { ...DEFAULT_GEOMETRY_SETTINGS, ...settings?.geometry || null };
@@ -331,7 +340,8 @@ var GenerateGeometricShape = class {
     this.shapeDepth = minShapeDepth + Math.round(rng() * (maxShapeDepth - minShapeDepth));
     this.shapeAng = 360 / this.shapeVertices;
     const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height) / 3);
-    const coherentSize = getSizeScale(width, height) * 0.375 / this.shapeDepth;
+    const sizeFactor = 0.15 + geometry.size * 0.45;
+    const coherentSize = getSizeScale(width, height) * sizeFactor / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
     this.points = this.pointsArray(this.shapeSize);
     for (let i = 0; i < shapeNum; i++) {
@@ -518,7 +528,7 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { isFrontPlacement = true } = {}) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true } = {}) {
   const rng = makeRng(seed);
   const config = {
     generatorVersion: GENERATOR_VERSION,
@@ -561,7 +571,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       rng,
       settings
     );
-    if (!(geometry.frontOnly && !isFrontPlacement)) {
+    if (includeGeometry) {
       config.geometryConfig = geometryConfig;
     }
   }

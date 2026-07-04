@@ -49,17 +49,18 @@ function randomBlendMode(rng) {
 // (they're size-independent inputs, so they can't) -- see render/scale.js for why that
 // matters. `renderContext` is deliberately NOT part of a design's identity/persistence --
 // it's caller-supplied context about *this particular render* (currently just
-// isFrontPlacement, for settings.geometry.frontOnly -- see printful.js's
-// renderAndUploadPrintFiles, the only caller that knows which merch placement is being
-// rendered). Defaults to front so every other caller (studio canvas, thumbnails, share
-// links) is unaffected.
+// includeGeometry, whether the geometry layer should appear at all on this specific
+// placement -- see printful.js's renderAndUploadPrintFiles, the only caller that knows
+// which merch placement is being rendered and which panels the customer chose at
+// checkout via ProductPage.jsx's per-placement checkboxes). Defaults to true so every
+// other caller (studio canvas, thumbnails, share links) is unaffected.
 export function generateArtwork(
   seed = randomSeed(),
   width,
   height,
   colorValues = [],
   settings = null,
-  { isFrontPlacement = true } = {}
+  { includeGeometry = true } = {}
 ) {
   const rng = makeRng(seed);
 
@@ -114,9 +115,9 @@ export function generateArtwork(
     // by size directly.
     let shapeNum = 10 + Math.round(rng() * 30);
     // Constructed unconditionally (same rng() consumption whether or not it ends up
-    // attached below) so a frontOnly design's front and non-front placements stay
-    // rng-aligned with each other -- same discipline as geometryChance's unconditional
-    // draw above.
+    // attached below) so a design rendered with includeGeometry=false on one placement
+    // stays rng-aligned with its other placements -- same discipline as geometryChance's
+    // unconditional draw above.
     const geometryConfig = new GenerateGeometricShape(
       width,
       height,
@@ -125,7 +126,7 @@ export function generateArtwork(
       rng,
       settings
     );
-    if (!(geometry.frontOnly && !isFrontPlacement)) {
+    if (includeGeometry) {
       config.geometryConfig = geometryConfig;
     }
   }

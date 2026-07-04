@@ -70,14 +70,14 @@ export function StudioProvider({ children }) {
 
   // Render any design config to a JPEG blob at the given size, off-canvas, using the shared
   // star-sprite queue. Generalized from DisplayCanvas.renderArtworkBlobAt -- recompose per
-  // ratio (regenerate from seed/colors), not a downscaled screenshot. `isFrontPlacement`
+  // ratio (regenerate from seed/colors), not a downscaled screenshot. `includeGeometry`
   // (default true) is render context, not part of the design -- only merch placement
-  // rendering (lib/printful.js's capRenderStrategy) ever passes it as false, for
-  // settings.geometry.frontOnly.
-  const renderDesignBlob = useCallback(async (config, width, height, { isFrontPlacement = true } = {}) => {
+  // rendering (lib/printful.js's capRenderStrategy) ever passes it as false, driven by
+  // ProductPage.jsx's per-placement geometry checkboxes.
+  const renderDesignBlob = useCallback(async (config, width, height, { includeGeometry = true } = {}) => {
     if (!queueRef.current) throw new Error('Render assets are still loading.');
     const built = generateArtwork(config.seed, width, height, config.colors, config.settings, {
-      isFrontPlacement
+      includeGeometry
     });
     const canvas = renderArtwork(built, queueRef.current);
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
