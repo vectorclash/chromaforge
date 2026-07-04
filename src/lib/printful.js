@@ -184,7 +184,7 @@ const PRODUCT_MOCKUP_CONFIG = {
     // -- out-of-bounds areas land in cut-away bleed and are edge-clamped by drawRegion,
     // never white. Residual error budget ~0.4in, under the ~1in garment sewing tolerance.
     pocketCrop: {
-      regions: [{ src: { x: -0.012, y: 0.147, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+      regions: [{ src: { x: -0.012, y: 0.155, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }
   }, // hoodie
   320: {
