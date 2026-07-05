@@ -7,13 +7,23 @@ import ArrowIcon from '../buttons/ArrowIcon';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../../lib/printful';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 
-const VISIBLE_COUNT = 3; // full-opacity "active" cards
 const GAP_PX = 20; // matches gap-5
-const PEEK_FRACTION = 0.4; // how much of the neighboring card peeks past each edge
 const PEEK_OPACITY = 0.5;
 const PEEK_SCALE = 0.9;
 const DURATION = 0.4;
 const EASE = 'power2.inOut';
+
+// visibleCount/peekFraction were fixed at 3 actives + a 0.4 peek regardless of viewport --
+// fine at desktop widths, but on a phone the stage (after the two fixed-size arrow buttons
+// and section padding eat into it) can be under 200px, and forcing 3 cards + 2 peeks into
+// that produced genuinely unusable ~25-30px thumbnails. Scaled down by the same measured
+// stage width cardWidth already depends on, so it reacts to the same resize/orientation
+// changes with no separate breakpoint tracking needed.
+function layoutParamsForWidth(available) {
+  if (available < 420) return { visibleCount: 1, peekFraction: 0.12 };
+  if (available < 700) return { visibleCount: 2, peekFraction: 0.22 };
+  return { visibleCount: 3, peekFraction: 0.4 };
+}
 
 // Homepage preview of the shop -- a real, infinitely-looping carousel: 3 full-opacity
 // cards in the middle, a dimmed/scaled-down sliver of the next/prev card peeking at each
@@ -37,6 +47,7 @@ export default function ShopCarousel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [cardWidth, setCardWidth] = useState(0);
+  const [{ visibleCount, peekFraction }, setLayoutParams] = useState({ visibleCount: 3, peekFraction: 0.4 });
 
   // Depends on cardWidth too, not just loading: cards are sized off cardWidth (aspect-square,
   // so 0 width collapses their height to ~0 too), which only gets measured a tick *after*
@@ -82,7 +93,7 @@ export default function ShopCarousel() {
     const track = trackRef.current;
     if (!track || !cardWidth) return;
     const step = cardWidth + GAP_PX;
-    const peekWidth = PEEK_FRACTION * cardWidth;
+    const peekWidth = peekFraction * cardWidth;
     const x = peekWidth + GAP_PX - position * step;
     if (animate) {
       gsap.to(track, { x, duration: DURATION, ease: EASE, onComplete, overwrite: 'auto' });
@@ -103,16 +114,16 @@ export default function ShopCarousel() {
       const d = i - position;
       let opacity = 0;
       let scale = PEEK_SCALE;
-      if (d >= 0 && d < VISIBLE_COUNT) {
+      if (d >= 0 && d < visibleCount) {
         opacity = 1;
         scale = 1;
-      } else if (d === -1 || d === VISIBLE_COUNT) {
+      } else if (d === -1 || d === visibleCount) {
         opacity = PEEK_OPACITY;
         scale = PEEK_SCALE;
       }
       // Only animate cards near the visible window -- anything farther out is already at
       // (or snapping to) opacity 0 and doesn't need a tween.
-      const near = d >= -2 && d <= VISIBLE_COUNT + 1;
+      const near = d >= -2 && d <= visibleCount + 1;
       // .cf-card has its own `transition: transform 0.2s` for its hover-lift effect
       // (components.css) -- since GSAP writes `transform` via inline style every frame,
       // the browser's CSS transition was *also* smoothing those writes on top of GSAP's
@@ -161,9 +172,12 @@ export default function ShopCarousel() {
     if (!stage) return;
     const measure = () => {
       const available = stage.getBoundingClientRect().width;
-      // available = 2*PEEK_FRACTION*cardWidth + 3*cardWidth + 4*GAP_PX
-      const w = (available - 4 * GAP_PX) / (2 * PEEK_FRACTION + VISIBLE_COUNT);
+      const { visibleCount, peekFraction } = layoutParamsForWidth(available);
+      // available = 2*peekFraction*cardWidth + visibleCount*cardWidth + (visibleCount+1)*GAP_PX
+      // (visibleCount+1 gaps: peek-to-first-active, one between each pair of actives, last-active-to-peek)
+      const w = (available - (visibleCount + 1) * GAP_PX) / (2 * peekFraction + visibleCount);
       setCardWidth(w);
+      setLayoutParams({ visibleCount, peekFraction });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -177,15 +191,15 @@ export default function ShopCarousel() {
     if (!cardWidth) return;
     applyLayout(positionRef.current, { animate: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardWidth, n]);
+  }, [cardWidth, visibleCount, peekFraction, n]);
 
   if (!loading && !error && n === 0) return null;
 
   const repeated = n ? [...products, ...products, ...products] : [];
-  const peekWidth = PEEK_FRACTION * cardWidth;
+  const peekWidth = peekFraction * cardWidth;
 
   return (
-    <section id="shop" ref={revealRef} className="mx-auto max-w-5xl px-6 py-24">
+    <section id="shop" ref={revealRef} className="mx-auto max-w-5xl px-4 py-24 sm:px-6">
       <div className="reveal-item mb-10 flex items-end justify-between gap-4">
         <div>
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
@@ -203,14 +217,14 @@ export default function ShopCarousel() {
       ) : error ? (
         <p className="text-accent">Couldn't load the shop right now.</p>
       ) : (
-        <div className="reveal-item flex items-center gap-4">
+        <div className="reveal-item flex items-center gap-2 sm:gap-4">
           <button
             type="button"
             onClick={goPrev}
             aria-label="Previous products"
-            className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-full border border-hairline text-text-secondary transition hover:border-text-muted hover:text-text"
+            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-hairline text-text-secondary transition hover:border-text-muted hover:text-text sm:h-14 sm:w-14"
           >
-            <ArrowIcon direction="left" size={22} />
+            <ArrowIcon direction="left" size={18} />
           </button>
 
           {/* Stage: wide enough for peek + 3 actives + peek. overflow-hidden lives here,
@@ -260,9 +274,9 @@ export default function ShopCarousel() {
             type="button"
             onClick={goNext}
             aria-label="Next products"
-            className="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center rounded-full border border-hairline text-text-secondary transition hover:border-text-muted hover:text-text"
+            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-hairline text-text-secondary transition hover:border-text-muted hover:text-text sm:h-14 sm:w-14"
           >
-            <ArrowIcon direction="right" size={22} />
+            <ArrowIcon direction="right" size={18} />
           </button>
         </div>
       )}
