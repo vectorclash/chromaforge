@@ -1,5 +1,7 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { cachedFetch } from './catalogCache';
+import { generateLabelMark } from '../render/generateLabelMark';
+import renderLabelMark from '../render/renderLabelMark';
 
 // Catalog browsing only -- goes through the printful-catalog Edge Function so the
 // Printful private API key (which can create real orders) never reaches the browser.
@@ -357,6 +359,13 @@ function frontPlacementKey(entries) {
 // because the SET uses the UI-facing 'front' key uniformly (see
 // getGeometryPlacementOptions) while the actual placement key for t-shirts is 'default'.
 function includesGeometry(placementKey, frontKey, geometryPlacements) {
+  // label_panel is the hood/neckline interior lining (see CLAUDE.md's merch-pipeline
+  // notes) -- it's meant to hold a small brand mark on a plain background, not a copy of
+  // the front's full geometry-laden composition, so this is always off regardless of the
+  // customer's per-placement selection. Today this already happens to be true as a side
+  // effect of label_panel never being one of getGeometryPlacementOptions' checkbox keys --
+  // this makes it an explicit, guaranteed rule instead of relying on that omission.
+  if (placementKey === 'label_panel') return false;
   if (!geometryPlacements) return true;
   const key = placementKey === 'pocket' && frontKey ? frontKey : placementKey;
   return geometryPlacements.has(key === 'default' ? 'front' : key);
@@ -386,6 +395,23 @@ function includesGeometry(placementKey, frontKey, geometryPlacements) {
 // mini-echo-of-the-front behavior being replaced).
 // `geometryPlacements` (optional Set of placement keys): the customer's per-placement
 // geometry choice from ProductPage.jsx -- see includesGeometry above.
+// label_inside/label_outside are Printful's dedicated small brand-mark placements (see
+// CLAUDE.md's merch-pipeline notes) -- a fixed 375x150 or ~450x450 canvas, tiny next to
+// every other placement's multi-thousand-pixel printfile. They never go through the
+// generic full-composition render: generateLabelMark/renderLabelMark draw a small,
+// self-contained mark instead, synchronously and client-side (no render-service round
+// trip needed at these sizes, at checkout or in a preview), then upload straight to the
+// same design-mockups bucket every other print/mockup file already lives in.
+const LABEL_MARK_PLACEMENTS = new Set(['label_inside', 'label_outside']);
+
+async function renderLabelMarkBlob(design, spec) {
+  const config = generateLabelMark(design, spec.width, spec.height);
+  const canvas = renderLabelMark(config);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Label mark render failed'))), 'image/jpeg', 0.95)
+  );
+}
+
 export async function renderAndUploadPrintFiles(
   entries,
   { printfileSpecs, design, renderOne, pocketCrop = null, geometryPlacements = null }
@@ -397,6 +423,18 @@ export async function renderAndUploadPrintFiles(
     frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === entries.find(([k]) => k === frontKey)[1]);
 
   for (const [placementKey, printfileId] of entries) {
+    if (LABEL_MARK_PLACEMENTS.has(placementKey)) {
+      const cacheKey = `label:${placementKey}`;
+      if (!rendered[cacheKey]) {
+        const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
+        if (!spec) continue;
+        const blob = await renderLabelMarkBlob(design, spec);
+        rendered[cacheKey] = await uploadMockupSourceImage(blob, `${printfileId}-label`);
+      }
+      urls[placementKey] = rendered[cacheKey];
+      continue;
+    }
+
     const includeGeometry = includesGeometry(placementKey, frontKey, geometryPlacements);
     const regionsConfig =
       placementKey === 'pocket' && pocketCrop && frontSpec
