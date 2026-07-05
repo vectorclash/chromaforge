@@ -21,18 +21,27 @@ primary_region = "iad" # TODO: confirm/adjust to match the Supabase project's re
   min_machines_running = 0
 
 [[vm]]
-  size = "shared-cpu-1x"
+  # shared-cpu-1x caps out at 2048mb memory regardless of what's requested (confirmed live,
+  # 2026-07-05 -- flyctl rejected 4096mb with "cannot exceed 2048 MiB"); performance-2x is
+  # the smallest tier whose memory ceiling actually covers the 4096mb this needs (its own
+  # extra CPU core is unused by this single-threaded Node service, just came bundled with
+  # the memory tier).
+  size = "performance-2x"
   # 512mb OOM-killed mid-render on a real product's printfile spec (confirmed live,
   # 2026-07-01 -- anon-rss hit 412MB and the kernel killed the node process). Some
   # printfiles run up to ~6000x6000px; the raw RGBA buffer alone is ~144MB, plus Skia/Node
   # overhead and PNG encoding headroom on top.
   #
-  # Bumped 1024mb -> 2048mb (2026-07-05), alongside fixing a real bug in render-print-file's
+  # Bumped 1024mb -> 2048mb (2026-07-05) alongside fixing a real bug in render-print-file's
   # dimension validation that had been rejecting checkout on several real products (mesh
-  # shorts, joggers, sweatshirt, track jacket -- see that function's own comment). The
-  # largest of those, joggers' 9750x8100 printfile, is ~79Mpx -- over 2x the ~36Mpx (6000x
-  # 6000) case 1024mb was actually validated against above, so raising the validation limit
-  # without also raising this would risk reintroducing the same OOM-kill for real orders on
-  # those products. Not yet re-verified live against an actual joggers/shorts print-file
-  # render at this new memory size -- do that before fully trusting this number holds.
-  memory = "2048mb"
+  # shorts, joggers, sweatshirt, track jacket). 2048mb was NOT enough -- confirmed OOM-killed
+  # live minutes later on a real mesh-shorts checkout attempt (anon-rss:1905132kB, i.e. right
+  # at the 2048mb ceiling) rendering front then back sequentially on the same warm machine,
+  # each ~49Mpx. Bumped again to 4096mb the same day, alongside forcing an explicit
+  # global.gc() after every response in server.js (see its own comment -- the working theory
+  # is @napi-rs/canvas's native buffers outrunning V8's lazy GC between two large sequential
+  # renders, not any single render alone needing this much). Also not yet re-verified live at
+  # this size -- this service scales to zero when idle, so the extra headroom only costs
+  # anything while actually rendering, which made being generous here an easy call given two
+  # rounds of under-provisioning already blocked real checkouts.
+  memory = "4096mb"

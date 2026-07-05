@@ -28,4 +28,8 @@ COPY public/createjs.min.js ./public/createjs.min.js
 ENV PORT=8080
 EXPOSE 8080
 WORKDIR /app/render-service
-CMD ["node", "server.js"]
+# --expose-gc: see server.js's explicit global.gc() call after each response -- a real OOM
+# was traced (2026-07-05) to two large sequential renders (mesh shorts' front then back,
+# both ~49Mpx) on the same warm machine outrunning V8's own lazy GC heuristics for the
+# @napi-rs/canvas buffers' external (non-heap) memory before the next request started.
+CMD ["node", "--expose-gc", "server.js"]

@@ -119,6 +119,16 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     console.error('render failed:', err);
     send(res, 500, { error: err.message || 'Render failed' });
+  } finally {
+    // Real OOM traced (2026-07-05) to a warm machine handling two large sequential renders
+    // (mesh shorts' front then back placement, both ~49Mpx) back to back -- @napi-rs/canvas's
+    // buffers are native (external) memory that V8's own GC heuristics don't reliably collect
+    // between requests on their own, so the first render's buffers could still be resident
+    // when the second one's peak hit. Forcing a collection right after every response (this
+    // request's own canvases are now unreachable, nothing else references them) trades a
+    // small per-request pause for not carrying a large render's memory into the next one.
+    // Requires --expose-gc (see Dockerfile).
+    if (global.gc) global.gc();
   }
 });
 
