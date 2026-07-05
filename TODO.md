@@ -7,6 +7,17 @@ tracks what's true now, not history.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
+- [x] **Leaked Printful API key, found and fixed (2026-07-05)** — the GitHub Actions repo
+      secret `VITE_SUPABASE_ANON_KEY` was mistakenly set to the Printful API key's value
+      instead of the actual Supabase publishable key, so every production build baked the
+      Printful key into the public JS bundle (confirmed by decoding the live minified
+      bundle) and sent it as the Supabase `apikey` header, which is why the Gallery started
+      401ing with "invalid API key" right after the first live deploy. Fixed: Printful key
+      rotated (old one revoked in Printful's dashboard), new key set as the `PRINTFUL_API_KEY`
+      Supabase secret (verified live against `printful-catalog`) and in local `.env.local`,
+      `VITE_SUPABASE_ANON_KEY` GitHub secret corrected to the real publishable key. Needs one
+      more push/redeploy to actually ship the corrected bundle — the leaked key was still
+      being served as of the fix.
 - [ ] **Activate Stripe Tax** in the Stripe dashboard (the dedicated **Tax** product in the
       sidebar, not Settings → Tax — that page is just default price-level tax behavior and
       isn't the blocker). `create-checkout-session` now sends `automatic_tax: enabled`, so
@@ -44,8 +55,9 @@ tracks what's true now, not history.
        (deployed from repo root, not `render-service/`: the Dockerfile's build context is
        the repo root, since it needs `../src` and `../public` — see the Dockerfile's own
        header comment. Both machines updated to image version 4).
-1. [ ] Merge `feature/account-gallery-ui` → `master` (nothing on that branch is live on
-       chromaforge.app until then; the Supabase/Fly deploys are already live regardless).
+1. [x] Merge `feature/account-gallery-ui` → `master` (2026-07-05) — pushed, GitHub Actions
+       deploy triggered. Confirm the Actions run finishes green and chromaforge.app reflects
+       it before treating this as fully done.
 2. [ ] Verify deep links work on the live site (`chromaforge.app/shop` direct hit) — the
        `.htaccess` SPA fallback has never been exercised in production.
 3. [ ] Run one full test purchase on the live site (Stripe test keys still fine here) and
