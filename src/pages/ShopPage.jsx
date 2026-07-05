@@ -40,7 +40,7 @@ export default function ShopPage() {
       {loading && (
         <SkeletonGrid count={6} className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3" />
       )}
-      {error && <p className="text-accent">{error}</p>}
+      {error && <p className="animate-pop-in text-accent">{error}</p>}
       {!loading && !error && (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {products.map((product, i) => (

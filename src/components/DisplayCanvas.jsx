@@ -30,7 +30,7 @@ import ColorField from './ColorField';
 
 import s1 from '../assets/images/star-sprite-large.png';
 import s2 from '../assets/images/star-sprite-small.png';
-import logo from '../assets/images/logo.svg';
+import { StudioWordmark } from './ui/Wordmark';
 
 gsap.registerPlugin(TextPlugin);
 
@@ -1710,12 +1710,12 @@ export default class DisplayCanvas extends React.Component {
                 </div>
               )}
               {animationMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
-                <div className="settings-dirty-notice">
+                <div className="settings-dirty-notice animate-reveal-quick">
                   Regenerate to apply new settings
                 </div>
               )}
               {showBranchNotice && (
-                <div className="branch-notice">
+                <div className="branch-notice animate-reveal-quick">
                   <span>Editing creates a new design — your saved version is unchanged.</span>
                   <button
                     onClick={this.onDismissBranchNotice.bind(this)}
@@ -1750,10 +1750,7 @@ export default class DisplayCanvas extends React.Component {
                 {/* Plain clickable h1, not a <button> -- .controls-inner .row button has its
                     own hover treatment (uppercase, fixed height, glow shadow, lift) meant for
                     Generate/Save/Settings, which looked wrong applied to the wordmark. */}
-                <h1 onClick={() => this.props.onNavigate?.('/')} style={{ cursor: 'pointer' }}>
-                  <img src={logo} alt="" />
-                  <span>CHROMA<b>FORGE</b></span>
-                </h1>
+                <StudioWordmark onNavigate={this.props.onNavigate} />
                 <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
                   <SettingsButton />
                 </button>

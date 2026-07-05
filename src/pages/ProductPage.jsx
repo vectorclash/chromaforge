@@ -181,7 +181,7 @@ function statusNarration(elapsedSeconds, picks) {
 // Skips the animation on first mount (nothing to transition from) and on unrelated
 // re-renders where `text` hasn't actually changed (this re-renders every second via
 // elapsedSeconds even though the line only changes at STATUS_TIMELINE thresholds).
-function ScrambleText({ text, className }) {
+function ScrambleText({ text, className, style }) {
   const ref = useRef(null);
   const prevText = useRef(null);
 
@@ -219,7 +219,7 @@ function ScrambleText({ text, className }) {
   // textContent to still hold the *previous* line when the tween starts, so it has
   // something to interpolate away from. Rendering {text} in JSX would let React
   // commit the new string first, making the tween a same-to-same no-op.
-  return <p ref={ref} className={className} />;
+  return <p ref={ref} className={className} style={style} />;
 }
 
 export default function ProductPage() {
@@ -450,6 +450,59 @@ export default function ProductPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature]);
 
+  const hasMockup = status === 'completed' && images.length > 0;
+
+  // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
+  // top down with the thumbnail strip below it) from "the customer clicked a different
+  // camera-angle thumbnail on an already-revealed mockup" (the existing snappy pop-in swap,
+  // see --animate-pop-in above) -- both change the hero's `key`, but only the former should
+  // read as content arriving rather than a deliberate switch. The ref flips to true only
+  // after the fresh-reveal render has committed, and resets once hasMockup goes false again
+  // (a new generation started), so the next completion replays the reveal. Declared before
+  // the loading/error early returns below -- hooks must run unconditionally on every render,
+  // and this one used to sit after those returns, so the loading render skipped it while the
+  // loaded render didn't, tripping React's "rendered fewer hooks than expected" error.
+  const hasRevealedMockupRef = useRef(false);
+  const isFreshMockupReveal = hasMockup && !hasRevealedMockupRef.current;
+  useEffect(() => {
+    hasRevealedMockupRef.current = hasMockup;
+  }, [hasMockup]);
+
+  // The angle-thumbnail strip's per-item stagger (see --animate-reveal-quick below) only
+  // controls when each wrapper's own opacity/transform starts -- it says nothing about when
+  // the <img> inside actually has pixels, which is FadeImage's own separate onLoad-driven
+  // fade, racing against real network time for that specific mockup URL. On a first-ever
+  // generation those network fetches finish in whatever order the CDN happens to answer,
+  // so the row visually fills in out of order despite the wrapper stagger firing in order --
+  // it only ever looked "in order" on a refresh because the browser's HTTP cache made every
+  // fetch near-instant. Fix: hold the whole row back until every one of its images has
+  // actually finished loading (decoded into the browser's cache), so the CSS stagger is the
+  // only thing left driving perceived order -- consistent whether this is the very first
+  // generation or a reload. Keyed on the `images` array reference, which useMockup only
+  // replaces wholesale on a genuinely new batch (never mutated in place).
+  const [thumbsPreloaded, setThumbsPreloaded] = useState(false);
+  useEffect(() => {
+    if (images.length <= 1) return;
+    let cancelled = false;
+    setThumbsPreloaded(false);
+    Promise.all(
+      images.map(
+        m =>
+          new Promise(resolve => {
+            const img = new Image();
+            img.onload = resolve;
+            img.onerror = resolve;
+            img.src = m.mockup_url;
+          })
+      )
+    ).then(() => {
+      if (!cancelled) setThumbsPreloaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [images]);
+
   if (loading) {
     return (
       <PageContainer title="Loading…">
@@ -467,7 +520,6 @@ export default function ProductPage() {
 
   const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
   const busy = BUSY_STATUSES.includes(status);
-  const hasMockup = status === 'completed' && images.length > 0;
   const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
   const onGenerateClick = () =>
@@ -630,7 +682,7 @@ export default function ProductPage() {
               alt={product.title}
               className={
                 'h-full w-full object-cover' +
-                (hasMockup && images.length > 1 ? ' animate-pop-in' : '')
+                (hasMockup ? (isFreshMockupReveal ? ' animate-reveal-quick' : ' animate-pop-in') : '')
               }
             />
             {!hasMockup && (
@@ -641,13 +693,20 @@ export default function ProductPage() {
                   </p>
                 ) : busy ? (
                   <div className="flex flex-col items-center gap-3 text-center text-text">
-                    <HexagonLoader />
-                    <p className="text-sm font-bold">{STATUS_LABEL[status]}</p>
+                    <div className="animate-reveal-quick" style={{ animationDelay: '0ms' }}>
+                      <HexagonLoader />
+                    </div>
+                    <p className="animate-reveal-quick text-sm font-bold" style={{ animationDelay: '60ms' }}>
+                      {STATUS_LABEL[status]}
+                    </p>
                     <ScrambleText
                       text={statusNarration(elapsedSeconds, narrationPicksRef.current)}
-                      className="max-w-xs text-xs text-text-secondary"
+                      className="max-w-xs animate-reveal-quick text-xs text-text-secondary"
+                      style={{ animationDelay: '120ms' }}
                     />
-                    <p className="font-mono text-[11px] text-text-muted">{elapsedSeconds}s elapsed</p>
+                    <p className="animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
+                      {elapsedSeconds}s elapsed
+                    </p>
                   </div>
                 ) : status === 'failed' ? (
                   <div className="flex animate-pop-in flex-col items-center gap-3 text-center">
@@ -665,7 +724,7 @@ export default function ProductPage() {
             )}
           </div>
 
-          {hasMockup && images.length > 1 && (
+          {hasMockup && images.length > 1 && thumbsPreloaded && (
             <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
               {images.map((m, i) => (
                 <button
@@ -674,13 +733,21 @@ export default function ProductPage() {
                   onClick={() => setActiveImageIndex(i)}
                   aria-pressed={i === activeImageIndex}
                   title={m.display_name}
-                  style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
+                  style={{ animationDelay: `${80 + Math.min(i, 10) * 40}ms` }}
                   className={
-                    'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-reveal-quick focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                     (i === activeImageIndex ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
-                  <FadeImage
+                  {/* Plain <img>, not FadeImage: thumbsPreloaded above already guarantees this
+                      exact URL finished loading before this button ever mounts, so FadeImage's
+                      own skeleton-then-fade would just be a second, independent opacity
+                      transition racing the wrapper's animate-reveal-quick slide-in -- in
+                      practice the image's fade dominates what's visible and reads as the
+                      thumbnail "popping in" in place, masking the wrapper's own slide. A plain
+                      tag has nothing to fade on its own, so the wrapper's animation is the only
+                      thing driving the reveal. */}
+                  <img
                     src={m.mockup_url}
                     alt={m.display_name}
                     className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.2]"
@@ -784,7 +851,7 @@ export default function ProductPage() {
                 </p>
               )}
               {checkoutNotice && (
-                <p className="text-xs leading-tight text-accent">{checkoutNotice}</p>
+                <p className="animate-pop-in text-xs leading-tight text-accent">{checkoutNotice}</p>
               )}
               <p className="text-xs leading-tight text-text-muted">
                 Printed on demand and shipped by Printful. No returns on custom prints.

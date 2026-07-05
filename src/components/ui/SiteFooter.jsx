@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import MiniGenerator from './MiniGenerator';
-import logo from '../../assets/images/logo.svg';
+import Wordmark from './Wordmark';
 import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
 const RENDER_WIDTH = 1600;
@@ -60,10 +60,7 @@ export default function SiteFooter() {
           
           {/* Column 1: Brand & Socials */}
           <div className="flex flex-col gap-4">
-            <Link to="/" className="inline-flex items-center gap-2 font-display text-base tracking-tight text-text sm:text-lg">
-              <img src={logo} alt="" className="h-[1em] w-auto" />
-              <span>CHROMA<b className="font-black text-accent-soft">FORGE</b></span>
-            </Link>
+            <Wordmark className="text-base sm:text-lg" />
             <p className="max-w-[240px] text-xs leading-relaxed">
               An interactive, generative art playground and custom apparel workshop. Craft, save, and wear your unique algorithms.
             </p>

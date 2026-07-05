@@ -195,7 +195,7 @@ export default function GalleryPage() {
         <SkeletonGrid count={8} className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4" />
       )}
       {error && (
-        <p className="text-accent">
+        <p className="animate-pop-in text-accent">
           {error}{' '}
           <button onClick={() => load(tab)} className="cursor-pointer underline">
             Retry
@@ -203,7 +203,7 @@ export default function GalleryPage() {
         </p>
       )}
       {!loading && !error && designs.length === 0 && (
-        <div className="flex flex-col items-center gap-5 py-12 text-center">
+        <div className="flex animate-fade-slide-up flex-col items-center gap-5 py-12 text-center">
           {/* The studio's own live preview, not a stock illustration -- an empty gallery
               should still look like this is a generative art tool, not a blank state from
               any other app. Same previewUrl the ambient MiniGenerator widget shows. */}

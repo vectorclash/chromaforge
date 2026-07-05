@@ -486,6 +486,11 @@
   color: var(--color-accent-soft);
   font-weight: 900;
 }
+/* Matches Wordmark.jsx's site-header/footer hover treatment -- instant (no transition),
+   CHROMA's own resting white (var(--color-text)). */
+.display-canvas .controls-inner .row h1:hover b {
+  color: var(--color-text);
+}
 .display-canvas .controls-inner .row button,
 .display-canvas .controls-inner .row input {
   display: inline-block;

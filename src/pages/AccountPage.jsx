@@ -185,7 +185,7 @@ export default function AccountPage() {
               minLength={6}
             />
           </Field>
-          {resetError && <p className="text-sm text-accent">{resetError}</p>}
+          {resetError && <p className="animate-pop-in text-sm text-accent">{resetError}</p>}
           <Button type="submit" className="w-full" disabled={resetBusy} aria-busy={resetBusy}>
             {resetBusy ? 'Saving…' : 'Save new password'}
           </Button>
@@ -201,7 +201,7 @@ export default function AccountPage() {
           <p className="text-text-secondary">Loading profile…</p>
         ) : (
           <>
-            <div className="mb-10 flex items-center gap-5">
+            <div className="mb-10 flex animate-fade-slide-up items-center gap-5">
               <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
                 {avatarUrl && (
                   <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -218,12 +218,15 @@ export default function AccountPage() {
                 >
                   {avatarBusy ? 'Generating…' : avatarUrl ? 'Regenerate avatar' : 'Generate avatar'}
                 </Button>
-                {avatarError && <p className="mt-2 text-sm text-accent">{avatarError}</p>}
+                {avatarError && <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>}
               </div>
             </div>
 
             {stats && (
-              <div className="mb-10 max-w-sm rounded-xl border border-hairline bg-ink-800 p-5">
+              <div
+                className="mb-10 max-w-sm animate-fade-slide-up rounded-xl border border-hairline bg-ink-800 p-5"
+                style={{ animationDelay: '60ms' }}
+              >
                 <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
                   Your stats
                 </h2>
@@ -241,18 +244,19 @@ export default function AccountPage() {
             )}
 
             {!ordersLoading && orders.length > 0 && (
-              <div className="mb-10 max-w-sm">
+              <div className="mb-10 max-w-sm animate-fade-slide-up" style={{ animationDelay: '120ms' }}>
                 <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
                   Order history
                 </h2>
                 <div className="mt-3 space-y-2">
-                  {orders.map(order => {
+                  {orders.map((order, i) => {
                     const item = order.order_items?.[0];
                     const status = ORDER_STATUS_DISPLAY[order.status] ?? ORDER_STATUS_DISPLAY.submitted;
                     return (
                       <div
                         key={order.id}
-                        className="rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
+                        style={{ animationDelay: `${180 + Math.min(i, 10) * 50}ms` }}
+                        className="animate-fade-slide-up rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
                       >
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="truncate text-text">
@@ -275,7 +279,11 @@ export default function AccountPage() {
               </div>
             )}
 
-            <form onSubmit={onSaveProfile} className="max-w-sm space-y-5">
+            <form
+              onSubmit={onSaveProfile}
+              className="max-w-sm animate-fade-slide-up space-y-5"
+              style={{ animationDelay: '240ms' }}
+            >
               <Field label="Display name" htmlFor="display-name">
                 <Input
                   id="display-name"
@@ -298,7 +306,7 @@ export default function AccountPage() {
                   placeholder="yourname"
                 />
               </Field>
-              {profileError && <p className="text-sm text-accent">{profileError}</p>}
+              {profileError && <p className="animate-pop-in text-sm text-accent">{profileError}</p>}
               <div className="flex items-center gap-3 pt-1">
                 <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
                   {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}

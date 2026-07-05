@@ -1,10 +1,10 @@
 import React from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
 import FadeImage from './FadeImage';
-import logo from '../../assets/images/logo.svg';
+import Wordmark from './Wordmark';
 
 // Site-wide sticky nav. Used both inside SiteLayout (store/account/gallery routes, always
 // solid) and standalone on the homepage (HomePage.jsx owns scroll tracking on its own
@@ -32,10 +32,7 @@ export default function SiteHeader({ transparent = false, overlay = false }) {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent" />
       )}
       <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
-        <Link to="/" className="inline-flex items-center gap-2 font-display text-base tracking-tight text-text sm:text-lg">
-          <img src={logo} alt="" className="h-[1em] w-auto" />
-          <span>CHROMA<b className="font-black text-accent-soft">FORGE</b></span>
-        </Link>
+        <Wordmark className="text-base sm:text-lg" />
         <nav className="flex items-center gap-4 sm:gap-7">
           {/* Below `sm`, only the single most useful action (account/sign-in) stays visible
               -- four+ items at full width overlapped the wordmark on a phone-width screen. */}
