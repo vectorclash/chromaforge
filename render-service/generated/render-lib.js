@@ -325,13 +325,14 @@ function compactSettings(settings) {
 
 // ../src/components/Canvas/GenerateGeometricShape.js
 var GenerateGeometricShape = class {
-  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null) {
+  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null) {
     const geometry = getGeometrySettings(settings);
     let config = {
       width,
       height,
       shapes: []
     };
+    if (geometryLayout) config.legLayout = geometryLayout;
     this.rng = rng;
     this.colors = colors;
     this.shapeVertices = geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
@@ -528,7 +529,7 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true } = {}) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null } = {}) {
   const rng = makeRng(seed);
   const config = {
     generatorVersion: GENERATOR_VERSION,
@@ -569,7 +570,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       shapeNum,
       colorValues.slice(),
       rng,
-      settings
+      settings,
+      geometryLayout
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;
@@ -734,18 +736,31 @@ function buildShape(shapeConfig) {
   fill.compositeOperation = "hard-light";
   return fill;
 }
+function addContainer(stage, shapes, { x, y, flip = false }) {
+  let container = new window.createjs.Container();
+  container.x = x;
+  container.y = y;
+  container.rotation = 90;
+  if (flip) container.scaleX = -1;
+  for (let i = 0; i < shapes.length; i++) {
+    container.addChild(buildShape(shapes[i]));
+  }
+  stage.addChild(container);
+}
 function GeometricShape(config) {
   let canvas = document.createElement("canvas");
   canvas.width = config.width;
   canvas.height = config.height;
-  let container = new window.createjs.Stage(canvas);
-  container.x = config.width / 2;
-  container.y = config.height / 2;
-  container.rotation = 90;
-  for (let i = 0; i < config.shapes.length; i++) {
-    container.addChild(buildShape(config.shapes[i]));
+  let stage = new window.createjs.Stage(canvas);
+  if (config.legLayout === "single") {
+    addContainer(stage, config.shapes, { x: config.width / 4, y: config.height / 2 });
+  } else if (config.legLayout === "mirror") {
+    addContainer(stage, config.shapes, { x: config.width / 4, y: config.height / 2 });
+    addContainer(stage, config.shapes, { x: config.width * 3 / 4, y: config.height / 2, flip: true });
+  } else {
+    addContainer(stage, config.shapes, { x: config.width / 2, y: config.height / 2 });
   }
-  container.update();
+  stage.update();
   return canvas;
 }
 

@@ -4,7 +4,7 @@ import { getCountScale, getSizeScale, getElementSizeScale } from '../../render/s
 import { getGeometrySettings } from '../../render/designSettings';
 
 export default class GenerateGeometricShape {
-  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null) {
+  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null) {
     const geometry = getGeometrySettings(settings);
 
     let config = {
@@ -12,6 +12,11 @@ export default class GenerateGeometricShape {
       height: height,
       shapes: []
     };
+    // Passed straight through to GeometricShape.js's renderer -- see its own comment for
+    // what 'single'/'mirror' do. Not consumed here at all (no rng() draws depend on it),
+    // so it can't desync the settings-dependent rng() consumption invariant the rest of
+    // this generator relies on.
+    if (geometryLayout) config.legLayout = geometryLayout;
 
     this.rng = rng;
     this.colors = colors;

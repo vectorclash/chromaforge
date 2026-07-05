@@ -66,7 +66,7 @@ Deno.serve(async req => {
   const userId = userData.id;
 
   const body = await req.json();
-  const { design, width, height, label, includeGeometry, regions, sourceWidth, sourceHeight } = body;
+  const { design, width, height, label, includeGeometry, geometryLayout, regions, sourceWidth, sourceHeight } = body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
       { error: { message: "Missing required fields: design.seed, design.generatorVersion, width, height" } },
@@ -108,6 +108,11 @@ Deno.serve(async req => {
         // by ProductPage.jsx's per-placement checkboxes. Defaults to included so callers
         // that don't know about placements get today's behavior unchanged.
         includeGeometry: includeGeometry !== false,
+        // 'single' | 'mirror', optional -- the customer's choice for products whose
+        // front/back printfile is one flat canvas cut into two garment legs when sewn (see
+        // PRODUCT_MOCKUP_CONFIG's twoLegCanvas and GeometricShape.js). Absent/null for
+        // every other product, which renders identically to before this existed.
+        geometryLayout: geometryLayout ?? null,
         // Optional region composite for placements that continue a larger panel's artwork
         // (hoodie/zip-hoodie pocket) -- validated by render-service itself, just
         // forwarded here. When set, sourceWidth/sourceHeight are the FRONT placement's own

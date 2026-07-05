@@ -48,19 +48,23 @@ function randomBlendMode(rng) {
 // GENERATOR_VERSION stays at 3. Settings values must never vary rng() consumption BY SIZE
 // (they're size-independent inputs, so they can't) -- see render/scale.js for why that
 // matters. `renderContext` is deliberately NOT part of a design's identity/persistence --
-// it's caller-supplied context about *this particular render* (currently just
-// includeGeometry, whether the geometry layer should appear at all on this specific
-// placement -- see printful.js's renderAndUploadPrintFiles, the only caller that knows
-// which merch placement is being rendered and which panels the customer chose at
-// checkout via ProductPage.jsx's per-placement checkboxes). Defaults to true so every
-// other caller (studio canvas, thumbnails, share links) is unaffected.
+// it's caller-supplied context about *this particular render*: includeGeometry, whether
+// the geometry layer should appear at all on this specific placement -- see printful.js's
+// renderAndUploadPrintFiles, the only caller that knows which merch placement is being
+// rendered and which panels the customer chose at checkout via ProductPage.jsx's
+// per-placement checkboxes; and geometryLayout ('single' | 'mirror', optional), the
+// customer's choice for products whose front/back printfile is one flat canvas that gets
+// physically cut into two garment legs (mesh shorts, joggers -- see
+// GeometricShape.js/PRODUCT_MOCKUP_CONFIG's twoLegCanvas). Both default to leaving
+// existing behavior untouched so every other caller (studio canvas, thumbnails, share
+// links) is unaffected.
 export function generateArtwork(
   seed = randomSeed(),
   width,
   height,
   colorValues = [],
   settings = null,
-  { includeGeometry = true } = {}
+  { includeGeometry = true, geometryLayout = null } = {}
 ) {
   const rng = makeRng(seed);
 
@@ -124,7 +128,8 @@ export function generateArtwork(
       shapeNum,
       colorValues.slice(),
       rng,
-      settings
+      settings,
+      geometryLayout
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;

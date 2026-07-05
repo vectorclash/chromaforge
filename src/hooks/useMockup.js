@@ -74,14 +74,15 @@ function describeFailure(reasons) {
 // customer's per-placement geometry choice from ProductPage.jsx -- part of the cache key
 // because it changes rendered content just like the design/variant do, so toggling a
 // checkbox must miss the cache rather than silently restoring a mockup rendered under a
-// different selection.
-function cacheKey(product, entries, design, geometryPlacements) {
+// different selection. `geometryLayout` (see printful.js's renderAndUploadPrintFiles) is
+// the same idea for the two-leg-canvas layout toggle.
+function cacheKey(product, entries, design, geometryPlacements, geometryLayout) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
     .join(',');
   const geometrySignature = geometryPlacements ? [...geometryPlacements].sort().join(',') : 'all';
-  return `${product.id}:${signature}:${geometrySignature}:${JSON.stringify(design)}`;
+  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${JSON.stringify(design)}`;
 }
 
 export function useMockup() {
@@ -113,7 +114,7 @@ export function useMockup() {
   }, [status]);
 
   const generate = useCallback(
-    async ({ product, printfileSpecs, variant, design, geometryPlacements = null }) => {
+    async ({ product, printfileSpecs, variant, design, geometryPlacements = null, geometryLayout = null }) => {
       if (!design) {
         setStatus('failed');
         setError('Create a design in the Studio first.');
@@ -128,7 +129,7 @@ export function useMockup() {
         return;
       }
 
-      const key = cacheKey(product, entries, design, geometryPlacements);
+      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout);
       const cached = mockupCache.get(key);
       if (cached) {
         setError(null);
@@ -146,7 +147,8 @@ export function useMockup() {
           design,
           renderOne: capRenderStrategy(renderDesignBlob),
           pocketCrop: cfg.pocketCrop || null,
-          geometryPlacements
+          geometryPlacements,
+          geometryLayout
         });
 
         const placements = entries.map(([placementKey]) => ({
@@ -219,11 +221,11 @@ export function useMockup() {
   // the user wait through another Printful round trip for something they've already seen.
   // Otherwise fall back to idle so the previous selection's mockup doesn't keep showing as
   // if it were current.
-  const sync = useCallback(({ product, printfileSpecs, variant, design, geometryPlacements = null }) => {
+  const sync = useCallback(({ product, printfileSpecs, variant, design, geometryPlacements = null, geometryLayout = null }) => {
     setError(null);
     const cfg = design && getMockupConfigForProduct(product.id);
     const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
-    const cached = entries && mockupCache.get(cacheKey(product, entries, design, geometryPlacements));
+    const cached = entries && mockupCache.get(cacheKey(product, entries, design, geometryPlacements, geometryLayout));
     if (cached) {
       setImages(cached);
       setStatus('completed');

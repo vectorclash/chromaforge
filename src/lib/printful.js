@@ -223,7 +223,11 @@ const PRODUCT_MOCKUP_CONFIG = {
     // No "Flat Back" style exists in this product's mockup-styles catalog (just Front,
     // on-model, and lifestyle angles) -- front is the only flat preview available.
     placements: ['front'],
-    mockupStyleIds: [8603]
+    mockupStyleIds: [8603],
+    // front AND back (Printful printfile 472, 11250x4350 -- a 2.6:1 ratio) are one flat
+    // canvas physically cut into the two legs when sewn. See twoLegCanvas's own comment
+    // below (784) for what this flag does.
+    twoLegCanvas: true
   }, // mesh shorts
   717: {
     technique: 'cut-sew',
@@ -259,7 +263,10 @@ const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back'],
-    mockupStyleIds: [22595, 22596]
+    mockupStyleIds: [22595, 22596],
+    // front/back printfile is 9750x8100 (1.2:1) -- milder than the shorts' 2.6:1, but the
+    // same physical situation: one flat canvas cut into two legs. See twoLegCanvas.
+    twoLegCanvas: true
   }, // wide-leg joggers
   801: {
     technique: 'cut-sew',
@@ -308,6 +315,13 @@ export function getGeometryPlacementOptions(cfg) {
   return GEOMETRY_PLACEMENT_LABELS.filter(
     ({ key }) => placements.includes(key) || (key === 'front' && placements.includes('default'))
   );
+}
+
+// Whether this product's front/back printfile is one flat canvas physically cut into two
+// garment legs when sewn -- see the 693/784 config comments above and GeometricShape.js.
+// Drives whether ProductPage.jsx shows the "Geometry layout" single/mirrored toggle at all.
+export function hasTwoLegCanvas(cfg) {
+  return !!cfg?.twoLegCanvas;
 }
 
 // Placement -> printfile id for a given variant, optionally restricted to a subset of
@@ -395,6 +409,11 @@ function includesGeometry(placementKey, frontKey, geometryPlacements) {
 // mini-echo-of-the-front behavior being replaced).
 // `geometryPlacements` (optional Set of placement keys): the customer's per-placement
 // geometry choice from ProductPage.jsx -- see includesGeometry above.
+// `geometryLayout` (optional 'single' | 'mirror'): the customer's choice for products
+// whose front/back printfile is one flat canvas cut into two garment legs (see
+// PRODUCT_MOCKUP_CONFIG's twoLegCanvas and GeometricShape.js) -- applied uniformly to
+// every placement of this design, not per-placement like geometryPlacements, since it's a
+// property of the whole print job on this specific product, not any one panel.
 // label_inside/label_outside are Printful's dedicated small brand-mark placements (see
 // CLAUDE.md's merch-pipeline notes) -- a fixed 375x150 or ~450x450 canvas, tiny next to
 // every other placement's multi-thousand-pixel printfile. They never go through the
@@ -414,7 +433,7 @@ async function renderLabelMarkBlob(design, spec) {
 
 export async function renderAndUploadPrintFiles(
   entries,
-  { printfileSpecs, design, renderOne, pocketCrop = null, geometryPlacements = null }
+  { printfileSpecs, design, renderOne, pocketCrop = null, geometryPlacements = null, geometryLayout = null }
 ) {
   const rendered = {};
   const urls = {};
@@ -440,11 +459,11 @@ export async function renderAndUploadPrintFiles(
       placementKey === 'pocket' && pocketCrop && frontSpec
         ? { regions: pocketCrop.regions, sourceSpec: frontSpec }
         : null;
-    const cacheKey = `${printfileId}:${includeGeometry}${regionsConfig ? ':pocket-regions' : ''}`;
+    const cacheKey = `${printfileId}:${includeGeometry}:${geometryLayout || 'center'}${regionsConfig ? ':pocket-regions' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       if (!spec) continue;
-      rendered[cacheKey] = await renderOne(design, spec, printfileId, includeGeometry, regionsConfig);
+      rendered[cacheKey] = await renderOne(design, spec, printfileId, includeGeometry, regionsConfig, geometryLayout);
     }
     urls[placementKey] = rendered[cacheKey];
   }
@@ -588,12 +607,12 @@ async function makeCalibrationGridBlob(width, height) {
 // Mockups: cheap, capped, client-side, free -- well below Printful's real printfile dims,
 // same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
 export function capRenderStrategy(renderDesignBlob) {
-  return async (design, spec, printfileId, includeGeometry, regionsConfig = null) => {
+  return async (design, spec, printfileId, includeGeometry, regionsConfig = null, geometryLayout = null) => {
     const scale = RENDER_CAP / Math.max(spec.width, spec.height);
     const width = Math.round(spec.width * scale);
     const height = Math.round(spec.height * scale);
     if (!regionsConfig) {
-      const blob = await renderDesignBlob(design, width, height, { includeGeometry });
+      const blob = await renderDesignBlob(design, width, height, { includeGeometry, geometryLayout });
       return uploadMockupSourceImage(blob, printfileId);
     }
     if (POCKET_CALIBRATION_GRID) {
@@ -612,7 +631,7 @@ export function capRenderStrategy(renderDesignBlob) {
     const srcScale = RENDER_CAP / Math.max(sourceSpec.width, sourceSpec.height);
     const srcW = Math.round(sourceSpec.width * srcScale);
     const srcH = Math.round(sourceSpec.height * srcScale);
-    const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry });
+    const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry, geometryLayout });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
     return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
   };
@@ -629,7 +648,8 @@ export async function renderPrintFileStrategy(
   spec,
   printfileId,
   includeGeometry,
-  regionsConfig = null
+  regionsConfig = null,
+  geometryLayout = null
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -643,7 +663,8 @@ export async function renderPrintFileStrategy(
     width: spec.width,
     height: spec.height,
     label: regionsConfig ? `${printfileId}-pocket` : printfileId,
-    includeGeometry
+    includeGeometry,
+    geometryLayout
   };
   if (regionsConfig) {
     body.regions = regionsConfig.regions;

@@ -10,6 +10,7 @@ import {
   getPrintfileSpecs,
   getMockupConfigForProduct,
   getGeometryPlacementOptions,
+  hasTwoLegCanvas,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   renderPrintFileStrategy
@@ -278,6 +279,21 @@ export default function ProductPage() {
     });
   };
 
+  // Products whose front/back printfile is one flat canvas cut into two garment legs when
+  // sewn (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's twoLegCanvas) center the
+  // geometry shape exactly on that cut line by default, the one spot guaranteed to end up
+  // hidden in the inseam. 'single' confines it to one leg (matches how every other product
+  // already looks); 'mirror' centers it on the seam and repeats it, flipped, on the other
+  // leg. Same per-order, not-part-of-the-design treatment as geometryPlacements above --
+  // defaults to 'single' as the safer/closer-to-everything-else-looks-like choice.
+  const [geometryLayout, setGeometryLayout] = useState('single');
+  const showsTwoLegLayout = detail?.product
+    ? hasTwoLegCanvas(getMockupConfigForProduct(detail.product.id))
+    : false;
+  useEffect(() => {
+    setGeometryLayout('single');
+  }, [detail?.product?.id]);
+
   // One random narration line per STATUS_TIMELINE threshold, rolled lazily as each is first
   // reached (see statusNarration) and cleared at the start of every new mockup run so back-
   // to-back generations don't always recite the exact same script. 'rendering' is always the
@@ -446,9 +462,9 @@ export default function ProductPage() {
   const geometryPlacementsSignature = [...geometryPlacements].sort().join(',');
   useEffect(() => {
     if (!product || !variant || !printfileSpecs) return;
-    syncMockup({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements });
+    syncMockup({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature]);
+  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, geometryLayout]);
 
   const hasMockup = status === 'completed' && images.length > 0;
 
@@ -523,15 +539,16 @@ export default function ProductPage() {
   const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
   const onGenerateClick = () =>
-    generate({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements });
+    generate({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout });
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
   // for why), then hand off to Stripe's hosted Checkout page. Gated behind a real mockup
   // existing (disabled below), since buying before seeing what you're printing doesn't make
-  // sense regardless of payments. geometryPlacements rides along so the print files match
-  // exactly what the approved mockup showed -- the customer could otherwise toggle a
-  // checkbox after generating a mockup and buy something they never previewed.
+  // sense regardless of payments. geometryPlacements/geometryLayout ride along so the print
+  // files match exactly what the approved mockup showed -- the customer could otherwise
+  // toggle a checkbox or the layout after generating a mockup and buy something they never
+  // previewed.
   const onBuyNowClick = async () => {
     setCheckoutBusy(true);
     setCheckoutNotice(null);
@@ -544,7 +561,8 @@ export default function ProductPage() {
         design: selectedDesign,
         renderOne: renderPrintFileStrategy,
         pocketCrop: cfg.pocketCrop || null,
-        geometryPlacements
+        geometryPlacements,
+        geometryLayout
       });
       const { url, orderId } = await createCheckoutSession({
         productId: product.id,
@@ -663,6 +681,51 @@ export default function ProductPage() {
                   }
                 >
                   {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Step: for products whose front/back printfile is one flat canvas cut into two
+          garment legs when sewn (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's
+          twoLegCanvas), the geometry shape's default centering lands it exactly on that
+          seam -- the one spot guaranteed to end up hidden in the inseam. This lets the
+          customer pick single-leg (matches how every other product looks) or mirrored
+          (centered on the seam, repeated on both legs) instead. Changing it invalidates
+          the current mockup (see the sync effect's geometryLayout dependency) since it
+          changes what would actually render. */}
+      {showsTwoLegLayout && (
+        <div className="mb-8">
+          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+            Geometry layout
+          </h2>
+          <p className="mt-1 text-xs text-text-muted">
+            This product's front is one canvas split into two legs when sewn — choose how
+            the geometry shape sits across that seam.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {[
+              { key: 'single', label: 'Single leg', hint: 'Confined to one panel' },
+              { key: 'mirror', label: 'Mirrored', hint: 'Repeated on both' }
+            ].map(({ key, label, hint }) => {
+              const checked = geometryLayout === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setGeometryLayout(key)}
+                  aria-pressed={checked}
+                  className={
+                    'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    (checked
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-hairline text-text-secondary hover:border-text')
+                  }
+                >
+                  <span className="text-sm font-bold">{label}</span>
+                  <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
                 </button>
               );
             })}

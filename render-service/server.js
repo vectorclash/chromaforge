@@ -46,6 +46,7 @@ const server = http.createServer(async (req, res) => {
     height,
     generatorVersion,
     includeGeometry,
+    geometryLayout,
     regions,
     sourceWidth,
     sourceHeight
@@ -100,6 +101,7 @@ const server = http.createServer(async (req, res) => {
       height,
       settings: settings || null,
       includeGeometry: includeGeometry !== false,
+      geometryLayout: geometryLayout || null,
       regions: regions || null,
       sourceWidth: sourceWidth || null,
       sourceHeight: sourceHeight || null

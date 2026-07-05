@@ -37,7 +37,9 @@ function loadStarImages() {
 // like seed/colors: absent means the generator defaults, exactly like the frontend.
 // `includeGeometry` is render context (not design identity, see generateArtwork.js's
 // renderContext param) -- whether the geometry layer appears on this specific placement,
-// driven by ProductPage.jsx's per-placement checkboxes.
+// driven by ProductPage.jsx's per-placement checkboxes. `geometryLayout` ('single' |
+// 'mirror', optional) is the same idea for products whose front/back printfile is one flat
+// canvas cut into two garment legs when sewn -- see GeometricShape.js.
 // `regions`/`sourceWidth`/`sourceHeight` (all optional; regions implies the other two):
 // placements that physically continue a larger panel's artwork (hoodie/zip-hoodie
 // pocket) generate the SOURCE composition at sourceWidth x sourceHeight (the front
@@ -59,21 +61,23 @@ export async function renderDesign({
   height,
   settings = null,
   includeGeometry = true,
+  geometryLayout = null,
   regions = null,
   sourceWidth = null,
   sourceHeight = null
 }) {
   const images = await loadStarImages();
   if (!regions) {
-    const config = generateArtwork(seed, width, height, colors, settings, { includeGeometry });
+    const config = generateArtwork(seed, width, height, colors, settings, { includeGeometry, geometryLayout });
     const canvas = renderArtwork(config, images);
     return canvas.toBuffer('image/png');
   }
-  // includeGeometry here is already resolved against the FRONT placement's own choice
-  // (see printful.js's includesGeometry/renderAndUploadPrintFiles) -- using it for the
-  // source keeps the pocket a true continuation of whatever the front actually shows.
+  // includeGeometry/geometryLayout here are already resolved against the FRONT placement's
+  // own choice (see printful.js's includesGeometry/renderAndUploadPrintFiles) -- using them
+  // for the source keeps the pocket a true continuation of whatever the front actually shows.
   const sourceConfig = generateArtwork(seed, sourceWidth, sourceHeight, colors, settings, {
-    includeGeometry
+    includeGeometry,
+    geometryLayout
   });
   const sourceCanvas = renderArtwork(sourceConfig, images);
   const output = createCanvas(width, height);
