@@ -437,6 +437,45 @@ from print rendering above (video vs. still images) — don't conflate the two.
     have silently mismatched a front rendered with geometry off. The selection is part of
     the mockup cache key (`useMockup.js`) so toggling a checkbox correctly misses a stale
     cached preview instead of silently reusing one rendered under a different selection.
+  - **Label placements, 2026-07-04**: Printful's catalog was audited product-by-product
+    (`getPrintfileSpecs`/`getPrintfileSpecs?templates=1`, live) and turned out to expose
+    *three* distinct label-type placements, not one, previously never even considered:
+    `label_inside` (universal, every hooded/crewneck product, fixed 375×150px/2.5"×1",
+    `fit`), `label_outside` (joggers/track jacket only, 450×450px/3"×3", `cover`), and
+    `label_panel` (hoodie/zip hoodie/sweatshirt only — confirmed via Printful's own
+    mockup-generator template reference images to be the hood/neckline **interior lining**
+    panel, sharing a full-size printfile with front/pocket, not a small tag despite the
+    name). Real checkout already submits every placement Printful returns
+    (`resolvePlacementEntries` with no filter — see above), so all three were already being
+    *sent*; `label_inside`/`label_outside` just got the same shrunk full composition every
+    other placement does, which for a 2.5"×1" tag reads as noise, not a mark. Fixed with a
+    dedicated generator, `src/render/generateLabelMark.js` +
+    `renderLabelMark.js`: reuses `Logo.jsx`'s 37-chord vectorclash line geometry and its
+    exact per-line color logic from `animateLogo()` (each chord independently has a 60%
+    chance to show at all; of those, ~80% render a random light greyscale value and ~20% a
+    small hue-spin variant of one accent picked from the design's own palette — never one
+    flat color for the whole mark) and its fixed white outer ring (never randomized, per
+    `Logo.scss`), against a fixed dark background (`#181520`, the app's own
+    `--color-ink-900` token — chosen because the ring is white and would vanish on
+    anything light). Seeded off `${design.seed}-label`, a separate rng stream from the main
+    artwork's so geometry-slider tweaks can't shift which chords survive on the label.
+    **Real bug caught before shipping**: the first version centered against Logo.jsx's own
+    declared SVG viewBox (`0 0 313.4 303.4`), which doesn't actually bound the geometry —
+    the ring alone spans out to x=325, past the viewBox's own width — producing a visibly
+    off-center mark; fixed by computing the true bounding box (ring ∪ lines) directly from
+    the coordinates instead of trusting the source SVG's viewBox. Both placements are tiny
+    enough (well under iOS Safari's canvas cap) to render synchronously client-side and
+    upload straight to the `design-mockups` bucket, for *both* the mockup preview and real
+    checkout — deliberately bypassing `render-service`/`render-print-file` entirely for
+    these two placements, since the only reason that pipeline exists (mobile's canvas-area
+    ceiling) doesn't apply at this size. `label_panel` is untouched by this — it keeps
+    getting the real front composition (confirmed via Printful's own template reference
+    images that a fully-patterned lining is legitimate, not a bug) — except its geometry
+    layer is now *always* forced off (`includesGeometry` in `printful.js`), matching every
+    other placement's intent-to-hold-a-simple-mark-or-plain-pattern rather than a copy of
+    the front's full geometry-laden composition; previously this was already true in
+    practice as an accident of `label_panel` never being one of
+    `getGeometryPlacementOptions`' checkbox keys, now it's an explicit, guaranteed rule.
 - `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2
   `mockup-tasks` via the `printful-mockup` edge function → poll → dedupe by camera angle →
   cache). Free, no money involved. One automatic retry on Printful's occasional transient
