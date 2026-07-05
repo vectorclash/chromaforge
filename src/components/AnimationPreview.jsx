@@ -11,19 +11,14 @@ const DEFAULT_SPACING     = 3.5;
 const DEFAULT_STAR_FADE   = 8.0;
 const DEFAULT_STAR_SPACING = 7.0;
 
-const ORIGINS = [
-  'center center',
-  '55% 45%',
-  '45% 55%',
-  '52% 48%',
-  '48% 52%',
-];
-
-const STAR_ORIGINS = [
-  'center center',
-  '48% 52%',
-  '52% 48%',
-];
+// The zoom-in scale during each frame's fade must be anchored dead-center -- the
+// generator centers coherent geometry exactly on the image's own center (confirmed via
+// direct bounding-box measurement in GenerateGeometricShape), so any transform-origin
+// off of 'center center' makes that geometry visibly drift away from true center as the
+// frame scales up to SCALE_END. A per-frame offset origin used to be varied here for
+// subtle handheld-camera-style variety, but that drift read as a bug (geometric elements
+// off-center), not a feature -- every frame now anchors on the true center, always.
+const CENTER_ORIGIN = 'center center';
 
 export default function AnimationPreview({
   frames,
@@ -72,11 +67,10 @@ export default function AnimationPreview({
 
       function showFrame(i, skipFadeIn = false) {
         if (killRef.current) return;
-        const img    = imgs[i];
-        const origin = ORIGINS[i % ORIGINS.length];
-        const t      = nextTime;
+        const img = imgs[i];
+        const t   = nextTime;
 
-        tl.set(img, { scale: 1, transformOrigin: origin }, t);
+        tl.set(img, { scale: 1, transformOrigin: CENTER_ORIGIN }, t);
         tl.to(img, { scale: SCALE_END, duration: 2 * fade, ease: 'none' }, t);
         if (!skipFadeIn) {
           tl.to(img, { opacity: 1, duration: fade, ease: 'power1.inOut' }, t);
@@ -98,11 +92,10 @@ export default function AnimationPreview({
 
         function showStar(i, skipFadeIn = false) {
           if (killRef.current) return;
-          const img    = starImgs[i];
-          const origin = STAR_ORIGINS[i % STAR_ORIGINS.length];
-          const t      = starNextTime;
+          const img = starImgs[i];
+          const t   = starNextTime;
 
-          tl.set(img, { scale: 1, transformOrigin: origin }, t);
+          tl.set(img, { scale: 1, transformOrigin: CENTER_ORIGIN }, t);
           tl.to(img, { scale: STAR_SCALE_END, duration: 2 * starFade, ease: 'none' }, t);
           if (!skipFadeIn) {
             tl.to(img, { opacity: STAR_MAX_OPACITY, duration: starFade, ease: 'power1.inOut' }, t);
