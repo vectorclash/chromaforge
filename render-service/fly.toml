@@ -20,6 +20,20 @@ primary_region = "iad" # TODO: confirm/adjust to match the Supabase project's re
   auto_start_machines = true
   min_machines_running = 0
 
+  # 2026-07-05: printful.js's renderAndUploadPrintFiles now fires all of a checkout's
+  # placement renders concurrently instead of one at a time (fixed a real "preparing
+  # checkout" slowness, confirmed live -- each placement is a full server round trip at
+  # true print resolution). That's only safe with a hard cap of 1 request per machine here:
+  # without it, two large concurrent renders (e.g. mesh shorts' ~49Mpx front+back) could
+  # land on the SAME machine and hold both sets of buffers in memory simultaneously, which
+  # is worse than the sequential OOM this app already hit once today. With this limit, Fly's
+  # own proxy spreads concurrent requests across the machines already provisioned (2 today)
+  # instead of stacking them on one, and queues/auto-starts more only if that's not enough.
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 1
+    soft_limit = 1
+
 [[vm]]
   # shared-cpu-1x caps out at 2048mb memory regardless of what's requested (confirmed live,
   # 2026-07-05 -- flyctl rejected 4096mb with "cannot exceed 2048 MiB"); performance-2x is

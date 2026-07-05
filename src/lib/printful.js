@@ -435,23 +435,35 @@ export async function renderAndUploadPrintFiles(
   entries,
   { printfileSpecs, design, renderOne, pocketCrop = null, geometryPlacements = null, geometryLayout = null }
 ) {
+  // rendered[cacheKey] holds the in-flight PROMISE, not the resolved URL -- what makes this
+  // dedup-safe under concurrency. Every entry below is assigned its promise in one
+  // synchronous pass (nothing here awaits until the final Promise.all), so two placements
+  // sharing a printfile id (e.g. a t-shirt's front+back, both printfile 94) can't race: the
+  // second one always finds the first's promise already sitting in `rendered`, since
+  // nothing yielded control between the first's check-and-assign and the second's check.
+  // Concurrent rendering (real checkout renders were sequential before this -- each is a
+  // full server round trip: wake the Fly machine if cold, render at true print resolution,
+  // upload -- and a 4+ placement order was adding up to a genuinely long "preparing
+  // checkout" wait, confirmed live 2026-07-05) is only actually safe because
+  // render-service's fly.toml now caps concurrency at 1 request per machine -- see its own
+  // comment. Without that, two large concurrent renders (e.g. shorts' ~49Mpx front+back)
+  // could land on the SAME warm machine and hold both sets of buffers in memory at once,
+  // which is worse than the sequential OOM this app already hit once today, not better.
   const rendered = {};
-  const urls = {};
   const frontKey = frontPlacementKey(entries);
   const frontSpec =
     frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === entries.find(([k]) => k === frontKey)[1]);
 
-  for (const [placementKey, printfileId] of entries) {
+  const tasks = entries.map(([placementKey, printfileId]) => {
     if (LABEL_MARK_PLACEMENTS.has(placementKey)) {
       const cacheKey = `label:${placementKey}`;
       if (!rendered[cacheKey]) {
         const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
-        if (!spec) continue;
-        const blob = await renderLabelMarkBlob(design, spec);
-        rendered[cacheKey] = await uploadMockupSourceImage(blob, `${printfileId}-label`);
+        rendered[cacheKey] = spec
+          ? renderLabelMarkBlob(design, spec).then(blob => uploadMockupSourceImage(blob, `${printfileId}-label`))
+          : Promise.resolve(null);
       }
-      urls[placementKey] = rendered[cacheKey];
-      continue;
+      return [placementKey, rendered[cacheKey]];
     }
 
     const includeGeometry = includesGeometry(placementKey, frontKey, geometryPlacements);
@@ -462,11 +474,20 @@ export async function renderAndUploadPrintFiles(
     const cacheKey = `${printfileId}:${includeGeometry}:${geometryLayout || 'center'}${regionsConfig ? ':pocket-regions' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
-      if (!spec) continue;
-      rendered[cacheKey] = await renderOne(design, spec, printfileId, includeGeometry, regionsConfig, geometryLayout);
+      rendered[cacheKey] = spec
+        ? renderOne(design, spec, printfileId, includeGeometry, regionsConfig, geometryLayout)
+        : Promise.resolve(null);
     }
-    urls[placementKey] = rendered[cacheKey];
-  }
+    return [placementKey, rendered[cacheKey]];
+  });
+
+  const urls = {};
+  await Promise.all(
+    tasks.map(async ([placementKey, promise]) => {
+      const url = await promise;
+      if (url != null) urls[placementKey] = url;
+    })
+  );
   return urls;
 }
 
