@@ -26,4 +26,13 @@ primary_region = "iad" # TODO: confirm/adjust to match the Supabase project's re
   # 2026-07-01 -- anon-rss hit 412MB and the kernel killed the node process). Some
   # printfiles run up to ~6000x6000px; the raw RGBA buffer alone is ~144MB, plus Skia/Node
   # overhead and PNG encoding headroom on top.
-  memory = "1024mb"
+  #
+  # Bumped 1024mb -> 2048mb (2026-07-05), alongside fixing a real bug in render-print-file's
+  # dimension validation that had been rejecting checkout on several real products (mesh
+  # shorts, joggers, sweatshirt, track jacket -- see that function's own comment). The
+  # largest of those, joggers' 9750x8100 printfile, is ~79Mpx -- over 2x the ~36Mpx (6000x
+  # 6000) case 1024mb was actually validated against above, so raising the validation limit
+  # without also raising this would risk reintroducing the same OOM-kill for real orders on
+  # those products. Not yet re-verified live against an actual joggers/shorts print-file
+  # render at this new memory size -- do that before fully trusting this number holds.
+  memory = "2048mb"

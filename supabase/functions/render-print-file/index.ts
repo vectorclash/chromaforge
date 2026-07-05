@@ -73,18 +73,35 @@ Deno.serve(async req => {
       { status: 400, headers: corsHeaders }
     );
   }
-  // Legitimate dimensions only ever come from Printful's printfile specs, which top out
-  // around 6000x6000 -- the size the render-service's 1GB Fly machine is provisioned for
-  // (a ~6000x6000 RGBA buffer is already ~144MB before Skia/PNG overhead; see CLAUDE.md's
-  // OOM note). Anything bigger is either a bug or someone probing for an OOM, so reject it
-  // here rather than letting it crash a render machine mid-request.
-  const MAX_DIMENSION = 6500;
+  // Legitimate dimensions only ever come from Printful's printfile specs. A per-axis-only
+  // cap here was a real bug, found live (2026-07-05): it rejected a genuine checkout on
+  // mesh shorts (printfile 11250x4350 -- one axis, not total size, is what's huge for that
+  // product) with "width/height must be integers between 1 and 6500", and would have done
+  // the same for the sweatshirt/joggers/track jacket too (5037x6600, 9750x8100, 6600x6900
+  // respectively -- all real Printful printfiles for products already in the starter
+  // catalog, not hypothetical). Worse, it was measuring the wrong thing even for the cases
+  // it did correctly allow: the sweatshirt's 33.2Mpx got rejected on its height axis while
+  // the hoodie's 36.0Mpx (MORE total pixels, just squarer) passed fine. What actually
+  // determines memory risk is total pixel count (the RGBA buffer size), not either axis in
+  // isolation, so that's what's checked now. MAX_PIXELS is calibrated with headroom above
+  // the real largest current printfile (joggers, 784, 79.0Mpx) -- see fly.toml, whose
+  // memory was bumped alongside this fix since 79Mpx is over 2x the 36Mpx case the
+  // previous 1024mb allocation was actually validated against. MAX_AXIS is a much looser
+  // sanity ceiling (comfortably above the largest real single axis, mesh shorts' 11250) --
+  // defense against a pathological aspect ratio (e.g. a huge width with height=1) that a
+  // pure area check wouldn't catch on its own.
+  const MAX_AXIS = 15000;
+  const MAX_PIXELS = 90_000_000;
   if (
     !Number.isInteger(width) || !Number.isInteger(height) ||
-    width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION
+    width < 1 || height < 1 || width > MAX_AXIS || height > MAX_AXIS || width * height > MAX_PIXELS
   ) {
     return Response.json(
-      { error: { message: `width/height must be integers between 1 and ${MAX_DIMENSION}` } },
+      {
+        error: {
+          message: `width/height must be integers between 1 and ${MAX_AXIS}, and their product must not exceed ${MAX_PIXELS.toLocaleString()} total pixels`
+        }
+      },
       { status: 400, headers: corsHeaders }
     );
   }

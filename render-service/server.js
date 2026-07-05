@@ -61,7 +61,13 @@ const server = http.createServer(async (req, res) => {
   // see render.js), but only slightly: bounds here are sanity limits, not [0,1].
   // Validated because this is paid compute: reject rather than render something
   // malformed, and keep both the source and output canvases from exceeding what this
-  // machine is sized for.
+  // machine is sized for. Same MAX_AXIS/MAX_PIXELS reasoning as render-print-file's own
+  // width/height check below (a real bug there: a per-axis-only cap rejected several real
+  // Printful printfiles that are legitimately elongated but not actually huge in total
+  // pixels) -- kept in sync here even though no current pocketCrop product (388, 717) is
+  // anywhere near either limit, so a future one doesn't quietly hit the same flaw.
+  const MAX_AXIS = 15000;
+  const MAX_PIXELS = 90_000_000;
   if (regions != null) {
     const isFrac = n => typeof n === 'number' && Number.isFinite(n) && n >= -0.5 && n <= 1.5;
     const validRect = r =>
@@ -75,10 +81,12 @@ const server = http.createServer(async (req, res) => {
       Number.isInteger(sourceHeight) &&
       sourceWidth > 0 &&
       sourceHeight > 0 &&
-      sourceWidth <= 6500 &&
-      sourceHeight <= 6500 &&
-      width <= 6500 &&
-      height <= 6500;
+      sourceWidth <= MAX_AXIS &&
+      sourceHeight <= MAX_AXIS &&
+      width <= MAX_AXIS &&
+      height <= MAX_AXIS &&
+      sourceWidth * sourceHeight <= MAX_PIXELS &&
+      width * height <= MAX_PIXELS;
     if (!valid) {
       send(res, 400, {
         error: 'Invalid regions/sourceWidth/sourceHeight: expected an array of { src, dest } fraction rects and valid source dims'
