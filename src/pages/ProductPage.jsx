@@ -290,6 +290,15 @@ export default function ProductPage() {
   const showsTwoLegLayout = detail?.product
     ? hasTwoLegCanvas(getMockupConfigForProduct(detail.product.id))
     : false;
+  // Real bug, found live (2026-07-06): geometryLayout state defaults to 'single' for every
+  // product, not just two-leg-canvas ones, and was being sent unconditionally -- since
+  // GenerateGeometricShape treats any truthy geometryLayout as "not the default center"
+  // (see its own comment), every OTHER product's geometry silently started rendering
+  // off-center-left (anchored at width/4) instead of centered, even though its own toggle
+  // UI never shows. Gating on showsTwoLegLayout here, once, and using this everywhere
+  // instead of the raw state is what actually restricts the effect to the products it's
+  // meant for.
+  const effectiveGeometryLayout = showsTwoLegLayout ? geometryLayout : null;
   useEffect(() => {
     setGeometryLayout('single');
   }, [detail?.product?.id]);
@@ -462,9 +471,9 @@ export default function ProductPage() {
   const geometryPlacementsSignature = [...geometryPlacements].sort().join(',');
   useEffect(() => {
     if (!product || !variant || !printfileSpecs) return;
-    syncMockup({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout });
+    syncMockup({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout: effectiveGeometryLayout });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, geometryLayout]);
+  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout]);
 
   const hasMockup = status === 'completed' && images.length > 0;
 
@@ -539,7 +548,7 @@ export default function ProductPage() {
   const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
   const onGenerateClick = () =>
-    generate({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout });
+    generate({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout: effectiveGeometryLayout });
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
@@ -562,7 +571,7 @@ export default function ProductPage() {
         renderOne: renderPrintFileStrategy,
         pocketCrop: cfg.pocketCrop || null,
         geometryPlacements,
-        geometryLayout
+        geometryLayout: effectiveGeometryLayout
       });
       const { url, orderId } = await createCheckoutSession({
         productId: product.id,
