@@ -85,7 +85,7 @@ export default function MiniGenerator({ inline = false }) {
   // 1. Inline (Docked in Footer) Version: Horizontal Layout, buttons on left, image on right
   if (inline) {
     return (
-      <div className="flex flex-row items-center gap-4 rounded-2xl bg-black/15 p-4 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)] backdrop-blur-[4px] backdrop-brightness-[0.95]">
+      <div className="inline-flex flex-row items-center gap-4 rounded-2xl bg-black/15 p-4 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)] backdrop-blur-[4px] backdrop-brightness-[0.95]">
         {/* Buttons stacked on the left */}
         <div className="flex flex-col gap-3 w-32 shrink-0">
           <button

@@ -19,20 +19,27 @@ const navClass = ({ isActive }) =>
 export default function SiteHeader({ transparent = false, overlay = false }) {
   const { user, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  // MobileNav's full-screen panel always renders its own dark, artwork-tinted background
+  // with a matching gradient -- the header's gradient scrim blends into that seamlessly,
+  // while the solid scrolled-state bar reads as a separate hard-edged rectangle sitting in
+  // front of it. Forcing the gradient look while the panel is open keeps this consistent
+  // regardless of scroll position or route (Shop/Gallery/Account never pass `transparent`
+  // at all, so without this override every non-homepage route would show the seam).
+  const showGradient = transparent || menuOpen;
   return (
     <>
       <header
         className={
           (overlay ? 'fixed inset-x-0 top-0' : 'sticky top-0') +
           ' z-20 transition-colors shrink-0 ' +
-          (transparent ? 'bg-transparent' : 'border-b border-hairline bg-ink-950/80 backdrop-blur')
+          (showGradient ? 'bg-transparent' : 'border-b border-hairline bg-ink-950/80 backdrop-blur')
         }
       >
         {/* Transparent state has nothing behind it but raw generated artwork, which can be
             any color/brightness -- this scrim guarantees the light nav text stays legible
             regardless, without it the nav is only readable when the art happens to be dark
             at the very top. */}
-        {transparent && (
+        {showGradient && (
           <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent" />
         )}
         <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
