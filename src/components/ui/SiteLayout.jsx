@@ -35,8 +35,12 @@ export default function SiteLayout() {
       </main>
       <SiteFooter />
       {/* Rendered once here (not per-page) so the ambient generator widget is present across
-          every light route without each page needing to include it. */}
-      <MiniGenerator />
+          every light route without each page needing to include it. Hidden below `sm` --
+          MobileNav docks its own inline instance in the full-screen nav instead, so mobile
+          doesn't get two competing generate/save surfaces on one small screen. */}
+      <div className="hidden sm:block">
+        <MiniGenerator />
+      </div>
     </div>
   );
 }

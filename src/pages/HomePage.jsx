@@ -31,7 +31,13 @@ export default function HomePage() {
       <GallerySection />
       <ShopCarousel />
       <SiteFooter />
-      <MiniGenerator />
+      {/* Hidden below `sm` -- MobileNav docks its own inline instance in the full-screen
+          nav instead (same reasoning as SiteLayout's own copy of this). Without this, the
+          floating widget's z-30 sat above MobileNav's z-10 and showed through on top of
+          the open nav panel on mobile. */}
+      <div className="hidden sm:block">
+        <MiniGenerator />
+      </div>
     </div>
   );
 }

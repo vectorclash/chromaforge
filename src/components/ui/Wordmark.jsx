@@ -70,11 +70,12 @@ function WordmarkMark({ chromaRef, bClassName = '' }) {
 }
 
 // Site chrome wordmark (SiteHeader, SiteFooter) -- a router <Link> home, styled via Tailwind.
-export default function Wordmark({ className = '' }) {
+export default function Wordmark({ className = '', onClick }) {
   const { chromaRef, onMouseEnter, onMouseLeave } = useWordmarkHover();
   return (
     <Link
       to="/"
+      onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`group inline-flex items-center gap-2 font-display tracking-tight text-text ${className}`}
