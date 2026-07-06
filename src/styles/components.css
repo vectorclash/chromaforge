@@ -147,7 +147,10 @@
   font-size: 11px;
 }
 
-/* INPUT — accent border at rest, cyan focus ring */
+/* INPUT — accent border at rest, cyan focus ring. font-size must stay >= 16px: iOS Safari
+   auto-zooms the whole page in on focus for any input under that threshold, which read as a
+   jarring, unrequested zoom every time this field (email/password on AccountPage) was
+   tapped on an iPhone. 52px height has plenty of room to absorb the larger size. */
 .cf-input {
   height: 52px;
   padding: 0 16px;
@@ -157,7 +160,7 @@
   color: var(--color-text);
   font-family: var(--font-quicksand);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 16px;
   outline: none;
 }
 .cf-input:focus {
@@ -788,7 +791,10 @@
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  padding: 0;
+  /* padding+matching negative margin: grows the tappable box (the "×" glyph alone was far
+     under a usable touch target) without shifting its visual position in the banner. */
+  padding: 8px;
+  margin: -8px;
 }
 .display-canvas .controls-inner .branch-notice-dismiss:hover {
   color: rgba(250, 250, 250, 0.9);
@@ -991,20 +997,39 @@
    React) place the filled span between the thumbs. Thumb styling is duplicated across
    ::-webkit-slider-thumb and ::-moz-range-thumb because a selector list containing an
    unknown pseudo-element invalidates the whole rule. */
+/* Thumbs were 16x16 sitting on a 4px-tall (single) / 16px-tall (dual) element -- the
+   *entire* interactive element, not just the visual thumb, so the actual grabbable hit
+   area was that small, well under any usable touch-target size. Track/thumb still look
+   the same (thin 4px track, thumb only modestly bigger), but both slider types now sit in
+   a much taller box (--slider-touch-height) with the thin track/thumb vertically centered
+   in it -- browsers center a style-reset range thumb within its element's box height by
+   default, so this widens the hit area without changing the visual weight of the control. */
 .display-canvas .controls-inner .settings-range,
 .display-canvas .controls-inner .settings-range-dual {
   width: 190px;
   flex-shrink: 0;
+  --slider-touch-height: 32px;
+  --slider-track-height: 4px;
+  --slider-thumb-size: 20px;
 }
 .display-canvas .controls-inner .settings-range {
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
-  border-radius: 2px;
+  height: var(--slider-touch-height);
+  /* Both layers must be images (not a plain background-color) to be sizeable at all --
+     background-color has no position/size/repeat of its own, so it always fills the
+     *entire* element box regardless of any size written next to it. That's exactly what
+     went wrong here: this used to be a plain rgba() for the "empty track" layer, which was
+     harmless while the whole element was a thin 4px, but once the element grew to a much
+     taller --slider-touch-height (for a bigger touch target), the ignored size/position
+     made that plain color wash out to fill the full new height as a washed-out band behind
+     the actual thin track. A two-stop gradient of the same solid color is still an image,
+     so it can be sized/centered exactly like the fill layer already is. */
   background:
-    linear-gradient(90deg, var(--color-accent), var(--color-interactive)) 0 0 /
-      var(--range-fill, 50%) 100% no-repeat,
-    rgba(250, 250, 250, 0.15);
+    linear-gradient(90deg, var(--color-accent), var(--color-interactive)) left center /
+      var(--range-fill, 50%) var(--slider-track-height) no-repeat,
+    linear-gradient(rgba(250, 250, 250, 0.15), rgba(250, 250, 250, 0.15)) left center /
+      100% var(--slider-track-height) no-repeat;
   outline: none;
   cursor: pointer;
   margin: 0;
@@ -1012,8 +1037,8 @@
 .display-canvas .controls-inner .settings-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
   border: none;
   background: #fafafa;
@@ -1025,8 +1050,8 @@
   transform: scale(1.15);
 }
 .display-canvas .controls-inner .settings-range::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
   border: none;
   background: #fafafa;
@@ -1040,23 +1065,23 @@
 
 .display-canvas .controls-inner .settings-range-dual {
   position: relative;
-  height: 16px;
+  height: var(--slider-touch-height);
 }
 .display-canvas .controls-inner .settings-range-dual::before {
   content: '';
   position: absolute;
-  top: 6px;
+  top: calc((var(--slider-touch-height) - var(--slider-track-height)) / 2);
   left: 0;
   right: 0;
-  height: 4px;
+  height: var(--slider-track-height);
   border-radius: 2px;
   background: rgba(250, 250, 250, 0.15);
 }
 .display-canvas .controls-inner .settings-range-dual::after {
   content: '';
   position: absolute;
-  top: 6px;
-  height: 4px;
+  top: calc((var(--slider-touch-height) - var(--slider-track-height)) / 2);
+  height: var(--slider-track-height);
   border-radius: 2px;
   left: var(--range-min, 0%);
   width: calc(var(--range-max, 100%) - var(--range-min, 0%));
@@ -1067,7 +1092,7 @@
   top: 0;
   left: 0;
   width: 100%;
-  height: 16px;
+  height: var(--slider-touch-height);
   margin: 0;
   -webkit-appearance: none;
   appearance: none;
@@ -1079,8 +1104,8 @@
 .display-canvas .controls-inner .settings-range-dual input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
   border: none;
   background: #fafafa;
@@ -1093,8 +1118,8 @@
   transform: scale(1.15);
 }
 .display-canvas .controls-inner .settings-range-dual input[type='range']::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
   border: none;
   background: #fafafa;

@@ -96,16 +96,16 @@ export default function GallerySection() {
       <section id="gallery" ref={ref} className="bg-ink-200">
         <div className="mx-auto max-w-5xl px-6 py-24 text-center">
           <p className="reveal-item font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
-            Community favorites
+            A ranking of communal enthusiasm
           </p>
-          <h2 className="reveal-item mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
+          <h2 className="reveal-item mt-3 font-display text-3xl text-ink-950">The most-favored compositions</h2>
           {error ? (
-            <p className="reveal-item mt-4 text-accent">Couldn't load the gallery right now.</p>
+            <p className="reveal-item mt-4 text-accent">I am unable to retrieve the gallery at this time.</p>
           ) : (
             <p className="reveal-item mt-4 text-ink-950/70">
-              No public designs yet -- be the first to{' '}
+              No public compositions currently exist. I would find it gratifying to see you{' '}
               <Link to="/studio" state={{ from: '/' }} className="text-accent underline">
-                save one
+                create the first
               </Link>
               .
             </p>
@@ -121,17 +121,17 @@ export default function GallerySection() {
         <div className="reveal-item mb-10 flex items-end justify-between gap-4">
           <div>
             <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
-              Community favorites
+              A ranking of communal enthusiasm
             </p>
-            <h2 className="mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
+            <h2 className="mt-3 font-display text-3xl text-ink-950">The most-favored compositions</h2>
           </div>
           <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
-            View all &rarr;
+            View the complete archive &rarr;
           </Link>
         </div>
 
         {loading ? (
-          <p className="text-ink-950/70">Loading&hellip;</p>
+          <p className="text-ink-950/70">Retrieving the archive&hellip;</p>
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
             {designs.map(design => (
@@ -163,24 +163,33 @@ export default function GallerySection() {
                     </div>
                   )}
                   <div className="absolute inset-x-0 bottom-0 overflow-hidden p-3">
-                    <div className="translate-y-5 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                    {/* Hidden-until-hover only on devices with a hover-capable pointer, same
+                        pattern as the like button below -- on touch there's no real
+                        `:hover` to reveal this, so without the media-query gate the
+                        caption/CTA would be permanently invisible on mobile instead of just
+                        hover-deferred on desktop. */}
+                    <div className="[@media(hover:hover)]:translate-y-5 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
                       {design.profiles && (
                         <span className="block truncate text-xs text-text-secondary">
                           by {design.profiles.display_name || design.profiles.username || 'someone'}
                         </span>
                       )}
-                      <span className="block truncate text-xs text-accent opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
-                        Open in studio &rarr;
+                      <span className="block truncate text-xs text-accent [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
+                        Examine in the studio &rarr;
                       </span>
                     </div>
                   </div>
                   {/* Hidden-until-hover only on devices with a hover-capable pointer -- on
                       touch, where there's no hover to reveal it, the like button stays
-                      visible exactly as before so tapping it never loses functionality. */}
+                      visible exactly as before so tapping it never loses functionality.
+                      px-3 py-2 (up from px-2 py-1) paired with -m-1 grows the actual tappable
+                      box -- the icon alone was well under a usable touch target -- while the
+                      matching negative margin cancels the extra padding back out, so the
+                      pill's on-screen size/position is unchanged. */}
                   <button
                     onClick={e => onToggleLike(e, design)}
                     className={
-                      'absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100 ' +
+                      'absolute right-2 top-2 -m-1 flex items-center gap-1 rounded-full bg-black/40 px-3 py-2 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100 ' +
                       (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
                     }
                     aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}

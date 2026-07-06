@@ -489,6 +489,11 @@ export default class DisplayCanvas extends React.Component {
       // mounts it -- without that, this 50ms delay meant the confirmation was fully visible
       // first, then this fromTo yanked it to invisible before animating back in (a real,
       // visible flash/flicker, confirmed by sampling computed opacity frame-by-frame).
+      // No panel-height animation needed alongside this -- the JSX below always reserves
+      // the confirmation block's full height from the very first 'saving' frame (see its
+      // own comment), so the panel never needs to resize across this transition at all;
+      // an earlier version tried to smooth that resize instead of avoiding it and never
+      // quite lost a residual pop no matter how its timing/easing was tuned.
       //
       // The id itself uses GSAP's TextPlugin (same mechanism as ProductPage.jsx's mockup
       // status narration) rather than a fade -- it "types" onto the .share-link-id span,
@@ -2007,20 +2012,46 @@ export default class DisplayCanvas extends React.Component {
             <div className="mb-6">
               {user ? (
                 <>
-                  {galleryStatus === 'saved' ? (
-                    <div className="gallery-saved-alert opacity-0">
-                      <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
-                        <span className="text-[#a6e000]">✓ </span>Saved to your gallery
-                      </h6>
-                      <p className="mt-2 text-sm leading-snug text-white/60">
-                        {animationMode
-                          ? 'Your animation is in your gallery — view it any time.'
-                          : 'Your design is in your gallery — view it any time or put it on a product.'}
-                      </p>
+                  {/* 'saving' and 'saved' are one continuous, animated transition (the same
+                      session's save completing) -- they share this wrapper so the taller
+                      "saved" content's height is reserved from the very first 'saving' frame
+                      instead of appearing only once galleryStatus flips, which is what used
+                      to force a height change (a container that changes height to fit new
+                      content it's swapping in isn't itself smoothly animatable -- opacity is,
+                      so the fix is to never need the container to resize at all). Every
+                      attempt at timing/easing a height tween across that swap (measuring
+                      before/after, then after the real async save) kept leaving some residual
+                      pop/clip; not needing one is more robust than continuing to chase it.
+                      The OTHER static case below (a design that was already saved when
+                      loaded -- isSaved true, galleryStatus never leaves null this session) is
+                      a completely separate, non-transitioning display and doesn't need this. */}
+                  {(galleryStatus === 'saving' || galleryStatus === 'saved') ? (
+                    <div className="relative">
+                      <div className="gallery-saved-alert opacity-0">
+                        <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
+                          <span className="text-[#a6e000]">✓ </span>Saved to your gallery
+                        </h6>
+                        <p className="mt-2 text-sm leading-snug text-white/60">
+                          {animationMode
+                            ? 'Your animation is in your gallery — view it any time.'
+                            : 'Your design is in your gallery — view it any time or put it on a product.'}
+                        </p>
+                      </div>
+                      {/* Overlaid on the space the (still invisible-until-saved) block above
+                          already reserves -- a plain CSS crossfade is enough here since
+                          nothing needs to resize, just fade out once the GSAP pop-in (see
+                          saveToGallery) takes over showing the real confirmation. */}
+                      <div
+                        className={
+                          'absolute inset-0 transition-opacity duration-300 ' +
+                          (galleryStatus === 'saved' ? 'pointer-events-none opacity-0' : 'opacity-100')
+                        }
+                      >
+                        <h6 className="m-0 font-display text-xl font-bold text-neutral-50">Saving…</h6>
+                      </div>
                     </div>
                   ) : (
                     <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
-                      {galleryStatus === 'saving' && 'Saving…'}
                       {galleryError && 'Save failed'}
                       {!galleryStatus && !galleryError && 'Saved to your gallery'}
                     </h6>

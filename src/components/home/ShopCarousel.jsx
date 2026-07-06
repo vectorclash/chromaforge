@@ -203,19 +203,19 @@ export default function ShopCarousel() {
       <div className="reveal-item mb-10 flex items-end justify-between gap-4">
         <div>
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
-            Wear it
+            A practical application
           </p>
-          <h2 className="mt-3 font-display text-3xl text-text">Print-on-demand merch</h2>
+          <h2 className="mt-3 font-display text-3xl text-text">Garments, printed to order</h2>
         </div>
         <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
-          View all &rarr;
+          View the complete catalog &rarr;
         </Link>
       </div>
 
       {loading ? (
-        <p className="text-text-secondary">Loading&hellip;</p>
+        <p className="text-text-secondary">Retrieving the catalog&hellip;</p>
       ) : error ? (
-        <p className="text-accent">Couldn't load the shop right now.</p>
+        <p className="text-accent">I am unable to access the shop's data at this time.</p>
       ) : (
         <div className="reveal-item flex items-center gap-2 sm:gap-4">
           <button
@@ -257,10 +257,15 @@ export default function ShopCarousel() {
                     />
                     <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.55)_30%,rgba(0,0,0,0.18)_55%,transparent_75%)]" />
                     <div className="absolute inset-x-0 bottom-0 p-4">
-                      <div className="translate-y-9 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                      {/* Hidden-until-hover only on devices with a hover-capable pointer --
+                          on touch there's no real `:hover` to reveal this, so without the
+                          media-query gate the product title itself (not just the CTA line)
+                          would be permanently invisible on mobile instead of just
+                          hover-deferred on desktop. */}
+                      <div className="[@media(hover:hover)]:translate-y-9 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
                         <h3 className="font-quicksand text-sm font-bold text-text">{product.title}</h3>
-                        <p className="mt-1 text-sm text-text-secondary opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
-                          Customize with your design &rarr;
+                        <p className="mt-1 text-sm text-text-secondary [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
+                          Apply your composition &rarr;
                         </p>
                       </div>
                     </div>

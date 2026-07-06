@@ -24,13 +24,15 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // below.
   coherence: 0,
   // How large the coherent polygon is: 0 = fairly small (a third of the canvas's half-
-  // dimension), 1 = large enough to bleed past the canvas edge a bit. Only takes effect at
+  // dimension), 1 = a dramatic overflow well past the canvas edge. Only takes effect at
   // coherence > 0 -- see GenerateGeometricShape's shapeSize blend, which already
   // interpolates the coherent size in proportion to coherence, so this setting naturally
   // gains influence as coherence rises and has zero effect at coherence 0 (chaotic mode
   // has never had a size dial). Default 0.5 is deliberately the exact midpoint of
-  // GenerateGeometricShape's [0.15, 0.6] size-factor range, reproducing the original
-  // fixed 0.375 "12.5% margin, fits exactly" full-coherence look byte-for-byte.
+  // GenerateGeometricShape's ORIGINAL [0.15, 0.6] size-factor range (0 to 0.5 is still that
+  // same line -- the high end was later extended further, size=1 now reaching 1.8, but
+  // 0.5 stays the fixed boundary between the two so this default is untouched), reproducing
+  // the original fixed 0.375 "12.5% margin, fits exactly" full-coherence look byte-for-byte.
   size: 0.5
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the

@@ -259,7 +259,13 @@ export default function GalleryPage() {
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 min-w-0 overflow-hidden p-3">
-                  <div className="translate-y-5 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                  {/* Hidden-until-hover only on devices with a hover-capable pointer, same
+                      reasoning and same pattern as the like/print/delete pill below -- on
+                      touch there's no real `:hover` to ever reveal this, so without the
+                      media-query gate the title/caption (and, worse, the "Open in studio"
+                      hint) would be permanently invisible on mobile instead of just
+                      hover-deferred on desktop. */}
+                  <div className="[@media(hover:hover)]:translate-y-5 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
                     <span className="block truncate text-sm font-bold text-text">
                       {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
                     </span>
@@ -268,7 +274,7 @@ export default function GalleryPage() {
                         by {design.profiles.display_name || design.profiles.username || 'someone'}
                       </span>
                     )}
-                    <span className="block truncate text-xs text-accent opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                    <span className="block truncate text-xs text-accent [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
                       Open in studio &rarr;
                     </span>
                   </div>
@@ -280,10 +286,16 @@ export default function GalleryPage() {
                 <div
                   className="absolute right-2 top-2 flex shrink-0 items-center gap-2 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100"
                 >
+                  {/* Each button gets a p-1 -m-1 halo: the padding grows the actual tappable
+                      box (the icons alone were ~12-14px, well under a usable touch target)
+                      while the matching negative margin cancels it back out visually, so the
+                      pill's on-screen size/spacing is unchanged. 4px halo either side exactly
+                      fills half of this row's gap-2 (8px), so adjacent buttons' hit areas meet
+                      at the midpoint -- no dead zone between them, but no overlap either. */}
                   <button
                     onClick={e => onToggleLike(e, design)}
                     className={
-                      'flex cursor-pointer items-center gap-1 ' +
+                      'flex cursor-pointer items-center gap-1 p-1 -m-1 ' +
                       (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
                     }
                     aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}
@@ -297,7 +309,7 @@ export default function GalleryPage() {
                   {design.kind !== 'animation' && (
                     <button
                       onClick={e => onPrint(e, design)}
-                      className="cursor-pointer text-text hover:text-accent"
+                      className="cursor-pointer p-1 -m-1 text-text hover:text-accent"
                       aria-label="Print this design"
                       title="Print this design"
                     >
@@ -307,7 +319,7 @@ export default function GalleryPage() {
                   {tab === 'mine' && (
                     <button
                       onClick={e => onDelete(e, design)}
-                      className="cursor-pointer text-xs text-text hover:text-accent"
+                      className="cursor-pointer p-1 -m-1 text-xs text-text hover:text-accent"
                       aria-label="Delete design"
                     >
                       Delete

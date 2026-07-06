@@ -48,6 +48,24 @@ export default class ColorField extends React.Component {
     this.adjustColor(e.target.value);
   }
 
+  // Runs on mousedown/touchstart, i.e. before the browser applies focus for *this* tap --
+  // document.activeElement still reflects whatever was focused going into this tap. If it's
+  // already this same input, the picker is already open (jscolor's own hue/saturation/slider
+  // controls aren't separately focusable, so activeElement stays this input for as long as
+  // the popup stays open) and this is a deliberate repeat tap on the swatch itself -- allow
+  // the native keyboard so the user can type a hex value directly. Otherwise this tap is the
+  // one opening the picker fresh; keep the keyboard suppressed (see the input's inputMode
+  // attribute) so the visual picker isn't immediately crowded by it. Self-resetting: once the
+  // popup actually closes (a real blur), activeElement is no longer this input, so the next
+  // fresh open goes back to suppressed by default.
+  onColorInputPointerDown(e) {
+    if (document.activeElement === e.currentTarget) {
+      e.currentTarget.removeAttribute('inputmode');
+    } else {
+      e.currentTarget.setAttribute('inputmode', 'none');
+    }
+  }
+
   getPointerPosition(e) {
     // Handle both mouse and touch events
     if (e.touches && e.touches.length > 0) {
@@ -313,6 +331,16 @@ export default class ColorField extends React.Component {
           data-jscolor=""
           defaultValue={this.props.color}
           onInput={this.onColorInput.bind(this)}
+          onMouseDown={this.onColorInputPointerDown.bind(this)}
+          onTouchStart={this.onColorInputPointerDown.bind(this)}
+          // jscolor reuses this same element both to open the picker and as its manual
+          // hex-entry field -- on touch, tapping it to open the picker is indistinguishable
+          // to the browser from tapping into a text field, so it summoned the OS keyboard,
+          // which then covers/crowds the visual picker for something almost nobody actually
+          // uses on the FIRST tap. inputMode="none" here is just the initial value for the
+          // very first open; onColorInputPointerDown flips it on/off per-tap after that (a
+          // deliberate second tap on the already-open swatch re-enables the keyboard).
+          inputMode="none"
         />
       </div>
     );

@@ -59,9 +59,14 @@ export default function ShopPage() {
                 />
                 <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.55)_30%,rgba(0,0,0,0.18)_55%,transparent_75%)]" />
                 <div className="absolute inset-x-0 bottom-0 p-4">
-                  <div className="translate-y-6 transition-transform duration-300 ease-out group-hover:translate-y-0">
+                  {/* Hidden-until-hover only on devices with a hover-capable pointer -- on
+                      touch there's no real `:hover` to reveal this, so without the
+                      media-query gate the product title itself (not just the CTA line)
+                      would be permanently invisible on mobile instead of just
+                      hover-deferred on desktop. */}
+                  <div className="[@media(hover:hover)]:translate-y-6 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
                     <h2 className="font-quicksand text-sm font-bold text-text">{product.title}</h2>
-                    <p className="mt-1 text-sm text-text-secondary opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100">
+                    <p className="mt-1 text-sm text-text-secondary [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
                       Customize with your design →
                     </p>
                   </div>

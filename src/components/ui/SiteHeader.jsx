@@ -12,6 +12,21 @@ import MobileNav from './MobileNav';
 // solid) and standalone on the homepage (HomePage.jsx owns scroll tracking on its own
 // scroll container -- the document itself can't scroll, see tailwind.css -- and passes
 // `transparent` while the hero showcase is still in view).
+//
+// Transition architecture, after several rounds of real-device jank ("flashes", "pops"):
+// the solid bar is forced into its gradient look for as long as the mobile nav panel is
+// open, regardless of scroll position (`showGradient`) -- a "bar stays, border fades"
+// version was tried first (the bar's dark blur sitting flush against the panel's own dark
+// background, only the hairline border fading), but in practice the bar still read as a
+// visible band against the panel underneath it; forcing the full gradient look is what
+// actually makes the panel look identical no matter where on the page it's opened from.
+// Both layers below are always-mounted and animate ONLY opacity -- never toggled classes
+// (an earlier `border-b`/`backdrop-blur` class-swap combined with a `transition-colors`
+// background fade, so the border/blur snapped instantly while the color kept animating --
+// that mismatch, not any timing issue, was the actual cause of an earlier "hard edge
+// appears, pops transparent, then fades in" defect). Duration is fast (matching
+// MobileNav's own close tween) specifically when reverting to solid after the menu closes,
+// base everywhere else (opening the menu, or the scroll-driven crossfade).
 const navClass = ({ isActive }) =>
   'font-quicksand text-sm transition ' +
   (isActive ? 'text-text' : 'text-text-muted hover:text-text');
@@ -19,29 +34,33 @@ const navClass = ({ isActive }) =>
 export default function SiteHeader({ transparent = false, overlay = false }) {
   const { user, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  // MobileNav's full-screen panel always renders its own dark, artwork-tinted background
-  // with a matching gradient -- the header's gradient scrim blends into that seamlessly,
-  // while the solid scrolled-state bar reads as a separate hard-edged rectangle sitting in
-  // front of it. Forcing the gradient look while the panel is open keeps this consistent
-  // regardless of scroll position or route (Shop/Gallery/Account never pass `transparent`
-  // at all, so without this override every non-homepage route would show the seam).
   const showGradient = transparent || menuOpen;
+  const revertDuration = menuOpen ? 'var(--duration-base)' : 'var(--duration-fast)';
   return (
     <>
       <header
         className={
           (overlay ? 'fixed inset-x-0 top-0' : 'sticky top-0') +
-          ' z-20 transition-colors shrink-0 ' +
-          (showGradient ? 'bg-transparent' : 'border-b border-hairline bg-ink-950/80 backdrop-blur')
+          ' z-20 shrink-0'
         }
       >
+        {/* Solid scrolled-state bar, crossfaded with the gradient scrim below via opacity
+            on two always-mounted layers -- see the header comment above for why opacity,
+            not class toggling. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 border-b border-hairline bg-ink-950/80 backdrop-blur transition-opacity"
+          style={{ opacity: showGradient ? 0 : 1, transitionDuration: revertDuration }}
+        />
         {/* Transparent state has nothing behind it but raw generated artwork, which can be
             any color/brightness -- this scrim guarantees the light nav text stays legible
             regardless, without it the nav is only readable when the art happens to be dark
             at the very top. */}
-        {showGradient && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent" />
-        )}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent transition-opacity"
+          style={{ opacity: showGradient ? 1 : 0, transitionDuration: revertDuration }}
+        />
         <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
           <Wordmark className="text-base sm:text-lg" onClick={() => setMenuOpen(false)} />
           {/* Below `sm`, this whole group collapses into just the hamburger -- Shop/Gallery/

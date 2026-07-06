@@ -50,6 +50,37 @@ tracks what's true now, not history.
       let anyone pay for something that will silently fail production. Aaron's call on
       timing — nothing forces this before the store is actually live (still gated on Stripe
       Tax below either way).
+      **SOLVED 2026-07-05 (late evening): it was never the file size — it's the
+      `label_inside` placement.** Found via controlled unconfirmed-draft A/B tests against
+      the live API (all diagnostic drafts deleted after reading results). Evidence chain:
+      (1) synthetic solid-color files at the exact "failing" 11250x4350 spec, sent as
+      front/back only, process fine on v2 AND v1, RGBA and RGB alike — so size, alpha
+      channel, and the v2-beta API are all exonerated; (2) the real failed checkout orders
+      differ from those passing tests in exactly one way: checkout also submits the label
+      placements; (3) `POST /v2/orders` with `label_inside` on shorts variant 17392 or zip
+      hoodie variant 18526 is rejected outright — "Invalid variant_id and placement:
+      label_inside combination" — even though Printful's own v2 catalog (and v1's
+      printfiles) list `label_inside` as a valid cut-sew placement for both products;
+      (4) that sync validation is *inconsistent* (a real checkout's create call passed with
+      the identical placement minutes before my probe was rejected) — when an order slips
+      through, the same invalid combination kills Printful's async file-processing instead:
+      status `failed`, placements silently emptied, "Failed to process design"; (5) the
+      exact same real 11250x4350 rendered print files from the just-failed checkout order,
+      resubmitted WITHOUT `label_inside`, fully process (placements retained, mockup
+      generated, stays valid `draft`) — and `label_outside` (shorts) / `label_panel` (zip
+      hoodie) are both accepted fine, so it's only `label_inside`. This also explains the
+      product breakdown perfectly: the failing/suspect products are precisely the ones
+      whose specs include `label_inside`; the working t-shirt has no label placements at
+      all. **Fix on our side**: stop submitting `label_inside` on real orders (drop it in
+      `resolvePlacementEntries`/checkout — it's a 2.5"x1" inside tag, cosmetic) until
+      Printful reconciles catalog vs. order validation; the support ticket, if still
+      filed, should cite the catalog/orders-API contradiction above rather than file size.
+      **Deferred idea (2026-07-05, Aaron)**: when doing the label_inside filter, also
+      consider rendering the vectorclash label mark onto `label_panel` (hoodie/zip
+      hoodie/sweatshirt hood lining) instead of the current geometry-stripped front
+      composition — branded-lining look, matches the square `label_outside` marks. Needs
+      the render-service path (panel printfile is full-size, over iOS canvas cap) and a
+      real-mockup check of the panel's visible crop before trusting "centered."
 - [x] **Leaked Printful API key, found and fixed (2026-07-05)** — the GitHub Actions repo
       secret `VITE_SUPABASE_ANON_KEY` was mistakenly set to the Printful API key's value
       instead of the actual Supabase publishable key, so every production build baked the

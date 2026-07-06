@@ -9,7 +9,7 @@ import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
 import FadeImage from './FadeImage';
 import MiniGenerator from './MiniGenerator';
-import { DURATION_BASE, DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
+import { DURATION_BASE, DURATION_FAST, DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
 // Portrait-ish crop -- this panel fills a phone screen, unlike SiteFooter's wide banner
 // strip, so the render is requested closer to a phone's own aspect ratio rather than
@@ -85,9 +85,11 @@ export default function MobileNav({ open, onClose }) {
     if (open) {
       gsap.fromTo(panelRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DURATION_BASE, ease: 'power1.out' });
     } else {
+      // Faster than the open tween -- closing should feel snappy, not a mirror of the
+      // entrance.
       gsap.to(panelRef.current, {
         autoAlpha: 0,
-        duration: DURATION_BASE,
+        duration: DURATION_FAST,
         ease: 'power1.in',
         onComplete: () => setMounted(false)
       });

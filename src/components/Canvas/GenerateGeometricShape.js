@@ -47,13 +47,20 @@ export default class GenerateGeometricShape {
     const chaoticSize = 150 + Math.round((rng() * getElementSizeScale(width, height)) / 3);
     // At full coherence the lattice radius (shapeSize * shapeDepth, drawn from the canvas
     // centre) is user-controlled via geometry.size: 0.15 * sizeScale (fairly small, ~30%
-    // of the short dimension's half) up to 0.6 * sizeScale (bleeds ~20% of that half past
-    // the edge -- deliberately allowed at the high end, unlike the old fixed-at-exactly-
-    // fits behaviour). 0.375 (size=0.5, the default) is the original fixed factor, so
-    // default settings still fit with the original 12.5% margin. Deliberately keeps using
-    // getSizeScale (min(w,h)), not getElementSizeScale -- containment/overflow amount
-    // should key off the short axis, not the orientation-independent element scale, so a
-    // non-square canvas doesn't bleed differently depending on which axis is short.
+    // of the short dimension's half) at size=0, up through 0.375 * sizeScale (the original
+    // fixed factor, fitting with the original 12.5% margin) at size=0.5, the default --
+    // deliberately piecewise-linear rather than one straight line across the whole [0, 1]
+    // range, since a single line pins its midpoint at exactly (low+high)/2, and 0.375 is
+    // already load-bearing as the exact midpoint of the ORIGINAL [0.15, 0.6] range (so
+    // pre-existing designs, which have no `size` field and fall back to the 0.5 default,
+    // keep rendering byte-identical). Raising the high end (Aaron's call, 2026-07-06: the
+    // old 0.6 ceiling "should be much higher") without breaking that invariant meant
+    // extending only the size>0.5 half onto a steeper second line, up to 1.8 * sizeScale at
+    // size=1 (3x the old 0.6 ceiling -- a dramatic overflow, most of the polygon extending
+    // well past the canvas edge). Deliberately keeps using getSizeScale (min(w,h)), not
+    // getElementSizeScale -- containment/overflow amount should key off the short axis, not
+    // the orientation-independent element scale, so a non-square canvas doesn't bleed
+    // differently depending on which axis is short.
     // In between coherence 0 and 1, interpolate -- the chaotic size can be far larger than
     // the canvas (that off-screen bleed IS the chaos), so raising coherence steadily reins
     // it in AND, as a side effect of this same lerp, steadily hands control to the size
@@ -62,7 +69,10 @@ export default class GenerateGeometricShape {
     // matching the "the higher the coherence, the more accurate/controllable" request.
     // Pure arithmetic on the single depth draw above; no rng() consumption depends on
     // coherence or size.
-    const sizeFactor = 0.15 + geometry.size * 0.45;
+    const sizeFactor =
+      geometry.size <= 0.5
+        ? 0.15 + geometry.size * 0.45
+        : 0.375 + (geometry.size - 0.5) * 2.85;
     const coherentSize = (getSizeScale(width, height) * sizeFactor) / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
 
