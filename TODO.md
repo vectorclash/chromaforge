@@ -7,9 +7,10 @@ tracks what's true now, not history.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
-- [ ] **Printful can't actually fulfill several starter products — their catalog and their
-      production pipeline disagree on print-area size (found live, 2026-07-05/06, during
-      real test purchases).** Symptom: `create-checkout-session`/`stripe-webhook` succeed,
+- [ ] **Printful can't actually fulfill several starter products — real orders built to
+      Printful's own documented-correct print-area size still fail their production
+      pipeline (found live, 2026-07-05/06, during real test purchases).** Symptom:
+      `create-checkout-session`/`stripe-webhook` succeed,
       Stripe charges (test mode) go through, a real Printful order is created and shows as
       `draft` — then, ~10-40s later (Printful's own async file-processing job), it flips to
       `failed` with no detail beyond "Failed to process design" and the order-item's
@@ -17,8 +18,16 @@ tracks what's true now, not history.
       **not our bug**: a synthetic order submitted directly via Printful's API with trivial
       solid-color placeholder files (correct dimensions, otherwise content-free) failed
       identically (order #165745860) — rules out anything about our renderer, geometry
-      layout, or file content. This is Printful's own catalog (`GET /v2/catalog-products/
-      {id}`) advertising printfile specs their fulfillment side can't actually handle.
+      layout, or file content. Also checked the shorts file against the *working* t-shirt
+      file for anything else that might differ (RGB vs RGBA color type, DPI, color space) --
+      identical on every axis (both 8-bit RGBA, both sRGB, both 150dpi); size is the only
+      real difference. **Confirmed via Printful's own official design-template PDF for this
+      exact product/placement (2026-07-06)**: it explicitly instructs "CREATE new documents
+      sized to Width: 75" x Height: 29"" at 150dpi/sRGB -- i.e. this isn't us guessing at the
+      wrong size or Printful's catalog API being stale/wrong, it's the literal documented
+      correct spec, and real production still can't process a file built to it. Strengthens
+      the support-ticket case considerably: "we built exactly what your own template guide
+      says to build" is a much harder claim to wave off than a size mismatch would've been.
       **Confirmed failing**: mesh shorts (693, front/back printfile 11250x4350px @150dpi =
       75in x 29in — orders #165742893, #165745243, #165745860), zip hoodie (717, front
       5250x6000 = 35in x 40in — order #165746121). **Confirmed working**: t-shirt (257,

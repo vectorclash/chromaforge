@@ -232,20 +232,24 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   **None of this was actually the root cause of the checkout failures that prompted it,
   though** — see the next bullet, and `TODO.md`'s "Blocking launch" section for the live
   details/evidence.
-- **Printful's own catalog and production pipeline disagree on print-area size, for several
-  starter products — found live, 2026-07-05/06, not fixable from this codebase.** A real
-  Printful order (Stripe charge succeeds, `stripe-webhook` creates the order fine) can still
-  end up `failed` ~10-40s later via Printful's own async file-processing, with the
-  order-item's `placements` silently emptied and no error detail beyond "Failed to process
-  design." Confirmed via a synthetic order submitted with trivial solid-color placeholder
-  files at the exact same dimensions (no rendering/geometry/content involved) failing
-  identically — this rules out anything in this app's renderer. Pattern tracks physical
-  print size, not pixel count or file size (both comfortably within Printful's own
-  documented 100MB/20000px limits): confirmed working at 28×36in (t-shirt), confirmed
-  failing at 35×40in (zip hoodie) and 75×29in (mesh shorts). Hoodie/sweatshirt/track
-  jacket/joggers are all larger than the known-failing zip hoodie and untested but suspect.
-  See `TODO.md`'s "Blocking launch" section for the full product-by-product breakdown and
-  order IDs — needs a Printful support ticket, not more debugging here.
+- **Printful's own production pipeline can't process files built to its own
+  documented-correct spec, for several starter products — found live, 2026-07-05/06, not
+  fixable from this codebase.** A real Printful order (Stripe charge succeeds,
+  `stripe-webhook` creates the order fine) can still end up `failed` ~10-40s later via
+  Printful's own async file-processing, with the order-item's `placements` silently emptied
+  and no error detail beyond "Failed to process design." Confirmed via a synthetic order
+  submitted with trivial solid-color placeholder files at the exact same dimensions (no
+  rendering/geometry/content involved) failing identically — rules out anything in this
+  app's renderer. Also checked the failing file against a working one for anything else
+  that might differ (RGB vs RGBA, DPI, color space) — identical on every axis; size is the
+  only difference, and **Printful's own official design-template PDF for mesh shorts
+  explicitly specifies 75"×29" at 150dpi/sRGB for this exact placement** — this is the
+  documented-correct spec, not a guess or a stale catalog value, and production still can't
+  handle it. Confirmed working at 28×36in (t-shirt), confirmed failing at 35×40in (zip
+  hoodie) and 75×29in (mesh shorts). Hoodie/sweatshirt/track jacket/joggers are all larger
+  than the known-failing zip hoodie and untested but suspect. See `TODO.md`'s "Blocking
+  launch" section for the full product-by-product breakdown and order IDs — needs a
+  Printful support ticket, not more debugging here.
 - `supabase/functions/render-print-file/index.ts` deliberately uses plain `fetch()` against
   Supabase's Auth (`/auth/v1/user`) and Storage (`/storage/v1/object/...`) REST endpoints
   instead of the `@supabase/supabase-js` SDK every other function uses — pulling in the
