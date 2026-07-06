@@ -175,7 +175,7 @@ export default function GallerySection() {
                         </span>
                       )}
                       <span className="block truncate text-xs text-accent [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
-                        Examine in the studio &rarr;
+                        Open in studio &rarr;
                       </span>
                     </div>
                   </div>

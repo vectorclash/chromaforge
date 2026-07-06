@@ -67,7 +67,7 @@ export default function ShopPage() {
                   <div className="[@media(hover:hover)]:translate-y-6 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
                     <h2 className="font-quicksand text-sm font-bold text-text">{product.title}</h2>
                     <p className="mt-1 text-sm text-text-secondary [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
-                      Customize with your design →
+                      Apply this design →
                     </p>
                   </div>
                 </div>
