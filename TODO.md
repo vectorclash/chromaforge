@@ -7,6 +7,40 @@ tracks what's true now, not history.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
+- [ ] **Printful can't actually fulfill several starter products — their catalog and their
+      production pipeline disagree on print-area size (found live, 2026-07-05/06, during
+      real test purchases).** Symptom: `create-checkout-session`/`stripe-webhook` succeed,
+      Stripe charges (test mode) go through, a real Printful order is created and shows as
+      `draft` — then, ~10-40s later (Printful's own async file-processing job), it flips to
+      `failed` with no detail beyond "Failed to process design" and the order-item's
+      `placements` array goes empty (`GET /v2/orders/{id}/order-items/{item_id}`). Confirmed
+      **not our bug**: a synthetic order submitted directly via Printful's API with trivial
+      solid-color placeholder files (correct dimensions, otherwise content-free) failed
+      identically (order #165745860) — rules out anything about our renderer, geometry
+      layout, or file content. This is Printful's own catalog (`GET /v2/catalog-products/
+      {id}`) advertising printfile specs their fulfillment side can't actually handle.
+      **Confirmed failing**: mesh shorts (693, front/back printfile 11250x4350px @150dpi =
+      75in x 29in — orders #165742893, #165745243, #165745860), zip hoodie (717, front
+      5250x6000 = 35in x 40in — order #165746121). **Confirmed working**: t-shirt (257,
+      4200x5400 = 28in x 36in — order #165742237, real placements attached with position
+      data, stayed in valid `draft`, never failed).
+      **Untested but suspect** (same "large combined-panel canvas" shape, and larger than
+      the confirmed-working 28x36in but smaller-or-comparable to the confirmed-failing
+      35x40in): hoodie (388, 40x40in), sweatshirt (320, 33.6x44in), track jacket (801,
+      44x46in), joggers (784, 65x54in, likely the worst of all of these). **Likely fine**
+      (comparable to or smaller than the working t-shirt): women's t-shirt (261, 26x33in),
+      tote bag (274, 21x37in — also the product CLAUDE.md's earlier "Server-side print
+      rendering" section live-verified render-service against, though that only confirmed
+      *our* pipeline produces a correctly-sized file, not that a real Printful order was
+      ever placed/confirmed for it), crossbody bag (744), pillow (83).
+      **Next step**: file a Printful support ticket with the order IDs above as evidence
+      (their catalog vs. their production capability disagree) — this needs Printful to
+      actually respond, not more debugging on our end. Until resolved, consider trimming
+      `STARTER_PRODUCT_IDS` (`src/lib/printful.js`) down to the confirmed/likely-safe
+      products (t-shirt, women's t-shirt, tote, crossbody, pillow) so the live shop doesn't
+      let anyone pay for something that will silently fail production. Aaron's call on
+      timing — nothing forces this before the store is actually live (still gated on Stripe
+      Tax below either way).
 - [x] **Leaked Printful API key, found and fixed (2026-07-05)** — the GitHub Actions repo
       secret `VITE_SUPABASE_ANON_KEY` was mistakenly set to the Printful API key's value
       instead of the actual Supabase publishable key, so every production build baked the
@@ -60,9 +94,12 @@ tracks what's true now, not history.
        it before treating this as fully done.
 2. [ ] Verify deep links work on the live site (`chromaforge.app/shop` direct hit) — the
        `.htaccess` SPA fallback has never been exercised in production.
-3. [ ] Run one full test purchase on the live site (Stripe test keys still fine here) and
+3. [x] Run one full test purchase on the live site (Stripe test keys still fine here) and
        confirm the Printful draft looks right, the order shows in account history, and the
-       confirmation page resolves.
+       confirmation page resolves. Done 2026-07-05 on a t-shirt — worked end to end. Mesh
+       shorts and zip hoodie purchases also completed on our side but the Printful order
+       itself failed downstream — see the new "Printful can't actually fulfill..." item
+       above, a separate, non-blocking-for-this-step Printful catalog issue.
 4. [ ] Swap Stripe test → live: `STRIPE_SECRET_KEY`, register a live-mode webhook endpoint,
        set the new `STRIPE_WEBHOOK_SECRET`.
 5. [ ] Unset `PRINTFUL_SKIP_CONFIRM` — **the final switch**; after this, paid orders are

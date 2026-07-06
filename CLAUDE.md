@@ -208,6 +208,44 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   1024MB in `fly.toml` and reverified live — no further OOM kills. If future products push
   printfile sizes higher, watch for this failure mode again (Fly logs show
   `Out of memory: Killed process ... (node)` distinctly from any application-level error).
+  **This recurred and got fixed for real, 2026-07-05**: `render-print-file`'s dimension
+  check (`MAX_DIMENSION = 6500`, per-axis only) turned out to be a real bug in itself —
+  it rejected several real starter-product printfiles that are legitimately elongated but
+  not actually huge in total pixels (mesh shorts 11250×4350, joggers 9750×8100, sweatshirt
+  5037×6600, track jacket 6600×6900), and even for cases it did allow, it measured the
+  wrong thing (the sweatshirt's 33.2Mpx got rejected on its height axis while the hoodie's
+  36.0Mpx — more total pixels, just squarer — passed fine). Replaced with a total-pixel-area
+  cap (`MAX_PIXELS`, what actually bounds memory) plus a much looser per-axis sanity ceiling
+  (`MAX_AXIS`). Raising that limit then genuinely OOM-killed a live mesh-shorts checkout at
+  1024mb (`anon-rss:1905132kB`, right at a since-abandoned 2048mb ceiling too —
+  `shared-cpu-1x` caps out at 2048mb regardless of configured value, confirmed live via a
+  rejected `flyctl deploy`; needed `performance-2x` for real headroom). Now at 4096mb, with
+  an explicit `global.gc()` forced after every response (`--expose-gc` on the Dockerfile's
+  CMD) — working theory is `@napi-rs/canvas`'s native (non-heap) buffers outrunning V8's own
+  lazy GC between two large sequential renders on one warm machine, not any single render
+  alone needing this much. Checkout renders were also switched from sequential to
+  concurrent per placement (`renderAndUploadPrintFiles`, dedup-safe via caching the
+  in-flight promise, not just the resolved URL) to fix a genuinely slow "preparing
+  checkout" — only safe alongside `fly.toml`'s `[http_service.concurrency]` hard-capped at
+  1 request/machine, so concurrent large renders spread across the 2 machines already
+  provisioned instead of stacking on one (which would reintroduce the same OOM, worse).
+  **None of this was actually the root cause of the checkout failures that prompted it,
+  though** — see the next bullet, and `TODO.md`'s "Blocking launch" section for the live
+  details/evidence.
+- **Printful's own catalog and production pipeline disagree on print-area size, for several
+  starter products — found live, 2026-07-05/06, not fixable from this codebase.** A real
+  Printful order (Stripe charge succeeds, `stripe-webhook` creates the order fine) can still
+  end up `failed` ~10-40s later via Printful's own async file-processing, with the
+  order-item's `placements` silently emptied and no error detail beyond "Failed to process
+  design." Confirmed via a synthetic order submitted with trivial solid-color placeholder
+  files at the exact same dimensions (no rendering/geometry/content involved) failing
+  identically — this rules out anything in this app's renderer. Pattern tracks physical
+  print size, not pixel count or file size (both comfortably within Printful's own
+  documented 100MB/20000px limits): confirmed working at 28×36in (t-shirt), confirmed
+  failing at 35×40in (zip hoodie) and 75×29in (mesh shorts). Hoodie/sweatshirt/track
+  jacket/joggers are all larger than the known-failing zip hoodie and untested but suspect.
+  See `TODO.md`'s "Blocking launch" section for the full product-by-product breakdown and
+  order IDs — needs a Printful support ticket, not more debugging here.
 - `supabase/functions/render-print-file/index.ts` deliberately uses plain `fetch()` against
   Supabase's Auth (`/auth/v1/user`) and Storage (`/storage/v1/object/...`) REST endpoints
   instead of the `@supabase/supabase-js` SDK every other function uses — pulling in the
@@ -476,6 +514,24 @@ from print rendering above (video vs. still images) — don't conflate the two.
     the front's full geometry-laden composition; previously this was already true in
     practice as an accident of `label_panel` never being one of
     `getGeometryPlacementOptions`' checkbox keys, now it's an explicit, guaranteed rule.
+  - **Geometry layout toggle for two-leg-canvas products, 2026-07-05**: mesh shorts
+    (693) and joggers (784) print from one flat front/back canvas that gets physically cut
+    into two garment legs when sewn (see their `PRODUCT_MOCKUP_CONFIG` entries'
+    `twoLegCanvas: true`). The geometry shape's default centering (dead on `width/2`) landed
+    it exactly on that cut line every time — found via a real generated mockup, confirmed
+    the worst possible spot (hidden in the inseam). Fixed with a per-order "Geometry layout"
+    toggle on `ProductPage.jsx` (Single leg / Mirrored, default Single leg), threaded as
+    render context (`geometryLayout`, same non-persisted treatment as `includeGeometry`)
+    through `generateArtwork.js` → `GenerateGeometricShape.js` → `GeometricShape.js`, which
+    anchors the shape at `width/4` (single) or draws it twice, mirrored, at `width/4` and
+    `3*width/4` (mirrored) instead of `width/2`. Verified byte-identical to pre-change output
+    when unset (SHA-256 match) — every other product is unaffected.
+    **Real regression caught the same day**: the `geometryLayout` React state defaulted to
+    `'single'` for *every* product, not just the two flagged ones, and was sent
+    unconditionally — since any truthy value is "not centered" to the renderer, every other
+    product's geometry silently started rendering off-center-left. Fixed by gating on
+    `hasTwoLegCanvas` once (`effectiveGeometryLayout`) and using that everywhere instead of
+    the raw state.
 - `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2
   `mockup-tasks` via the `printful-mockup` edge function → poll → dedupe by camera angle →
   cache). Free, no money involved. One automatic retry on Printful's occasional transient
@@ -648,13 +704,29 @@ real customers can complete a purchase.
 Server-side print-resolution rendering is **built, deployed (Fly.io + a new
 render-print-file Edge Function), wired into checkout, and live-verified** (see
 "Server-side print rendering" above) — the print-resolution gap called out in the Merch
-pipeline section above is closed. The `render-service`/`printful.js`/`ProductPage.jsx`
-changes landed on `feature/account-gallery-ui`, not yet merged to `master`, so this isn't
-live on chromaforge.app until that branch merges and pushes — the Fly.io/Supabase Edge
-Function deploys themselves are already live regardless of that merge (they're deployed
-directly, not via the GitHub Actions → FTP flow). Ratio-aware generation tuning is also
-done now (see "Renderer: seed-based, not pixel-based" above) — same merge-to-`master`
-caveat applies before it's live on chromaforge.app.
+pipeline section above is closed. Ratio-aware generation tuning is also done (see
+"Renderer: seed-based, not pixel-based" above).
+
+**`feature/account-gallery-ui` merged to `master` and pushed 2026-07-05** — everything
+that was gated on that merge (gallery/accounts, the print pipeline, ratio-aware
+generation, site-wide entrance animations, the wordmark hover effect, the two-leg-canvas
+geometry layout toggle, the mobile shop-carousel fix) is live on chromaforge.app now,
+not just deployed-but-unmerged. Several more commits landed directly on `master` the same
+day fixing real bugs found during live testing that followed the merge (a leaked
+credential, checkout dimension validation, render-service memory/concurrency, an
+off-center-geometry regression) — see this file's other sections and `git log` for
+specifics rather than assuming this paragraph stays current for long.
+
+**Real, live-tested checkout currently works end to end for at least the t-shirt**
+(confirmed 2026-07-05: Stripe charge → Printful order → stays in valid `draft`, never
+fails). **Several other products (mesh shorts, zip hoodie confirmed; hoodie, sweatshirt,
+track jacket, joggers suspected) currently cannot actually be fulfilled** — Printful's own
+catalog and production pipeline disagree on print-area size, unrelated to anything in this
+codebase (see "Server-side print rendering" above and `TODO.md`'s "Blocking launch"
+section for the full evidence and product list). `PRINTFUL_SKIP_CONFIRM` is still set
+(intentionally, for continued testing), so no order can be confirmed/billed/produced yet
+regardless — check whether it's still set before assuming real customers can complete a
+purchase.
 
 A full pre-launch review + hardening pass landed 2026-07-01 (checkout shipping/tax, the
 webhook race fix, the mockup-function auth gate, OG/meta tags with a pipeline-rendered
