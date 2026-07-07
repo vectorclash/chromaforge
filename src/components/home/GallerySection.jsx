@@ -96,16 +96,16 @@ export default function GallerySection() {
       <section id="gallery" ref={ref} className="bg-ink-200">
         <div className="mx-auto max-w-5xl px-6 py-24 text-center">
           <p className="reveal-item font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
-            A ranking of communal enthusiasm
+            Community gallery
           </p>
-          <h2 className="reveal-item mt-3 font-display text-3xl text-ink-950">The most-favored compositions</h2>
+          <h2 className="reveal-item mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
           {error ? (
-            <p className="reveal-item mt-4 text-accent">I am unable to retrieve the gallery at this time.</p>
+            <p className="reveal-item mt-4 text-accent">Couldn&rsquo;t load the gallery.</p>
           ) : (
             <p className="reveal-item mt-4 text-ink-950/70">
-              No public compositions currently exist. I would find it gratifying to see you{' '}
+              No public designs yet. Be the first &mdash;{' '}
               <Link to="/studio" state={{ from: '/' }} className="text-accent underline">
-                create the first
+                open the studio
               </Link>
               .
             </p>
@@ -121,17 +121,17 @@ export default function GallerySection() {
         <div className="reveal-item mb-10 flex items-end justify-between gap-4">
           <div>
             <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
-              A ranking of communal enthusiasm
+              Community gallery
             </p>
-            <h2 className="mt-3 font-display text-3xl text-ink-950">The most-favored compositions</h2>
+            <h2 className="mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
           </div>
           <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
-            View the complete archive &rarr;
+            View full gallery &rarr;
           </Link>
         </div>
 
         {loading ? (
-          <p className="text-ink-950/70">Retrieving the archive&hellip;</p>
+          <p className="text-ink-950/70">Loading&hellip;</p>
         ) : (
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
             {designs.map(design => (

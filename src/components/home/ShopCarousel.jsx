@@ -203,19 +203,19 @@ export default function ShopCarousel() {
       <div className="reveal-item mb-10 flex items-end justify-between gap-4">
         <div>
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
-            A practical application
+            Print on demand
           </p>
           <h2 className="mt-3 font-display text-3xl text-text">Garments, printed to order</h2>
         </div>
         <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
-          View the complete catalog &rarr;
+          View full catalog &rarr;
         </Link>
       </div>
 
       {loading ? (
-        <p className="text-text-secondary">Retrieving the catalog&hellip;</p>
+        <p className="text-text-secondary">Loading&hellip;</p>
       ) : error ? (
-        <p className="text-accent">I am unable to access the shop's data at this time.</p>
+        <p className="text-accent">Couldn&rsquo;t load the shop.</p>
       ) : (
         <div className="reveal-item flex items-center gap-2 sm:gap-4">
           <button

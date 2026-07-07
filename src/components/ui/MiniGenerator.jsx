@@ -17,11 +17,26 @@ function RefreshIcon({ spinning }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={spinning ? 'animate-spin' : ''}
+      className={
+        'transition-transform ease-out ' +
+        (spinning ? 'animate-spin duration-700' : 'duration-500 group-hover:rotate-180')
+      }
     >
       <path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" />
       <path d="M21 4v5h-5M3 20v-5h5" />
     </svg>
+  );
+}
+
+// A quick diagonal light sweep on hover -- the studio's own Generate button has this
+// (`.button-large::before` in components.css); the mini widget's was plain, which is
+// the "studio one feels more fun" gap the user pointed at.
+function GenerateShine() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-500 ease-out group-hover:translate-x-full"
+    />
   );
 }
 
@@ -37,16 +52,33 @@ export default function MiniGenerator({ inline = false }) {
   const visible = useWidgetVisibility();
 
   const { shown, incoming, fadingIn } = useCrossfadeImage(previewUrl, CROSSFADE_MS);
-  const pending = !!incoming;
 
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | error
+  // Real work happens between clicking Generate and the new preview actually landing:
+  // currentDesign updates instantly, but previewUrl (and therefore the crossfade's
+  // `incoming`) only appears once StudioContext has actually re-rendered the design to an
+  // image -- a genuine gap, not a fixed guess. `generating` covers that whole span so the
+  // icon animates continuously from the click through to the new image fading in, instead
+  // of stopping early (a fixed-duration burst) or starting late (keying off `incoming`
+  // alone, which is exactly the "feels disconnected" complaint this replaces).
+  const [generating, setGenerating] = useState(false);
+  const pending = generating || !!incoming;
 
   // Clear any stale error state from a previous design's failed save attempt
   useEffect(() => {
     setSaveStatus('idle');
   }, [currentDesign]);
 
-  const onGenerate = () => generateRandom();
+  // previewUrl only changes once the render StudioContext kicked off for the new design
+  // actually finishes -- that's the real "done generating" signal.
+  useEffect(() => {
+    setGenerating(false);
+  }, [previewUrl]);
+
+  const onGenerate = () => {
+    setGenerating(true);
+    generateRandom();
+  };
 
   const onSave = async () => {
     if (!user) {
@@ -94,8 +126,9 @@ export default function MiniGenerator({ inline = false }) {
             disabled={pending}
             aria-label="Generate new design"
             title="Generate new design"
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 text-text-secondary hover:text-accent hover:bg-accent/10 hover:border-accent/30 transition-all duration-200 text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
+            className="group relative flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl border border-white/10 bg-white/5 text-text-secondary transition-all duration-200 hover:scale-[1.03] hover:border-accent/30 hover:bg-accent/10 hover:text-accent active:scale-[0.96] text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:scale-100 cursor-pointer"
           >
+            <GenerateShine />
             <RefreshIcon spinning={pending} />
             <span>Generate</span>
           </button>
@@ -198,8 +231,9 @@ export default function MiniGenerator({ inline = false }) {
           disabled={pending}
           aria-label="Generate new design"
           title="Generate new design"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-text-secondary hover:text-accent hover:bg-accent/10 hover:border-accent/30 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
+          className="group relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/5 text-text-secondary transition-all duration-200 hover:scale-[1.08] hover:border-accent/30 hover:bg-accent/10 hover:text-accent active:scale-[0.92] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:scale-100 cursor-pointer"
         >
+          <GenerateShine />
           <RefreshIcon spinning={pending} />
         </button>
         
