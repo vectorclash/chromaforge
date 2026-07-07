@@ -158,7 +158,16 @@ export default class DisplayCanvas extends React.Component {
       this.props.initialDesign !== prevProps.initialDesign &&
       this.props.initialDesign !== this.mainConfig
     ) {
-      this.setState({ isLoading: true, generateDisabled: true, isSaved: false, showBranchNotice: false });
+      // The design being handed off may already be saved (e.g. saved once via the
+      // mini-generator widget, then opened into the Studio from its thumbnail) -- StudioPage
+      // passes StudioContext's own isCurrentDesignSaved/savedDesignId fact down as
+      // isDesignSaved/savedDesignId so this continuity path doesn't have to guess "false"
+      // and produce a duplicate save. See init()'s initialDesign branch below for the same
+      // logic and the bug this fixes.
+      const alreadySaved = !!this.props.isDesignSaved;
+      this.shareUrl = alreadySaved && this.props.savedDesignId ? buildShareUrl(this.props.savedDesignId) : null;
+      this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
+      this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
@@ -240,7 +249,16 @@ export default class DisplayCanvas extends React.Component {
       // random one, so expanding into the full tool doesn't swap the artwork out from
       // under the user. Same seed + colors is a pure function (generateArtwork), so this
       // reproduces it pixel-for-pixel rather than approximating it.
-      this.setState({ isLoading: true, generateDisabled: true, isSaved: false, showBranchNotice: false });
+      // Same already-saved check as componentDidUpdate's initialDesign branch above -- this
+      // is the path taken on a fresh /studio mount (e.g. navigating in from the
+      // mini-generator's thumbnail), whereas componentDidUpdate handles it changing while
+      // already mounted. Real bug this fixes: hardcoding isSaved: false here meant a design
+      // already saved via the mini-generator showed "Save" (not "Saved") once opened into
+      // the Studio, and clicking it inserted a duplicate row.
+      const alreadySaved = !!this.props.isDesignSaved;
+      this.shareUrl = alreadySaved && this.props.savedDesignId ? buildShareUrl(this.props.savedDesignId) : null;
+      this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
+      this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(
         this.props.initialDesign.seed,

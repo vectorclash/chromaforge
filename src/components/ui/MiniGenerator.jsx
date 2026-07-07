@@ -109,7 +109,10 @@ export default function MiniGenerator({ inline = false }) {
   // the mini-widget without saving, then clicking through to the studio, showed "Saved"
   // for a design that was never actually persisted. The `initialDesign` prop path
   // DisplayCanvas already has for this exact "hand off the live design" case correctly
-  // sets isSaved: false instead.
+  // sets isSaved based on StudioContext's own isCurrentDesignSaved fact (via StudioPage's
+  // isDesignSaved/savedDesignId props) instead of assuming false -- otherwise a design
+  // already saved from this widget showed "Save" again in the Studio and produced a
+  // duplicate row on click.
   const onOpenStudio = () => {
     navigate('/studio', { state: { from: location.pathname } });
   };

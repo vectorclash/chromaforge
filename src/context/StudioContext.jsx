@@ -50,6 +50,11 @@ export function StudioProvider({ children }) {
   // mini-generator widget's (locally-tracked) saved state, so visiting /shop right after a
   // studio save still showed an enabled "Save" button and produced a duplicate row.
   const [savedDesign, setSavedDesign] = useState(null);
+  // The saved row's id alongside the design object above -- DisplayCanvas needs this to
+  // rebuild a working share link when a design that was already saved (e.g. via the
+  // mini-generator widget) is handed off into the Studio via initialDesign, rather than
+  // loaded via a share/gallery URL (the only other path that used to set a share link).
+  const [savedDesignId, setSavedDesignId] = useState(null);
   // One-shot hand-off for "Print this" from the Gallery: set when a gallery card's print
   // action fires, read (and cleared) by ProductPage on mount so the artwork-picker defaults
   // to this design instead of the live studio design. Deliberately separate from
@@ -138,7 +143,10 @@ export function StudioProvider({ children }) {
           ? { animation: true, frames: data.frames.map(toCompactDesign) }
           : toCompactDesign(data);
       const row = await saveDesign({ kind, data: compactData, title: FileName(), isPublic: true });
-      if (kind === 'image') setSavedDesign(data);
+      if (kind === 'image') {
+        setSavedDesign(data);
+        setSavedDesignId(row.id);
+      }
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
       const source = compactData.animation && compactData.frames ? compactData.frames[0] : compactData;
       if (source?.seed !== undefined) {
@@ -167,6 +175,7 @@ export function StudioProvider({ children }) {
     // gallery), showed "Save" as still available and produced a duplicate row. Compare by
     // the actual identity of a design (seed + colors) instead of by object reference.
     isCurrentDesignSaved: isSameDesign(savedDesign, currentDesign),
+    savedDesignId,
     queueReady,
     printQueueDesign,
     setPrintQueueDesign

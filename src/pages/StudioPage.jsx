@@ -26,7 +26,8 @@ export default function StudioPage({ compact = true }) {
   // Compact mode is the homepage hero, where the base site title should stay -- null keeps
   // it; only the standalone /studio route gets its own title.
   usePageTitle(compact ? null : 'Studio');
-  const { currentDesign, setCurrentDesign, saveCurrentDesign } = useStudio();
+  const { currentDesign, setCurrentDesign, saveCurrentDesign, isCurrentDesignSaved, savedDesignId } =
+    useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,6 +48,8 @@ export default function StudioPage({ compact = true }) {
       compact={compact}
       returnTo={returnTo}
       initialDesign={currentDesign}
+      isDesignSaved={isCurrentDesignSaved}
+      savedDesignId={savedDesignId}
       onDesignChange={setCurrentDesign}
       onNavigate={navigate}
       saveCurrentDesign={saveCurrentDesign}
