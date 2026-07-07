@@ -10,6 +10,7 @@ import {
   getPrintfileSpecs,
   getMockupConfigForProduct,
   getGeometryPlacementOptions,
+  getStitchColorOption,
   hasTwoLegCanvas,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
@@ -303,6 +304,26 @@ export default function ProductPage() {
     setGeometryLayout('single');
   }, [detail?.product?.id]);
 
+  // Stitch color: Printful requires this product option on every current cut-sew starter
+  // product, and PRODUCT_MOCKUP_CONFIG previously hardcoded a single value per product
+  // (white for most, black for the tote/crossbody bags) chosen for the customer with no way
+  // to change it. Printful's own catalog (product.options, see getStitchColorOption) lists
+  // the real valid values -- confirmed live to always be exactly 2 for every starter
+  // product, so this is always a meaningful choice, not a fake one. Defaults to
+  // PRODUCT_MOCKUP_CONFIG's existing hand-picked value so a fresh page load looks identical
+  // to before this picker existed; reset whenever the product changes, same as
+  // geometryPlacements/geometryLayout above. A per-order choice, not saved with the design.
+  const stitchColorOption = detail?.product ? getStitchColorOption(detail.product) : null;
+  const [stitchColor, setStitchColor] = useState(null);
+  useEffect(() => {
+    if (detail?.product) {
+      const cfg = getMockupConfigForProduct(detail.product.id);
+      setStitchColor(cfg.productOptions?.[0]?.value ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.product?.id]);
+  const stitchColorProductOptions = stitchColor ? [{ name: 'stitch_color', value: stitchColor }] : null;
+
   // One random narration line per STATUS_TIMELINE threshold, rolled lazily as each is first
   // reached (see statusNarration) and cleared at the start of every new mockup run so back-
   // to-back generations don't always recite the exact same script. 'rendering' is always the
@@ -471,9 +492,17 @@ export default function ProductPage() {
   const geometryPlacementsSignature = [...geometryPlacements].sort().join(',');
   useEffect(() => {
     if (!product || !variant || !printfileSpecs) return;
-    syncMockup({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout: effectiveGeometryLayout });
+    syncMockup({
+      product,
+      printfileSpecs,
+      variant,
+      design: selectedDesign,
+      geometryPlacements,
+      geometryLayout: effectiveGeometryLayout,
+      productOptions: stitchColorProductOptions
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout]);
+  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
 
   const hasMockup = status === 'completed' && images.length > 0;
 
@@ -548,7 +577,15 @@ export default function ProductPage() {
   const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
   const onGenerateClick = () =>
-    generate({ product, printfileSpecs, variant, design: selectedDesign, geometryPlacements, geometryLayout: effectiveGeometryLayout });
+    generate({
+      product,
+      printfileSpecs,
+      variant,
+      design: selectedDesign,
+      geometryPlacements,
+      geometryLayout: effectiveGeometryLayout,
+      productOptions: stitchColorProductOptions
+    });
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
@@ -581,7 +618,7 @@ export default function ProductPage() {
         quantity: qty,
         design: selectedDesign,
         printFileUrls,
-        productOptions: cfg.productOptions
+        productOptions: stitchColorProductOptions || cfg.productOptions
       });
       // CheckoutSuccessPage reads this rather than looking the order up by Stripe session
       // id -- simpler, and avoids needing a session-id-keyed lookup RPC.
@@ -735,6 +772,41 @@ export default function ProductPage() {
                 >
                   <span className="text-sm font-bold">{label}</span>
                   <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Step: stitch color -- Printful requires this option on every current cut-sew
+          product; the two valid values (from Printful's own catalog, see
+          getStitchColorOption) are surfaced here instead of silently picking one for the
+          customer. Changing it invalidates the current mockup (its stitching visibly
+          changes color in the returned photo, see useMockup's cacheKey) since it changes
+          what would actually be shown/produced. */}
+      {stitchColorOption && (
+        <div className="mb-8">
+          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+            {stitchColorOption.title}
+          </h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {Object.entries(stitchColorOption.values).map(([value, label]) => {
+              const checked = stitchColor === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStitchColor(value)}
+                  aria-pressed={checked}
+                  className={
+                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    (checked
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-hairline text-text-secondary hover:border-text')
+                  }
+                >
+                  {label}
                 </button>
               );
             })}

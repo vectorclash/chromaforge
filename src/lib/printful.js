@@ -293,6 +293,19 @@ export function getMockupConfigForProduct(productId) {
   return PRODUCT_MOCKUP_CONFIG[productId] || { technique: 'cut-sew' };
 }
 
+// Printful's real per-product valid values for the stitch_color option (GET /products/:id
+// -> result.product.options, already reaching the browser unfiltered via getCatalogProduct's
+// `...data.result` spread -- see printful-catalog/index.ts's pass-through). Confirmed live for
+// every current starter product: all 11 have exactly a 2-value stitch_color radio (white/black
+// for most, black/clear for the tote/crossbody bags), so this is always a meaningful choice,
+// not just PRODUCT_MOCKUP_CONFIG's single hand-picked default. Returns null if the product has
+// no such option (defensive -- every catalog product checked so far has one).
+export function getStitchColorOption(product) {
+  const opt = product?.options?.find(o => o.id === 'stitch_color');
+  if (!opt || !opt.values || Object.keys(opt.values).length < 2) return null;
+  return { title: opt.title, values: opt.values };
+}
+
 // Which placements a customer can toggle geometry on/off for, for a given product's
 // mockup config -- used by ProductPage.jsx to build its checkboxes and to default them
 // all to "on" (matching the generator's own everywhere-by-default behavior). Deliberately

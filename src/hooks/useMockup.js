@@ -75,14 +75,19 @@ function describeFailure(reasons) {
 // because it changes rendered content just like the design/variant do, so toggling a
 // checkbox must miss the cache rather than silently restoring a mockup rendered under a
 // different selection. `geometryLayout` (see printful.js's renderAndUploadPrintFiles) is
-// the same idea for the two-leg-canvas layout toggle.
-function cacheKey(product, entries, design, geometryPlacements, geometryLayout) {
+// the same idea for the two-leg-canvas layout toggle. `productOptions` (e.g. stitch color,
+// see ProductPage.jsx's stitch-color picker) doesn't change the print file at all, but it
+// IS submitted to Printful's mockup-tasks endpoint and does change the returned photo (the
+// garment's stitching is visibly white or black in the mockup) -- omitting it from the key
+// would silently serve a mockup rendered under a previously-selected stitch color.
+function cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
     .join(',');
   const geometrySignature = geometryPlacements ? [...geometryPlacements].sort().join(',') : 'all';
-  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${JSON.stringify(design)}`;
+  const optionsSignature = productOptions ? JSON.stringify(productOptions) : 'default';
+  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${optionsSignature}:${JSON.stringify(design)}`;
 }
 
 export function useMockup() {
@@ -114,7 +119,15 @@ export function useMockup() {
   }, [status]);
 
   const generate = useCallback(
-    async ({ product, printfileSpecs, variant, design, geometryPlacements = null, geometryLayout = null }) => {
+    async ({
+      product,
+      printfileSpecs,
+      variant,
+      design,
+      geometryPlacements = null,
+      geometryLayout = null,
+      productOptions = null
+    }) => {
       if (!design) {
         setStatus('failed');
         setError('Create a design in the Studio first.');
@@ -129,7 +142,7 @@ export function useMockup() {
         return;
       }
 
-      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout);
+      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions);
       const cached = mockupCache.get(key);
       if (cached) {
         setError(null);
@@ -170,7 +183,7 @@ export function useMockup() {
             productId: product.id,
             variantIds: [variant.id],
             placements,
-            productOptions: cfg.productOptions,
+            productOptions: productOptions || cfg.productOptions,
             mockupStyleIds: cfg.mockupStyleIds
           });
 
@@ -221,19 +234,32 @@ export function useMockup() {
   // the user wait through another Printful round trip for something they've already seen.
   // Otherwise fall back to idle so the previous selection's mockup doesn't keep showing as
   // if it were current.
-  const sync = useCallback(({ product, printfileSpecs, variant, design, geometryPlacements = null, geometryLayout = null }) => {
-    setError(null);
-    const cfg = design && getMockupConfigForProduct(product.id);
-    const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
-    const cached = entries && mockupCache.get(cacheKey(product, entries, design, geometryPlacements, geometryLayout));
-    if (cached) {
-      setImages(cached);
-      setStatus('completed');
-    } else {
-      setStatus('idle');
-      setImages([]);
-    }
-  }, []);
+  const sync = useCallback(
+    ({
+      product,
+      printfileSpecs,
+      variant,
+      design,
+      geometryPlacements = null,
+      geometryLayout = null,
+      productOptions = null
+    }) => {
+      setError(null);
+      const cfg = design && getMockupConfigForProduct(product.id);
+      const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
+      const cached =
+        entries &&
+        mockupCache.get(cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions));
+      if (cached) {
+        setImages(cached);
+        setStatus('completed');
+      } else {
+        setStatus('idle');
+        setImages([]);
+      }
+    },
+    []
+  );
 
   return { status, error, images, elapsedSeconds, generate, sync };
 }
