@@ -6,6 +6,7 @@ import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import GalleryModal from '../components/ui/GalleryModal';
 import ShirtIcon from '../components/buttons/ShirtIcon';
 import HeartIcon from '../components/buttons/HeartIcon';
 import AnimationIcon from '../components/buttons/AnimationIcon';
@@ -36,6 +37,10 @@ export default function GalleryPage() {
   const [error, setError] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
   const [pendingDelete, setPendingDelete] = useState(null);
+  // The id, not the object -- so the modal always shows fresh data (e.g. a like-count
+  // bump) from `designs` instead of a stale snapshot taken when it was opened.
+  const [openDesignId, setOpenDesignId] = useState(null);
+  const openDesign = designs.find(d => d.id === openDesignId) || null;
 
   const load = useCallback(async which => {
     setLoading(true);
@@ -102,14 +107,21 @@ export default function GalleryPage() {
     return () => observer.disconnect();
   }, [tab, hasMore, loadingMore, designs.length]);
 
-  const onDelete = (e, design) => {
-    e.stopPropagation();
+  // `e` is only passed when this fires from a card's own hover-pill button (desktop only --
+  // see the card markup) -- it needs stopPropagation so the click doesn't also bubble up to
+  // the card's onClick and open the modal. The gallery modal's buttons call these with no
+  // event at all, since there's no parent click handler to guard against there.
+  const onDelete = (design, e) => {
+    e?.stopPropagation();
     setPendingDelete(design);
   };
 
   const confirmDelete = async () => {
     const design = pendingDelete;
     setPendingDelete(null);
+    // The design being deleted may be the one currently open in the modal (its Delete
+    // button routes here too) -- close it, since there's nothing left to show.
+    if (openDesignId === design.id) setOpenDesignId(null);
     try {
       await deleteDesign(design.id);
       setDesigns(d => d.filter(x => x.id !== design.id));
@@ -124,14 +136,14 @@ export default function GalleryPage() {
   // there's nothing to encode -- no need for generateShareUrl's old data-in-URL approach.
   // (Not "/" -- the homepage hero is the compact Generate/Save view now, not the full tool;
   // see StudioPage's `compact`.)
-  const onOpen = design => {
+  const onOpenStudio = design => {
     navigate(`/studio?id=${design.id}`, { state: { from: '/gallery' } });
   };
 
   // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage
   // reads on mount) and jump to the catalog so the user picks a product for it.
-  const onPrint = (e, design) => {
-    e.stopPropagation();
+  const onPrint = (design, e) => {
+    e?.stopPropagation();
     setPrintQueueDesign(design);
     navigate('/shop');
   };
@@ -139,8 +151,8 @@ export default function GalleryPage() {
   // Optimistic like toggle: flips the heart + adjusts the visible count immediately, reverts
   // both if the request fails. likes_count itself is server-authoritative (a DB trigger), so
   // this local adjustment is just to avoid a refetch -- it'll be exactly right next load.
-  const onToggleLike = async (e, design) => {
-    e.stopPropagation();
+  const onToggleLike = async (design, e) => {
+    e?.stopPropagation();
     if (!user) {
       navigate('/account');
       return;
@@ -232,7 +244,7 @@ export default function GalleryPage() {
               key={design.id}
               className="group cursor-pointer animate-fade-slide-up"
               style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
-              onClick={() => onOpen(design)}
+              onClick={() => setOpenDesignId(design.id)}
             >
               <div className="relative aspect-square overflow-hidden bg-ink-900">
                 <FadeImage
@@ -262,7 +274,7 @@ export default function GalleryPage() {
                   {/* Hidden-until-hover only on devices with a hover-capable pointer, same
                       reasoning and same pattern as the like/print/delete pill below -- on
                       touch there's no real `:hover` to ever reveal this, so without the
-                      media-query gate the title/caption (and, worse, the "Open in studio"
+                      media-query gate the title/caption (and, worse, the "View design"
                       hint) would be permanently invisible on mobile instead of just
                       hover-deferred on desktop. */}
                   <div className="[@media(hover:hover)]:translate-y-5 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
@@ -274,26 +286,24 @@ export default function GalleryPage() {
                         by {design.profiles.display_name || design.profiles.username || 'someone'}
                       </span>
                     )}
+                    {/* Was "Open in studio" -- clicking a card now opens the gallery modal
+                        (with its own explicit "Open in studio" link) instead of jumping
+                        straight into the Studio, so the hint had to change to match. */}
                     <span className="block truncate text-xs text-accent [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
-                      Open in studio &rarr;
+                      View design &rarr;
                     </span>
                   </div>
                 </div>
-                {/* Hidden-until-hover on devices that actually have a hover-capable pointer
-                    -- on touch, where there's no hover to reveal it, the pill (and the
-                    like/print/delete actions inside it) stays visible exactly as before, so
-                    tapping never loses functionality. */}
+                {/* Desktop-only quick actions -- `hidden` by default (touch devices rely on
+                    the gallery modal instead, opened by tapping the card, for these same
+                    actions at a real touch-target size), shown as a hover-capable-only flex
+                    pill so it behaves exactly as it did before the modal existed on devices
+                    that actually have a mouse. */}
                 <div
-                  className="absolute right-2 top-2 flex shrink-0 items-center gap-2 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100"
+                  className="absolute right-2 top-2 hidden shrink-0 items-center gap-2 rounded-full bg-black/40 px-2 py-1 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:flex [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100"
                 >
-                  {/* Each button gets a p-1 -m-1 halo: the padding grows the actual tappable
-                      box (the icons alone were ~12-14px, well under a usable touch target)
-                      while the matching negative margin cancels it back out visually, so the
-                      pill's on-screen size/spacing is unchanged. 4px halo either side exactly
-                      fills half of this row's gap-2 (8px), so adjacent buttons' hit areas meet
-                      at the midpoint -- no dead zone between them, but no overlap either. */}
                   <button
-                    onClick={e => onToggleLike(e, design)}
+                    onClick={e => onToggleLike(design, e)}
                     className={
                       'flex cursor-pointer items-center gap-1 p-1 -m-1 ' +
                       (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
@@ -308,7 +318,7 @@ export default function GalleryPage() {
                       { seed, colors } design, not a frames array. */}
                   {design.kind !== 'animation' && (
                     <button
-                      onClick={e => onPrint(e, design)}
+                      onClick={e => onPrint(design, e)}
                       className="cursor-pointer p-1 -m-1 text-text hover:text-accent"
                       aria-label="Print this design"
                       title="Print this design"
@@ -318,7 +328,7 @@ export default function GalleryPage() {
                   )}
                   {tab === 'mine' && (
                     <button
-                      onClick={e => onDelete(e, design)}
+                      onClick={e => onDelete(design, e)}
                       className="cursor-pointer p-1 -m-1 text-xs text-text hover:text-accent"
                       aria-label="Delete design"
                     >
@@ -337,6 +347,17 @@ export default function GalleryPage() {
           {loadingMore && <p className="text-sm text-text-muted">Loading more…</p>}
         </div>
       )}
+
+      <GalleryModal
+        design={openDesign}
+        liked={!!openDesign && likedIds.has(openDesign.id)}
+        canDelete={tab === 'mine'}
+        onClose={() => setOpenDesignId(null)}
+        onToggleLike={onToggleLike}
+        onPrint={onPrint}
+        onDelete={onDelete}
+        onOpenStudio={onOpenStudio}
+      />
 
       <ConfirmDialog
         open={!!pendingDelete}

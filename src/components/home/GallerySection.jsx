@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Card from '../ui/Card';
 import FadeImage from '../ui/FadeImage';
+import GalleryModal from '../ui/GalleryModal';
 import HeartIcon from '../buttons/HeartIcon';
 import AnimationIcon from '../buttons/AnimationIcon';
 import { listTopLikedDesigns, listMyLikedIds, toggleLike, getThumbnailUrl } from '../../lib/designs';
 import { useAuth } from '../../context/AuthContext';
+import { useStudio } from '../../context/StudioContext';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 
 // Homepage preview of the gallery -- the 8 most-liked public designs. Solid surface (no
@@ -14,11 +16,16 @@ import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 // StudioContext.saveCurrentDesign -> uploadDesignThumbnail), not a second render path.
 export default function GallerySection() {
   const { user } = useAuth();
+  const { setPrintQueueDesign } = useStudio();
   const navigate = useNavigate();
   const [designs, setDesigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
+  // Same pattern as GalleryPage: the id, not the object, so the modal always reflects
+  // fresh data (e.g. a like-count bump) instead of a stale snapshot from when it opened.
+  const [openDesignId, setOpenDesignId] = useState(null);
+  const openDesign = designs.find(d => d.id === openDesignId) || null;
   // The real content this needs to stagger (the cards, or the empty/error message) only
   // exists once the fetch below resolves -- see useScrollTriggerReveal's own comment on
   // why `[loading]` has to be passed here.
@@ -45,19 +52,30 @@ export default function GallerySection() {
     };
   }, []);
 
-  // Load a saved design into the full studio -- same approach as GalleryPage.onOpen,
+  // Load a saved design into the full studio -- same approach as GalleryPage.onOpenStudio,
   // routing to its real database id so /studio's getDesignIdFromUrl/getDesign path fetches
-  // and reconstructs it on mount (see utils/urlConfig.js).
-  const onOpen = design => {
+  // and reconstructs it on mount (see utils/urlConfig.js). Reached via the gallery modal's
+  // own "Open in studio" link now, not directly from the card (see onClick below).
+  const onOpenStudio = design => {
     navigate(`/studio?id=${design.id}`, { state: { from: '/' } });
+  };
+
+  // "Print this" -- same hand-off as GalleryPage.onPrint: queue the design in
+  // StudioContext (a one-shot hand-off ProductPage reads on mount) and jump to the catalog.
+  const onPrint = (design, e) => {
+    e?.stopPropagation();
+    setPrintQueueDesign(design);
+    navigate('/shop');
   };
 
   // Same optimistic toggle as GalleryPage.onToggleLike -- see that file for the rationale on
   // why this is local-only rather than refetching (likes_count is server-authoritative via a
-  // DB trigger, this just avoids a round-trip before the heart visibly flips).
-  const onToggleLike = async (e, design) => {
-    e.preventDefault();
-    e.stopPropagation();
+  // DB trigger, this just avoids a round-trip before the heart visibly flips). `e` is only
+  // passed when this fires from the card's own desktop-hover pill button, to stop the click
+  // from also bubbling up and opening the modal -- the modal's own Like button calls this
+  // with no event at all.
+  const onToggleLike = async (design, e) => {
+    e?.stopPropagation();
     if (!user) {
       navigate('/account');
       return;
@@ -138,7 +156,7 @@ export default function GallerySection() {
               <Card
                 key={design.id}
                 className="reveal-item group cursor-pointer"
-                onClick={() => onOpen(design)}
+                onClick={() => setOpenDesignId(design.id)}
               >
                 <div className="relative aspect-square overflow-hidden bg-ink-800">
                   <FadeImage
@@ -174,22 +192,24 @@ export default function GallerySection() {
                           by {design.profiles.display_name || design.profiles.username || 'someone'}
                         </span>
                       )}
+                      {/* Was "Open in studio" -- clicking a card now opens the gallery
+                          modal (with its own explicit "Open in studio" link) instead of
+                          jumping straight into the Studio. */}
                       <span className="block truncate text-xs text-accent [@media(hover:hover)]:opacity-0 transition-opacity duration-300 ease-out [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
-                        Open in studio &rarr;
+                        View design &rarr;
                       </span>
                     </div>
                   </div>
-                  {/* Hidden-until-hover only on devices with a hover-capable pointer -- on
-                      touch, where there's no hover to reveal it, the like button stays
-                      visible exactly as before so tapping it never loses functionality.
-                      px-3 py-2 (up from px-2 py-1) paired with -m-1 grows the actual tappable
-                      box -- the icon alone was well under a usable touch target -- while the
-                      matching negative margin cancels the extra padding back out, so the
-                      pill's on-screen size/position is unchanged. */}
+                  {/* Desktop-only quick like -- `hidden` by default (touch devices rely on
+                      the gallery modal instead, opened by tapping the card, for a real
+                      touch-target-sized Like button), shown as a hover-capable-only flex
+                      pill so it behaves exactly as it did before the modal existed on
+                      devices that actually have a mouse. Same reasoning as GalleryPage's
+                      own hover pill. */}
                   <button
-                    onClick={e => onToggleLike(e, design)}
+                    onClick={e => onToggleLike(design, e)}
                     className={
-                      'absolute right-2 top-2 -m-1 flex items-center gap-1 rounded-full bg-black/40 px-3 py-2 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100 ' +
+                      'absolute right-2 top-2 -m-1 hidden items-center gap-1 rounded-full bg-black/40 px-3 py-2 backdrop-blur-sm transition duration-200 ease-out [@media(hover:hover)]:flex [@media(hover:hover)]:-translate-y-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:translate-y-0 [@media(hover:hover)]:group-focus-within:opacity-100 ' +
                       (likedIds.has(design.id) ? 'text-accent' : 'text-text hover:text-accent')
                     }
                     aria-label={likedIds.has(design.id) ? 'Unlike this design' : 'Like this design'}
@@ -204,6 +224,16 @@ export default function GallerySection() {
           </div>
         )}
       </div>
+
+      <GalleryModal
+        design={openDesign}
+        liked={!!openDesign && likedIds.has(openDesign.id)}
+        canDelete={false}
+        onClose={() => setOpenDesignId(null)}
+        onToggleLike={onToggleLike}
+        onPrint={onPrint}
+        onOpenStudio={onOpenStudio}
+      />
     </section>
   );
 }
