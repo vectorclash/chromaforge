@@ -160,6 +160,11 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           )}
         </div>
 
+        {/* Two rows, not one wrapping flex row -- with 3-4 pills plus a CTA, wrapping
+            could strand "Open in studio" alone on its own line, still pinned to the
+            right via ml-auto, which read as a stray floating button rather than a
+            deliberate primary action. A dedicated full-width row below the quick actions
+            reads the same (and looks intentional) at every width instead. */}
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -194,16 +199,16 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
               <span>Delete</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={() => onOpenStudio(design)}
-            className={PILL + ' ml-auto border-accent/60 text-accent hover:bg-accent/10'}
-          >
-            <span>Open in studio</span>
-            <ArrowIcon size={14} />
-          </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => onOpenStudio(design)}
+          className={PILL + ' mt-3 w-full justify-center border-accent/60 text-accent hover:bg-accent/10'}
+        >
+          <span>Open in studio</span>
+          <ArrowIcon size={14} />
+        </button>
       </SolidPanel>
     </div>
   );
