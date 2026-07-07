@@ -1,14 +1,40 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap/all';
 import { useStudio } from '../../context/StudioContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
 import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
+// No more hover rotation -- it read as unrelated to anything since it fired on mouse
+// position, not on actual work being done. `spinning` (MiniGenerator's `pending`, true from
+// the moment Generate is clicked through the new preview actually crossfading in) drives a
+// real GSAP tween instead of a CSS `animate-spin` class, which is what the old version used.
+// That CSS approach had a real, confirmed bug: the icon's `transition-transform` (added so
+// the *hover* rotation eased) was still present while spinning, so the instant `animate-spin`
+// was removed mid-rotation, that leftover transition eased the icon from wherever it happened
+// to be back to 0 over 500-700ms -- a slow, arbitrary-looking wobble that started only once
+// generation had already finished, exactly the "disconnected from the process" complaint this
+// replaces. GSAP owns the rotation outright now: a continuous fast linear spin for exactly as
+// long as `spinning` is true, killed and snapped to rest the instant it isn't -- no transition
+// left lying around to fight it.
 function RefreshIcon({ spinning }) {
+  const iconRef = useRef(null);
+
+  useEffect(() => {
+    const el = iconRef.current;
+    if (!el) return;
+    if (spinning) {
+      const tween = gsap.to(el, { rotation: '+=360', duration: 0.4, ease: 'none', repeat: -1 });
+      return () => tween.kill();
+    }
+    gsap.set(el, { rotation: 0 });
+  }, [spinning]);
+
   return (
     <svg
+      ref={iconRef}
       viewBox="0 0 24 24"
       width="16"
       height="16"
@@ -17,10 +43,6 @@ function RefreshIcon({ spinning }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={
-        'transition-transform ease-out ' +
-        (spinning ? 'animate-spin duration-700' : 'duration-500 group-hover:rotate-180')
-      }
     >
       <path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" />
       <path d="M21 4v5h-5M3 20v-5h5" />
