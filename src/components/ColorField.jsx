@@ -22,7 +22,7 @@ export default class ColorField extends React.Component {
 
   adjustColor(color) {
     if (tinycolor(color).isLight()) {
-      gsap.set(this.mount.querySelector('.color'), {
+      gsap.set([this.mount.querySelector('.color'), this.mount.querySelector('.color-text-overlay')], {
         color: '#333333'
       });
 
@@ -30,7 +30,7 @@ export default class ColorField extends React.Component {
         fill: '#333333'
       });
     } else if (tinycolor(color).isDark()) {
-      gsap.set(this.mount.querySelector('.color'), {
+      gsap.set([this.mount.querySelector('.color'), this.mount.querySelector('.color-text-overlay')], {
         color: '#FAFAFA'
       });
 
@@ -46,6 +46,15 @@ export default class ColorField extends React.Component {
 
   onColorInput(e) {
     this.adjustColor(e.target.value);
+    // The real input's font-size has to stay >=16px on mobile to stop WebKit's
+    // focus-auto-zoom (components.css), which reads too large next to the rest of this
+    // panel's 10-12px text. This overlay shows the same value at the compact size instead
+    // -- the input's own text is made transparent (coarse-pointer only, components.css)
+    // so there's no double-rendered hex string. pointer-events: none on the overlay keeps
+    // taps landing on the real input underneath.
+    if (this.colorTextOverlay) {
+      this.colorTextOverlay.textContent = e.target.value;
+    }
   }
 
   // Runs on mousedown/touchstart, i.e. before the browser applies focus for *this* tap --
@@ -342,6 +351,15 @@ export default class ColorField extends React.Component {
           // deliberate second tap on the already-open swatch re-enables the keyboard).
           inputMode="none"
         />
+        <span
+          className="color-text-overlay"
+          aria-hidden="true"
+          ref={el => {
+            this.colorTextOverlay = el;
+          }}
+        >
+          {this.props.color}
+        </span>
       </div>
     );
   }
