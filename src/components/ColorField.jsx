@@ -4,6 +4,36 @@ import React from 'react';
 import tinycolor from 'tinycolor2';
 import CloseColorButton from './buttons/CloseColorButton';
 
+// Bumping the swatch input's font-size on touch devices (see components.css) wasn't
+// enough on its own to stop mobile Safari/Chrome zooming the page in when the color
+// picker opens -- the only fully reliable fix is to temporarily cap the viewport's own
+// maximum-scale for as long as a color input is focused, then restore whatever the
+// viewport tag said before. Module-level (not per-instance) since only one input can
+// ever be focused at a time across every ColorField on the page, but focus can move
+// directly from one swatch to another (blur then focus, synchronously) -- a counter
+// avoids restoring-then-immediately-re-locking the viewport in between.
+let colorInputFocusCount = 0;
+let originalViewportContent = null;
+
+function lockViewportZoom() {
+  if (colorInputFocusCount === 0) {
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport) {
+      originalViewportContent = viewport.getAttribute('content');
+      viewport.setAttribute('content', `${originalViewportContent}, maximum-scale=1, user-scalable=no`);
+    }
+  }
+  colorInputFocusCount++;
+}
+
+function unlockViewportZoom() {
+  colorInputFocusCount = Math.max(0, colorInputFocusCount - 1);
+  if (colorInputFocusCount === 0 && originalViewportContent) {
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport) viewport.setAttribute('content', originalViewportContent);
+  }
+}
+
 export default class ColorField extends React.Component {
   constructor(props) {
     super(props);
@@ -18,6 +48,28 @@ export default class ColorField extends React.Component {
   componentDidMount() {
     window.jscolor.install();
     this.adjustColor(this.props.color);
+  }
+
+  componentWillUnmount() {
+    // Defensive: if this swatch is removed (e.g. a color deleted) while its picker is
+    // still open/focused, the browser never fires a real blur -- release the lock
+    // ourselves so the viewport doesn't stay zoom-locked for the rest of the session.
+    if (this.hasFocusLock) {
+      this.hasFocusLock = false;
+      unlockViewportZoom();
+    }
+  }
+
+  onColorInputFocus() {
+    this.hasFocusLock = true;
+    lockViewportZoom();
+  }
+
+  onColorInputBlur() {
+    if (this.hasFocusLock) {
+      this.hasFocusLock = false;
+      unlockViewportZoom();
+    }
   }
 
   adjustColor(color) {
@@ -333,6 +385,8 @@ export default class ColorField extends React.Component {
           onInput={this.onColorInput.bind(this)}
           onMouseDown={this.onColorInputPointerDown.bind(this)}
           onTouchStart={this.onColorInputPointerDown.bind(this)}
+          onFocus={this.onColorInputFocus.bind(this)}
+          onBlur={this.onColorInputBlur.bind(this)}
           // jscolor reuses this same element both to open the picker and as its manual
           // hex-entry field -- on touch, tapping it to open the picker is indistinguishable
           // to the browser from tapping into a text field, so it summoned the OS keyboard,
