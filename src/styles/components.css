@@ -320,6 +320,14 @@
   cursor: pointer;
   padding-left: 30px !important;
   z-index: 0;
+  /* Neither the focus-zoom fix below nor the viewport-scale lock in ColorField.jsx
+     stopped real mobile zoom on their own -- this was actually a double-tap-to-zoom
+     gesture (tap swatch, then tap/drag inside the popup reads as two quick taps in
+     the same area), which touch-action doesn't fix by adjusting font-size or the
+     viewport meta at all; it needs the gesture itself disabled. manipulation keeps
+     panning/dragging (the swatch reorder drag, the popup's hue/saturation drag) working
+     while dropping double-tap-zoom and pinch-zoom on this element specifically. */
+  touch-action: manipulation;
 }
 .color-container input:hover {
   box-shadow:
@@ -334,6 +342,13 @@
   .color-container input {
     font-size: 16px;
   }
+}
+/* jscolor's own popup (hue/saturation canvas, sliders) -- same touch-action reasoning
+   as the swatch input above, since dragging inside the popup is exactly the second tap
+   that was reading as a double-tap-zoom. */
+.jscolor-picker-wrap,
+.jscolor-picker {
+  touch-action: manipulation;
 }
 .color-close-button svg {
   width: 100%;
