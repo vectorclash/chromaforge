@@ -16,7 +16,9 @@ gsap.registerPlugin(SplitText);
 // than animating `color` through interpolated RGB stops: one continuous, GPU-cheap property
 // instead of manually stepping through a gradient every frame. On mouse-leave CHROMA snaps
 // back instantly too -- `gsap.set` with `clearProps`, not an animated tween back to
-// hue-rotate(0). Returns the mouse handlers rather than owning a DOM element itself since
+// hue-rotate(0). A matching text-shadow glow (same base hsl) rides along for free -- filter
+// applies to the element's whole rendered output, so the shadow gets hue-rotated in lockstep
+// with the fill color without any extra animation. Returns the mouse handlers rather than owning a DOM element itself since
 // callers wrap wildly different things (a router <Link> here, a plain onClick <h1> in the
 // studio) and non-bubbling onMouseEnter/onMouseLeave need to sit on whatever the full
 // hoverable area actually is, not just the text span.
@@ -37,7 +39,11 @@ function useWordmarkHover() {
     const chars = splitRef.current?.chars;
     if (!chars?.length) return;
     tweenRef.current?.kill();
-    gsap.set(chars, { color: 'hsl(0, 100%, 55%)', filter: 'hue-rotate(0deg)' });
+    gsap.set(chars, {
+      color: 'hsl(0, 100%, 55%)',
+      filter: 'hue-rotate(0deg)',
+      textShadow: '0 0 6px hsl(0, 100%, 55%), 0 0 16px hsl(0, 100%, 55%)'
+    });
     tweenRef.current = gsap.to(chars, {
       filter: 'hue-rotate(360deg)',
       duration: 2.6,
@@ -52,7 +58,7 @@ function useWordmarkHover() {
     tweenRef.current = null;
     const chars = splitRef.current?.chars;
     if (!chars?.length) return;
-    gsap.set(chars, { clearProps: 'color,filter' });
+    gsap.set(chars, { clearProps: 'color,filter,textShadow' });
   };
 
   return { chromaRef, onMouseEnter, onMouseLeave };
