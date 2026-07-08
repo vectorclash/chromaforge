@@ -46,16 +46,38 @@ export async function getOrder(orderId) {
   return data;
 }
 
-// Order history for the signed-in user, newest first. RLS scopes this to their own orders
-// automatically. 'pending' orders (payment not yet confirmed, or abandoned at Stripe) are
-// excluded -- they're an implementation detail of create-checkout-session, not something a
-// customer should see as a phantom order.
-export async function listMyOrders() {
+// Orders still in flight for the signed-in user, newest first. RLS scopes this to their own
+// orders automatically. Deliberately unpaginated -- like listMyDesigns() in designs.js, a
+// user's own in-flight orders are always few, unlike the growing history below.
+// 'pending' orders (payment not yet confirmed, or abandoned at Stripe) are excluded --
+// they're an implementation detail of create-checkout-session, not something a customer
+// should see as a phantom order.
+export async function listMyActiveOrders() {
   const { data, error } = await client()
     .from('orders')
     .select('*, order_items(*)')
-    .neq('status', 'pending')
+    .in('status', ['paid', 'submitted'])
     .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+// Resolved orders (failed or canceled, whether by our own checkout/Printful-submission flow
+// or via a later printful-webhook reconciliation -- see that function's header comment) --
+// kept out of the active list so a canceled/failed order doesn't sit on the main account
+// view forever. Cursor-paginated on created_at, same keyset pattern as designs.js's
+// listPublicDesigns(), since this is exactly the "what if you have a lot of them" case that
+// motivated splitting this out in the first place.
+export async function listMyOrderHistory({ limit = 20, before = null } = {}) {
+  let query = client()
+    .from('orders')
+    .select('*, order_items(*)')
+    .in('status', ['failed', 'canceled'])
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (before) query = query.lt('created_at', before);
+
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 }

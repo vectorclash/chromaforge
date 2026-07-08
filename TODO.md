@@ -122,6 +122,40 @@ tracks what's true now, not history.
       still needs a real send to confirm, which the live test-purchase step above will
       cover (check `stripe-webhook`'s logs afterward for a clean send vs. the "alert not
       sent" error).
+- [ ] **Deploy `printful-webhook` and register it with Printful** (2026-07-07) — closes the
+      one-way gap where canceling/deleting an order in the Printful dashboard never made it
+      back into `orders` (it just sat showing stale `submitted`/"In production" forever).
+      See `supabase/functions/printful-webhook/index.ts`'s header comment for the verified
+      event list/payload shape/signature scheme. Steps, in order:
+      1. `npx supabase functions deploy printful-webhook --no-verify-jwt`
+      2. Register the webhook against the real store (this is a real, mutating call against
+         the live Printful account — run it once, not per-deploy):
+         ```
+         curl -X POST https://api.printful.com/v2/webhooks \
+           -H "Authorization: Bearer $PRINTFUL_API_KEY" \
+           -H "X-PF-Store-Id: 18363066" \
+           -H "Content-Type: application/json" \
+           -d '{
+             "default_url": "https://fgrhbzqzadpjpbzuszpm.supabase.co/functions/v1/printful-webhook",
+             "events": [
+               {"type": "order_canceled"},
+               {"type": "order_failed"},
+               {"type": "order_refunded"},
+               {"type": "order_updated"},
+               {"type": "order_put_hold"},
+               {"type": "order_put_hold_approval"},
+               {"type": "order_remove_hold"}
+             ]
+           }'
+         ```
+      3. **The response's `secret_key` is shown exactly once** — copy it immediately and set:
+         `npx supabase secrets set PRINTFUL_WEBHOOK_SECRET_KEY=<the hex secret_key value>`
+         (losing it means re-registering from scratch, since Printful never displays it
+         again after creation).
+      4. Verify with a real test: cancel one of the existing unconfirmed test/draft orders
+         in the Printful dashboard, then check the Edge Function logs for a verified
+         signature and confirm the matching `orders` row flips to `canceled` (and moves from
+         Active to the History tab on the account page) and that the alert email arrives.
 
 ## Go-live sequence (in order, last step flips the switch)
 

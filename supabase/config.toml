@@ -472,3 +472,12 @@ entrypoint = "./functions/stripe-webhook/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/render-print-file/index.ts"
+
+# Printful-initiated -- carries no Supabase JWT at all, only its own x-pf-webhook-signature
+# header, so Supabase's JWT gate would reject every legitimate delivery, same reasoning as
+# stripe-webhook above. Auth is entirely the HMAC signature check inside the function itself.
+[functions.printful-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/printful-webhook/deno.json"
+entrypoint = "./functions/printful-webhook/index.ts"

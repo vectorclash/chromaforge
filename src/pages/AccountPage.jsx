@@ -15,7 +15,7 @@ import {
 } from '../lib/auth';
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../lib/profiles';
 import { getMyDesignStats } from '../lib/designs';
-import { listMyOrders } from '../lib/checkout';
+import { listMyActiveOrders, listMyOrderHistory } from '../lib/checkout';
 import { generateAvatar } from '../render/generateAvatar';
 import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
@@ -24,16 +24,51 @@ import { usePageTitle } from '../hooks/usePageTitle';
 
 const AVATAR_SIZE = 256;
 
-// 'pending' is deliberately excluded -- listMyOrders() never returns it (see lib/checkout.js),
-// it's an implementation detail of checkout, not a customer-visible state. 'failed' gets the
-// same accent-color treatment as form errors elsewhere on this page, so it doesn't blend in
-// with a normal completed order.
+// 'pending' is deliberately excluded -- neither listMyActiveOrders() nor listMyOrderHistory()
+// ever return it (see lib/checkout.js), it's an implementation detail of checkout, not a
+// customer-visible state. 'failed' gets the same accent-color treatment as form errors
+// elsewhere on this page, so it doesn't blend in with a normal completed order.
 const ORDER_STATUS_DISPLAY = {
   paid: { label: 'Processing', className: 'text-text-secondary' },
   submitted: { label: 'In production', className: 'text-text-secondary' },
   failed: { label: 'Needs attention', className: 'text-accent' },
   canceled: { label: 'Canceled', className: 'text-text-muted' }
 };
+
+const HISTORY_PAGE_SIZE = 20;
+
+// Same tab-underline idiom as GalleryPage.jsx's Public/My Designs tabs, sized to match this
+// block's existing text-xs uppercase heading instead of Gallery's larger page-level tabs.
+const orderTabClass = active =>
+  'cursor-pointer font-quicksand text-xs font-bold uppercase tracking-[0.14em] pb-2 border-b-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+  (active ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text');
+
+// One row, shared by the Active and History lists below.
+function OrderRow({ order, delay }) {
+  const item = order.order_items?.[0];
+  const status = ORDER_STATUS_DISPLAY[order.status] ?? ORDER_STATUS_DISPLAY.submitted;
+  return (
+    <div
+      style={{ animationDelay: `${delay}ms` }}
+      className="animate-fade-slide-up rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="truncate text-text">
+          {item?.product_title}
+          {item?.variant_label ? ` (${item.variant_label})` : ''}
+        </span>
+        <span className="shrink-0 text-text">${(order.total_cents / 100).toFixed(2)}</span>
+      </div>
+      <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-text-secondary">
+        <span>
+          {new Date(order.created_at).toLocaleDateString()}
+          {item ? ` · Qty ${item.quantity}` : ''}
+        </span>
+        <span className={status.className}>{status.label}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function AccountPage() {
   // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
@@ -63,8 +98,15 @@ export default function AccountPage() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState(null);
   const [stats, setStats] = useState(null);
-  const [orders, setOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [activeOrders, setActiveOrders] = useState([]);
+  const [activeOrdersLoading, setActiveOrdersLoading] = useState(true);
+  const [orderTab, setOrderTab] = useState('active');
+  const [historyOrders, setHistoryOrders] = useState([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
 
   // Renders a brand-new avatar off-canvas and uploads it, replacing whatever's there now
   // (a Google photo, a previous generated one, or nothing). Used both by the "Regenerate"
@@ -103,14 +145,51 @@ export default function AccountPage() {
     getMyDesignStats()
       .then(s => !cancelled && setStats(s))
       .catch(() => {});
-    listMyOrders()
-      .then(rows => !cancelled && setOrders(rows))
+    listMyActiveOrders()
+      .then(rows => !cancelled && setActiveOrders(rows))
       .catch(() => {})
-      .finally(() => !cancelled && setOrdersLoading(false));
+      .finally(() => !cancelled && setActiveOrdersLoading(false));
     return () => {
       cancelled = true;
     };
   }, [user, regenerateAvatar]);
+
+  // Lazy-loaded on first visit to the History tab -- a signed-in user who never checks it
+  // never pays for the extra query. Guarded by historyLoaded so switching tabs back and
+  // forth doesn't re-fetch page 1 every time.
+  useEffect(() => {
+    if (orderTab !== 'history' || historyLoaded) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    listMyOrderHistory({ limit: HISTORY_PAGE_SIZE })
+      .then(rows => {
+        if (cancelled) return;
+        setHistoryOrders(rows);
+        setHistoryHasMore(rows.length === HISTORY_PAGE_SIZE);
+        setHistoryLoaded(true);
+      })
+      .catch(err => !cancelled && setHistoryError(err.message))
+      .finally(() => !cancelled && setHistoryLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [orderTab, historyLoaded]);
+
+  const onLoadMoreHistory = async () => {
+    const cursor = historyOrders[historyOrders.length - 1]?.created_at;
+    if (!cursor) return;
+    setHistoryLoadingMore(true);
+    try {
+      const more = await listMyOrderHistory({ limit: HISTORY_PAGE_SIZE, before: cursor });
+      setHistoryOrders(rows => [...rows, ...more]);
+      setHistoryHasMore(more.length === HISTORY_PAGE_SIZE);
+    } catch (err) {
+      setHistoryError(err.message);
+    } finally {
+      setHistoryLoadingMore(false);
+    }
+  };
 
   const onSaveProfile = async e => {
     e.preventDefault();
@@ -243,39 +322,59 @@ export default function AccountPage() {
               </div>
             )}
 
-            {!ordersLoading && orders.length > 0 && (
+            {(!activeOrdersLoading || activeOrders.length > 0) && (
               <div className="mb-10 max-w-sm animate-fade-slide-up" style={{ animationDelay: '120ms' }}>
-                <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
-                  Order history
-                </h2>
-                <div className="mt-3 space-y-2">
-                  {orders.map((order, i) => {
-                    const item = order.order_items?.[0];
-                    const status = ORDER_STATUS_DISPLAY[order.status] ?? ORDER_STATUS_DISPLAY.submitted;
-                    return (
-                      <div
-                        key={order.id}
-                        style={{ animationDelay: `${180 + Math.min(i, 10) * 50}ms` }}
-                        className="animate-fade-slide-up rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
-                      >
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="truncate text-text">
-                            {item?.product_title}
-                            {item?.variant_label ? ` (${item.variant_label})` : ''}
-                          </span>
-                          <span className="shrink-0 text-text">${(order.total_cents / 100).toFixed(2)}</span>
-                        </div>
-                        <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-text-secondary">
-                          <span>
-                            {new Date(order.created_at).toLocaleDateString()}
-                            {item ? ` · Qty ${item.quantity}` : ''}
-                          </span>
-                          <span className={status.className}>{status.label}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="flex items-center gap-4 border-b border-hairline">
+                  <button
+                    className={orderTabClass(orderTab === 'active')}
+                    onClick={() => setOrderTab('active')}
+                  >
+                    Active orders
+                  </button>
+                  <button
+                    className={orderTabClass(orderTab === 'history')}
+                    onClick={() => setOrderTab('history')}
+                  >
+                    Order history
+                  </button>
                 </div>
+
+                {orderTab === 'active' && (
+                  <div className="mt-3 space-y-2">
+                    {activeOrdersLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                    {!activeOrdersLoading && activeOrders.length === 0 && (
+                      <p className="text-sm text-text-secondary">No orders in progress.</p>
+                    )}
+                    {activeOrders.map((order, i) => (
+                      <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
+                    ))}
+                  </div>
+                )}
+
+                {orderTab === 'history' && (
+                  <div className="mt-3 space-y-2">
+                    {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                    {historyError && <p className="text-sm text-accent">{historyError}</p>}
+                    {!historyLoading && historyLoaded && historyOrders.length === 0 && (
+                      <p className="text-sm text-text-secondary">No past orders.</p>
+                    )}
+                    {historyOrders.map((order, i) => (
+                      <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
+                    ))}
+                    {historyHasMore && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={onLoadMoreHistory}
+                        disabled={historyLoadingMore}
+                        aria-busy={historyLoadingMore}
+                      >
+                        {historyLoadingMore ? 'Loading…' : 'Load more'}
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
