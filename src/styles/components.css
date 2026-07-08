@@ -326,6 +326,15 @@
     inset 0 0 5px rgba(89, 6, 154, 0.6),
     0 0 20px rgba(44, 216, 254, 0.6);
 }
+/* Mobile Safari/Chrome zoom the whole page in on focus whenever the focused input's
+   font-size is under 16px -- a separate trigger from the OS keyboard (inputMode="none"
+   above stops the keyboard, not this). Scoped to coarse pointers only so desktop keeps
+   the compact 10px hex text. */
+@media (pointer: coarse) {
+  .color-container input {
+    font-size: 16px;
+  }
+}
 .color-close-button svg {
   width: 100%;
   height: 100%;

@@ -1,23 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Static routes only -- /shop/:productId is dynamic (Printful's catalog), /account and
-     /checkout/success are auth-gated/transactional, neither worth a search engine's time. -->
+     /checkout/success are auth-gated/transactional, neither worth a search engine's time.
+     lastmod is bumped by hand when a route's actual content changes meaningfully -- not a
+     build-time stamp, so it stays a real signal instead of moving on every deploy. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://chromaforge.app/</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
   <url>
     <loc>https://chromaforge.app/studio</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
   <url>
     <loc>https://chromaforge.app/shop</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
   <url>
     <loc>https://chromaforge.app/gallery</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
   <url>
     <loc>https://chromaforge.app/terms</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
   <url>
     <loc>https://chromaforge.app/privacy</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
 </urlset>

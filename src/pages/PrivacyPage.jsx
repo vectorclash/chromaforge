@@ -1,10 +1,14 @@
 import React from 'react';
 import PageContainer from '../components/ui/PageContainer';
 import LegalSection from '../components/ui/LegalSection';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 export default function PrivacyPage() {
-  usePageTitle('Privacy Policy');
+  usePageMeta({
+    title: 'Privacy Policy',
+    description: "Chromaforge's privacy policy: what account, design, and order data is collected and how it's used.",
+    path: '/privacy'
+  });
   return (
     <PageContainer title="Privacy Policy">
       <p className="text-xs text-text-muted">Last updated: June 30, 2026</p>

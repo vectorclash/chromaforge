@@ -4,7 +4,7 @@ import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import HexagonLoader from '../components/HexagonLoader';
 import { getOrder } from '../lib/checkout';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back to this page
@@ -14,7 +14,7 @@ const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back
 // browser redirect does -- this polls until it has (or times out without claiming failure,
 // since "not done yet" and "failed" are different things).
 export default function CheckoutSuccessPage() {
-  usePageTitle('Order confirmation');
+  usePageMeta({ title: 'Order confirmation', path: '/checkout/success', noindex: true });
   const [order, setOrder] = useState(null);
   const [timedOut, setTimedOut] = useState(false);
   const [notFound, setNotFound] = useState(false);

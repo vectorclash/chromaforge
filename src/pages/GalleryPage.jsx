@@ -20,12 +20,16 @@ import {
 } from '../lib/designs';
 import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const PAGE_SIZE = 20;
 
 export default function GalleryPage() {
-  usePageTitle('Gallery');
+  usePageMeta({
+    title: 'Gallery',
+    description: 'Browse a shared gallery of generative art made in the Chromaforge studio, and print your favorites on real merch.',
+    path: '/gallery'
+  });
   const { user } = useAuth();
   const { setPrintQueueDesign, previewUrl } = useStudio();
   const navigate = useNavigate();

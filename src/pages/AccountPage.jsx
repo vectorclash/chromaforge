@@ -20,7 +20,7 @@ import { generateAvatar } from '../render/generateAvatar';
 import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const AVATAR_SIZE = 256;
 
@@ -74,7 +74,9 @@ export default function AccountPage() {
   // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
   // is immediately reflected in SiteHeader's tiny avatar too, without a second fetch.
   const { user, avatarUrl, setAvatarUrl, recoveryMode, clearRecoveryMode, showNotice } = useAuth();
-  usePageTitle(user ? 'Account' : 'Sign in');
+  // noindex: this is either a private, per-user account view or a sign-in form -- neither
+  // is content a search result should ever point to.
+  usePageMeta({ title: user ? 'Account' : 'Sign in', path: '/account', noindex: true });
   const [mode, setMode] = useState('signin'); // signin | signup | forgot
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

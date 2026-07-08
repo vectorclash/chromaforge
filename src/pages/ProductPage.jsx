@@ -23,7 +23,8 @@ import { isSameDesign } from '../render/designSettings';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import { useHoverScroll } from '../hooks/useHoverScroll';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
+import { useJsonLd } from '../hooks/useJsonLd';
 
 gsap.registerPlugin(TextPlugin);
 
@@ -243,7 +244,6 @@ export default function ProductPage() {
   } = useMockup();
 
   const [detail, setDetail] = useState(null); // { product, variants }
-  usePageTitle(detail?.product?.title || 'Shop');
   const [printfileSpecs, setPrintfileSpecs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -484,6 +484,40 @@ export default function ProductPage() {
   // browsing/mockups stay fully operational regardless, only the real purchase is gated.
   const storeEnabled = detail?.storeEnabled ?? true;
   const variant = variants ? variants.find(v => v.id === selectedVariantId) || variants[0] : null;
+  const hasMockup = status === 'completed' && images.length > 0;
+  const heroImage = hasMockup ? images[activeImageIndex]?.mockup_url : product?.image;
+
+  usePageMeta(
+    product
+      ? {
+          title: product.title,
+          description: `${product.title} — generative art printed on demand from Chromaforge. Design your own seed-based artwork and preview it on the real garment before you buy.`,
+          image: heroImage,
+          path: `/shop/${product.id}`
+        }
+      : { title: 'Shop', path: `/shop/${productId}` }
+  );
+
+  // Unlocks price/availability rich results for this specific product -- only once a real
+  // variant is selected, since price is per-variant.
+  useJsonLd(
+    product && variant
+      ? {
+          '@context': 'https://schema.org',
+          '@type': 'Product',
+          name: product.title,
+          image: [heroImage].filter(Boolean),
+          description: `${product.title} — generative art printed on demand, one of a kind.`,
+          offers: {
+            '@type': 'Offer',
+            url: `https://chromaforge.app/shop/${product.id}`,
+            priceCurrency: 'USD',
+            price: variant.price,
+            availability: 'https://schema.org/InStock'
+          }
+        }
+      : null
+  );
 
   // Switching artwork or variant: restore an already-generated mockup for this exact combo
   // instantly (e.g. every size of a t-shirt in the same color shares one print file, so
@@ -503,8 +537,6 @@ export default function ProductPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
-
-  const hasMockup = status === 'completed' && images.length > 0;
 
   // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
   // top down with the thumbnail strip below it) from "the customer clicked a different
@@ -574,7 +606,6 @@ export default function ProductPage() {
 
   const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
   const busy = BUSY_STATUSES.includes(status);
-  const heroImage = hasMockup ? images[activeImageIndex].mockup_url : product.image;
 
   const onGenerateClick = () =>
     generate({

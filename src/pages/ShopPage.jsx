@@ -5,13 +5,17 @@ import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 // The storefront: the curated, spec-verified starter products (see STARTER_PRODUCT_IDS in
 // lib/printful.js for the current list). Each tile links to its product page where the
 // current design is previewed and mocked up.
 export default function ShopPage() {
-  usePageTitle('Shop');
+  usePageMeta({
+    title: 'Shop',
+    description: 'Wear the algorithm. Generative art printed on demand on shirts, hoodies, and more — every piece is generated, never reprinted.',
+    path: '/shop'
+  });
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import DisplayCanvas from '../components/DisplayCanvas';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
-import { usePageTitle } from '../hooks/usePageTitle';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 // Where the full studio's "return" link sends the user back to -- keyed off the `from`
 // path callers pass via navigate('/studio', { state: { from } }) (see GalleryPage,
@@ -23,9 +23,18 @@ function getReturnTo(from) {
 // wordmark/Shop, so the panel opens minimal: just Generate, Save, and a "Go to studio" link)
 // -- pass `compact={false}` for the full standalone tool (the "/studio" route in App.jsx).
 export default function StudioPage({ compact = true }) {
-  // Compact mode is the homepage hero, where the base site title should stay -- null keeps
-  // it; only the standalone /studio route gets its own title.
-  usePageTitle(compact ? null : 'Studio');
+  // Compact mode is the homepage hero, where the base site meta should stay -- passing null
+  // skips the hook entirely; only the standalone /studio route gets its own title/description.
+  usePageMeta(
+    compact
+      ? null
+      : {
+          title: 'Studio',
+          description:
+            'Design generative art from a seed. Tweak colors and geometry, save it to your gallery, and preview it printed on real merch.',
+          path: '/studio'
+        }
+  );
   const { currentDesign, setCurrentDesign, saveCurrentDesign, isCurrentDesignSaved, savedDesignId } =
     useStudio();
   const { user } = useAuth();
