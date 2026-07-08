@@ -205,7 +205,7 @@ export default function ShopCarousel() {
           <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
             Print on demand
           </p>
-          <h2 className="mt-3 font-display text-3xl text-text">Garments, printed to order</h2>
+          <h2 className="mt-3 font-display text-3xl font-bold text-text">Garments, printed to order</h2>
         </div>
         <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
           View full catalog &rarr;

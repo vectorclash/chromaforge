@@ -116,7 +116,7 @@ export default function GallerySection() {
           <p className="reveal-item font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
             Community gallery
           </p>
-          <h2 className="reveal-item mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
+          <h2 className="reveal-item mt-3 font-display text-3xl font-bold text-ink-950">Most-liked designs</h2>
           {error ? (
             <p className="reveal-item mt-4 text-accent">Couldn&rsquo;t load the gallery.</p>
           ) : (
@@ -141,7 +141,7 @@ export default function GallerySection() {
             <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
               Community gallery
             </p>
-            <h2 className="mt-3 font-display text-3xl text-ink-950">Most-liked designs</h2>
+            <h2 className="mt-3 font-display text-3xl font-bold text-ink-950">Most-liked designs</h2>
           </div>
           <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
             View full gallery &rarr;

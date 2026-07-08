@@ -11,7 +11,7 @@ export default function AboutSection() {
       <p className="reveal-item font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
         How it works
       </p>
-      <h2 className="reveal-item mt-3 font-display text-3xl text-text">Art, computed from a single seed</h2>
+      <h2 className="reveal-item mt-3 font-display text-3xl font-bold text-text">Art, computed from a single seed</h2>
       <p className="reveal-item mt-5 font-quicksand text-text-secondary">
         Chromaforge generates original artwork deterministically, live in your browser. Each
         design is defined by a seed -- a small set of numbers that regenerates the identical
