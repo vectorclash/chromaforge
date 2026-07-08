@@ -1340,18 +1340,18 @@ export default class DisplayCanvas extends React.Component {
 
         // .go-to-studio-btn is rendered FIRST in the DOM (see its own comment, above, in
         // the non-compact JSX -- needed so .row:last-child's CSS margin still targets the
-        // real last row) which meant it used to be the FIRST element this stagger animated,
-        // not the last -- a plain combined selector stages in DOM order, not selector-list
-        // order. A timeline sequences the "Return to ..." link as its own tween, run only
-        // once the panel's own stagger has fully finished.
-        const tl = gsap.timeline();
-        tl.fromTo('.row, .logo, .panel-tabs',
+        // real last row), which meant a plain combined selector (staggering in DOM order)
+        // animated it first, not last. A two-tween timeline fixed the ordering but queued
+        // the button a full DURATION_SLOW after the group finished -- the group's own last
+        // element doesn't land until (count-1)*stagger into ITS tween, so the button's tween
+        // only starting then reads as a separate, delayed second animation instead of one
+        // continuous cascade. Passing one explicit element array (button last) to a single
+        // fromTo keeps it all one stagger, one duration, same as before this ever needed a
+        // fix -- the button just lands in the correct position within it now.
+        gsap.fromTo(
+          [...gsap.utils.toArray('.row, .logo, .panel-tabs'), ...gsap.utils.toArray('.go-to-studio-btn')],
           { alpha: 0, y: 42 },
           { duration: DURATION_SLOW, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
-        );
-        tl.fromTo('.go-to-studio-btn',
-          { alpha: 0, y: 42 },
-          { duration: DURATION_SLOW, alpha: 1, y: 0, ease: 'back.out(1.7)' }
         );
       }
     }
