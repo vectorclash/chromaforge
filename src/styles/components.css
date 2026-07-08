@@ -320,22 +320,11 @@
   cursor: pointer;
   padding-left: 30px !important;
   z-index: 0;
-  /* Kills double-tap-smart-zoom on the swatch while keeping taps/drags working.
-     NOT the fix for the tap-to-open page zoom -- that's WebKit's focus-auto-zoom,
-     handled by the 16px coarse-pointer font-size override further down (next to the
-     .row input rule, where the cascade actually resolves). */
-  touch-action: manipulation;
 }
 .color-container input:hover {
   box-shadow:
     inset 0 0 5px rgba(89, 6, 154, 0.6),
     0 0 20px rgba(44, 216, 254, 0.6);
-}
-/* jscolor's own popup (hue/saturation canvas, sliders) -- same double-tap-zoom
-   suppression as the swatch input above. */
-.jscolor-picker-wrap,
-.jscolor-picker {
-  touch-action: manipulation;
 }
 .color-close-button svg {
   width: 100%;
@@ -676,53 +665,6 @@
   border-color: var(--color-accent);
   outline: none;
   background: linear-gradient(42deg, rgba(44, 2, 77, 0.2), rgba(230, 0, 140, 0.2));
-}
-/* Same iOS focus-auto-zoom rule as .cf-input (see its comment): WebKit zooms the whole
-   page in when any input with computed font-size < 16px receives focus, and the jscolor
-   swatch is a real focusable input. CASCADE TRAP: this override must live at THIS
-   selector's specificity (0-4-1) -- an earlier attempt at `.color-container input`
-   (0-1-1) silently lost to the 12px rule above (0-3-1; media queries add no specificity)
-   and never applied. Coarse-pointer only so desktop keeps the compact hex text.
-   16px reads badly next to the rest of this panel's 10-12px text though, so the real
-   input's text is made transparent here and a separate .color-text-overlay (below)
-   shows the same value at the compact size instead -- the input keeps satisfying
-   WebKit's check, nothing double-renders. !important beats adjustColor's gsap-set
-   inline color (ColorField.jsx), which has the same specificity as a plain inline
-   style otherwise. */
-@media (pointer: coarse) {
-  .display-canvas .controls-inner .row input.color {
-    font-size: 16px;
-    color: transparent !important;
-  }
-}
-/* Hidden on desktop -- the real input's own 10px text (above) is already visible there.
-   pointer-events: none so taps pass through to the input underneath (z-index: 0) instead
-   of landing on the overlay. */
-.color-text-overlay {
-  display: none;
-}
-@media (pointer: coarse) {
-  .color-text-overlay {
-    /* Mirrors the input's own box exactly: left: 30px matches its padding-left, and
-       centering the text within that (rather than the full swatch width) reproduces
-       the input's own text-align: center + padding-left combination from the shared
-       `.row input` rule -- so the overlay lands in the same spot the real text would. */
-    position: absolute;
-    left: 30px;
-    right: 0;
-    top: 0;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-family: 'Quicksand', sans-serif;
-    font-size: 10px;
-    pointer-events: none;
-    z-index: 1;
-  }
 }
 
 /* Save-link panel (#controls-save .text-container) — the share-link box uses an inline
