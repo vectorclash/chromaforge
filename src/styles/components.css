@@ -320,13 +320,10 @@
   cursor: pointer;
   padding-left: 30px !important;
   z-index: 0;
-  /* Neither the focus-zoom fix below nor the viewport-scale lock in ColorField.jsx
-     stopped real mobile zoom on their own -- this was actually a double-tap-to-zoom
-     gesture (tap swatch, then tap/drag inside the popup reads as two quick taps in
-     the same area), which touch-action doesn't fix by adjusting font-size or the
-     viewport meta at all; it needs the gesture itself disabled. manipulation keeps
-     panning/dragging (the swatch reorder drag, the popup's hue/saturation drag) working
-     while dropping double-tap-zoom and pinch-zoom on this element specifically. */
+  /* Kills double-tap-smart-zoom on the swatch while keeping taps/drags working.
+     NOT the fix for the tap-to-open page zoom -- that's WebKit's focus-auto-zoom,
+     handled by the 16px coarse-pointer font-size override further down (next to the
+     .row input rule, where the cascade actually resolves). */
   touch-action: manipulation;
 }
 .color-container input:hover {
@@ -334,18 +331,8 @@
     inset 0 0 5px rgba(89, 6, 154, 0.6),
     0 0 20px rgba(44, 216, 254, 0.6);
 }
-/* Mobile Safari/Chrome zoom the whole page in on focus whenever the focused input's
-   font-size is under 16px -- a separate trigger from the OS keyboard (inputMode="none"
-   above stops the keyboard, not this). Scoped to coarse pointers only so desktop keeps
-   the compact 10px hex text. */
-@media (pointer: coarse) {
-  .color-container input {
-    font-size: 16px;
-  }
-}
-/* jscolor's own popup (hue/saturation canvas, sliders) -- same touch-action reasoning
-   as the swatch input above, since dragging inside the popup is exactly the second tap
-   that was reading as a double-tap-zoom. */
+/* jscolor's own popup (hue/saturation canvas, sliders) -- same double-tap-zoom
+   suppression as the swatch input above. */
 .jscolor-picker-wrap,
 .jscolor-picker {
   touch-action: manipulation;
@@ -689,6 +676,17 @@
   border-color: var(--color-accent);
   outline: none;
   background: linear-gradient(42deg, rgba(44, 2, 77, 0.2), rgba(230, 0, 140, 0.2));
+}
+/* Same iOS focus-auto-zoom rule as .cf-input (see its comment): WebKit zooms the whole
+   page in when any input with computed font-size < 16px receives focus, and the jscolor
+   swatch is a real focusable input. CASCADE TRAP: this override must live at THIS
+   selector's specificity (0-4-1) -- an earlier attempt at `.color-container input`
+   (0-1-1) silently lost to the 12px rule above (0-3-1; media queries add no specificity)
+   and never applied. Coarse-pointer only so desktop keeps the compact hex text. */
+@media (pointer: coarse) {
+  .display-canvas .controls-inner .row input.color {
+    font-size: 16px;
+  }
 }
 
 /* Save-link panel (#controls-save .text-container) — the share-link box uses an inline
