@@ -703,16 +703,22 @@
 }
 @media (pointer: coarse) {
   .color-text-overlay {
+    /* Mirrors the input's own box exactly: left: 30px matches its padding-left, and
+       centering the text within that (rather than the full swatch width) reproduces
+       the input's own text-align: center + padding-left combination from the shared
+       `.row input` rule -- so the overlay lands in the same spot the real text would. */
     position: absolute;
-    left: 30px; /* matches .color-container input's padding-left */
-    right: 25px; /* clears the close button */
+    left: 30px;
+    right: 0;
     top: 0;
     height: 100%;
     display: flex;
     align-items: center;
+    justify-content: center;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    font-family: 'Quicksand', sans-serif;
     font-size: 10px;
     pointer-events: none;
     z-index: 1;
