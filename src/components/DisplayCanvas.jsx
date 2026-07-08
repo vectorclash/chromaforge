@@ -1338,9 +1338,20 @@ export default class DisplayCanvas extends React.Component {
           }
         });
 
-        gsap.fromTo('.row, .logo, .panel-tabs, .go-to-studio-btn',
+        // .go-to-studio-btn is rendered FIRST in the DOM (see its own comment, above, in
+        // the non-compact JSX -- needed so .row:last-child's CSS margin still targets the
+        // real last row) which meant it used to be the FIRST element this stagger animated,
+        // not the last -- a plain combined selector stages in DOM order, not selector-list
+        // order. A timeline sequences the "Return to ..." link as its own tween, run only
+        // once the panel's own stagger has fully finished.
+        const tl = gsap.timeline();
+        tl.fromTo('.row, .logo, .panel-tabs',
           { alpha: 0, y: 42 },
           { duration: DURATION_SLOW, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
+        );
+        tl.fromTo('.go-to-studio-btn',
+          { alpha: 0, y: 42 },
+          { duration: DURATION_SLOW, alpha: 1, y: 0, ease: 'back.out(1.7)' }
         );
       }
     }
