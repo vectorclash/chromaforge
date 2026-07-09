@@ -2,7 +2,7 @@ import GenerateLinearGradient from './GenerateLinearGradient';
 import { getCountScale, getElementSizeScale } from '../../render/scale';
 
 export default class GenerateStarField {
-  constructor(width, height, colors = [], rng = Math.random) {
+  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null) {
     let config = {};
 
     config.width = width;
@@ -28,12 +28,24 @@ export default class GenerateStarField {
     let countScale = getCountScale(width, height);
 
     let gradientComplexity = Math.round(rng() * 4);
+    // When there's no user palette, this layer's own gradient is deliberately biased away
+    // from the main background's hue -- the background is now allowed to roll close to
+    // monochrome (see GenerateLinearGradient/GenerateLargeRadialField's randomPalette use),
+    // so the star field is the guaranteed contrasting accent that keeps a fully-random
+    // design from ever reading as genuinely flat, regardless of how muted the rest of the
+    // piece is. +180 (complement) with +/-30 degrees of jitter for natural variety while
+    // always staying a clear contrast. Only meaningful when colors is empty (a real user
+    // palette takes GenerateLinearGradient's colors.length > 0 branch instead, where
+    // hueBias has no effect) -- see generateArtwork.js's call site.
+    const starHueBias =
+      backgroundHue === null ? null : (backgroundHue + 180 + (rng() - 0.5) * 60 + 360) % 360;
     let gradientConfig = new GenerateLinearGradient(
       width,
       height,
       gradientComplexity,
       colors.reverse(),
-      rng
+      rng,
+      { hueBias: starHueBias }
     );
     config.gradientConfig = gradientConfig;
 

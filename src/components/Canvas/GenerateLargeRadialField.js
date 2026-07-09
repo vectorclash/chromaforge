@@ -1,5 +1,5 @@
 import tinycolor from 'tinycolor2';
-import { randomColorHex } from '../../render/prng';
+import { randomPalette } from '../../render/prng';
 import { getCountScale, getSizeScale } from '../../render/scale';
 
 export default class GenerateLargeRadialField {
@@ -63,33 +63,7 @@ export default class GenerateLargeRadialField {
           radGrad.colors = colors.slice();
         }
       } else {
-        let gradientType = rng();
-
-        if (gradientType > 0.5) {
-          let colorStart = rng() * 360;
-          let colorDistance = rng() * 50;
-          for (let i = 0; i < colorAmount; i++) {
-            radGrad.colors.push(
-              tinycolor('#CCFF00')
-                .spin(colorStart + colorDistance * i)
-                .toHexString()
-            );
-          }
-        } else {
-          let colorType = rng();
-
-          for (let i = 0; i < colorAmount; i++) {
-            if (colorType > 0.8) {
-              radGrad.colors.push(randomColorHex(rng));
-            } else {
-              radGrad.colors.push(
-                tinycolor('#CCFF00')
-                  .spin(Math.round(rng() * 360))
-                  .toHexString()
-              );
-            }
-          }
-        }
+        radGrad.colors = randomPalette(rng, colorAmount);
       }
 
       radGradients.push(radGrad);

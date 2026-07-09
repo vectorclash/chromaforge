@@ -1972,11 +1972,11 @@ export default class DisplayCanvas extends React.Component {
                     <span className="settings-label-note">
                       {' '}
                       {geometrySettings.coherence <= 0
-                        ? 'needs coherence'
+                        ? '—'
                         : geometrySettings.size <= 0
                           ? 'small'
                           : geometrySettings.size >= 1
-                            ? 'overflows canvas'
+                            ? 'max'
                             : `${Math.round(geometrySettings.size * 100)}%`}
                     </span>
                   </span>

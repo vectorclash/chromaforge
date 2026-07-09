@@ -1,7 +1,11 @@
+// ../src/render/generateArtwork.js
+import tinycolor5 from "tinycolor2";
+
 // ../src/components/Canvas/GenerateLinearGradient.js
-import tinycolor from "tinycolor2";
+import tinycolor2 from "tinycolor2";
 
 // ../src/render/prng.js
+import tinycolor from "tinycolor2";
 function xmur3(str) {
   let h = 1779033703 ^ str.length;
   for (let i = 0; i < str.length; i++) {
@@ -41,10 +45,24 @@ function randomColorHex(rng) {
   const hex = (n) => n.toString(16).padStart(2, "0");
   return `#${hex(c())}${hex(c())}${hex(c())}`;
 }
+function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = null } = {}) {
+  const spread = minSpread + rng() * (maxSpread - minSpread);
+  const hueStart = baseHue === null ? rng() * 360 : baseHue;
+  const step = count > 1 ? spread / (count - 1) : 0;
+  const colors = [];
+  for (let i = 0; i < count; i++) {
+    const jitter = (rng() - 0.5) * step * 0.3;
+    const hue = (hueStart + step * i + jitter + 360) % 360;
+    const saturation = 55 + rng() * 35;
+    const lightness = 40 + rng() * 25;
+    colors.push(tinycolor({ h: hue, s: saturation, l: lightness }).toHexString());
+  }
+  return colors;
+}
 
 // ../src/components/Canvas/GenerateLinearGradient.js
 var GenerateLinearGradient = class {
-  constructor(width, height, complexity = 0, colors = [], rng = Math.random) {
+  constructor(width, height, complexity = 0, colors = [], rng = Math.random, { hueBias = null } = {}) {
     let config = {};
     config.width = width;
     config.height = height;
@@ -70,7 +88,7 @@ var GenerateLinearGradient = class {
         let colorChance = rng();
         if (colorChance > 0.5) {
           let ranGrayScale = Math.round(rng() * 255);
-          let newColor = tinycolor({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
+          let newColor = tinycolor2({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
           let colorOrderChance = rng();
           if (colorOrderChance > 0.5) {
             config.colors.push(colors[0]);
@@ -81,7 +99,7 @@ var GenerateLinearGradient = class {
           }
         } else {
           let ranSpin = -20 + rng() * 40;
-          let newColor = tinycolor(colors[0]).spin(ranSpin).toHexString();
+          let newColor = tinycolor2(colors[0]).spin(ranSpin).toHexString();
           let colorOrderChance = rng();
           if (colorOrderChance > 0.5) {
             config.colors.push(colors[0]);
@@ -96,34 +114,18 @@ var GenerateLinearGradient = class {
       }
     } else {
       let colorAmount = 2 + complexity;
-      let gradientType = rng();
-      if (gradientType > 0.5) {
-        let colorStart = rng() * 360;
-        let colorDistance = rng() * 50;
-        for (let i = 0; i < colorAmount; i++) {
-          config.colors.push(
-            tinycolor("#CCFF00").spin(colorStart + colorDistance * i).toHexString()
-          );
-        }
-      } else {
-        let colorType = rng();
-        for (let i = 0; i < colorAmount; i++) {
-          if (colorType > 0.8) {
-            config.colors.push(randomColorHex(rng));
-          } else {
-            config.colors.push(
-              tinycolor("#CCFF00").spin(Math.round(rng() * 360)).toHexString()
-            );
-          }
-        }
-      }
+      config.colors = randomPalette(
+        rng,
+        colorAmount,
+        hueBias !== null ? { baseHue: hueBias, minSpread: 10, maxSpread: 35 } : {}
+      );
     }
     return config;
   }
 };
 
 // ../src/components/Canvas/GenerateLargeRadialField.js
-import tinycolor2 from "tinycolor2";
+import tinycolor3 from "tinycolor2";
 
 // ../src/render/scale.js
 var REFERENCE_WIDTH = 3840;
@@ -164,7 +166,7 @@ var GenerateLargeRadialField = class {
           let colorChance = rng();
           if (colorChance > 0.5) {
             let ranGrayScale = Math.round(rng() * 255);
-            let newColor = tinycolor2({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
+            let newColor = tinycolor3({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
             let colorOrderChance = rng();
             if (colorOrderChance > 0.5) {
               radGrad.colors.push(colors[0]);
@@ -178,27 +180,7 @@ var GenerateLargeRadialField = class {
           radGrad.colors = colors.slice();
         }
       } else {
-        let gradientType = rng();
-        if (gradientType > 0.5) {
-          let colorStart = rng() * 360;
-          let colorDistance = rng() * 50;
-          for (let i2 = 0; i2 < colorAmount; i2++) {
-            radGrad.colors.push(
-              tinycolor2("#CCFF00").spin(colorStart + colorDistance * i2).toHexString()
-            );
-          }
-        } else {
-          let colorType = rng();
-          for (let i2 = 0; i2 < colorAmount; i2++) {
-            if (colorType > 0.8) {
-              radGrad.colors.push(randomColorHex(rng));
-            } else {
-              radGrad.colors.push(
-                tinycolor2("#CCFF00").spin(Math.round(rng() * 360)).toHexString()
-              );
-            }
-          }
-        }
+        radGrad.colors = randomPalette(rng, colorAmount);
       }
       radGradients.push(radGrad);
     }
@@ -209,19 +191,21 @@ var GenerateLargeRadialField = class {
 
 // ../src/components/Canvas/GenerateStarField.js
 var GenerateStarField = class {
-  constructor(width, height, colors = [], rng = Math.random) {
+  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null) {
     let config = {};
     config.width = width;
     config.height = height;
     let sizeScale = getElementSizeScale(width, height);
     let countScale = getCountScale(width, height);
     let gradientComplexity = Math.round(rng() * 4);
+    const starHueBias = backgroundHue === null ? null : (backgroundHue + 180 + (rng() - 0.5) * 60 + 360) % 360;
     let gradientConfig = new GenerateLinearGradient(
       width,
       height,
       gradientComplexity,
       colors.reverse(),
-      rng
+      rng,
+      { hueBias: starHueBias }
     );
     config.gradientConfig = gradientConfig;
     let stars = [];
@@ -281,7 +265,7 @@ var GenerateStarField = class {
 };
 
 // ../src/components/Canvas/GenerateGeometricShape.js
-import tinycolor3 from "tinycolor2";
+import tinycolor4 from "tinycolor2";
 
 // ../src/render/designSettings.js
 var DEFAULT_GEOMETRY_SETTINGS = {
@@ -461,14 +445,14 @@ var GenerateGeometricShape = class {
         let ranGrayScale = Math.round(this.rng() * 255);
         shape.colors.push(
           spun[0],
-          tinycolor3({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale }),
-          tinycolor3(spun[0]).spin(-40 + this.rng() * 80).toHexString()
+          tinycolor4({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale }),
+          tinycolor4(spun[0]).spin(-40 + this.rng() * 80).toHexString()
         );
       } else if (spun.length === 2) {
         shape.colors.push(
           spun[0],
           spun[1],
-          tinycolor3(spun[0]).spin(-20 + this.rng() * 40).toHexString()
+          tinycolor4(spun[0]).spin(-20 + this.rng() * 40).toHexString()
         );
       } else {
         shape.colors = spun;
@@ -488,7 +472,7 @@ var GenerateGeometricShape = class {
   // version caused a cumulative hue drift across shapes). Same number of rng() draws
   // either way (one per element), so this doesn't change rng() consumption/determinism.
   shuffleColors(array) {
-    return array.map((c) => tinycolor3(c).spin(-10 + this.rng() * 20).toHexString());
+    return array.map((c) => tinycolor4(c).spin(-10 + this.rng() * 20).toHexString());
   }
   shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
@@ -517,7 +501,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 4;
+var GENERATOR_VERSION = 6;
 var BLEND_MODES = [
   "screen",
   "overlay",
@@ -560,7 +544,14 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     );
   }
   config.secondBlend = randomBlendMode(rng);
-  config.starFieldConfig = new GenerateStarField(width, height, colorValues.slice(), rng);
+  const backgroundHue = colorValues.length === 0 ? tinycolor5(config.gradientBackgroundConfig.colors[0]).toHsl().h : null;
+  config.starFieldConfig = new GenerateStarField(
+    width,
+    height,
+    colorValues.slice(),
+    rng,
+    backgroundHue
+  );
   let geometryChance = rng();
   const geometry = getGeometrySettings(settings);
   if (geometryChance >= 1 - geometry.chance) {

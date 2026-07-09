@@ -4,6 +4,7 @@
 // Node/headless context (for server-side print rendering), and the same seed always
 // produces the same config at a given size.
 
+import tinycolor from 'tinycolor2';
 import GenerateLinearGradient from '../components/Canvas/GenerateLinearGradient';
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
 import GenerateStarField from '../components/Canvas/GenerateStarField';
@@ -28,7 +29,30 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // draws, so it's a values-only change -- but that's still "alters output for a given
 // seed," same standard v3 was bumped for. Old v3 designs render with the previous
 // (smaller) star range until re-saved -- same accepted-not-blocking treatment as v2->v3.
-export const GENERATOR_VERSION = 4;
+//
+// v5: replaced the ad hoc "no palette given" color fallback in GenerateLinearGradient.js
+// (background/star-field-internal-bg/overlay) and GenerateLargeRadialField.js (radial
+// glow blobs) with prng.js's new randomPalette -- the old logic had a 50% chance of
+// picking a near-zero hue spread (colorDistance = rng()*50, no floor), which was the
+// dominant cause of "fully random" designs occasionally rendering as flat/monochrome
+// (Aaron's report). randomPalette guarantees real hue spread and healthy
+// saturation/lightness instead. Different rng() draw count than the old branches, so
+// this changes output for every existing `colors: []` design -- old v4 designs render
+// with the previous palette logic until re-saved, same accepted-not-blocking treatment
+// as prior bumps.
+//
+// v6: v5 always forced a wide hue spread, which fixed monochrome but also removed the
+// possibility of a deliberately muted/close-to-monochrome look Aaron liked having
+// available. randomPalette's spread is now redrawn per call (8-180 degrees, uniform) so
+// the background/radial-field CAN roll close to monochrome again (never literally flat --
+// 8 degree floor) -- but to keep the "never truly monochrome" guarantee, the star field's
+// own internal gradient (see GenerateStarField.js -- it's a genuinely separate composited
+// layer, not just tinted stars) is now always biased to the background's complementary
+// hue at a wide spread, regardless of how muted the rest of the piece rolled. New rng()
+// draws (the spread roll, the star hue-bias jitter) change output for every existing
+// `colors: []` design -- old v5 designs render with the previous always-wide, unbiased
+// logic until re-saved, same accepted-not-blocking treatment as prior bumps.
+export const GENERATOR_VERSION = 6;
 
 const BLEND_MODES = [
   'screen',
@@ -108,7 +132,21 @@ export function generateArtwork(
 
   config.secondBlend = randomBlendMode(rng);
 
-  config.starFieldConfig = new GenerateStarField(width, height, colorValues.slice(), rng);
+  // No rng() draw -- pure arithmetic on gradientBackgroundConfig's already-resolved
+  // colors, so this can't desync consumption. Only meaningful with no user palette (see
+  // GenerateStarField's own comment on why); a real user palette leaves this null and the
+  // star field's internal gradient uses colorValues directly instead, unaffected.
+  const backgroundHue =
+    colorValues.length === 0
+      ? tinycolor(config.gradientBackgroundConfig.colors[0]).toHsl().h
+      : null;
+  config.starFieldConfig = new GenerateStarField(
+    width,
+    height,
+    colorValues.slice(),
+    rng,
+    backgroundHue
+  );
 
   // Always exactly one draw regardless of the chance setting, so the rest of the sequence
   // (overlay draws below) stays aligned whether or not geometry appears. The default

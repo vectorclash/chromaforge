@@ -1,8 +1,8 @@
 import tinycolor from 'tinycolor2';
-import { randomColorHex } from '../../render/prng';
+import { randomPalette } from '../../render/prng';
 
 export default class GenerateLinearGradient {
-  constructor(width, height, complexity = 0, colors = [], rng = Math.random) {
+  constructor(width, height, complexity = 0, colors = [], rng = Math.random, { hueBias = null } = {}) {
     let config = {};
 
     config.width = width;
@@ -62,34 +62,19 @@ export default class GenerateLinearGradient {
       }
     } else {
       let colorAmount = 2 + complexity;
-
-      let gradientType = rng();
-
-      if (gradientType > 0.5) {
-        let colorStart = rng() * 360;
-        let colorDistance = rng() * 50;
-        for (let i = 0; i < colorAmount; i++) {
-          config.colors.push(
-            tinycolor('#CCFF00')
-              .spin(colorStart + colorDistance * i)
-              .toHexString()
-          );
-        }
-      } else {
-        let colorType = rng();
-
-        for (let i = 0; i < colorAmount; i++) {
-          if (colorType > 0.8) {
-            config.colors.push(randomColorHex(rng));
-          } else {
-            config.colors.push(
-              tinycolor('#CCFF00')
-                .spin(Math.round(rng() * 360))
-                .toHexString()
-            );
-          }
-        }
-      }
+      // When hue-biased (see GenerateStarField's use of this -- anchoring to the
+      // background's complement), spread must stay NARROW, not wide: randomPalette spaces
+      // stops linearly forward from the anchor by `spread` degrees, so with several stops
+      // a wide spread walks the later stops most of the way back around the wheel,
+      // landing them near the ORIGINAL hue being complemented against -- the opposite of
+      // the guarantee this is for. Confirmed live: a 140-180 spread here put the star
+      // field's last gradient stop back within ~10 degrees of the background's own hue.
+      // A narrow spread keeps every stop clustered near the true complement instead.
+      config.colors = randomPalette(
+        rng,
+        colorAmount,
+        hueBias !== null ? { baseHue: hueBias, minSpread: 10, maxSpread: 35 } : {}
+      );
     }
 
     return config;

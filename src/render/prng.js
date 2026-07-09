@@ -1,3 +1,5 @@
+import tinycolor from 'tinycolor2';
+
 // Seeded pseudo-random number generator for deterministic, reproducible art.
 //
 // The whole render pipeline is a pure function of (seed, colors, settings, width, height).
@@ -55,6 +57,37 @@ export function randomColorHex(rng) {
   const c = () => Math.floor(rng() * 256);
   const hex = n => n.toString(16).padStart(2, '0');
   return `#${hex(c())}${hex(c())}${hex(c())}`;
+}
+
+// Seeded palette with a controllable hue spread (default: varies per call, uniformly
+// from near-monochrome up to fully vivid) and healthy saturation/lightness, so it can
+// never degenerate to *literally* single-hue (monochrome) or near-gray/washed-out output
+// the way independent random draws occasionally could, while still allowing a
+// deliberately muted result. Hues are spaced evenly across `spread` degrees from a start
+// hue, with jitter capped below the gap between stops so ordering (and the floor
+// guarantee) can't collide.
+//
+// `minSpread`/`maxSpread` (degrees, default 8-180): the total hue range the stops are
+// spaced across is redrawn each call, uniformly in this range -- 8 is tight enough to
+// read as "one hue, faintly varied" (never fully flat) without ever being 0; 180 is the
+// widest a spread can mean anything (opposite ends of the wheel), matching the old
+// always-wide behavior at the top end. `baseHue` (default: random) lets a caller anchor
+// the palette to a specific hue instead of picking its own -- see GenerateStarField's use
+// of this to bias its own gradient toward the *complement* of the main background's hue,
+// so a muted background still gets a guaranteed contrasting accent elsewhere.
+export function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = null } = {}) {
+  const spread = minSpread + rng() * (maxSpread - minSpread);
+  const hueStart = baseHue === null ? rng() * 360 : baseHue;
+  const step = count > 1 ? spread / (count - 1) : 0;
+  const colors = [];
+  for (let i = 0; i < count; i++) {
+    const jitter = (rng() - 0.5) * step * 0.3;
+    const hue = (hueStart + step * i + jitter + 360) % 360;
+    const saturation = 55 + rng() * 35; // 55-90%
+    const lightness = 40 + rng() * 25; // 40-65%
+    colors.push(tinycolor({ h: hue, s: saturation, l: lightness }).toHexString());
+  }
+  return colors;
 }
 
 // Convenience: seeded integer in [min, max] inclusive.

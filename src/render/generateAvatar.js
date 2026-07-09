@@ -8,7 +8,17 @@
 import GenerateLinearGradient from '../components/Canvas/GenerateLinearGradient';
 import { makeRng, randomColorHex } from './prng';
 
-export const AVATAR_GENERATOR_VERSION = 1;
+// v2: GenerateLinearGradient's "no palette given" fallback now uses prng.js's
+// randomPalette (guaranteed hue spread) instead of the old ad hoc coin-flip logic -- see
+// generateArtwork.js's GENERATOR_VERSION v5 note. Different rng() draw count, so this
+// shifts the background gradient's values and the subsequent generateAvatarGeometry
+// draws for every existing avatar. Same accepted-not-blocking treatment as that bump.
+//
+// v3: randomPalette's hue spread is now redrawn per call instead of always wide -- see
+// generateArtwork.js's GENERATOR_VERSION v6 note. Avatars don't have a star field to
+// carry a guaranteed accent, so an avatar's background can now roll closer to monochrome
+// than before; one extra rng() draw either way, shifting output the same as v6.
+export const AVATAR_GENERATOR_VERSION = 3;
 
 // A handful of triangle slices sharing the center point, like a simple pinwheel -- one
 // clean shape rather than a busy field, at a radius that leaves a margin inside the frame.
