@@ -225,8 +225,8 @@ var GenerateStarField = class {
     );
     config.gradientConfig = gradientConfig;
     let stars = [];
-    let xlStarSizeMax = sizeScale / 4;
-    let xlStarSizeMin = sizeScale / 30;
+    let xlStarSizeMax = sizeScale / 2.5;
+    let xlStarSizeMin = sizeScale / 20;
     let xlStars = [];
     for (let i = 0; i < 5; i++) {
       let ranSize = Math.round(xlStarSizeMin + rng() * xlStarSizeMax);
@@ -235,8 +235,8 @@ var GenerateStarField = class {
       xlStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
     stars.push(...xlStars.slice(0, Math.max(1, Math.round(5 * countScale))));
-    let largeStarSizeMax = sizeScale / 7;
-    let largeStarSizeMin = sizeScale / 200;
+    let largeStarSizeMax = sizeScale / 4.5;
+    let largeStarSizeMin = sizeScale / 120;
     let largeStars = [];
     for (let i = 0; i < 50; i++) {
       let ranSize = Math.round(largeStarSizeMin + rng() * largeStarSizeMax);
@@ -339,7 +339,7 @@ var GenerateGeometricShape = class {
     this.colors = colors;
     this.shapeVertices = geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
     const maxShapeDepth = 6 - Math.round(2 * geometry.coherence);
-    const minShapeDepth = 2 + Math.round(geometry.coherence);
+    const minShapeDepth = 2 + (geometry.coherence >= 0.85 ? 1 : 0);
     this.shapeDepth = minShapeDepth + Math.round(rng() * (maxShapeDepth - minShapeDepth));
     this.shapeAng = 360 / this.shapeVertices;
     const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height) / 3);
@@ -358,7 +358,7 @@ var GenerateGeometricShape = class {
     if (geometry.coherence > 0) {
       const cells = this.latticeCells();
       this.shuffle(cells);
-      const cellKeep = Math.round(cells.length * geometry.coherence);
+      const cellKeep = Math.round(cells.length * Math.pow(geometry.coherence, 2.5));
       const ringOf = (p) => Math.round(Math.sqrt(p[0] * p[0] + p[1] * p[1]) / this.shapeSize);
       const maxRing = (c) => Math.max(ringOf(c[0]), ringOf(c[1]), ringOf(c[2]));
       const minRing = (c) => Math.min(ringOf(c[0]), ringOf(c[1]), ringOf(c[2]));
@@ -517,7 +517,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 3;
+var GENERATOR_VERSION = 4;
 var BLEND_MODES = [
   "screen",
   "overlay",

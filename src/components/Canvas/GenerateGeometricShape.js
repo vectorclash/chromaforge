@@ -33,9 +33,15 @@ export default class GenerateGeometricShape {
     // The min rises too (2 -> 3 at full coherence): with the vector-equilibrium chord
     // cells (see latticeCells), depth 2 has only one ring pair to splay between and reads
     // washed-out/soft rather than as the nested web -- confirmed against real renders at
-    // 6 vertices (36 cells vs. depth 3's 72).
+    // 6 vertices (36 cells vs. depth 3's 72). Threshold deliberately isn't the slider's
+    // exact midpoint: `2 + Math.round(coherence)` (the original formula) flips at exactly
+    // 0.5 with no ramp -- an extra ring (and the cell-count jump that comes with it, since
+    // cell count grows with ring-pair count) landing at exactly the halfway point directly
+    // fed the "50% looks like 100%" complaint alongside the cellKeep fix below. Moved to
+    // 0.85 -- close enough to full coherence to still avoid the washed-out depth-2 look
+    // there, but out of the 0-0.7 range where cellKeep's own ramp is doing the real work.
     const maxShapeDepth = 6 - Math.round(2 * geometry.coherence);
-    const minShapeDepth = 2 + Math.round(geometry.coherence);
+    const minShapeDepth = 2 + (geometry.coherence >= 0.85 ? 1 : 0);
     this.shapeDepth = minShapeDepth + Math.round(rng() * (maxShapeDepth - minShapeDepth));
     this.shapeAng = 360 / this.shapeVertices;
     // Orientation-independent (see render/scale.js's getElementSizeScale) -- chaotic shapes
@@ -107,7 +113,20 @@ export default class GenerateGeometricShape {
       // cross-size determinism guarantee holds.
       const cells = this.latticeCells();
       this.shuffle(cells);
-      const cellKeep = Math.round(cells.length * geometry.coherence);
+      // A straight `cells.length * coherence` (the original formula) undersold how fast
+      // this fills visually: the cells overlap heavily by design (see latticeCells'
+      // comment on hard-light blending), so a modest fraction of them already covers most
+      // of the polygon's area -- confirmed by measuring actual painted-pixel density
+      // inside the shape's own footprint at each coherence step (a scratch
+      // render-service/spike-coherence.js harness, not committed): the linear formula hit
+      // ~80% visual density by coherence 0.1-0.3 and never moved much past that the rest
+      // of the way to 1 (Aaron's report: "at 50% it feels like it's almost 100%"). Raising
+      // this to an exponent backs off cellKeep hard at low coherence and lets it catch up
+      // near the top, which measured out much closer to a linear density ramp (~50% density
+      // at 0.3, ~80% at 0.7, ~83% -- the format's actual ceiling -- only at 1). 2.5 was the
+      // best fit tried (1.5/2/3 also tested); not a formula with special meaning, just the
+      // exponent that matched real measured density best.
+      const cellKeep = Math.round(cells.length * Math.pow(geometry.coherence, 2.5));
       // The shuffle above only decides WHICH cells survive a partial fill (scattered, not
       // center-out). Draw order is deterministic: cells reaching the outer rings render
       // first (behind) and cells connecting toward the centre render last (on top) --

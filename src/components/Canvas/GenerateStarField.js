@@ -39,8 +39,13 @@ export default class GenerateStarField {
 
     let stars = [];
 
-    let xlStarSizeMax = sizeScale / 4;
-    let xlStarSizeMin = sizeScale / 30;
+    // Widened (Aaron's request, 2026-07-09): the big star-large tier should be able to
+    // fill out with noticeably larger stars, not just occasionally graze the old cap.
+    // Both ends raised (not just the max) so the whole tier trends bigger on average,
+    // not just a rarer huge outlier. Same rng() draw either way -- see GENERATOR_VERSION
+    // v4 note above.
+    let xlStarSizeMax = sizeScale / 2.5;
+    let xlStarSizeMin = sizeScale / 20;
     let xlStars = [];
 
     for (let i = 0; i < 5; i++) {
@@ -52,8 +57,9 @@ export default class GenerateStarField {
     }
     stars.push(...xlStars.slice(0, Math.max(1, Math.round(5 * countScale))));
 
-    let largeStarSizeMax = sizeScale / 7;
-    let largeStarSizeMin = sizeScale / 200;
+    // Widened alongside xlStars above, same reasoning.
+    let largeStarSizeMax = sizeScale / 4.5;
+    let largeStarSizeMin = sizeScale / 120;
     let largeStars = [];
 
     for (let i = 0; i < 50; i++) {

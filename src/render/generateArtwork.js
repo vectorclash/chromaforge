@@ -21,7 +21,14 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // render differently now and will fail render-service's version check for printing until
 // re-saved. Accepted deliberately, same as how pre-seed (v1) designs are already treated
 // as best-effort-only, not a blocker -- nothing is live to real customers yet.
-export const GENERATOR_VERSION = 3;
+//
+// v4: widened the xl/large star size ranges in GenerateStarField.js (Aaron's request --
+// the big "star-large"-sprite tiers should be able to fill out with noticeably bigger
+// stars). Same rng() draw count as before, just larger resulting sizes from the same
+// draws, so it's a values-only change -- but that's still "alters output for a given
+// seed," same standard v3 was bumped for. Old v3 designs render with the previous
+// (smaller) star range until re-saved -- same accepted-not-blocking treatment as v2->v3.
+export const GENERATOR_VERSION = 4;
 
 const BLEND_MODES = [
   'screen',
