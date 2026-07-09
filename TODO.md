@@ -71,10 +71,18 @@ tracks what's true now, not history.
       hoodie) are both accepted fine, so it's only `label_inside`. This also explains the
       product breakdown perfectly: the failing/suspect products are precisely the ones
       whose specs include `label_inside`; the working t-shirt has no label placements at
-      all. **Fix on our side**: stop submitting `label_inside` on real orders (drop it in
-      `resolvePlacementEntries`/checkout — it's a 2.5"x1" inside tag, cosmetic) until
-      Printful reconciles catalog vs. order validation; the support ticket, if still
-      filed, should cite the catalog/orders-API contradiction above rather than file size.
+      all. **Possible fix on our side, NOT applied, reopened for discussion 2026-07-09**:
+      stop submitting `label_inside` on real orders (drop it in
+      `resolvePlacementEntries`/checkout). Revisiting whether omitting the placement
+      actually does what's assumed — the code has been treating `label_inside`/
+      `label_outside` as printed-onto-fabric print areas (same as every other placement),
+      but it's not actually confirmed whether Printful instead physically attaches a
+      separate tag/label regardless of what's submitted, in which case dropping the
+      placement wouldn't remove anything. **Waiting on a reply from Printful support**
+      before deciding: drop `label_inside` only, drop all three label-type placements
+      (`label_inside`/`label_outside`/`label_panel`) for cross-product consistency, or
+      something else — the support ticket, if still filed, should cite the catalog/
+      orders-API contradiction above rather than file size.
       **Deferred idea (2026-07-05, Aaron)**: when doing the label_inside filter, also
       consider rendering the vectorclash label mark onto `label_panel` (hoodie/zip
       hoodie/sweatshirt hood lining) instead of the current geometry-stripped front
@@ -92,18 +100,11 @@ tracks what's true now, not history.
       `VITE_SUPABASE_ANON_KEY` GitHub secret corrected to the real publishable key. Needs one
       more push/redeploy to actually ship the corrected bundle — the leaked key was still
       being served as of the fix.
-- [ ] **Activate Stripe Tax** in the Stripe dashboard (the dedicated **Tax** product in the
-      sidebar, not Settings → Tax — that page is just default price-level tax behavior and
-      isn't the blocker). `create-checkout-session` now sends `automatic_tax: enabled`, so
-      the *next checkout attempt errors* until this is done. Escape hatch while sorting it
-      out: `npx supabase secrets set STRIPE_AUTOMATIC_TAX=false`.
-      **In progress (2026-07-02):** Stripe Tax is a paid add-on (per-transaction fee, not
-      bundled) — worth checking "View plans" pricing if that matters. California seller's
-      permit application submitted to CDTFA (Printful listed as supplier: Printful, Inc.,
-      11025 Westlake Dr, Charlotte, NC 28273) — **pending a permit number back from
-      CDTFA.** Once that arrives: Stripe → Tax → Registrations → Add registration →
-      California → "I've already registered" → enter the permit number. That's the last
-      step before this item is actually done.
+- [x] **Activate Stripe Tax** — done 2026-07-09. Stripe Tax → Locations shows California
+      with 1 registration, status "Collecting tax," 0 "Needs attention." CA seller's permit
+      came back from CDTFA and the registration was added — Stripe's flow didn't actually
+      prompt for the permit number itself (apparently not a required field on their end);
+      confirmed done via the dashboard screenshot, not just assumed.
 - [x] **Enable receipt emails** in Stripe (Settings → Business → Customer emails →
       "Successful payments" toggle) — done 2026-07-02. Still can't be verified end-to-end
       until live mode, since test mode never actually sends them.
@@ -122,7 +123,8 @@ tracks what's true now, not history.
       still needs a real send to confirm, which the live test-purchase step above will
       cover (check `stripe-webhook`'s logs afterward for a clean send vs. the "alert not
       sent" error).
-- [ ] **Deploy `printful-webhook` and register it with Printful** (2026-07-07) — closes the
+- [x] **Deploy `printful-webhook` and register it with Printful** (2026-07-07, verified
+      together via a real cancel-test) — closes the
       one-way gap where canceling/deleting an order in the Printful dashboard never made it
       back into `orders` (it just sat showing stale `submitted`/"In production" forever).
       See `supabase/functions/printful-webhook/index.ts`'s header comment for the verified
@@ -166,8 +168,8 @@ tracks what's true now, not history.
 1. [x] Merge `feature/account-gallery-ui` → `master` (2026-07-05) — pushed, GitHub Actions
        deploy triggered. Confirm the Actions run finishes green and chromaforge.app reflects
        it before treating this as fully done.
-2. [ ] Verify deep links work on the live site (`chromaforge.app/shop` direct hit) — the
-       `.htaccess` SPA fallback has never been exercised in production.
+2. [x] Verify deep links work on the live site (`chromaforge.app/shop` direct hit) — the
+       `.htaccess` SPA fallback tested live, works.
 3. [x] Run one full test purchase on the live site (Stripe test keys still fine here) and
        confirm the Printful draft looks right, the order shows in account history, and the
        confirmation page resolves. Done 2026-07-05 on a t-shirt — worked end to end. Mesh

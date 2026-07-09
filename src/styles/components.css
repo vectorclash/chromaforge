@@ -1008,9 +1008,9 @@
 .display-canvas .controls-inner .settings-range-dual {
   width: 190px;
   flex-shrink: 0;
-  --slider-touch-height: 32px;
+  --slider-touch-height: 40px;
   --slider-track-height: 4px;
-  --slider-thumb-size: 20px;
+  --slider-thumb-size: 26px;
 }
 .display-canvas .controls-inner .settings-range {
   -webkit-appearance: none;

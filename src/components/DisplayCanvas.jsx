@@ -124,6 +124,13 @@ export default class DisplayCanvas extends React.Component {
       animTiming: null,
       settingsDirty: false,
       geometrySettings: { ...DEFAULT_GEOMETRY_SETTINGS },
+      // Which points-slider thumb was most recently grabbed -- the two thumbs are separate
+      // native range inputs stacked on one track, so when their values sit close together
+      // they visually overlap and only the higher-z-index one is hit-testable. Tracking the
+      // last successful grab (set on pointerdown, before any drag) keeps repeated nearby
+      // touches landing on the thumb the user is actually working with, instead of a fixed
+      // rule that can leave one thumb permanently unreachable once they're close.
+      pointsActiveThumb: null,
       galleryStatus: null,
       galleryError: null,
       // One-time notice: the first time a *loaded* design (isSaved was true) diverges via a
@@ -1904,9 +1911,19 @@ export default class DisplayCanvas extends React.Component {
                       max="12"
                       value={geometrySettings.pointsMin}
                       aria-label="Minimum points"
-                      // Keep the min thumb on top when both sit high, so it stays grabbable
-                      // after being dragged all the way to the max.
-                      style={geometrySettings.pointsMin > 7 ? { zIndex: 4 } : undefined}
+                      // Whichever thumb was grabbed last stays on top, so repeated touches in
+                      // the same spot keep reaching it even once the two thumbs overlap.
+                      // Falls back to the old "min sits high" rule before any grab happens.
+                      style={
+                        this.state.pointsActiveThumb
+                          ? this.state.pointsActiveThumb === 'min'
+                            ? { zIndex: 4 }
+                            : undefined
+                          : geometrySettings.pointsMin > 7
+                            ? { zIndex: 4 }
+                            : undefined
+                      }
+                      onPointerDown={() => this.setState({ pointsActiveThumb: 'min' })}
                       onChange={e =>
                         this.onGeometrySettingChange({
                           pointsMin: Math.min(Number(e.target.value), geometrySettings.pointsMax)
@@ -1919,6 +1936,8 @@ export default class DisplayCanvas extends React.Component {
                       max="12"
                       value={geometrySettings.pointsMax}
                       aria-label="Maximum points"
+                      style={this.state.pointsActiveThumb === 'max' ? { zIndex: 4 } : undefined}
+                      onPointerDown={() => this.setState({ pointsActiveThumb: 'max' })}
                       onChange={e =>
                         this.onGeometrySettingChange({
                           pointsMax: Math.max(Number(e.target.value), geometrySettings.pointsMin)
