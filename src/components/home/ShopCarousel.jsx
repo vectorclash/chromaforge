@@ -200,16 +200,11 @@ export default function ShopCarousel() {
 
   return (
     <section id="shop" ref={revealRef} className="mx-auto max-w-5xl px-4 py-24 sm:px-6">
-      <div className="reveal-item mb-10 flex items-end justify-between gap-4">
-        <div>
-          <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
-            Print on demand
-          </p>
-          <h2 className="mt-3 font-display text-3xl font-bold text-text">Garments, printed to order</h2>
-        </div>
-        <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
-          View full catalog &rarr;
-        </Link>
+      <div className="reveal-item mb-10">
+        <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
+          Print on demand
+        </p>
+        <h2 className="mt-3 font-display text-3xl font-bold text-text">Garments, printed to order</h2>
       </div>
 
       {loading ? (
@@ -285,6 +280,12 @@ export default function ShopCarousel() {
           </button>
         </div>
       )}
+
+      <div className="reveal-item mt-8 flex justify-end">
+        <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
+          View full catalog &rarr;
+        </Link>
+      </div>
     </section>
   );
 }

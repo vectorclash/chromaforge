@@ -136,16 +136,11 @@ export default function GallerySection() {
   return (
     <section id="gallery" ref={ref} className="bg-ink-200">
       <div className="mx-auto max-w-5xl px-6 py-24">
-        <div className="reveal-item mb-10 flex items-end justify-between gap-4">
-          <div>
-            <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
-              Community gallery
-            </p>
-            <h2 className="mt-3 font-display text-3xl font-bold text-ink-950">Most-liked designs</h2>
-          </div>
-          <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
-            View full gallery &rarr;
-          </Link>
+        <div className="reveal-item mb-10">
+          <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-ink-950">
+            Community gallery
+          </p>
+          <h2 className="mt-3 font-display text-3xl font-bold text-ink-950">Most-liked designs</h2>
         </div>
 
         {loading ? (
@@ -223,6 +218,12 @@ export default function GallerySection() {
             ))}
           </div>
         )}
+
+        <div className="reveal-item mt-8 flex justify-end">
+          <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
+            View full gallery &rarr;
+          </Link>
+        </div>
       </div>
 
       <GalleryModal
