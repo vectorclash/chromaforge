@@ -7,88 +7,59 @@ tracks what's true now, not history.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
-- [ ] **Printful can't actually fulfill several starter products — real orders built to
-      Printful's own documented-correct print-area size still fail their production
-      pipeline (found live, 2026-07-05/06, during real test purchases).** Symptom:
-      `create-checkout-session`/`stripe-webhook` succeed,
-      Stripe charges (test mode) go through, a real Printful order is created and shows as
-      `draft` — then, ~10-40s later (Printful's own async file-processing job), it flips to
-      `failed` with no detail beyond "Failed to process design" and the order-item's
-      `placements` array goes empty (`GET /v2/orders/{id}/order-items/{item_id}`). Confirmed
-      **not our bug**: a synthetic order submitted directly via Printful's API with trivial
-      solid-color placeholder files (correct dimensions, otherwise content-free) failed
-      identically (order #165745860) — rules out anything about our renderer, geometry
-      layout, or file content. Also checked the shorts file against the *working* t-shirt
-      file for anything else that might differ (RGB vs RGBA color type, DPI, color space) --
-      identical on every axis (both 8-bit RGBA, both sRGB, both 150dpi); size is the only
-      real difference. **Confirmed via Printful's own official design-template PDF for this
-      exact product/placement (2026-07-06)**: it explicitly instructs "CREATE new documents
-      sized to Width: 75" x Height: 29"" at 150dpi/sRGB -- i.e. this isn't us guessing at the
-      wrong size or Printful's catalog API being stale/wrong, it's the literal documented
-      correct spec, and real production still can't process a file built to it. Strengthens
-      the support-ticket case considerably: "we built exactly what your own template guide
-      says to build" is a much harder claim to wave off than a size mismatch would've been.
-      **Confirmed failing**: mesh shorts (693, front/back printfile 11250x4350px @150dpi =
-      75in x 29in — orders #165742893, #165745243, #165745860), zip hoodie (717, front
-      5250x6000 = 35in x 40in — order #165746121). **Confirmed working**: t-shirt (257,
-      4200x5400 = 28in x 36in — order #165742237, real placements attached with position
-      data, stayed in valid `draft`, never failed).
-      **Untested but suspect** (same "large combined-panel canvas" shape, and larger than
-      the confirmed-working 28x36in but smaller-or-comparable to the confirmed-failing
-      35x40in): hoodie (388, 40x40in), sweatshirt (320, 33.6x44in), track jacket (801,
-      44x46in), joggers (784, 65x54in, likely the worst of all of these). **Likely fine**
-      (comparable to or smaller than the working t-shirt): women's t-shirt (261, 26x33in),
-      tote bag (274, 21x37in — also the product CLAUDE.md's earlier "Server-side print
-      rendering" section live-verified render-service against, though that only confirmed
-      *our* pipeline produces a correctly-sized file, not that a real Printful order was
-      ever placed/confirmed for it), crossbody bag (744), pillow (83).
-      **Next step**: file a Printful support ticket with the order IDs above as evidence
-      (their catalog vs. their production capability disagree) — this needs Printful to
-      actually respond, not more debugging on our end. Until resolved, consider trimming
-      `STARTER_PRODUCT_IDS` (`src/lib/printful.js`) down to the confirmed/likely-safe
-      products (t-shirt, women's t-shirt, tote, crossbody, pillow) so the live shop doesn't
-      let anyone pay for something that will silently fail production. Aaron's call on
-      timing — nothing forces this before the store is actually live (still gated on Stripe
-      Tax below either way).
-      **SOLVED 2026-07-05 (late evening): it was never the file size — it's the
-      `label_inside` placement.** Found via controlled unconfirmed-draft A/B tests against
-      the live API (all diagnostic drafts deleted after reading results). Evidence chain:
-      (1) synthetic solid-color files at the exact "failing" 11250x4350 spec, sent as
-      front/back only, process fine on v2 AND v1, RGBA and RGB alike — so size, alpha
-      channel, and the v2-beta API are all exonerated; (2) the real failed checkout orders
-      differ from those passing tests in exactly one way: checkout also submits the label
-      placements; (3) `POST /v2/orders` with `label_inside` on shorts variant 17392 or zip
-      hoodie variant 18526 is rejected outright — "Invalid variant_id and placement:
-      label_inside combination" — even though Printful's own v2 catalog (and v1's
-      printfiles) list `label_inside` as a valid cut-sew placement for both products;
-      (4) that sync validation is *inconsistent* (a real checkout's create call passed with
-      the identical placement minutes before my probe was rejected) — when an order slips
-      through, the same invalid combination kills Printful's async file-processing instead:
-      status `failed`, placements silently emptied, "Failed to process design"; (5) the
-      exact same real 11250x4350 rendered print files from the just-failed checkout order,
-      resubmitted WITHOUT `label_inside`, fully process (placements retained, mockup
-      generated, stays valid `draft`) — and `label_outside` (shorts) / `label_panel` (zip
-      hoodie) are both accepted fine, so it's only `label_inside`. This also explains the
-      product breakdown perfectly: the failing/suspect products are precisely the ones
-      whose specs include `label_inside`; the working t-shirt has no label placements at
-      all. **Possible fix on our side, NOT applied, reopened for discussion 2026-07-09**:
-      stop submitting `label_inside` on real orders (drop it in
-      `resolvePlacementEntries`/checkout). Revisiting whether omitting the placement
-      actually does what's assumed — the code has been treating `label_inside`/
-      `label_outside` as printed-onto-fabric print areas (same as every other placement),
-      but it's not actually confirmed whether Printful instead physically attaches a
-      separate tag/label regardless of what's submitted, in which case dropping the
-      placement wouldn't remove anything. **Waiting on a reply from Printful support**
-      before deciding: drop `label_inside` only, drop all three label-type placements
-      (`label_inside`/`label_outside`/`label_panel`) for cross-product consistency, or
-      something else — the support ticket, if still filed, should cite the catalog/
-      orders-API contradiction above rather than file size.
+- [ ] **Root cause: the `label_inside` placement, not file size — read this bullet's first
+      paragraph only unless you need the historical evidence trail.** Several starter
+      products fail Printful's production pipeline on real orders:
+      `create-checkout-session`/`stripe-webhook` succeed, Stripe charges go through, a real
+      Printful order is created and shows as `draft` — then ~10-40s later (Printful's own
+      async file-processing job) it flips to `failed` with no detail beyond "Failed to
+      process design" and the order-item's `placements` array goes empty. Root-caused
+      2026-07-05 (late evening) via controlled unconfirmed-draft A/B tests against the live
+      API: `POST /v2/orders` with `label_inside` is rejected outright ("Invalid variant_id
+      and placement: label_inside combination") even though Printful's own catalog lists it
+      as valid; when it slips past that inconsistent sync check, it kills async
+      file-processing instead. Confirmed by resubmitting the exact same real print files
+      from a failed order WITHOUT `label_inside` — they fully process. `label_outside` and
+      `label_panel` are both fine; it's only `label_inside`. Queried Printful's live catalog
+      2026-07-09 (`mockup-generator/printfiles`, not guessed) for the current, precise list
+      of affected starter products — **has `label_inside`**: hoodie (388), sweatshirt (320),
+      zip hoodie (717), mesh shorts (693), joggers (784), track jacket (801), crossbody bag
+      (744); **does not**: both t-shirts (257, 261), tote bag (274), pillow (83).
+      **Fix NOT applied, reopened for discussion 2026-07-09**: stop submitting
+      `label_inside` on real orders (drop it in `resolvePlacementEntries`/checkout). Aaron
+      pushed back on doing this blind — not confirmed whether Printful prints
+      `label_inside` onto the garment panel (so omitting it leaves plain fabric, as the
+      code's doc comments assume) or physically attaches a separate tag regardless of what's
+      submitted (in which case dropping the placement changes nothing). **Waiting on a reply
+      from Printful support** before deciding: drop `label_inside` only, drop all three
+      label-type placements for cross-product consistency, or something else — the ticket,
+      if still filed, should cite the catalog/orders-API contradiction, not file size.
       **Deferred idea (2026-07-05, Aaron)**: when doing the label_inside filter, also
       consider rendering the vectorclash label mark onto `label_panel` (hoodie/zip
       hoodie/sweatshirt hood lining) instead of the current geometry-stripped front
       composition — branded-lining look, matches the square `label_outside` marks. Needs
       the render-service path (panel printfile is full-size, over iOS canvas cap) and a
       real-mockup check of the panel's visible crop before trusting "centered."
+      <details>
+      <summary>Superseded history: the original "file size" theory (2026-07-05/06),
+      fully disproven the same night — kept only as an evidence trail, not a live
+      concern. Do not cite this as a current blocker.</summary>
+
+      The initial working theory was that Printful's production pipeline couldn't handle
+      the print-area *dimensions* for these products, based on: a synthetic order with
+      trivial solid-color placeholder files at the correct (large) dimensions failed
+      identically to a real order (ruling out our renderer/content); the failing file
+      matched the working t-shirt file on every other axis (RGBA, sRGB, 150dpi); and
+      Printful's own design-template PDF for the mesh shorts confirmed 75in x 29in as the
+      documented-correct spec, which still failed. This built a full "confirmed
+      failing/untested-but-suspect/likely-fine" product breakdown by canvas size. **All of
+      this was disproven later the same night**: synthetic solid-color files at the exact
+      "failing" dimensions, sent WITHOUT `label_inside`, processed fine on v1 and v2 alike
+      — size, alpha channel, and the v2-beta API are all exonerated. The product breakdown
+      that looked like it correlated with size actually correlated with which products
+      have a `label_inside` placement at all. Nothing here needs action; it's preserved so
+      a future support-ticket write-up doesn't lose the "we ruled out X, Y, Z" evidence.
+      </details>
 - [x] **Leaked Printful API key, found and fixed (2026-07-05)** — the GitHub Actions repo
       secret `VITE_SUPABASE_ANON_KEY` was mistakenly set to the Printful API key's value
       instead of the actual Supabase publishable key, so every production build baked the
