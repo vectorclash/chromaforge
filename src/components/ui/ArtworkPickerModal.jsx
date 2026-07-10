@@ -45,10 +45,10 @@ function CheckBadge() {
 // card structure exactly (square image area + the title strip below, same border/rounding/
 // padding), so a real thumbnail fading in over its skeleton lands pixel-aligned -- the
 // shared grid's bare squares left row 2 sitting visibly higher than the cards replacing it.
-function SkeletonPage() {
+function SkeletonPage({ count = PAGE_SIZE }) {
   return (
     <div className="grid grid-cols-4 gap-2 sm:gap-3" aria-hidden="true">
-      {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+      {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
           className="animate-pulse overflow-hidden rounded-xl border-2 border-hairline bg-ink-900"
@@ -498,7 +498,25 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
             // the panel needing to scroll -- smaller thumbnails were Aaron's explicit
             // preference over a scrolling modal.
             <React.Fragment key={`${tab}-${state.pageIndex}`}>
-              {renderPageGrid(rows)}
+              {slideDir === null ? (
+                // Staggered-fade entrance (fill-in over a skeleton page, tab switch,
+                // first load): the skeleton STAYS, layered behind the cards, so each
+                // thumbnail crossfades in over its still-pulsing placeholder instead of
+                // the skeleton vanishing a beat before the cards reach full opacity.
+                // Once the fade completes the opaque cards simply cover it. count matches
+                // the rows so a partial last page doesn't leave orphan placeholders
+                // pulsing in the empty slots.
+                <div className="relative">
+                  <div className="absolute inset-0" aria-hidden="true">
+                    <SkeletonPage count={rows.length} />
+                  </div>
+                  <div className="relative">{renderPageGrid(rows)}</div>
+                </div>
+              ) : (
+                // Slide/swipe entrances move the whole grid -- a static skeleton behind
+                // would peek out mid-motion, so no backdrop there.
+                renderPageGrid(rows)
+              )}
             </React.Fragment>
           )}
 
