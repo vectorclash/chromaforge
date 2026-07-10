@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
@@ -65,6 +66,9 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   // drag can't queue 60 re-renders/second of an 8-card grid.
   const touchStartRef = useRef(null);
   const slideRef = useRef(null);
+  // True while a released swipe is animating the track the rest of the way to the
+  // neighbor -- new touches are ignored until the page commit lands.
+  const animatingRef = useRef(false);
   // Which direction the last page change travelled ('next' | 'prev' | null): drives the
   // incoming page's slide-in side. null (tab switch, first load) keeps the original
   // per-card entrance stagger instead.
@@ -182,16 +186,20 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   const hasNext = totalPages !== null && state.pageIndex + 1 < totalPages;
   const hasPrev = state.pageIndex > 0;
 
-  const goPrev = () => {
+  // dir is what the incoming page's entrance should be: 'prev'/'next' (chevron clicks --
+  // directional slide-in keyframe) or 'swipe' (touch handoff below -- NO entrance at all,
+  // because the neighbor panel was already dragged fully into place and any further
+  // animation would double the motion).
+  const goPrev = (dir = 'prev') => {
     if (!hasPrev) return;
-    setSlideDir('prev');
+    setSlideDir(dir);
     // Clearing error covers backing off a failed skeleton page -- the loaded page behind
     // it should render normally, and a later goNext gets a fresh attempt via the effect.
     updateTab(tab, { pageIndex: state.pageIndex - 1, error: null });
   };
-  const goNext = () => {
+  const goNext = (dir = 'next') => {
     if (!hasNext || state.loading) return;
-    setSlideDir('next');
+    setSlideDir(dir);
     // Optimistic: advance immediately even onto a not-yet-loaded page -- SkeletonGrid
     // renders as that page (so a swipe always has something to land on) and the fetch
     // effect above picks up the missing page.
@@ -199,16 +207,20 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   };
 
   // Touch swipe on the grid area pages the carousel, matching what the pager's shape
-  // already implies on mobile. Drag-follow: once a touch commits to the horizontal axis
-  // (first ~10px of travel decide, so a vertical panel scroll is never hijacked -- the
-  // wrapper's touch-action: pan-y leaves that to the browser), the grid tracks the finger
-  // 1:1, with 3x rubber-band resistance when there's no page in that direction (first
-  // page, last page, or next-page load already in flight). Release past the threshold
-  // commits the page -- the wrapper transform is cleared and the incoming page's
-  // slide-in-from-that-side animation (via slideDir) carries the motion; release short of
-  // it springs back. Sequential-only by design -- cursor pagination can't jump to an
-  // arbitrary page, and goPrev/goNext already guard the edges and in-flight loads.
+  // already implies on mobile. A true carousel drag: the neighboring pages (or a skeleton
+  // stand-in for a not-yet-loaded next page) are rendered offscreen at +/-100% inside the
+  // sliding track, so dragging shows both panels moving together -- never a blank gap.
+  // Once a touch commits to the horizontal axis (first ~10px of travel decide, so a
+  // vertical panel scroll is never hijacked -- the wrapper's touch-action: pan-y leaves
+  // that to the browser), the track follows the finger 1:1, with 3x rubber-band
+  // resistance when there's no page in that direction (first page, last page, or a
+  // next-page load already in flight). Release past the threshold animates the track the
+  // rest of the way to the neighbor, THEN commits the page and resets the track in the
+  // same frame -- the new current page renders exactly where the neighbor just was, so
+  // the handoff is invisible. Release short of the threshold springs back.
+  // Sequential-only by design -- cursor pagination can't jump to an arbitrary page.
   const onGridTouchStart = e => {
+    if (animatingRef.current) return;
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY, axis: null, dx: 0 };
     if (slideRef.current) slideRef.current.style.transition = '';
@@ -237,11 +249,26 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
     const commitNext = dx < -56 && hasNext && !state.loading;
     const commitPrev = dx > 56 && hasPrev;
     if (commitNext || commitPrev) {
-      // Clear the drag transform outright -- the keyed remount's slide-in animation owns
-      // the motion from here; a lingering wrapper offset would displace the new page too.
-      el.style.transform = '';
-      if (commitNext) goNext();
-      else goPrev();
+      const width = el.clientWidth;
+      animatingRef.current = true;
+      el.style.transition = 'transform 250ms ease-out';
+      el.style.transform = `translateX(${commitNext ? -width : width}px)`;
+      // setTimeout over transitionend: a transform transition interrupted by e.g. the
+      // modal closing never fires transitionend, which would leave animatingRef stuck.
+      window.setTimeout(() => {
+        animatingRef.current = false;
+        if (!slideRef.current) return;
+        // flushSync so the page commit and the transform reset land in the same task --
+        // interleaving them with React's async render would paint one frame of the OLD
+        // page snapped back to center (or of the track still offset) before the new page
+        // takes the neighbor's place.
+        flushSync(() => {
+          if (commitNext) goNext('swipe');
+          else goPrev('swipe');
+        });
+        slideRef.current.style.transition = '';
+        slideRef.current.style.transform = '';
+      }, 260);
     } else {
       el.style.transition = 'transform 200ms ease-out';
       el.style.transform = 'translateX(0)';
@@ -251,6 +278,75 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   const tabClass = active =>
     'cursor-pointer font-quicksand text-sm pb-2 border-b-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
     (active ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text');
+
+  // One page of design cards. Used for the current page AND for the offscreen neighbor
+  // panels the carousel drag reveals (`ghost` -- non-interactive: they're purely visual
+  // until a commit re-renders them as the real current page). Entrance for the current
+  // page: a directional whole-grid slide when the change came from a chevron (slideDir
+  // 'next'/'prev', continuing the motion the button implies -- the per-card stagger is
+  // skipped then, since both at once read as visual noise), nothing at all after a swipe
+  // handoff ('swipe' -- the drag itself was the transition), the per-card stagger
+  // otherwise (tab switch, first load).
+  const renderPageGrid = (pageRows, { ghost = false } = {}) => (
+    <div
+      className={
+        'grid grid-cols-4 gap-2 sm:gap-3' +
+        (!ghost && slideDir === 'next'
+          ? ' animate-slide-in-right'
+          : !ghost && slideDir === 'prev'
+            ? ' animate-slide-in-left'
+            : '')
+      }
+    >
+      {pageRows.map((d, i) => {
+        const selected = pending?.id === d.id;
+        return (
+          <button
+            key={d.id}
+            type="button"
+            tabIndex={ghost ? -1 : undefined}
+            onClick={ghost ? undefined : () => setPending(d)}
+            aria-pressed={selected}
+            style={!ghost && slideDir === null ? { animationDelay: `${i * 40}ms` } : undefined}
+            className={
+              'group cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+              (!ghost && slideDir === null ? 'animate-fade-slide-up ' : '') +
+              (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
+            }
+          >
+            <div className="relative aspect-square overflow-hidden bg-ink-900">
+              {/* Plain <img>: loadNextPage already preloaded this exact URL before the
+                  page was committed, so FadeImage's own skeleton/fade would just fight
+                  the wrapper's stagger (same reasoning as the mockup filmstrip's comment
+                  in ProductPage). */}
+              <img
+                src={getThumbnailUrl(d.user_id, d.id)}
+                alt={d.title || 'Untitled design'}
+                onError={e => {
+                  e.target.style.visibility = 'hidden';
+                }}
+                className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
+              />
+              {selected && <CheckBadge />}
+            </div>
+            <div className="min-w-0 px-1.5 py-1 sm:px-2 sm:py-1.5">
+              <span className="block truncate text-[10px] font-bold text-text sm:text-xs">
+                {d.title || 'Untitled'}
+              </span>
+              {/* Byline hidden on phones: at 4 columns a ~70px cell can't show a useful
+                  amount of it, and dropping the line is what keeps the 2-row page short
+                  enough to never scroll. */}
+              {tab === 'public' && d.profiles && (
+                <span className="hidden truncate text-[11px] text-text-secondary sm:block">
+                  by {d.profiles.display_name || d.profiles.username || 'someone'}
+                </span>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div
@@ -315,7 +411,10 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
           onTouchEnd={onGridTouchEnd}
           onTouchCancel={onGridTouchEnd}
         >
-          <div ref={slideRef}>
+          {/* The sliding track: current page in flow, neighbor pages absolutely
+              positioned at +/-100% so a drag reveals them moving alongside. relative for
+              the neighbors' inset-0; will-change hints the per-frame transform. */}
+          <div ref={slideRef} className="relative will-change-transform">
           {tab === 'mine' && !user ? (
             <p className="py-12 text-center text-sm text-text-secondary">
               <Link to="/account" className="text-accent underline">Sign in</Link> to pick from your
@@ -358,71 +457,36 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
             </p>
           ) : (
             // Keyed per tab+page so switching pages replays the entrance animation for
-            // the incoming batch instead of diffing cards in place: a directional whole-
-            // grid slide when the change came from paging (slideDir, continuing the
-            // swipe/chevron's motion -- the per-card stagger is skipped then, since both
-            // at once read as visual noise), the per-card stagger otherwise (tab switch,
-            // first load). 4 columns at every width
-            // (2 short rows, not 4 tall ones) so the whole page of 8 fits a phone
-            // viewport without the panel needing to scroll -- smaller thumbnails were
-            // Aaron's explicit preference over a scrolling modal.
-            <div
-              key={`${tab}-${state.pageIndex}`}
-              className={
-                'grid grid-cols-4 gap-2 sm:gap-3' +
-                (slideDir === 'next'
-                  ? ' animate-slide-in-right'
-                  : slideDir === 'prev'
-                    ? ' animate-slide-in-left'
-                    : '')
-              }
-            >
-              {rows.map((d, i) => {
-                const selected = pending?.id === d.id;
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setPending(d)}
-                    aria-pressed={selected}
-                    style={slideDir ? undefined : { animationDelay: `${i * 40}ms` }}
-                    className={
-                      'group cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                      (slideDir ? '' : 'animate-fade-slide-up ') +
-                      (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
-                    }
-                  >
-                    <div className="relative aspect-square overflow-hidden bg-ink-900">
-                      {/* Plain <img>: loadNextPage already preloaded this exact URL before
-                          the page was committed, so FadeImage's own skeleton/fade would just
-                          fight the wrapper's stagger (same reasoning as the mockup
-                          filmstrip's comment in ProductPage). */}
-                      <img
-                        src={getThumbnailUrl(d.user_id, d.id)}
-                        alt={d.title || 'Untitled design'}
-                        onError={e => {
-                          e.target.style.visibility = 'hidden';
-                        }}
-                        className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
-                      />
-                      {selected && <CheckBadge />}
-                    </div>
-                    <div className="min-w-0 px-1.5 py-1 sm:px-2 sm:py-1.5">
-                      <span className="block truncate text-[10px] font-bold text-text sm:text-xs">
-                        {d.title || 'Untitled'}
-                      </span>
-                      {/* Byline hidden on phones: at 4 columns a ~70px cell can't show a
-                          useful amount of it, and dropping the line is what keeps the
-                          2-row page short enough to never scroll. */}
-                      {tab === 'public' && d.profiles && (
-                        <span className="hidden truncate text-[11px] text-text-secondary sm:block">
-                          by {d.profiles.display_name || d.profiles.username || 'someone'}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+            // the incoming batch instead of diffing cards in place (see renderPageGrid's
+            // comment for which entrance plays when). 4 columns at every width (2 short
+            // rows, not 4 tall ones) so the whole page of 8 fits a phone viewport without
+            // the panel needing to scroll -- smaller thumbnails were Aaron's explicit
+            // preference over a scrolling modal.
+            <React.Fragment key={`${tab}-${state.pageIndex}`}>
+              {renderPageGrid(rows)}
+            </React.Fragment>
+          )}
+
+          {/* Neighbor panels -- the carousel drag's destinations, sitting offscreen at
+              +/-100% until the finger pulls them in. Purely visual (aria-hidden, no
+              pointer events, unfocusable): on commit the same content re-renders as the
+              real current page in the exact spot the drag left it. Prev is always a
+              cached page; next falls back to a skeleton when it hasn't loaded yet, which
+              is also what the committed page shows while its fetch runs -- so the swipe
+              target and the landing page agree. Suppressed while the current "page" is an
+              error/sign-in/empty state (nothing sensible to drag to). */}
+          {(tab !== 'mine' || user) && !state.error && hasPrev && (
+            <div className="pointer-events-none absolute inset-0 -translate-x-full" aria-hidden="true">
+              {renderPageGrid(state.pages[state.pageIndex - 1] || [], { ghost: true })}
+            </div>
+          )}
+          {(tab !== 'mine' || user) && !state.error && hasNext && !state.loading && (
+            <div className="pointer-events-none absolute inset-0 translate-x-full" aria-hidden="true">
+              {state.pages[state.pageIndex + 1] ? (
+                renderPageGrid(state.pages[state.pageIndex + 1], { ghost: true })
+              ) : (
+                <SkeletonGrid count={PAGE_SIZE} className="grid grid-cols-4 gap-2 sm:gap-3" />
+              )}
             </div>
           )}
           </div>
