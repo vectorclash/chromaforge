@@ -3,7 +3,6 @@ import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
-import SkeletonGrid from './SkeletonGrid';
 import { listMyDesigns, listPublicDesigns, countDesigns, getThumbnailUrl } from '../../lib/designs';
 import { useAuth } from '../../context/AuthContext';
 
@@ -39,6 +38,29 @@ function CheckBadge() {
         <path d="M5 13l4 4L19 7" />
       </svg>
     </span>
+  );
+}
+
+// Modal-local skeleton page, NOT the shared SkeletonGrid: its cells mirror this modal's
+// card structure exactly (square image area + the title strip below, same border/rounding/
+// padding), so a real thumbnail fading in over its skeleton lands pixel-aligned -- the
+// shared grid's bare squares left row 2 sitting visibly higher than the cards replacing it.
+function SkeletonPage() {
+  return (
+    <div className="grid grid-cols-4 gap-2 sm:gap-3" aria-hidden="true">
+      {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+        <div
+          key={i}
+          className="animate-pulse overflow-hidden rounded-xl border-2 border-hairline bg-ink-900"
+          style={{ animationDelay: `${i * 50}ms` }}
+        >
+          <div className="aspect-square bg-ink-800" />
+          <div className="px-1.5 py-1 sm:px-2 sm:py-1.5">
+            <div className="h-[15px] w-2/3 rounded bg-ink-800 sm:h-4" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -249,7 +271,13 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
     const commitNext = dx < -56 && hasNext && !state.loading;
     const commitPrev = dx > 56 && hasPrev;
     if (commitNext || commitPrev) {
-      const width = el.clientWidth;
+      // The neighbor sits at 100% + one grid gap (see the neighbor panels' comment), so
+      // the settle has to travel that same distance -- plain clientWidth would leave the
+      // handoff off by the gap, a visible jump at commit. The current panel (grid or
+      // skeleton) carries the gap classes, so read the real computed value off it.
+      const gap =
+        parseFloat(el.firstElementChild ? getComputedStyle(el.firstElementChild).columnGap : '0') || 0;
+      const width = el.clientWidth + gap;
       animatingRef.current = true;
       el.style.transition = 'transform 250ms ease-out';
       el.style.transform = `translateX(${commitNext ? -width : width}px)`;
@@ -310,7 +338,10 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
             style={!ghost && slideDir === null ? { animationDelay: `${i * 40}ms` } : undefined}
             className={
               'group cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-              (!ghost && slideDir === null ? 'animate-fade-slide-up ' : '') +
+              // Plain staggered fade, NOT fade-slide-up: cards here often appear over a
+              // skeleton grid already sitting in their exact spots (swipe-onto-unloaded-
+              // page fill-in), and a vertical slide would visibly misalign with it.
+              (!ghost && slideDir === null ? 'animate-fade-in ' : '') +
               (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
             }
           >
@@ -424,17 +455,17 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
             // The skeleton page is a real swipe destination (goNext's optimistic advance
             // lands here), so it slides in with the same directional motion a loaded page
             // would -- the thumbnails then stagger in over it when the fetch commits.
-            <SkeletonGrid
-              count={PAGE_SIZE}
+            <div
               className={
-                'grid grid-cols-4 gap-2 sm:gap-3' +
-                (slideDir === 'next'
-                  ? ' animate-slide-in-right'
+                slideDir === 'next'
+                  ? 'animate-slide-in-right'
                   : slideDir === 'prev'
-                    ? ' animate-slide-in-left'
-                    : '')
+                    ? 'animate-slide-in-left'
+                    : undefined
               }
-            />
+            >
+              <SkeletonPage />
+            </div>
           ) : state.error ? (
             <p className="animate-pop-in py-12 text-center text-sm text-accent">
               {state.error}{' '}
@@ -476,16 +507,25 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
               target and the landing page agree. Suppressed while the current "page" is an
               error/sign-in/empty state (nothing sensible to drag to). */}
           {(tab !== 'mine' || user) && !state.error && hasPrev && (
-            <div className="pointer-events-none absolute inset-0 -translate-x-full" aria-hidden="true">
+            // Offset by 100% + the grid's own gap (0.5rem, 0.75rem at sm -- keep in sync
+            // with the gap-2 sm:gap-3 on renderPageGrid) so the seam between pages reads
+            // as one more column gap, not two grids touching edge-to-edge.
+            <div
+              className="pointer-events-none absolute top-0 w-full right-[calc(100%+0.5rem)] sm:right-[calc(100%+0.75rem)]"
+              aria-hidden="true"
+            >
               {renderPageGrid(state.pages[state.pageIndex - 1] || [], { ghost: true })}
             </div>
           )}
           {(tab !== 'mine' || user) && !state.error && hasNext && !state.loading && (
-            <div className="pointer-events-none absolute inset-0 translate-x-full" aria-hidden="true">
+            <div
+              className="pointer-events-none absolute top-0 w-full left-[calc(100%+0.5rem)] sm:left-[calc(100%+0.75rem)]"
+              aria-hidden="true"
+            >
               {state.pages[state.pageIndex + 1] ? (
                 renderPageGrid(state.pages[state.pageIndex + 1], { ghost: true })
               ) : (
-                <SkeletonGrid count={PAGE_SIZE} className="grid grid-cols-4 gap-2 sm:gap-3" />
+                <SkeletonPage />
               )}
             </div>
           )}
