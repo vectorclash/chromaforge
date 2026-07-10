@@ -174,6 +174,15 @@ export default class DisplayCanvas extends React.Component {
       const alreadySaved = !!this.props.isDesignSaved;
       this.shareUrl = alreadySaved && this.props.savedDesignId ? buildShareUrl(this.props.savedDesignId) : null;
       this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
+      // Unlike init()'s own initialDesign branch (first mount -- nothing on screen yet to
+      // fade), this path replaces an image that's already showing at full opacity. Without
+      // this fade-out (which onGenerateButtonClick's own Generate click already does), the
+      // hexagon loader spun over the OLD, still fully-opaque artwork, and the swap to the
+      // new one at the end was a hard pop -- there was nothing for setImage's later
+      // gsap.to(alpha: 1) to visibly fade FROM, since alpha never left 1. This is why
+      // generating from the mini-generator widget while the hero was still on screen never
+      // looked like it animated, even though the hero's data (seed/colors) genuinely updated.
+      gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
       this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       const built = this.buildConfig(

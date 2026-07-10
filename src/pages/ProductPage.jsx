@@ -5,6 +5,8 @@ import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import FadeImage from '../components/ui/FadeImage';
 import HexagonLoader from '../components/HexagonLoader';
+import { useCrossfadeImage } from '../hooks/useCrossfadeImage';
+import { DURATION_SLOW_MS as CROSSFADE_MS } from '../utils/motionTokens';
 import {
   getCatalogProduct,
   getPrintfileSpecs,
@@ -234,6 +236,10 @@ export default function ProductPage() {
     setPrintQueueDesign
   } = useStudio();
   const { user } = useAuth();
+  // Crossfades the "Current studio design" tile between successive MiniGenerator
+  // regenerations instead of popping straight to the new render -- same hook/timing
+  // MiniGenerator and SiteFooter already use off this same previewUrl.
+  const currentTileCrossfade = useCrossfadeImage(studioPreviewUrl, CROSSFADE_MS);
   const {
     status,
     error: mockupError,
@@ -673,12 +679,40 @@ export default function ProductPage() {
                     (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
-                  {c.thumb && (
-                    <FadeImage
-                      src={c.thumb}
-                      alt={c.label}
-                      className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.15]"
-                    />
+                  {c.key === 'current' ? (
+                    // The MiniGenerator's crossfade, not FadeImage: FadeImage's reset-on-src-
+                    // change skeleton is right for a network thumbnail loading in, but this
+                    // tile's src changes every time the studio regenerates a design already in
+                    // view -- it should dissolve between the two renders, not flash a
+                    // placeholder between them.
+                    <>
+                      {currentTileCrossfade.shown && (
+                        <img
+                          src={currentTileCrossfade.shown}
+                          alt={c.label}
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.15]"
+                        />
+                      )}
+                      {currentTileCrossfade.incoming && (
+                        <img
+                          src={currentTileCrossfade.incoming}
+                          alt={c.label}
+                          className={
+                            'absolute inset-0 h-full w-full object-cover transition-opacity ease-out ' +
+                            (currentTileCrossfade.fadingIn ? 'opacity-100' : 'opacity-0')
+                          }
+                          style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    c.thumb && (
+                      <FadeImage
+                        src={c.thumb}
+                        alt={c.label}
+                        className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.15]"
+                      />
+                    )
                   )}
                   <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
                     {c.badge}
