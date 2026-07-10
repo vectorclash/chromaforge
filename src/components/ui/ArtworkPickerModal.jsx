@@ -451,10 +451,14 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
               <Link to="/account" className="text-accent underline">Sign in</Link> to pick from your
               own saved designs.
             </p>
-          ) : state.loading && rows.length === 0 ? (
+          ) : (state.pageIndex >= state.pages.length && !state.error) ||
+            (state.loading && rows.length === 0) ? (
             // The skeleton page is a real swipe destination (goNext's optimistic advance
             // lands here), so it slides in with the same directional motion a loaded page
             // would -- the thumbnails then stagger in over it when the fetch commits.
+            // Keyed off "this page isn't loaded", NOT just state.loading: the fetch
+            // effect only sets loading a beat after the optimistic advance renders, and
+            // gating on loading alone flashed the empty-state message in that gap.
             <div
               className={
                 slideDir === 'next'
@@ -533,7 +537,11 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
         </div>
 
         {(tab !== 'mine' || user) && totalPages !== null && totalPages > 1 && (
-          <div className="mt-4 flex shrink-0 items-center justify-center gap-3">
+          // animate-expand-in: this row only mounts once the count query resolves (and
+          // never for a single-page tab), so it grows open smoothly instead of snapping
+          // the whole modal taller the moment the total arrives. overflow-hidden clips
+          // the row while max-height is still expanding.
+          <div className="flex shrink-0 animate-expand-in items-center justify-center gap-3 overflow-hidden">
             <button
               type="button"
               onClick={goPrev}

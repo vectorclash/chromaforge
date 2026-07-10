@@ -110,6 +110,26 @@
      transforms live on the cards inside it, not on this wrapper. */
   --animate-slide-in-left: slide-in-left var(--duration-base) ease-out both;
   --animate-slide-in-right: slide-in-right var(--duration-base) ease-out both;
+
+  /* Late-arriving fixed-height rows (ArtworkPickerModal's pager, which only exists once
+     the page count resolves -- and not at all for single-page tabs): expand open + fade
+     instead of popping the container taller in one frame. max-height/margin values are
+     baked into the keyframe, so this only suits content that is exactly one h-8 row with
+     an mt-4 above it -- don't reuse it for arbitrary-height content. */
+  --animate-expand-in: expand-in var(--duration-base) ease-out both;
+}
+
+@keyframes expand-in {
+  from {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 2rem;
+    margin-top: calc(var(--spacing) * 4);
+  }
 }
 
 @keyframes slide-in-left {
