@@ -352,6 +352,40 @@ export default function ProductPage() {
   // (consumed once on mount, see below) alongside the user's own saved designs.
   const [myDesigns, setMyDesigns] = useState([]);
   const [myDesignsLoading, setMyDesignsLoading] = useState(false);
+
+  // Same fix as the mockup camera-angle strip's thumbsPreloaded below, applied here too --
+  // myDesigns resolving from listMyDesigns() used to mount each design's card immediately,
+  // so the wrapper's animate-fade-slide-up stagger fired in list order while each card's own
+  // FadeImage popped in independently whenever its thumbnail happened to finish fetching --
+  // out-of-order and "random" looking despite the deliberate stagger. Hold the batch back
+  // until every one of its thumbnails has actually loaded, so the CSS stagger is the only
+  // thing left driving perceived order. Keyed on the myDesigns array reference, which only
+  // changes wholesale on a genuinely new fetch (never mutated in place).
+  const [myDesignThumbsPreloaded, setMyDesignThumbsPreloaded] = useState(true);
+  useEffect(() => {
+    if (myDesigns.length === 0) {
+      setMyDesignThumbsPreloaded(true);
+      return;
+    }
+    let cancelled = false;
+    setMyDesignThumbsPreloaded(false);
+    Promise.all(
+      myDesigns.map(
+        d =>
+          new Promise(resolve => {
+            const img = new Image();
+            img.onload = resolve;
+            img.onerror = resolve;
+            img.src = getThumbnailUrl(d.user_id, d.id);
+          })
+      )
+    ).then(() => {
+      if (!cancelled) setMyDesignThumbsPreloaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [myDesigns]);
   const [queuedChoice, setQueuedChoice] = useState(null);
   const [selectedKey, setSelectedKey] = useState('current');
   const consumedQueueRef = useRef(false);
@@ -362,15 +396,16 @@ export default function ProductPage() {
   // tailwind.css) -- engaging it any earlier meant a user hovering near an edge right as
   // designs finished loading got the auto-scroll animating scrollLeft at the same time new
   // items were still sliding into the strip, which read as genuinely messy.
-  const [artworkStripSettled, setArtworkStripSettled] = useState(!myDesignsLoading);
+  const artworkStripLoading = myDesignsLoading || (myDesigns.length > 0 && !myDesignThumbsPreloaded);
+  const [artworkStripSettled, setArtworkStripSettled] = useState(!artworkStripLoading);
   useEffect(() => {
-    if (myDesignsLoading) {
+    if (artworkStripLoading) {
       setArtworkStripSettled(false);
       return;
     }
     const timer = setTimeout(() => setArtworkStripSettled(true), 1000);
     return () => clearTimeout(timer);
-  }, [myDesignsLoading]);
+  }, [artworkStripLoading]);
   const artworkStripRef = useHoverScroll(artworkStripSettled);
 
   // Fetch product detail + printfile specs.
@@ -456,7 +491,7 @@ export default function ProductPage() {
           }
         ]
       : []),
-    ...myDesigns
+    ...(myDesignThumbsPreloaded ? myDesigns : [])
       .filter(d => !queuedChoice || d.id !== queuedChoice.id)
       // Drop a saved design that's identical (seed/colors/settings) to the live studio
       // design already shown as "Current studio design" above -- without this, saving from
@@ -704,7 +739,7 @@ export default function ProductPage() {
           {/* Saved designs load in after "Current studio design" is already showing -- without
               this, the strip looks complete with just the one choice and there's no hint that
               more are on the way once listMyDesigns() resolves. */}
-          {myDesignsLoading &&
+          {(myDesignsLoading || (myDesigns.length > 0 && !myDesignThumbsPreloaded)) &&
             [0, 1, 2].map(i => (
               <div
                 key={`loading-${i}`}
