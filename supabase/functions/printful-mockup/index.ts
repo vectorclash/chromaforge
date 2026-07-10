@@ -13,10 +13,16 @@
 //
 // Deploy with: npx supabase functions deploy printful-mockup
 
+import { checkRateLimit } from "../_shared/rateLimit.ts";
+
 const PRINTFUL_API_BASE = "https://api.printful.com/v2";
 
 // Not a secret -- store IDs are just account identifiers, same sensitivity as a username.
 const STORE_ID = "18363066";
+// Only gates task creation (POST) -- that's the action that actually spends Printful's
+// mockup quota; polling an already-created task (GET) doesn't.
+const RATE_LIMIT = 20;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,14 +35,17 @@ const corsHeaders = {
 // rate-limited mockup quota (and submit arbitrary layer URLs). Same plain-fetch GoTrue check
 // render-print-file uses -- this function has no imports, and pulling in supabase-js is what
 // made that function's bundle step time out on deploy, so don't reach for the SDK here.
-async function isSignedInUser(req: Request): Promise<boolean> {
+// Returns the user id on success (needed for rate limiting) or null if unauthenticated.
+async function getSignedInUserId(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("Authorization") ?? "";
   const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (!jwt) return false;
+  if (!jwt) return null;
   const userRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/auth/v1/user`, {
     headers: { Authorization: `Bearer ${jwt}`, apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! }
   });
-  return userRes.ok;
+  if (!userRes.ok) return null;
+  const userData = await userRes.json();
+  return userData.id;
 }
 
 Deno.serve(async req => {
@@ -44,8 +53,26 @@ Deno.serve(async req => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  if (!(await isSignedInUser(req))) {
+  const userId = await getSignedInUserId(req);
+  if (!userId) {
     return Response.json({ error: "Sign in required" }, { status: 401, headers: corsHeaders });
+  }
+
+  if (req.method === "POST") {
+    const withinLimit = await checkRateLimit(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      userId,
+      "printful-mockup",
+      RATE_LIMIT,
+      RATE_LIMIT_WINDOW_SECONDS
+    );
+    if (!withinLimit) {
+      return Response.json(
+        { error: "Too many mockup requests. Please wait a moment and try again." },
+        { status: 429, headers: corsHeaders }
+      );
+    }
   }
 
   const apiKey = Deno.env.get("PRINTFUL_API_KEY");

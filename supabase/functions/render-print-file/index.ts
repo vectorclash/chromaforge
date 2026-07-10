@@ -20,7 +20,14 @@
 // realtime-js's Node polyfills) made this function's bundle step repeatedly time out on
 // deploy. No functional difference for the caller.
 
+import { checkRateLimit } from "../_shared/rateLimit.ts";
+
 const MOCKUP_BUCKET = "design-mockups";
+// True print-resolution renders are real Fly.io compute (see fly.toml) -- a real checkout
+// legitimately fires several of these concurrently (one per placement), so this needs
+// headroom above "one render," just a bound on a signed-in account scripting a flood.
+const RATE_LIMIT = 20;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,6 +71,16 @@ Deno.serve(async req => {
   }
   const userData = await userRes.json();
   const userId = userData.id;
+
+  const withinLimit = await checkRateLimit(
+    supabaseUrl, serviceRoleKey, userId, "render-print-file", RATE_LIMIT, RATE_LIMIT_WINDOW_SECONDS
+  );
+  if (!withinLimit) {
+    return Response.json(
+      { error: { message: "Too many render requests. Please wait a moment and try again." } },
+      { status: 429, headers: corsHeaders }
+    );
+  }
 
   const body = await req.json();
   const { design, width, height, label, includeGeometry, geometryLayout, regions, sourceWidth, sourceHeight } = body;

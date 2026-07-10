@@ -23,6 +23,15 @@ import { applyMarkup } from "../_shared/pricing.ts";
 import { isStoreEnabled } from "../_shared/storeStatus.ts";
 import { buildShippingOptions, estimateShippingCents } from "../_shared/shipping.ts";
 import { toCompactDesign } from "../_shared/compactDesign.ts";
+import { checkRateLimit } from "../_shared/rateLimit.ts";
+
+// Checkout-session creation hits Printful's live product-price endpoint and writes a
+// pending order row per call -- a signed-in account scripting this repeatedly is real cost
+// (Printful API quota) and DB noise, even though nothing is charged until Stripe redirects
+// back through the webhook. Looser than the render/mockup limits since a real shopper
+// might legitimately retry a session a few times (browser back button, changed quantity).
+const RATE_LIMIT = 10;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
@@ -88,6 +97,21 @@ Deno.serve(async req => {
     return Response.json({ error: "Sign in required" }, { status: 401, headers: corsHeaders });
   }
   const userId = userData.user.id;
+
+  const withinLimit = await checkRateLimit(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    userId,
+    "create-checkout-session",
+    RATE_LIMIT,
+    RATE_LIMIT_WINDOW_SECONDS
+  );
+  if (!withinLimit) {
+    return Response.json(
+      { error: "Too many checkout attempts. Please wait a moment and try again." },
+      { status: 429, headers: corsHeaders }
+    );
+  }
 
   const body = await req.json();
   const {
