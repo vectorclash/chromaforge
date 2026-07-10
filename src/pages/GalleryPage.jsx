@@ -46,24 +46,31 @@ export default function GalleryPage() {
   const [openDesignId, setOpenDesignId] = useState(null);
   const openDesign = designs.find(d => d.id === openDesignId) || null;
 
-  const load = useCallback(async which => {
-    setLoading(true);
-    setError(null);
-    setHasMore(false);
-    try {
-      const rows =
-        which === 'mine' ? await listMyDesigns() : await listPublicDesigns({ limit: PAGE_SIZE });
-      setDesigns(rows);
-      setHasMore(which === 'public' && rows.length === PAGE_SIZE);
-      listMyLikedIds(rows.map(d => d.id))
-        .then(ids => setLikedIds(new Set(ids)))
-        .catch(() => {});
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Signed in, the Public tab excludes your own designs -- they already have their own
+  // My Designs tab, and the same design appearing under both read as a duplicate.
+  const load = useCallback(
+    async which => {
+      setLoading(true);
+      setError(null);
+      setHasMore(false);
+      try {
+        const rows =
+          which === 'mine'
+            ? await listMyDesigns()
+            : await listPublicDesigns({ limit: PAGE_SIZE, excludeUserId: user?.id });
+        setDesigns(rows);
+        setHasMore(which === 'public' && rows.length === PAGE_SIZE);
+        listMyLikedIds(rows.map(d => d.id))
+          .then(ids => setLikedIds(new Set(ids)))
+          .catch(() => {});
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [user?.id]
+  );
 
   useEffect(() => {
     load(tab);
@@ -74,7 +81,7 @@ export default function GalleryPage() {
     if (!cursor) return;
     setLoadingMore(true);
     try {
-      const more = await listPublicDesigns({ limit: PAGE_SIZE, before: cursor });
+      const more = await listPublicDesigns({ limit: PAGE_SIZE, before: cursor, excludeUserId: user?.id });
       setDesigns(d => [...d, ...more]);
       setHasMore(more.length === PAGE_SIZE);
     } catch (err) {
@@ -231,7 +238,11 @@ export default function GalleryPage() {
             />
           )}
           <p className="text-text-secondary">
-            {tab === 'mine' ? 'You haven’t saved any designs yet.' : 'No public designs yet.'}
+            {tab === 'mine'
+              ? 'You haven’t saved any designs yet.'
+              : user
+                ? 'No public designs from other artists yet.'
+                : 'No public designs yet.'}
           </p>
           {tab === 'mine' && (
             <Button as={Link} to="/studio" variant="secondary" size="sm">

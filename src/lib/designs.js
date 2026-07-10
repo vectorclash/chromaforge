@@ -41,7 +41,10 @@ export async function getDesign(id) {
 }
 
 // Public gallery feed, newest first. `before` is an ISO timestamp for keyset pagination.
-export async function listPublicDesigns({ limit = 30, before = null } = {}) {
+// `excludeUserId` makes "Public" mean "everyone else's" for signed-in users -- both the
+// gallery page and the product-page picker have a separate My Designs tab, so the same
+// design appearing under both tabs read as a duplicate, not as membership in two lists.
+export async function listPublicDesigns({ limit = 30, before = null, kind = null, excludeUserId = null } = {}) {
   // Disambiguate the profiles embed: `likes` also links designs<->profiles, so PostgREST
   // sees two relationship paths. The `!designs_user_id_fkey` hint pins it to the author FK.
   let query = client()
@@ -51,6 +54,8 @@ export async function listPublicDesigns({ limit = 30, before = null } = {}) {
     .order('created_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('created_at', before);
+  if (kind) query = query.eq('kind', kind);
+  if (excludeUserId) query = query.neq('user_id', excludeUserId);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -69,18 +74,48 @@ export async function listTopLikedDesigns({ limit = 8 } = {}) {
   return data;
 }
 
-export async function listMyDesigns() {
+// Options are all optional so the Gallery's existing unbounded "my designs" tab keeps
+// working; the ProductPage artwork-picker modal passes a real `limit` + `before` cursor
+// (same keyset pagination as listPublicDesigns) so it never fetches a whole library.
+export async function listMyDesigns({ limit = null, before = null, kind = null } = {}) {
   const sb = client();
   const user = await currentUser();
   if (!user) throw new Error('You must be signed in.');
 
-  const { data, error } = await sb
+  let query = sb
     .from('designs')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
+  if (before) query = query.lt('created_at', before);
+  if (kind) query = query.eq('kind', kind);
+  if (limit) query = query.limit(limit);
+
+  const { data, error } = await query;
   if (error) throw error;
   return data;
+}
+
+// Row count only (no rows fetched -- head:true) for the artwork-picker modal's
+// "page n / m" pager, which uses keyset pagination and so can't derive a total itself.
+export async function countDesigns({ mine = false, kind = null, excludeUserId = null } = {}) {
+  const sb = client();
+  let query = sb.from('designs').select('id', { count: 'exact', head: true });
+  if (mine) {
+    const user = await currentUser();
+    if (!user) throw new Error('You must be signed in.');
+    query = query.eq('user_id', user.id);
+  } else {
+    query = query.eq('is_public', true);
+    // Must mirror listPublicDesigns' exclusion exactly, or the pager's "n / m" total
+    // counts pages the list queries will never return.
+    if (excludeUserId) query = query.neq('user_id', excludeUserId);
+  }
+  if (kind) query = query.eq('kind', kind);
+
+  const { count, error } = await query;
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function deleteDesign(id) {

@@ -16,13 +16,13 @@ import {
   renderAndUploadPrintFiles,
   renderPrintFileStrategy
 } from '../lib/printful';
-import { listMyDesigns, getThumbnailUrl } from '../lib/designs';
+import { getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
 import { useStudio } from '../context/StudioContext';
 import { isSameDesign } from '../render/designSettings';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
-import { useHoverScroll } from '../hooks/useHoverScroll';
+import ArtworkPickerModal from '../components/ui/ArtworkPickerModal';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useJsonLd } from '../hooks/useJsonLd';
 
@@ -349,64 +349,29 @@ export default function ProductPage() {
 
   // Step 1: which artwork to print. "current" is always the live studio design; a one-shot
   // hand-off from the Gallery's "Print this" action can also queue a specific saved design
-  // (consumed once on mount, see below) alongside the user's own saved designs.
-  const [myDesigns, setMyDesigns] = useState([]);
-  const [myDesignsLoading, setMyDesignsLoading] = useState(false);
-
-  // Same fix as the mockup camera-angle strip's thumbsPreloaded below, applied here too --
-  // myDesigns resolving from listMyDesigns() used to mount each design's card immediately,
-  // so the wrapper's animate-fade-slide-up stagger fired in list order while each card's own
-  // FadeImage popped in independently whenever its thumbnail happened to finish fetching --
-  // out-of-order and "random" looking despite the deliberate stagger. Hold the batch back
-  // until every one of its thumbnails has actually loaded, so the CSS stagger is the only
-  // thing left driving perceived order. Keyed on the myDesigns array reference, which only
-  // changes wholesale on a genuinely new fetch (never mutated in place).
-  const [myDesignThumbsPreloaded, setMyDesignThumbsPreloaded] = useState(true);
-  useEffect(() => {
-    if (myDesigns.length === 0) {
-      setMyDesignThumbsPreloaded(true);
-      return;
-    }
-    let cancelled = false;
-    setMyDesignThumbsPreloaded(false);
-    Promise.all(
-      myDesigns.map(
-        d =>
-          new Promise(resolve => {
-            const img = new Image();
-            img.onload = resolve;
-            img.onerror = resolve;
-            img.src = getThumbnailUrl(d.user_id, d.id);
-          })
-      )
-    ).then(() => {
-      if (!cancelled) setMyDesignThumbsPreloaded(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [myDesigns]);
+  // (consumed once on mount, see below); everything else -- the user's own library AND other
+  // people's public designs -- comes through the "Browse gallery" modal, one picked design
+  // at a time. Replaces the old horizontal strip that fetched and preloaded the user's
+  // entire saved library, unbounded, on every visit.
   const [queuedChoice, setQueuedChoice] = useState(null);
+  const [pickedChoice, setPickedChoice] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState('current');
   const consumedQueueRef = useRef(false);
 
-  // Holds off the artwork strip's hover-driven auto-scroll (see useHoverScroll) until the
-  // saved-designs fetch has resolved AND the resulting batch of thumbnails has finished its
-  // staggered fade-slide-up entrance (up to 500ms delay + 500ms duration, see
-  // tailwind.css) -- engaging it any earlier meant a user hovering near an edge right as
-  // designs finished loading got the auto-scroll animating scrollLeft at the same time new
-  // items were still sliding into the strip, which read as genuinely messy.
-  const artworkStripLoading = myDesignsLoading || (myDesigns.length > 0 && !myDesignThumbsPreloaded);
-  const [artworkStripSettled, setArtworkStripSettled] = useState(!artworkStripLoading);
-  useEffect(() => {
-    if (artworkStripLoading) {
-      setArtworkStripSettled(false);
-      return;
+  // A pick from the modal that's actually one of the pinned tiles (the live studio design
+  // again, or the queued hand-off) selects that tile instead of duplicating it as a third.
+  const onPickDesign = design => {
+    setPickerOpen(false);
+    if (isSameDesign(currentDesign, design.data)) {
+      setSelectedKey('current');
+    } else if (queuedChoice && design.id === queuedChoice.id) {
+      setSelectedKey('queued');
+    } else {
+      setPickedChoice(design);
+      setSelectedKey('picked');
     }
-    const timer = setTimeout(() => setArtworkStripSettled(true), 1000);
-    return () => clearTimeout(timer);
-  }, [artworkStripLoading]);
-  const artworkStripRef = useHoverScroll(artworkStripSettled);
+  };
 
   // Fetch product detail + printfile specs.
   useEffect(() => {
@@ -451,64 +416,41 @@ export default function ProductPage() {
     setPrintQueueDesign(null);
   }, [printQueueDesign, setPrintQueueDesign]);
 
-  // The user's own saved (non-animation -- the mockup pipeline expects a flat
-  // { seed, colors } design, not a frames array) designs, as artwork choices.
-  useEffect(() => {
-    if (!user) {
-      setMyDesigns([]);
-      setMyDesignsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setMyDesignsLoading(true);
-    listMyDesigns()
-      .then(rows => {
-        if (!cancelled) setMyDesigns(rows.filter(d => d.kind !== 'animation'));
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setMyDesignsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-
   // A new mockup batch always starts on its first (front-facing) image.
   useEffect(() => {
     setActiveImageIndex(0);
   }, [images]);
 
   const choices = [
-    { key: 'current', label: 'Current studio design', thumb: studioPreviewUrl, data: currentDesign },
+    {
+      key: 'current',
+      label: 'Current studio design',
+      badge: 'Current',
+      thumb: studioPreviewUrl,
+      data: currentDesign
+    },
     ...(queuedChoice
       ? [
           {
             key: 'queued',
             label: queuedChoice.title || 'Untitled',
+            badge: 'Queued',
             thumb: getThumbnailUrl(queuedChoice.user_id, queuedChoice.id),
             data: queuedChoice.data
           }
         ]
       : []),
-    ...(myDesignThumbsPreloaded ? myDesigns : [])
-      .filter(d => !queuedChoice || d.id !== queuedChoice.id)
-      // Drop a saved design that's identical (seed/colors/settings) to the live studio
-      // design already shown as "Current studio design" above -- without this, saving from
-      // the studio and landing here straight after showed the same artwork twice: once as
-      // the live 480x480 preview (StudioContext's PREVIEW_SIZE), once as the just-uploaded
-      // 320x320 stored thumbnail (THUMBNAIL_SIZE). Both are legitimate recompose-per-ratio
-      // renders of the identical seed at genuinely different resolutions (see scale.js's
-      // getCountScale -- a smaller canvas keeps a smaller slice of the same generated
-      // element set), so they're subtly different images of what's actually one design,
-      // which read as confusing duplicates rather than the same choice shown twice.
-      .filter(d => !isSameDesign(currentDesign, d.data))
-      .map(d => ({
-        key: d.id,
-        label: d.title || 'Untitled',
-        thumb: getThumbnailUrl(d.user_id, d.id),
-        data: d.data
-      }))
+    ...(pickedChoice
+      ? [
+          {
+            key: 'picked',
+            label: pickedChoice.title || 'Untitled',
+            badge: 'Gallery',
+            thumb: getThumbnailUrl(pickedChoice.user_id, pickedChoice.id),
+            data: pickedChoice.data
+          }
+        ]
+      : [])
   ];
   const selectedChoice = choices.find(c => c.key === selectedKey) || choices[0];
   const selectedDesign = selectedChoice.data;
@@ -570,8 +512,10 @@ export default function ProductPage() {
       geometryLayout: effectiveGeometryLayout,
       productOptions: stitchColorProductOptions
     });
+    // pickedChoice?.id matters on its own: picking a second gallery design replaces the
+    // 'picked' tile's contents without selectedKey ever changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
+  }, [selectedKey, pickedChoice?.id, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
 
   // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
   // top down with the thumbnail strip below it) from "the customer clicked a different
@@ -705,60 +649,70 @@ export default function ProductPage() {
         </Link>
       }
     >
-      {/* Step 1: artwork. Full-width, above the gallery/purchase columns -- it drives both. */}
+      {/* Step 1: artwork. Full-width, above the gallery/purchase columns -- it drives both.
+          The common cases (current studio design; a "Print this" hand-off) stay pinned as
+          their own always-one-click tiles; everything else is behind the dashed "Browse
+          gallery" tile's modal (Public + My Designs, paginated) -- see ArtworkPickerModal. */}
       <div className="mb-8">
         <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
           1. Choose artwork
         </h2>
-        <div ref={artworkStripRef} className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
+        <div className="mt-3 flex flex-wrap gap-3">
           {choices.map((c, i) => {
             const selected = c.key === selectedKey;
             return (
-              <button
-                key={c.key}
-                type="button"
-                onClick={() => setSelectedKey(c.key)}
-                aria-pressed={selected}
-                title={c.label}
-                style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
-                className={
-                  'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-ink-900 transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                  (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
-                }
-              >
-                {c.thumb && (
-                  <FadeImage
-                    src={c.thumb}
-                    alt={c.label}
-                    className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.2]"
-                  />
-                )}
-              </button>
+              <div key={c.key} className="flex w-24 flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedKey(c.key)}
+                  aria-pressed={selected}
+                  title={c.label}
+                  style={{ animationDelay: `${i * 50}ms` }}
+                  className={
+                    'group relative h-24 w-24 cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
+                  }
+                >
+                  {c.thumb && (
+                    <FadeImage
+                      src={c.thumb}
+                      alt={c.label}
+                      className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.15]"
+                    />
+                  )}
+                  <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
+                    {c.badge}
+                  </span>
+                </button>
+                <p
+                  className={
+                    'truncate text-center text-[11px] leading-tight ' +
+                    (selected ? 'font-bold text-text' : 'text-text-secondary')
+                  }
+                  title={c.label}
+                >
+                  {c.label}
+                </p>
+              </div>
             );
           })}
-          {/* Saved designs load in after "Current studio design" is already showing -- without
-              this, the strip looks complete with just the one choice and there's no hint that
-              more are on the way once listMyDesigns() resolves. */}
-          {(myDesignsLoading || (myDesigns.length > 0 && !myDesignThumbsPreloaded)) &&
-            [0, 1, 2].map(i => (
-              <div
-                key={`loading-${i}`}
-                aria-hidden="true"
-                className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 border-hairline bg-ink-900"
-              >
-                <div
-                  className="absolute inset-0 animate-pulse bg-ink-700"
-                  style={{ animationDelay: `${i * 150}ms` }}
-                />
-              </div>
-            ))}
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-hairline text-text-secondary transition animate-fade-slide-up hover:border-accent hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
+            style={{ animationDelay: `${choices.length * 50}ms` }}
+          >
+            <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="currentColor" strokeWidth="1.6">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span className="px-1 text-center text-[11px] font-bold leading-tight">
+              Browse gallery
+            </span>
+          </button>
         </div>
-        <p className="mt-2 truncate text-xs text-text-secondary">{selectedChoice.label}</p>
-        {!user && (
-          <p className="mt-1 text-xs text-text-muted">
-            <Link to="/account" className="text-accent underline">Sign in</Link> to choose from your saved designs.
-          </p>
-        )}
       </div>
 
       {/* Step: which panels show the geometry layer -- a per-order choice (not saved to the
@@ -1070,6 +1024,12 @@ export default function ProductPage() {
           </div>
         </div>
       </div>
+
+      <ArtworkPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={onPickDesign}
+      />
     </PageContainer>
   );
 }

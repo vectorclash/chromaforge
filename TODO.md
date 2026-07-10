@@ -154,53 +154,44 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
-- [ ] **Artwork picker redesign for ProductPage** (planned 2026-07-09, targeting
-      implementation 2026-07-10) — replaces the "Choose artwork" horizontal scroll strip.
-      Design mockup approved in concept (not yet built):
-      https://claude.ai/code/artifact/1c302aed-f04f-45d2-aff2-50ce850c5438
-      **Why:** two real problems with the current strip, both found this session. (1)
-      `listMyDesigns()` has no `limit` — it fetches and preloads *every* non-animation
-      design the signed-in user has ever saved, unbounded, on every product-page visit; a
-      user with a large library pays for that on every visit. (2) The only way to print
-      someone else's design today is the Gallery's one-way "Print this" hand-off
-      (`setPrintQueueDesign` in `StudioContext.jsx`, consumed once by `ProductPage.jsx`) —
-      there's no way to browse/pick another user's design from the product page itself.
-      **What's decided:**
-      - "Current studio design" (and the queued "Print this" hand-off, when present) stay
-        pinned as their own tiles directly on the product page — Aaron was explicit these
-        must NOT move inside the modal or otherwise cost an extra click, since picking the
-        current design is the overwhelmingly common case.
-      - A new dashed "Browse gallery" tile opens a modal with Public / My Designs tabs
-        (mirrors `GalleryPage.jsx`'s existing tab split) for everything else, including
-        other users' public designs.
-      - Pagination inside the modal is a fixed-size page ("carousel": prev/next arrows +
-        dot indicator + "n / total" count), NOT an appending "Load more" button — Aaron's
-        call, to avoid the modal growing tall/awkward as more of a page loads in. Mockup
-        used a 5×2 (10-per-page) block; real page size still open.
-      - Should reuse `listPublicDesigns`'s existing `before`-cursor pagination and
-        `listMyDesigns` (capped with a real `limit`, unlike today) rather than build new
-        list endpoints.
-      **Open/undecided:**
-      - Exact page size for the real implementation (mockup's 10 was just a mockup
-        guess).
-      - Whether picking a card in the modal applies instantly or requires the explicit
-        "Use this artwork" / "Cancel" footer confirmation shown in the mockup.
-      - Real thumbnail sourcing for the Public tab (the mockup's public grid is entirely
-        placeholder data — `listTopLikedDesigns`/`listPublicDesigns` return real rows, but
-        the modal doesn't need to be limited to "top liked" the way `GallerySection.jsx`
-        is).
-      **Once built:** this makes the `myDesignThumbsPreloaded` preload-gate fix landed
-      earlier the same session (2026-07-09, in `ProductPage.jsx` — preloads every saved
-      design's thumbnail before revealing the strip, to stop them popping in out of
-      order) dead code — the whole scrolling strip it protects goes away. Remove it as
-      part of this change rather than leaving it stranded.
-      **Mockup-building gotcha (not relevant to the real implementation, but noted in
-      case a similar static-HTML mockup gets built again):** the mockup's pure-CSS tabs
-      (radio + `~` sibling combinator, no JS framework) silently rendered a fully empty
-      panel for a while — the radios were nested one level inside a header wrapper div,
-      so `~` never reached the sibling panel container one level up; `~` only matches
-      true siblings sharing the same parent. Not applicable to the real build, which will
-      presumably use React state instead of a checkbox/radio hack.
+- [x] **Artwork picker redesign for ProductPage** (planned 2026-07-09, built 2026-07-10) —
+      replaced the "Choose artwork" horizontal scroll strip with pinned tiles + a
+      "Browse gallery" modal, per the approved mockup
+      (https://claude.ai/code/artifact/1c302aed-f04f-45d2-aff2-50ce850c5438). The two
+      problems it fixes: (1) the strip fetched and preloaded the user's *entire* saved
+      library (unbounded `listMyDesigns()`) on every visit; (2) other users' public
+      designs were only reachable via the Gallery's one-way "Print this" hand-off.
+      **As built:**
+      - Pinned 96px tiles on the page itself: Current studio design (badge "Current"),
+        the queued "Print this" hand-off when present ("Queued"), and the one design
+        picked from the modal ("Gallery") — never more than three, each with a caption.
+        A dashed "Browse gallery" tile opens the modal.
+      - `ArtworkPickerModal` (`src/components/ui/`): My Designs / Public tabs — **My
+        Designs is the default tab when signed in** (Aaron's call, 2026-07-09); signed
+        out it defaults to Public and the My Designs tab is hidden. Fixed 8-per-page
+        carousel (prev/next + dots up to 10 pages + "n / m" count), explicit "Use this
+        artwork" / Cancel footer (the mockup's open question — went with the confirm
+        footer as mocked). Pages are cursor-paginated (`before` keyset) and cached
+        per-open; each page's 8 thumbnails preload before the grid's entrance stagger
+        plays. Only `kind='image'` rows are listed (animations aren't printable).
+      - Data layer: `listMyDesigns` grew optional `{ limit, before, kind }` (no-arg
+        callers like GalleryPage unchanged), `listPublicDesigns` grew `kind`, and a new
+        head-only `countDesigns({ mine, kind })` feeds the pager's total. Picking a
+        design identical to the current studio design (or the queued tile) selects that
+        pinned tile instead of duplicating it (`isSameDesign` / id match).
+      - Removed as promised: the `myDesignThumbsPreloaded` preload gate, the strip's
+        skeleton tiles, and `useHoverScroll` (ProductPage was its only consumer — hook
+        file deleted).
+      **Verified live** (Playwright vs the dev server, signed out): tiles + modal open,
+      Public tab pages 1↔2 with correct "n / 7" counts, card select → footer enable →
+      "Use this artwork" → Gallery tile appears, Escape/backdrop close, zero console
+      errors; real mobile viewport (375px) checked — which caught and fixed a real flex
+      bug (the grid wrapper squeezed under the 92vh panel cap instead of the panel
+      scrolling, footer painting on top of cards; fixed with `shrink-0` on the panel's
+      sections, same as GalleryModal). **Not yet exercised: the signed-in My Designs tab
+      and the picked-design → mockup/checkout flow** (no test-account credentials in
+      session) — same code path as Public apart from the fetcher, but worth a manual
+      click-through before trusting it.
 
 - [x] **Snappy entrance animations for "new content just appears" moments** (2026-07-02) —
       Aaron's ask, plus a real bug found while doing it: `DisplayCanvas.jsx`'s "Copied to

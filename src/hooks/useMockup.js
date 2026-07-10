@@ -97,6 +97,19 @@ export function useMockup() {
   const [images, setImages] = useState([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const busyStartRef = useRef(null);
+  // Cache key of the generation currently running (null when none), and cache key of the
+  // selection the UI currently shows. Together these fix two real problems with switching
+  // artwork/variant while a generation is in flight (found live, 2026-07-10):
+  // (1) switching to a selection that resolves to the SAME key (e.g. another size of the
+  // same color -- sizes share printfile ids, see cacheKey's comment) used to drop the UI
+  // to idle as if the run were cancelled, even though the in-flight run is byte-for-byte
+  // the one the new selection needs; sync now recognizes it and leaves the busy UI alone.
+  // (2) the run was never actually cancelled -- on completion it unconditionally wrote
+  // status/images, so a genuinely different selection (another color) made mid-run got
+  // the OLD selection's mockup popping in over it 30-90s later; completion now still
+  // writes the cache but only touches visible state if its key is still the one showing.
+  const inFlightKeyRef = useRef(null);
+  const currentKeyRef = useRef(null);
 
   // Wall-clock seconds since the current busy run started, so the UI can reassure users
   // who hit a slow Printful round trip instead of just spinning silently. Ticks across the
@@ -143,6 +156,7 @@ export function useMockup() {
       }
 
       const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions);
+      currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
         setError(null);
@@ -151,6 +165,7 @@ export function useMockup() {
         return;
       }
 
+      inFlightKeyRef.current = key;
       setStatus('rendering');
       setError(null);
       setImages([]);
@@ -219,11 +234,19 @@ export function useMockup() {
         );
         mockupCache.set(key, unique);
         persistMockup(key, unique);
-        setImages(unique);
-        setStatus('completed');
+        // Only drive the visible state if this run's selection is still the one showing --
+        // the cache write above means a later switch back restores it instantly either way.
+        if (currentKeyRef.current === key) {
+          setImages(unique);
+          setStatus('completed');
+        }
       } catch (err) {
-        setStatus('failed');
-        setError(err.message);
+        if (currentKeyRef.current === key) {
+          setStatus('failed');
+          setError(err.message);
+        }
+      } finally {
+        if (inFlightKeyRef.current === key) inFlightKeyRef.current = null;
       }
     },
     [renderDesignBlob]
@@ -247,12 +270,20 @@ export function useMockup() {
       setError(null);
       const cfg = design && getMockupConfigForProduct(product.id);
       const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
-      const cached =
-        entries &&
-        mockupCache.get(cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions));
+      const key =
+        entries
+          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions)
+          : null;
+      currentKeyRef.current = key;
+      const cached = key && mockupCache.get(key);
       if (cached) {
         setImages(cached);
         setStatus('completed');
+      } else if (key && inFlightKeyRef.current === key) {
+        // The generation already running IS this selection's (e.g. the user switched to
+        // another size of the same color, which shares the same printfiles -- see
+        // cacheKey) -- keep the busy UI (narration, elapsed timer) running instead of
+        // "cancelling" a run that was never actually cancelled.
       } else {
         setStatus('idle');
         setImages([]);
