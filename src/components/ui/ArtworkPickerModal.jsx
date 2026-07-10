@@ -101,6 +101,9 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   // Load the next uncached page for a tab (also the initial page-0 load). Thumbnails are
   // preloaded before the page is committed so the grid's entrance stagger is the only
   // thing driving perceived order -- same pattern as ProductPage's mockup filmstrip.
+  // Paging is optimistic: goNext advances pageIndex immediately (SkeletonGrid renders as
+  // the page until this commits), so pageIndex may point one page past pages.length while
+  // a load is in flight -- the effect below is what actually triggers this fetch.
   const loadNextPage = async which => {
     const token = ++fetchTokenRef.current;
     updateTab(which, { loading: true, error: null });
@@ -130,24 +133,34 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
           [which]: {
             ...s,
             pages: [...s.pages, rows],
-            pageIndex: s.pages.length,
+            // Land on the new page only if the user is still waiting on it (the usual
+            // case -- goNext's optimistic pageIndex already equals s.pages.length); if
+            // they swiped back off the skeleton mid-load, don't yank them forward.
+            pageIndex: Math.min(s.pageIndex, s.pages.length),
             total,
             loading: false
           }
         };
       });
+      // Rows committing over a skeleton page (or an initial/tab load) should "load in"
+      // with the per-card stagger, not replay the directional slide -- the slide already
+      // happened when the skeleton page arrived.
+      setSlideDir(null);
     } catch (err) {
       if (fetchTokenRef.current !== token) return;
       updateTab(which, { loading: false, error: err.message });
     }
   };
 
-  // First visit to a tab (per open) kicks off its page 0. Signed-out My Designs shows a
-  // sign-in prompt instead (see below), so don't fetch -- listMyDesigns would just throw.
+  // Fetch whenever the current page isn't loaded yet -- that's both a tab's first visit
+  // (pageIndex 0, no pages) and goNext's optimistic advance onto a skeleton page. Error
+  // halts refetching until Retry clears it. Signed-out My Designs shows a sign-in prompt
+  // instead (see below), so don't fetch -- listMyDesigns would just throw.
   useEffect(() => {
     if (!open) return;
     if (tab === 'mine' && !user) return;
-    if (tabState[tab].pages.length === 0 && !tabState[tab].loading && !tabState[tab].error) {
+    const s = tabState[tab];
+    if (s.pageIndex >= s.pages.length && !s.loading && !s.error) {
       loadNextPage(tab);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,20 +179,23 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
 
   const rows = state.pages[state.pageIndex] || [];
   const totalPages = state.total !== null ? Math.max(1, Math.ceil(state.total / PAGE_SIZE)) : null;
-  const lastLoadedPage = state.pages.length - 1;
   const hasNext = totalPages !== null && state.pageIndex + 1 < totalPages;
   const hasPrev = state.pageIndex > 0;
 
   const goPrev = () => {
     if (!hasPrev) return;
     setSlideDir('prev');
-    updateTab(tab, { pageIndex: state.pageIndex - 1 });
+    // Clearing error covers backing off a failed skeleton page -- the loaded page behind
+    // it should render normally, and a later goNext gets a fresh attempt via the effect.
+    updateTab(tab, { pageIndex: state.pageIndex - 1, error: null });
   };
   const goNext = () => {
     if (!hasNext || state.loading) return;
     setSlideDir('next');
-    if (state.pageIndex < lastLoadedPage) updateTab(tab, { pageIndex: state.pageIndex + 1 });
-    else loadNextPage(tab);
+    // Optimistic: advance immediately even onto a not-yet-loaded page -- SkeletonGrid
+    // renders as that page (so a swipe always has something to land on) and the fetch
+    // effect above picks up the missing page.
+    updateTab(tab, { pageIndex: state.pageIndex + 1 });
   };
 
   // Touch swipe on the grid area pages the carousel, matching what the pager's shape
@@ -306,7 +322,20 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
               own saved designs.
             </p>
           ) : state.loading && rows.length === 0 ? (
-            <SkeletonGrid count={PAGE_SIZE} className="grid grid-cols-4 gap-2 sm:gap-3" />
+            // The skeleton page is a real swipe destination (goNext's optimistic advance
+            // lands here), so it slides in with the same directional motion a loaded page
+            // would -- the thumbnails then stagger in over it when the fetch commits.
+            <SkeletonGrid
+              count={PAGE_SIZE}
+              className={
+                'grid grid-cols-4 gap-2 sm:gap-3' +
+                (slideDir === 'next'
+                  ? ' animate-slide-in-right'
+                  : slideDir === 'prev'
+                    ? ' animate-slide-in-left'
+                    : '')
+              }
+            />
           ) : state.error ? (
             <p className="animate-pop-in py-12 text-center text-sm text-accent">
               {state.error}{' '}
