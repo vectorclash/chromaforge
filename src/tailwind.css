@@ -102,6 +102,36 @@
      gets the "fun" pop-in treatment (--animate-pop-in above); a full-screen dim layer
      bouncing would just look like a rendering glitch. */
   --animate-fade-in: fade-in var(--duration-fast) ease-out both;
+
+  /* Carousel page transitions (ArtworkPickerModal's pager) -- the incoming page slides in
+     from the side the gesture/chevron implies (next = from the right, prev = from the
+     left), continuing the motion of a touch drag-follow. `both` is safe here: the grid is
+     keyed per page so the animated element is remounted each time, and per-item hover
+     transforms live on the cards inside it, not on this wrapper. */
+  --animate-slide-in-left: slide-in-left var(--duration-base) ease-out both;
+  --animate-slide-in-right: slide-in-right var(--duration-base) ease-out both;
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes fade-slide-up {

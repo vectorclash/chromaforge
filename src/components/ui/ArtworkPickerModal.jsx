@@ -59,8 +59,16 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   // Monotonic token so a fetch resolving after the modal was closed/reset (or after a
   // newer fetch started) can't commit stale pages into the fresh state.
   const fetchTokenRef = useRef(0);
-  // Start point of an in-progress touch on the grid, for the swipe gesture below.
+  // In-progress touch gesture on the grid (start point, locked axis, latest dx) for the
+  // drag-follow swipe below, plus the wrapper element the drag translates imperatively --
+  // per-move transforms go straight to the DOM node, never through React state, so a fast
+  // drag can't queue 60 re-renders/second of an 8-card grid.
   const touchStartRef = useRef(null);
+  const slideRef = useRef(null);
+  // Which direction the last page change travelled ('next' | 'prev' | null): drives the
+  // incoming page's slide-in side. null (tab switch, first load) keeps the original
+  // per-card entrance stagger instead.
+  const [slideDir, setSlideDir] = useState(null);
 
   // Fresh state every time the modal opens: a save/delete elsewhere in the app would
   // otherwise show a stale library, and a previous visit's half-made selection shouldn't
@@ -71,6 +79,7 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
     setTab(user ? 'mine' : 'public');
     setTabState({ mine: EMPTY_TAB, public: EMPTY_TAB });
     setPending(null);
+    setSlideDir(null);
   }, [open, user]);
 
   const state = tabState[tab];
@@ -161,34 +170,66 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   const hasNext = totalPages !== null && state.pageIndex + 1 < totalPages;
   const hasPrev = state.pageIndex > 0;
 
-  const goPrev = () => hasPrev && updateTab(tab, { pageIndex: state.pageIndex - 1 });
+  const goPrev = () => {
+    if (!hasPrev) return;
+    setSlideDir('prev');
+    updateTab(tab, { pageIndex: state.pageIndex - 1 });
+  };
   const goNext = () => {
     if (!hasNext || state.loading) return;
+    setSlideDir('next');
     if (state.pageIndex < lastLoadedPage) updateTab(tab, { pageIndex: state.pageIndex + 1 });
     else loadNextPage(tab);
   };
 
   // Touch swipe on the grid area pages the carousel, matching what the pager's shape
-  // already implies on mobile. Left/right only: the gesture must beat a real distance
-  // threshold AND be clearly more horizontal than vertical, so scrolling the panel (or a
-  // slightly-diagonal thumb) never accidentally changes pages. Sequential-only by design
-  // -- cursor pagination can't jump to an arbitrary page, and goPrev/goNext already guard
-  // the edges and in-flight loads. Deliberately no animated drag-follow: the incoming
-  // page's existing entrance stagger is the transition.
+  // already implies on mobile. Drag-follow: once a touch commits to the horizontal axis
+  // (first ~10px of travel decide, so a vertical panel scroll is never hijacked -- the
+  // wrapper's touch-action: pan-y leaves that to the browser), the grid tracks the finger
+  // 1:1, with 3x rubber-band resistance when there's no page in that direction (first
+  // page, last page, or next-page load already in flight). Release past the threshold
+  // commits the page -- the wrapper transform is cleared and the incoming page's
+  // slide-in-from-that-side animation (via slideDir) carries the motion; release short of
+  // it springs back. Sequential-only by design -- cursor pagination can't jump to an
+  // arbitrary page, and goPrev/goNext already guard the edges and in-flight loads.
   const onGridTouchStart = e => {
     const t = e.touches[0];
-    touchStartRef.current = { x: t.clientX, y: t.clientY };
+    touchStartRef.current = { x: t.clientX, y: t.clientY, axis: null, dx: 0 };
+    if (slideRef.current) slideRef.current.style.transition = '';
   };
-  const onGridTouchEnd = e => {
-    const start = touchStartRef.current;
+  const onGridTouchMove = e => {
+    const g = touchStartRef.current;
+    if (!g) return;
+    const t = e.touches[0];
+    const dx = t.clientX - g.x;
+    const dy = t.clientY - g.y;
+    if (!g.axis) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (g.axis !== 'x' || !slideRef.current) return;
+    g.dx = dx;
+    const pageAvailable = dx < 0 ? hasNext && !state.loading : hasPrev;
+    slideRef.current.style.transform = `translateX(${pageAvailable ? dx : dx / 3}px)`;
+  };
+  const onGridTouchEnd = () => {
+    const g = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    if (dx < 0) goNext();
-    else goPrev();
+    const el = slideRef.current;
+    if (!g || !el) return;
+    const dx = g.axis === 'x' ? g.dx : 0;
+    const commitNext = dx < -56 && hasNext && !state.loading;
+    const commitPrev = dx > 56 && hasPrev;
+    if (commitNext || commitPrev) {
+      // Clear the drag transform outright -- the keyed remount's slide-in animation owns
+      // the motion from here; a lingering wrapper offset would displace the new page too.
+      el.style.transform = '';
+      if (commitNext) goNext();
+      else goPrev();
+    } else {
+      el.style.transition = 'transform 200ms ease-out';
+      el.style.transform = 'translateX(0)';
+    }
   };
 
   const tabClass = active =>
@@ -223,11 +264,23 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
 
         <div className="mt-4 flex gap-6 border-b border-hairline">
           {user && (
-            <button className={tabClass(tab === 'mine')} onClick={() => setTab('mine')}>
+            <button
+              className={tabClass(tab === 'mine')}
+              onClick={() => {
+                setSlideDir(null);
+                setTab('mine');
+              }}
+            >
               My designs
             </button>
           )}
-          <button className={tabClass(tab === 'public')} onClick={() => setTab('public')}>
+          <button
+            className={tabClass(tab === 'public')}
+            onClick={() => {
+              setSlideDir(null);
+              setTab('public');
+            }}
+          >
             Public
           </button>
         </div>
@@ -236,11 +289,17 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
             scrollbar -- without this, flex shrinks the grid wrapper instead of letting the
             panel scroll, and the footer renders on top of the squeezed grid (seen live at
             375px). Same treatment as GalleryModal's artwork block. */}
+        {/* overflow-hidden + touch-action: pan-y: the drag-follow transform must not leak
+            outside the grid area, and pan-y keeps vertical panel scrolling native while
+            leaving horizontal travel to the gesture handlers. */}
         <div
-          className="mt-4 min-h-[13rem] shrink-0"
+          className="mt-4 min-h-[13rem] shrink-0 overflow-hidden [touch-action:pan-y]"
           onTouchStart={onGridTouchStart}
+          onTouchMove={onGridTouchMove}
           onTouchEnd={onGridTouchEnd}
+          onTouchCancel={onGridTouchEnd}
         >
+          <div ref={slideRef}>
           {tab === 'mine' && !user ? (
             <p className="py-12 text-center text-sm text-text-secondary">
               <Link to="/account" className="text-accent underline">Sign in</Link> to pick from your
@@ -269,12 +328,26 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
                   : 'No public designs yet.'}
             </p>
           ) : (
-            // Keyed per tab+page so switching pages replays the entrance stagger for the
-            // incoming batch instead of diffing cards in place. 4 columns at every width
+            // Keyed per tab+page so switching pages replays the entrance animation for
+            // the incoming batch instead of diffing cards in place: a directional whole-
+            // grid slide when the change came from paging (slideDir, continuing the
+            // swipe/chevron's motion -- the per-card stagger is skipped then, since both
+            // at once read as visual noise), the per-card stagger otherwise (tab switch,
+            // first load). 4 columns at every width
             // (2 short rows, not 4 tall ones) so the whole page of 8 fits a phone
             // viewport without the panel needing to scroll -- smaller thumbnails were
             // Aaron's explicit preference over a scrolling modal.
-            <div key={`${tab}-${state.pageIndex}`} className="grid grid-cols-4 gap-2 sm:gap-3">
+            <div
+              key={`${tab}-${state.pageIndex}`}
+              className={
+                'grid grid-cols-4 gap-2 sm:gap-3' +
+                (slideDir === 'next'
+                  ? ' animate-slide-in-right'
+                  : slideDir === 'prev'
+                    ? ' animate-slide-in-left'
+                    : '')
+              }
+            >
               {rows.map((d, i) => {
                 const selected = pending?.id === d.id;
                 return (
@@ -283,9 +356,10 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
                     type="button"
                     onClick={() => setPending(d)}
                     aria-pressed={selected}
-                    style={{ animationDelay: `${i * 40}ms` }}
+                    style={slideDir ? undefined : { animationDelay: `${i * 40}ms` }}
                     className={
-                      'group cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 text-left transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      'group cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (slideDir ? '' : 'animate-fade-slide-up ') +
                       (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                     }
                   >
@@ -322,6 +396,7 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
               })}
             </div>
           )}
+          </div>
         </div>
 
         {(tab !== 'mine' || user) && totalPages !== null && totalPages > 1 && (
