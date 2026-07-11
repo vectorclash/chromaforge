@@ -502,21 +502,49 @@ function buildGeometricTunnel(rng, geometry) {
 // ─── Nebula clouds ─────────────────────────────────────────────────────────────────────
 // Soft radial-gradient sprites in the design's palette, scattered through the tunnel —
 // the 3D counterpart of the 2D large radial fields, and a big part of overall color.
+// Built as a raw DataTexture, not a Canvas2D gradient: mobile GPUs showed a speckle of
+// colored pixels in the sprite centers with the canvas route — Canvas2D stores pixels
+// premultiplied and the WebGL upload unpremultiplies them back (lossy at low alpha,
+// rounding varies by driver), and some mobile rasterizers also dither gradients. Writing
+// the exact non-premultiplied bytes ourselves sidesteps both.
 function makeNebulaTexture() {
   const s = 256,
     h = s / 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = s;
-  const ctx = canvas.getContext('2d');
-  const grad = ctx.createRadialGradient(h, h, 0, h, h, h);
-  grad.addColorStop(0, 'rgba(255,255,255,1.0)');
-  grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
-  grad.addColorStop(0.55, 'rgba(255,255,255,0.18)');
-  grad.addColorStop(0.8, 'rgba(255,255,255,0.04)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, s, s);
-  return new THREE.CanvasTexture(canvas);
+  // Same falloff as the old canvas radial gradient's stops
+  const stops = [
+    [0, 1.0],
+    [0.25, 0.55],
+    [0.55, 0.18],
+    [0.8, 0.04],
+    [1, 0]
+  ];
+  const alphaAt = (t) => {
+    for (let i = 1; i < stops.length; i++) {
+      if (t <= stops[i][0]) {
+        const [t0, a0] = stops[i - 1];
+        const [t1, a1] = stops[i];
+        return a0 + ((t - t0) / (t1 - t0)) * (a1 - a0);
+      }
+    }
+    return 0;
+  };
+  const data = new Uint8Array(s * s * 4);
+  for (let y = 0; y < s; y++) {
+    for (let x = 0; x < s; x++) {
+      const dx = x + 0.5 - h;
+      const dy = y + 0.5 - h;
+      const t = Math.min(1, Math.sqrt(dx * dx + dy * dy) / h);
+      const o = (y * s + x) * 4;
+      data[o] = data[o + 1] = data[o + 2] = 255;
+      data[o + 3] = Math.round(alphaAt(t) * 255);
+    }
+  }
+  const tex = new THREE.DataTexture(data, s, s);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 // ─── Scene factory ────────────────────────────────────────────────────────────────────────
