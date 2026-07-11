@@ -383,7 +383,20 @@ from print rendering above (video vs. still images) — don't conflate the two.
   the link targets whichever environment the user actually signed up from; both
   `localhost:5173` and `chromaforge.app` need to be in Supabase Auth → URL Configuration's
   redirect allow-list for this to work (already added).
-- **Email confirmation is live and required** (`enable_confirmations = true`, matching the
+- **CAPTCHA on the auth forms (Cloudflare Turnstile), 2026-07-10** — protects the
+  Hostinger mailbox's sending reputation/quota from bot signups. Two halves that must stay
+  in sync: the frontend widget (`src/components/ui/Turnstile.jsx`, mounted on
+  AccountPage's sign-in/sign-up/forgot-password forms, token threaded through `auth.js` as
+  `captchaToken`; renders nothing when `VITE_TURNSTILE_SITE_KEY` is unset — the key lives
+  in `.env.local` and a GitHub Actions secret, baked in at build time via `deploy.yml`)
+  and the enforcement toggle (Supabase Dashboard → Auth → Attack Protection, Turnstile
+  provider + the Turnstile *secret* key — dashboard-only, nothing in this repo turns it
+  on). Enforcement applies to ALL password-based auth calls (sign-in and recovery too, not
+  just signup); Google OAuth is unaffected. Never enable the dashboard toggle unless the
+  deployed build has the sitekey, or every email/password auth attempt fails; the toggle
+  is also the instant rollback. Turnstile widget config (Cloudflare dashboard): hostnames
+  `chromaforge.app` + `localhost` (bare hostname — the field rejects ports), Managed mode,
+  pre-clearance off (site isn't proxied through Cloudflare).
   live project — `config.toml` previously had this wrong as `false`, don't trust it without
   checking the Dashboard). Confirmation/recovery/etc. emails go out via **custom SMTP
   through a dedicated Hostinger mailbox** (`no-reply@chromaforge.app`, `smtp.hostinger.com`
