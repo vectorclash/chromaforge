@@ -205,9 +205,10 @@ export default class DisplayCanvas extends React.Component {
   }
 
   async checkAudioExportSupport() {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if (isIOS || typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {
+    // No user-agent gating: Safari 26+ (iOS 26, fall 2025) ships WebCodecs AudioEncoder,
+    // so a hard iOS block would turn away capable devices. Pure feature detection —
+    // older iOS simply has no AudioEncoder and falls through to unsupported.
+    if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {
       this.setState({ audioExportSupported: false });
       return;
     }

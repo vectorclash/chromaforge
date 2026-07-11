@@ -331,6 +331,11 @@ function buildGeometricTunnel(rng, geometry) {
     0.575 + 0.425 * Math.sin(zFrac * TWO_PI * cxFreq + cxPhase);
 
   // Zones: 3–5 stretches of the cycle, each rolling its own architecture.
+  // High coherence pulls every zone toward one shared, orderly character (uniform twist,
+  // even spacing, calm ripple) — the slider changes the whole build philosophy, not just
+  // vertex jitter. All of it is a no-op at coherence 0.
+  const coh = geometry.coherence;
+  const globalTwist = (0.05 + rng() * 0.15) * (rng() < 0.5 ? -1 : 1);
   const zoneCount = 3 + Math.floor(rng() * 3);
   const zones = [];
   {
@@ -351,9 +356,11 @@ function buildGeometricTunnel(rng, geometry) {
           Math.round(rng() * (geometry.pointsMax - geometry.pointsMin)),
         radiusScale: 0.6 + rng() * 0.75,
         density: 0.3 + rng() * 1.0,
-        rippleAmp: 0.02 + rng() * 0.14,
-        twistRate: (0.05 + rng() * 0.15) * (rng() < 0.5 ? -1 : 1), // radians per ring
-        spacingVar: 0.25 + rng() * 0.95 // ring clumpiness
+        rippleAmp: (0.02 + rng() * 0.14) * (1 - 0.7 * coh), // calm, precise motion when coherent
+        twistRate:
+          (0.05 + rng() * 0.15) * (rng() < 0.5 ? -1 : 1) * (1 - coh) +
+          globalTwist * coh, // one uniform corkscrew at full coherence
+        spacingVar: (0.25 + rng() * 0.95) * (1 - coh) // metronomic ring spacing at 1
       });
       acc = end;
     }
@@ -512,8 +519,10 @@ function buildGeometricTunnel(rng, geometry) {
       const densityMul = A.zone ? 0.35 + A.zone.density : 1;
       // Patchy wireframe: each ring section rolls its own wire density — some sections
       // nearly bare, others fully caged — modulated by the zone and complexity wave.
+      // Coherence raises the wire floor: less patchy, closer to a complete cage
       const wire = clampNum(
-        (0.15 + rng() * 0.85) * complexityAt(zFrac) * densityMul * (A.gate ? 2.2 : 1) * wireScale,
+        (0.15 + rng() * 0.85 + coh * 0.4) *
+          complexityAt(zFrac) * densityMul * (A.gate ? 2.2 : 1) * wireScale,
         0,
         1.15
       );
@@ -531,8 +540,9 @@ function buildGeometricTunnel(rng, geometry) {
         if (rng() < 0.65 * wire) edges.push({ a: vidx(A, j), b: vidx(B, jB), aOff: 0, bOff: off });
         // Diagonal chord
         if (rng() < 0.3 * wire) edges.push({ a: vidx(A, j), b: vidx(B, jB + 1), aOff: 0, bOff: off });
-        // Long in-ring chord (the 2D star-web look; gates web up heavily)
-        if (A.sides >= 5 && rng() < (A.gate ? 0.55 : 0.12) * wire) {
+        // Long in-ring chord (the 2D star-web look; gates web up heavily, and high
+        // coherence webs the whole tunnel — the 3D echo of 2D full coherence's chord web)
+        if (A.sides >= 5 && rng() < (A.gate ? 0.55 : 0.12 + 0.4 * coh) * wire) {
           const skip = 2 + Math.floor(rng() * (Math.floor(A.sides / 2) - 1));
           edges.push({ a: vidx(A, j), b: vidx(A, j + skip), aOff: 0, bOff: 0 });
         }
@@ -611,6 +621,7 @@ function buildGeometricTunnel(rng, geometry) {
   const vertPos = new Float32Array(vertCount * 3);
   const vertCol = new Float32Array(vertCount * 3);
   const vertColPanel = new Float32Array(vertCount * 3);
+  const shimmerAmp = 0.04 * (1 - 0.8 * coh); // angular wobble stills as coherence rises
   const _c = new THREE.Color();
 
   // update(progress, paletteHsl): one pass computes every ring vertex's animated
@@ -624,7 +635,7 @@ function buildGeometricTunnel(rng, geometry) {
       const zFrac = baseZ[v] / TUNNEL_LENGTH;
       const ripple =
         1 + rippleAmp[v] * Math.sin(a * rippleFreq[v] + ripplePhase[v] + zFrac * TWO_PI * 2);
-      const ang = baseAng[v] + 0.04 * Math.sin(a + ripplePhase[v]);
+      const ang = baseAng[v] + shimmerAmp * Math.sin(a + ripplePhase[v]);
       const r = baseR[v] * ripple;
       vertPos[v * 3] = Math.cos(ang) * r + centerX[v];
       vertPos[v * 3 + 1] = Math.sin(ang) * r + centerY[v];
