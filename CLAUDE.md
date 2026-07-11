@@ -9,7 +9,10 @@ appending forever).
 ## What this is
 
 A generative art web app (live at **chromaforge.app**). Vite + React, static build,
-deployed via GitHub Actions → FTP on every push to `master` (see
+deployed via GitHub Actions → rsync over SSH on every push to `master` (switched from
+FTP 2026-07-10 after repeated multi-minute Hostinger FTP outages; key auth via the
+`DEPLOY_SSH_KEY` repo secret, host key pinned in the workflow, public key managed in
+hPanel's SSH Access page) (see
 `.github/workflows/deploy.yml`). UI language is "the artwork is the interface": the
 generated piece fills the screen; controls live in a small frosted-glass panel that
 floats on top. Designs are JSON, re-renderable via Canvas2D from that JSON alone.
@@ -711,7 +714,7 @@ alone, because "do it now while the app is small." It's done and merged to `mast
 
 ## Current state / what's deployed
 
-`master` is deployed (push triggers GitHub Actions → FTP → chromaforge.app). As of the
+`master` is deployed (push triggers GitHub Actions → rsync/SSH → chromaforge.app). As of the
 last push, live includes: the seed-based renderer (Phases 1–2 of the print pipeline), the
 full Tailwind migration, a batch of ColorField drag-and-drop fixes (dead-zone hit-testing,
 swap-instead-of-insert reorder logic, a perf throttle, a listener-leak fix) plus the
