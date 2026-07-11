@@ -430,7 +430,9 @@ export default function ProductPage() {
   const choices = [
     {
       key: 'current',
-      label: 'Current studio design',
+      // Short enough to fit the tile caption's two bold lines without clamping;
+      // the tile's "Current" badge carries the rest.
+      label: 'Studio design',
       badge: 'Current',
       thumb: studioPreviewUrl,
       data: currentDesign
