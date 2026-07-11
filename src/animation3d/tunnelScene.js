@@ -43,8 +43,8 @@ const TWO_PI = Math.PI * 2;
 // (and sprite size) down to zero between WARP_START and WARP_END, so new content is born
 // as a point on the camera axis and expands/unfolds outward as it approaches — reads as
 // extreme distance / relativistic rushing-in rather than pop-in.
-const WARP_START = 170; // no distortion inside this view distance
-const WARP_END = 380; // fully collapsed to the axis beyond this (inside the 400 coverage)
+const WARP_START = 100; // no distortion inside this view distance
+const WARP_END = 395; // fully collapsed to the axis beyond this (inside the 400 coverage)
 
 // Mirror of the shader smoothstep for JS-driven sprites (large stars, nebulae).
 function warpFactor(d) {
@@ -319,6 +319,25 @@ function buildGeometricTunnel(rng, geometry) {
   // coherence 0 (the default) = ragged, hand-bent scaffold; 1 = clean geometric bore
   const jitter = 0.45 * (1 - geometry.coherence);
 
+  // Long-wavelength variety along the flight: the bore breathes wider/narrower and the
+  // scaffold gets denser/sparser as the camera travels. Both profiles are sums of
+  // integer-frequency sinusoids of zFrac, so they're periodic in the cycle and the loop
+  // seam still lines up.
+  const radFreq1 = 1 + Math.floor(rng() * 2);
+  const radFreq2 = 2 + Math.floor(rng() * 3);
+  const radPhase1 = rng() * TWO_PI;
+  const radPhase2 = rng() * TWO_PI;
+  const radiusAt = (zFrac) =>
+    radius *
+    (1 +
+      0.35 * Math.sin(zFrac * TWO_PI * radFreq1 + radPhase1) +
+      0.18 * Math.sin(zFrac * TWO_PI * radFreq2 + radPhase2));
+  const cxFreq = 1 + Math.floor(rng() * 3);
+  const cxPhase = rng() * TWO_PI;
+  // 0.15–1: sparse stretches stay recognizably built, dense stretches fully cage
+  const complexityAt = (zFrac) =>
+    0.575 + 0.425 * Math.sin(zFrac * TWO_PI * cxFreq + cxPhase);
+
   const vertCount = ringCount * sides;
   const baseAng = new Float32Array(vertCount);
   const baseR = new Float32Array(vertCount);
@@ -331,7 +350,7 @@ function buildGeometricTunnel(rng, geometry) {
     for (let j = 0; j < sides; j++) {
       const v = idx(ring, j);
       baseAng[v] = j * stepAng + ring * twistPerRing + (rng() - 0.5) * stepAng * jitter;
-      baseR[v] = radius * (1 + (rng() - 0.5) * jitter);
+      baseR[v] = radiusAt(ring / ringCount) * (1 + (rng() - 0.5) * jitter);
       baseZ[v] = ring * spacing + (rng() - 0.5) * spacing * jitter * 0.6;
       ripplePhase[v] = rng() * TWO_PI;
       rippleFreq[v] = 1 + Math.floor(rng() * 3); // 1–3 ripples per cycle
@@ -352,7 +371,7 @@ function buildGeometricTunnel(rng, geometry) {
     // Patchy wireframe (Aaron: "maybe the wireframe isn't visible everywhere"): each
     // ring section rolls its own wire density — some sections nearly bare, others fully
     // caged — so the scaffold comes and goes along the flight instead of being uniform.
-    const wire = 0.15 + rng() * 0.85;
+    const wire = (0.15 + rng() * 0.85) * complexityAt(ring / ringCount);
     for (let j = 0; j < sides; j++) {
       // Ring polygon edge
       if (rng() < 0.8 * wire) edges.push({ a: idx(ring, j), b: idx(ring, j + 1), aOff: 0, bOff: 0 });
@@ -367,7 +386,7 @@ function buildGeometricTunnel(rng, geometry) {
       }
       // Gradient panel filling one cell wall (two triangles' worth would read solid —
       // one keeps it faceted); fill rate rises with coherence
-      if (rng() < 0.28 + geometry.coherence * 0.3) {
+      if (rng() < (0.28 + geometry.coherence * 0.3) * complexityAt(ring / ringCount)) {
         panels.push(
           rng() < 0.5
             ? { v: [idx(ring, j), idx(next, j), idx(next, j + 1)], off: [0, off, off] }
@@ -761,15 +780,13 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const progress = ((seconds / duration) % 1 + 1) % 1;
     const a = progress * TWO_PI;
 
-    // Camera: constant flight speed, one tunnel length per cycle, wrapped. A gentle
-    // periodic positional drift gives parallax, but the view axis stays locked dead
-    // ahead — an earlier version also orbited the look-target, and the resulting
-    // panning read as weird/aimless rather than hand-flown (Aaron's call).
+    // Camera: constant flight speed, one tunnel length per cycle, wrapped. Straight
+    // down the axis, no positional sway — earlier versions tried both look-target
+    // orbiting and gentle positional drift, and both read as aimless/wobbly rather
+    // than hand-flown (Aaron's call, twice).
     const camZ = progress * TUNNEL_LENGTH;
-    const swayX = Math.sin(a * 2) * 1.6 + Math.sin(a * 5) * 0.5;
-    const swayY = Math.cos(a * 3) * 1.2 + Math.sin(a * 7) * 0.4;
-    camera.position.set(swayX, swayY, camZ);
-    camera.lookAt(swayX, swayY, camZ + 20);
+    camera.position.set(0, 0, camZ);
+    camera.lookAt(0, 0, camZ + 20);
 
     // Background + fog: colors journey through the design palette and return. Fog is
     // kept saturated and mid-dark so geometry recedes into COLOR, not gray space.
