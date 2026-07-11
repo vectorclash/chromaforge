@@ -17,6 +17,7 @@ import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionToke
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
+import Animation3DPreview from './Animation3DPreview';
 import CloseButton from './buttons/CloseButton';
 import GenerateStarField from './Canvas/GenerateStarField';
 import StarField from './Canvas/StarField';
@@ -119,6 +120,13 @@ export default class DisplayCanvas extends React.Component {
       frameCount: 20,
       cycleDuration: 10,
       starFrameCount: 10,
+      // 3D animation mode: instead of crossfading pre-rendered 2D frames, fly a camera
+      // through a real-time three.js star tunnel (src/animation3d/tunnelScene.js).
+      // threeDDesign is the compact { seed, colors, settings } identity of the current 3D
+      // scene -- deliberately the same shape as a 2D design, so save/load support can be
+      // added later without a format change (saving is disabled in 3D mode for now).
+      threeDMode: false,
+      threeDDesign: null,
       animationPaused: false,
       settingsTab: 'color',
       animTiming: null,
@@ -304,6 +312,42 @@ export default class DisplayCanvas extends React.Component {
     const starSpacing = cycleDuration / starCount;
     const starFade = starSpacing * (8.0 / 7.0);
     return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
+  }
+
+  // The compact identity of a fresh 3D scene: seed + the current palette + the current
+  // geometry sliders. Building the actual three.js scene from this is Animation3DPreview's
+  // job (and exportAnimationVideo's, at export resolution) -- this is cheap and synchronous,
+  // unlike the 30s+ 2D frame build.
+  buildThreeDDesign(seed = randomSeed()) {
+    return {
+      seed,
+      colors: this.state.colors.map(c => c.value || c),
+      settings: { geometry: this.state.geometrySettings }
+    };
+  }
+
+  // The 3D toggle in the Video settings tab. Turning it on swaps the preview to a 3D
+  // scene immediately (generating one is instant -- no frame build); the 2D frames stay
+  // in state untouched, so turning it back off restores them as-is. If 3D was on when
+  // animation mode was first entered (so no frames were ever built), toggling it off
+  // kicks off the normal 2D frame build.
+  onThreeDToggle() {
+    const { threeDMode, animationMode, threeDDesign, animationFrames, isExporting } = this.state;
+    if (isExporting) return;
+    if (!threeDMode) {
+      this.setState({
+        threeDMode: true,
+        threeDDesign: animationMode && !threeDDesign ? this.buildThreeDDesign() : threeDDesign,
+        isSaved: false,
+        animationPaused: false
+      });
+    } else {
+      this.setState({ threeDMode: false }, () => {
+        if (animationMode && animationFrames.length === 0 && !this.state.generateDisabled) {
+          this.onGenerateButtonClick();
+        }
+      });
+    }
   }
 
   // Thin wrapper over the pure generateArtwork() orchestrator. Defaults to a fresh seed
@@ -718,6 +762,10 @@ export default class DisplayCanvas extends React.Component {
   onSaveButtonClick(e) {
     const { isSaving, isSaved, animationMode } = this.state;
 
+    // 3D animations can't be saved yet (deferred -- the { seed, colors, settings } design
+    // is save-shaped, but the gallery/share load paths don't know how to replay it).
+    if (animationMode && this.state.threeDMode) return;
+
     if (isSaved) {
       // isSaved is only ever set true alongside this.shareUrl -- once by init()'s
       // getDesign() load, once by saveToGallery()'s own success handler below -- so there's
@@ -747,10 +795,11 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onDownloadButtonClick(e) {
-    const { animationMode, animationFrames, isExporting } = this.state;
+    const { animationMode, animationFrames, isExporting, threeDMode, threeDDesign } = this.state;
 
     if (animationMode) {
-      if (animationFrames.length > 0 && !isExporting) {
+      const ready = threeDMode ? !!threeDDesign : animationFrames.length > 0;
+      if (ready && !isExporting) {
         this.exportAnimationVideo();
       }
     } else if (this.blob) {
@@ -768,7 +817,8 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
-    const { animationFrames, animationStarFrames } = this.state;
+    const { animationFrames, animationStarFrames, threeDMode, threeDDesign } = this.state;
+    const is3D = threeDMode && !!threeDDesign;
     this.setState({ isExporting: true, exportProgress: 0 });
 
     const loadImg = src => new Promise(resolve => {
@@ -777,10 +827,13 @@ export default class DisplayCanvas extends React.Component {
       img.src = src;
     });
 
-    const [images, starImages] = await Promise.all([
-      Promise.all(animationFrames.map(loadImg)),
-      Promise.all(animationStarFrames.map(loadImg)),
-    ]);
+    // 3D mode has no pre-rendered frames -- the scene renders live per exported frame.
+    const [images, starImages] = is3D
+      ? [[], []]
+      : await Promise.all([
+          Promise.all(animationFrames.map(loadImg)),
+          Promise.all(animationStarFrames.map(loadImg)),
+        ]);
 
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
@@ -792,7 +845,7 @@ export default class DisplayCanvas extends React.Component {
     const height = isMobile ? 1080 : this.props.height;
 
     const { spacing: SPACING, fade: FADE, starSpacing: STAR_SPACING, starFade: STAR_FADE, cycleDuration: CYCLE_DURATION } =
-      this.getAnimTiming(images.length);
+      this.getAnimTiming(is3D ? this.state.frameCount : images.length);
     const SCALE_END = 1.45;
     const TOTAL_VISIBLE = 2 * FADE;
     const STAR_SCALE_END = 1.15;
@@ -842,17 +895,56 @@ export default class DisplayCanvas extends React.Component {
     const includeAudio = audioBuffer !== null;
     const muxerAudioCodec = audioCodec === 'mp4a.40.2' ? 'aac' : 'opus';
 
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    // Frame source: a 2D canvas compositing the pre-rendered frames, or (3D mode) a WebGL
+    // canvas the tunnel scene renders into per frame. Either way, `drawAt(elapsed)` paints
+    // the exact frame for that timeline moment and `canvas` is what VideoFrame captures --
+    // the encode loop below is fully shared.
+    let drawAt;
+    let canvas;
+    let cleanup3D = null;
+
+    if (is3D) {
+      const [{ WebGLRenderer }, { createTunnelScene }] = await Promise.all([
+        import('three'),
+        import('../animation3d/tunnelScene')
+      ]);
+      const renderer = new WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(width, height);
+      const world = createTunnelScene({
+        seed: threeDDesign.seed,
+        colors: threeDDesign.colors || [],
+        settings: threeDDesign.settings ?? null,
+        duration: CYCLE_DURATION,
+        width,
+        height
+      });
+      canvas = renderer.domElement;
+      // Star sprite textures decode async -- without this, the first ~second of encoded
+      // frames renders starless and the stars visibly pop in.
+      await world.ready;
+      // setTime is periodic in CYCLE_DURATION, and the VideoFrame is constructed in the
+      // same task as the render (no await in between), so no preserveDrawingBuffer needed.
+      drawAt = elapsed => {
+        world.setTime(elapsed);
+        renderer.render(world.scene, world.camera);
+      };
+      cleanup3D = () => {
+        world.dispose();
+        renderer.dispose();
+      };
+    } else {
+      canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
 
     const easeInOut = t => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
 
     const srcWidth  = this.props.width;
     const srcHeight = this.props.height;
 
-    const drawAt = elapsed => {
+    drawAt = elapsed => {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
       images.forEach((img, i) => {
@@ -907,7 +999,8 @@ export default class DisplayCanvas extends React.Component {
         });
         ctx.globalCompositeOperation = 'source-over';
       }
-    };
+      };
+    }
 
     // mp4-muxer + WebCodecs VideoEncoder — guarantees real H.264 MP4
     const target = new ArrayBufferTarget();
@@ -966,6 +1059,7 @@ export default class DisplayCanvas extends React.Component {
       });
     } catch (e) {
       console.error('VideoEncoder configure failed:', e);
+      cleanup3D?.();
       this.setState({ isExporting: false, exportProgress: 0 });
       alert('MP4 export is not supported in this browser. Try Chrome or Edge on a desktop.');
       return;
@@ -994,8 +1088,12 @@ export default class DisplayCanvas extends React.Component {
       }
     }
 
-    canvas.width = 0;
-    canvas.height = 0;
+    if (cleanup3D) {
+      cleanup3D();
+    } else {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
 
     // encoder.flush() has no progress callbacks — animate the bar while we wait.
     // With audio, leave room at 93–99 for the audio encoding phase.
@@ -1061,6 +1159,21 @@ export default class DisplayCanvas extends React.Component {
       }),
       () => {
         if (this.state.animationMode) {
+          // 3D scenes rebuild instantly, so sliders apply live (same debounce as image
+          // mode) -- same seed, new settings, the "same" scene reshaped. 2D animation
+          // frames are a 30s+ rebuild, so there it stays regenerate-to-apply.
+          if (this.state.threeDMode && this.state.threeDDesign) {
+            clearTimeout(this.geometryRegenTimer);
+            this.geometryRegenTimer = setTimeout(() => {
+              this.setState(s => ({
+                threeDDesign: s.threeDDesign && {
+                  ...s.threeDDesign,
+                  settings: { geometry: s.geometrySettings }
+                }
+              }));
+            }, 350);
+            return;
+          }
           this.setState({ settingsDirty: true });
           return;
         }
@@ -1112,7 +1225,18 @@ export default class DisplayCanvas extends React.Component {
       this.shareUrl = null;
       this.shareDesignId = null;
 
-      if (animationMode) {
+      if (animationMode && this.state.threeDMode) {
+        // 3D mode: a new scene is just a new seed -- built synchronously by the preview
+        // component, no frame rendering. Nothing 2D is touched (frames stay snapshotted
+        // in state for when 3D is toggled back off).
+        this.setState({
+          threeDDesign: this.buildThreeDDesign(),
+          isSaved: false,
+          showBranchNotice: false,
+          animationPaused: false,
+          settingsDirty: false
+        });
+      } else if (animationMode) {
         // Revoke existing blob URLs to free memory
         const { animationStarFrames } = this.state;
         animationFrames.forEach(url => URL.revokeObjectURL(url));
@@ -1178,8 +1302,21 @@ export default class DisplayCanvas extends React.Component {
         shareDesignId: this.shareDesignId
       };
 
-      // Restore previous animation state if available
-      if (this.animationModeState) {
+      // 3D mode: entering animation mode needs no frame build -- just make sure a 3D
+      // design exists for the preview to mount. Any snapshotted 2D animation state stays
+      // put for when 3D is toggled off.
+      if (this.state.threeDMode) {
+        this.shareUrl = null;
+        this.shareDesignId = null;
+        gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+        this.setState({
+          animationMode: true,
+          isSaved: false,
+          animationPaused: false,
+          threeDDesign: this.state.threeDDesign || this.buildThreeDDesign()
+        });
+      } else if (this.animationModeState) {
+        // Restore previous animation state if available
         const { frames, starFrames, configs, isSaved: wasSaved, shareUrl, shareDesignId } =
           this.animationModeState;
         this.animationModeState = null;
@@ -1593,6 +1730,8 @@ export default class DisplayCanvas extends React.Component {
       cycleDuration,
       starFrameCount,
       animationPaused,
+      threeDMode,
+      threeDDesign,
       musicEnabled,
       audioExportSupported,
       settingsTab,
@@ -1635,7 +1774,7 @@ export default class DisplayCanvas extends React.Component {
           className="image-container absolute left-0 top-0 z-0 h-full w-full bg-cover bg-center bg-no-repeat opacity-0"
           onClick={this.onCloseButtonClick.bind(this)}
         ></div>
-        {animationFrames.length > 0 && (
+        {animationFrames.length > 0 && !(animationMode && threeDMode) && (
           <AnimationPreview
             frames={animationFrames}
             starFrames={animationStarFrames}
@@ -1647,7 +1786,19 @@ export default class DisplayCanvas extends React.Component {
             paused={animationPaused}
           />
         )}
-        {animationFrames.length > 0 && (
+        {animationMode && threeDMode && threeDDesign && (
+          <Animation3DPreview
+            design={threeDDesign}
+            cycleDuration={cycleDuration}
+            onClick={this.onCloseButtonClick.bind(this)}
+            paused={animationPaused}
+            onInitError={() => {
+              alert('3D mode needs WebGL, which is unavailable in this browser. Switching back to 2D.');
+              this.onThreeDToggle();
+            }}
+          />
+        )}
+        {(animationFrames.length > 0 || (animationMode && threeDMode && threeDDesign)) && (
           <button
             className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[5em] w-[5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
             onClick={e => { e.stopPropagation(); this.setState({ animationPaused: !animationPaused }); }}
@@ -1759,7 +1910,7 @@ export default class DisplayCanvas extends React.Component {
                   />
                 </div>
               )}
-              {animationMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
+              {animationMode && !threeDMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
                 <div className="settings-dirty-notice animate-reveal-quick">
                   Regenerate to apply new settings
                 </div>
@@ -1780,15 +1931,22 @@ export default class DisplayCanvas extends React.Component {
                 <button
                   onClick={this.onSaveButtonClick.bind(this)}
                   className="button-small"
+                  disabled={animationMode && threeDMode}
+                  title={animationMode && threeDMode ? '3D animations can’t be saved yet' : undefined}
+                  style={animationMode && threeDMode ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
                 >
                   {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
                 </button>
                 <button
                   onClick={this.onDownloadButtonClick.bind(this)}
                   className="button-small"
-                  disabled={isExporting || (animationMode && animationFrames.length === 0)}
+                  disabled={
+                    isExporting ||
+                    (animationMode && (threeDMode ? !threeDDesign : animationFrames.length === 0))
+                  }
                   style={
-                    isExporting || (animationMode && animationFrames.length === 0)
+                    isExporting ||
+                    (animationMode && (threeDMode ? !threeDDesign : animationFrames.length === 0))
                       ? { opacity: 0.4, cursor: 'not-allowed' }
                       : {}
                   }
@@ -2009,6 +2167,19 @@ export default class DisplayCanvas extends React.Component {
               <>
                 <div className="settings-field">
                   <span className="settings-label">
+                    3D
+                    <span className="settings-label-note"> fly through a 3D scene</span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (threeDMode ? ' on' : '')}
+                    onClick={this.onThreeDToggle.bind(this)}
+                    aria-label={threeDMode ? '3D mode on' : '3D mode off'}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">
                     Include Music
                     {!audioExportSupported && <span className="settings-label-note"> (unsupported)</span>}
                   </span>
@@ -2021,28 +2192,35 @@ export default class DisplayCanvas extends React.Component {
                     <span className="settings-toggle-thumb" />
                   </button>
                 </div>
-                <div className="settings-field">
-                  <span className="settings-label">Frames</span>
-                  <div className="settings-stepper">
-                    <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, fc), settingsDirty: true }); }}>−</button>
-                    <span>{frameCount}</span>
-                    <button onClick={() => this.setState({ frameCount: Math.min(60, frameCount + 1), settingsDirty: true })}>+</button>
-                  </div>
-                </div>
-                <div className="settings-field">
-                  <span className="settings-label">Star Frames</span>
-                  <div className="settings-stepper">
-                    <button onClick={() => this.setState({ starFrameCount: Math.max(1, starFrameCount - 1), settingsDirty: true })}>−</button>
-                    <span>{starFrameCount}</span>
-                    <button onClick={() => this.setState({ starFrameCount: Math.min(frameCount, starFrameCount + 1), settingsDirty: true })}>+</button>
-                  </div>
-                </div>
+                {/* Frames / Star Frames only mean anything to the 2D crossfade flow --
+                    in 3D the scene is continuous, so they disappear. Duration applies
+                    live in 3D (the preview rebuilds instantly), hence no settingsDirty. */}
+                {!threeDMode && (
+                  <>
+                    <div className="settings-field">
+                      <span className="settings-label">Frames</span>
+                      <div className="settings-stepper">
+                        <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, fc), settingsDirty: true }); }}>−</button>
+                        <span>{frameCount}</span>
+                        <button onClick={() => this.setState({ frameCount: Math.min(60, frameCount + 1), settingsDirty: true })}>+</button>
+                      </div>
+                    </div>
+                    <div className="settings-field">
+                      <span className="settings-label">Star Frames</span>
+                      <div className="settings-stepper">
+                        <button onClick={() => this.setState({ starFrameCount: Math.max(1, starFrameCount - 1), settingsDirty: true })}>−</button>
+                        <span>{starFrameCount}</span>
+                        <button onClick={() => this.setState({ starFrameCount: Math.min(frameCount, starFrameCount + 1), settingsDirty: true })}>+</button>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="settings-field">
                   <span className="settings-label">Duration</span>
                   <div className="settings-stepper">
-                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1), settingsDirty: true })}>−</button>
+                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1), settingsDirty: !threeDMode })}>−</button>
                     <span>{cycleDuration}s</span>
-                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1), settingsDirty: true })}>+</button>
+                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1), settingsDirty: !threeDMode })}>+</button>
                   </div>
                 </div>
               </>

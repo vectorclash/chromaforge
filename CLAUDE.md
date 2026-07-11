@@ -284,6 +284,89 @@ Constrained Baseline (`avc1.42E034`) specifically to avoid B-frame reordering, w
 silently halved framerate on Windows hardware encoders. This is a *different* concern
 from print rendering above (video vs. still images) — don't conflate the two.
 
+### 3D animation mode (three.js star tunnel), 2026-07-11
+A "3D" toggle in the studio's Video settings tab switches animation mode from the 2D
+frame-crossfade flow to a real-time three.js scene: a camera flying through a long tunnel
+of noise-clustered stars (value-noise rejection sampling adapted from
+`temp/sound-generator`'s star placement, seeded via `makeRng(seed + '-3d')` — a separate
+rng stream so 2D determinism is untouched) with 3D lattice structures (the same
+ring/chord cell families as `GenerateGeometricShape.latticeCells`, rings z-offset/twisted
+into 3D, panels filled with the same ±10° palette-spin logic), a camera-locked
+mesh-gradient shader background cycling the design's palette, and palette-lerped FogExp2.
+Key facts:
+- `src/animation3d/tunnelScene.js` — pure deterministic scene factory; `setTime(seconds)`
+  drives ALL motion/color (no internal clock), so the GSAP-timeline preview
+  (`src/components/Animation3DPreview.jsx`) and the MP4 exporter step identical frames.
+  Everything is periodic in the cycle duration (camera z wraps modulo TUNNEL_LENGTH,
+  content tripled at ±TUNNEL_LENGTH, all time terms sin/cos of 2π·progress·integer) so
+  exports loop seamlessly — verified on a real 3840×2160 export (first-vs-last-frame
+  pixel diff ≈ one frame of motion).
+- three.js is dynamically imported (its own lazy chunk, ~185KB gzip) — never loads unless
+  3D mode is used. Star sprites are the sound-generator example's INVERTED variants
+  (`star-sprite-*-3d.png`, Aaron's explicit call), not the 2D pipeline's — those are
+  authored for canvas compositing and read wrong as additive points.
+- In 3D mode only Duration + Include Music remain in the Video tab (Frames/Star Frames
+  are 2D-only, hidden); Duration and the geometry sliders apply LIVE (scene rebuilds are
+  instant) rather than via the 2D "regenerate to apply" notice. Generate is instant (new
+  seed, no frame build); the 2D frames stay in state so toggling 3D off restores them
+  without a rebuild (or kicks off a build if none were ever made).
+- Save is deliberately disabled in 3D mode (v1, Aaron-approved deferral): `threeDDesign`
+  is already the compact `{ seed, colors, settings }` shape, but the gallery/share load
+  paths can't replay a 3D animation yet.
+- `exportAnimationVideo` branches on 3D: renders the scene per frame into a WebGL canvas
+  at export resolution (VideoFrame constructed same-task, so no preserveDrawingBuffer)
+  and shares the entire encoder/muxer/audio path with 2D unchanged.
+- WebGL context creation can genuinely fail (GPU blocklists, headless) — found live via a
+  flag-less headless run: Animation3DPreview catches init errors and DisplayCanvas falls
+  back to 2D with an alert instead of a black screen + unhandled rejection.
+- Additive-blending tuning was real, from headless screenshots: additive panels blew out
+  to white sheets at any useful opacity, and lattice stations get a minimum radial offset
+  (0.18×TUNNEL_RADIUS) so the camera never flies through a structure's converged center
+  (a full-frame whiteout otherwise).
+- **Reworked same day on Aaron's feedback ("looks like 2D full coherence; not colorful
+  enough — look at real 2D renders"):** geometry structures are now chaotic-first, like
+  the 2D default — random triangles over the lattice point set with rng²-skewed size
+  variance (some structures span the whole frame), per-CORNER palette-spun vertex colors
+  (the 3D analogue of the 2D 3-stop gradient fill), normal blending at 0.5 opacity (not
+  additive — washed to white over a colorful background), with the ordered chord web only
+  blending in as coherence rises (same keepCount/cellKeep trade as 2D). Color: the
+  background shader is a NORMALIZED weighted mix of palette colors (full-coverage
+  saturated mesh gradient, never dark-space-plus-tints), palette-colored nebula glow
+  sprites were added, fog is saturated palette color, and — the fix that actually killed
+  the monochrome-scene problem (threshold-based accent injection wasn't enough) — a
+  seeded complement-side accent palette (mirroring GenerateStarField's baseHue complement
+  bias in 2D) unconditionally rides alongside the design palette in the dome, geometry,
+  and nebulae, so every scene holds several distinct hue families at once.
+- **Geometry layer: a continuous geometric TUNNEL (2026-07-11, third iteration —
+  Aaron's direction after two rejected approaches).** Floating lattice monuments, then
+  noise-driven floating shards with a distance "bloom", both failed the same way: isolated
+  shapes popping in at the fog line never read as intentional, and the shapes themselves
+  weren't interesting. Replaced wholesale by `buildGeometricTunnel`: one continuous
+  lattice bore the camera flies through — polygon rings (sides from the design's points
+  sliders) every ~12 units, per-ring twist (total twist = integer multiple of the
+  polygon's symmetry step, for the loop seam), rings connected by longitudinal rails +
+  diagonal chords + occasional long in-ring star-chords, a sparse fraction of cells
+  filled as gradient panels (fill rate rises with coherence; jitter falls with it —
+  coherence 0 is a ragged hand-bent scaffold, 1 a clean bore). Per-frame `update()`
+  recomputes every ring vertex: a radial ripple traveling down the tunnel plus a palette
+  color WAVE flowing along z and through time (edge + panel vertex colors update every
+  frame). No pop-in by construction — the tunnel recedes into fog ahead/behind. Camera
+  still flies dead-ahead with slight positional sway. Star shells (near 5000 / far 7000
+  at radius 46→140), nebulae, and the background dome are unchanged from the earlier
+  iterations; fog 0.009; camera far 450.
+- **Space-warp distance compression (Aaron's idea, same day):** far-distance pop-in
+  (worst for the unfogged stars) is gone — a vertex-shader patch (`applyWarpShader`,
+  onBeforeCompile on the star Points / tunnel LineSegments / panel Mesh materials) scales
+  view-space lateral position to zero between WARP_START(170)→WARP_END(380), so distant
+  content is born compressed at the vanishing point and expands outward as it approaches
+  (visible in exports as the tunnel funneling to a point). Sprites (large stars, nebulae)
+  mirror the same curve as a JS scale factor (`warpFactor`) since SpriteMaterial isn't
+  chunk-based. Same-day look tuning from Aaron's feedback: panels have their own
+  per-vertex color pass at full chroma + MID lightness (s=1/l≈0.5 — pushing lightness
+  high read pastel, not vivid), opacity 0.85, panel fill rate 0.28 base, wide per-vertex
+  palette-phase jitter (±0.3) for strong multi-color gradients; wireframe density rolls
+  per ring section (some sections bare, some fully caged) so the scaffold isn't uniform.
+
 ### Backend: Supabase, seed-first schema
 - `supabase/migrations/0001_initial_schema.sql` — `profiles` (1:1 auth.users, trigger
   auto-created on signup), `designs` (`data` jsonb = `{ generatorVersion, seed, colors,
