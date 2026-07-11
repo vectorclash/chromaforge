@@ -720,7 +720,7 @@ export default function ProductPage() {
                 </button>
                 <p
                   className={
-                    'truncate text-center text-[11px] leading-tight ' +
+                    'line-clamp-2 min-h-[2.5em] text-center text-[11px] leading-tight ' +
                     (selected ? 'font-bold text-text' : 'text-text-secondary')
                   }
                   title={c.label}
