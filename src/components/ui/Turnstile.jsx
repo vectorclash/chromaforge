@@ -51,6 +51,12 @@ export default function Turnstile({ onToken, resetSignal = 0 }) {
         widgetIdRef.current = turnstile.render(containerRef.current, {
           sitekey: SITE_KEY,
           theme: 'dark',
+          // 'flexible' stretches the widget to the form's width instead of the fixed
+          // 300px box; 'interaction-only' keeps it invisible unless Cloudflare actually
+          // needs the visitor to interact (most humans just get a silent token), so the
+          // form usually looks exactly as it did before CAPTCHA existed.
+          size: 'flexible',
+          appearance: 'interaction-only',
           callback: token => onTokenRef.current?.(token),
           'expired-token-callback': () => onTokenRef.current?.(null),
           'error-callback': () => onTokenRef.current?.(null)
