@@ -720,8 +720,10 @@ export default function ProductPage() {
                 </button>
                 <p
                   className={
-                    'line-clamp-2 min-h-[2.5em] text-center text-[11px] leading-tight ' +
-                    (selected ? 'font-bold text-text' : 'text-text-secondary')
+                    // Constant font-weight in both states: bolding only the selected label
+                    // changes its measured width and rewraps the text when selection moves.
+                    'line-clamp-2 min-h-[2.5em] text-center text-[11px] font-bold leading-tight ' +
+                    (selected ? 'text-text' : 'text-text-secondary')
                   }
                   title={c.label}
                 >
