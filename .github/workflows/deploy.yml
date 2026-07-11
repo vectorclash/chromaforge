@@ -51,8 +51,34 @@ jobs:
           protocol: ftps
           timeout: 60000
 
-      - name: Retry deploy if failed
+      # Hostinger's FTP endpoint is occasionally flaky. One immediate retry wasn't always
+      # enough -- roughly 1 in 10 deploys failed both back-to-back attempts (confirmed from
+      # the Actions run history, 2026-07-10) -- so retries now wait 60s first, giving a
+      # transient outage time to clear, and there's a third attempt before giving up.
+      - name: Wait before retry
         if: steps.deploy.outcome == 'failure'
+        run: sleep 60
+
+      - name: Retry deploy if failed
+        id: retry
+        if: steps.deploy.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ${{ secrets.FTP_PATH }}
+          protocol: ftps
+          timeout: 60000
+
+      - name: Wait before final retry
+        if: steps.retry.outcome == 'failure'
+        run: sleep 60
+
+      - name: Final retry
+        if: steps.retry.outcome == 'failure'
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
