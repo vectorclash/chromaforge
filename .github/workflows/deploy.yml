@@ -32,6 +32,11 @@ jobs:
           # Settings -> Secrets and variables -> Actions, same values as local .env.local.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Cloudflare Turnstile sitekey (public value, kept as a repo secret alongside the
+          # others for consistency). Optional: unset means the auth forms render no CAPTCHA
+          # widget -- only safe while the Supabase dashboard's CAPTCHA protection toggle is
+          # also off. See src/components/ui/Turnstile.jsx.
+          VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
 
       - name: Deploy to Hostinger via FTP
         id: deploy

@@ -4,6 +4,7 @@ import Button from '../components/ui/Button';
 import GoogleIcon from '../components/buttons/GoogleIcon';
 import FadeImage from '../components/ui/FadeImage';
 import { Field, Input } from '../components/ui/Field';
+import Turnstile from '../components/ui/Turnstile';
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
   signInWithEmail,
@@ -83,6 +84,11 @@ export default function AccountPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+  // Turnstile token for Supabase's CAPTCHA protection (see components/ui/Turnstile.jsx).
+  // Stays null when VITE_TURNSTILE_SITE_KEY is unset. Tokens are single-use, so every
+  // submission bumps captchaReset to make the widget issue a fresh one before a retry.
+  const [captchaToken, setCaptchaToken] = useState(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   // Set-new-password form (recoveryMode branch only, but hooks stay unconditional).
   const [newPassword, setNewPassword] = useState('');
@@ -442,7 +448,7 @@ export default function AccountPage() {
     setMessage(null);
     try {
       if (mode === 'signup') {
-        const { needsConfirmation, alreadyRegistered } = await signUpWithEmail(email, password);
+        const { needsConfirmation, alreadyRegistered } = await signUpWithEmail(email, password, captchaToken);
         if (alreadyRegistered) {
           setMode('signin');
           setError('An account with this email already exists. Sign in instead.');
@@ -450,11 +456,13 @@ export default function AccountPage() {
           setMessage('Check your email to confirm your account, then sign in.');
         }
       } else {
-        await signInWithEmail(email, password);
+        await signInWithEmail(email, password, captchaToken);
       }
     } catch (err) {
       setError(err.message);
     } finally {
+      setCaptchaToken(null);
+      setCaptchaReset(n => n + 1);
       setBusy(false);
     }
   };
@@ -467,11 +475,13 @@ export default function AccountPage() {
     setError(null);
     setMessage(null);
     try {
-      await requestPasswordReset(email);
+      await requestPasswordReset(email, captchaToken);
       setMessage('If an account exists for that email, a reset link is on its way.');
     } catch (err) {
       setError(err.message);
     } finally {
+      setCaptchaToken(null);
+      setCaptchaReset(n => n + 1);
       setBusy(false);
     }
   };
@@ -518,6 +528,7 @@ export default function AccountPage() {
               required
             />
           </Field>
+          <Turnstile onToken={setCaptchaToken} resetSignal={captchaReset} />
           <Button type="submit" className="w-full" disabled={busy} aria-busy={busy}>
             {busy ? 'Sending…' : 'Send reset link'}
           </Button>
@@ -558,6 +569,7 @@ export default function AccountPage() {
             </p>
           )}
 
+          <Turnstile onToken={setCaptchaToken} resetSignal={captchaReset} />
           <Button type="submit" className="w-full" disabled={busy} aria-busy={busy}>
             {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
           </Button>

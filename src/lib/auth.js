@@ -29,11 +29,15 @@ function client() {
 // always pointing at one fixed URL. Both origins still need to be in the Supabase
 // dashboard's Auth -> URL Configuration "Redirect URLs" allow-list, or Supabase will
 // reject the custom redirect and fall back to the Site URL anyway.
-export async function signUpWithEmail(email, password) {
+// captchaToken (here and on signInWithEmail/requestPasswordReset): a Cloudflare Turnstile
+// token, required by GoTrue when the Supabase dashboard's CAPTCHA protection is on --
+// see src/components/ui/Turnstile.jsx. Optional so the flows keep working with the
+// dashboard flag off (the option is simply ignored server-side then).
+export async function signUpWithEmail(email, password, captchaToken) {
   const { data, error } = await client().auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: window.location.origin }
+    options: { emailRedirectTo: window.location.origin, captchaToken }
   });
   if (error) throw error;
   const alreadyRegistered = !data.session && data.user?.identities?.length === 0;
@@ -45,8 +49,12 @@ export async function signUpWithEmail(email, password) {
   };
 }
 
-export async function signInWithEmail(email, password) {
-  const { data, error } = await client().auth.signInWithPassword({ email, password });
+export async function signInWithEmail(email, password, captchaToken) {
+  const { data, error } = await client().auth.signInWithPassword({
+    email,
+    password,
+    options: { captchaToken }
+  });
   if (error) throw error;
   return { user: data.user, session: data.session };
 }
@@ -72,9 +80,10 @@ export async function signInWithGoogle() {
 // dashboard redirect allow-list entries already set up for signUpWithEmail/signInWithGoogle
 // -- AuthContext detects `type=recovery` in the returned hash and routes to /account itself,
 // so no extra allow-list entry is needed.
-export async function requestPasswordReset(email) {
+export async function requestPasswordReset(email, captchaToken) {
   const { error } = await client().auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin
+    redirectTo: window.location.origin,
+    captchaToken
   });
   if (error) throw error;
 }
