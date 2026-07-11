@@ -297,104 +297,279 @@ const BG_FRAG = /* glsl */ `
 // into fog ahead and behind), inherently reads as travel, and is literally the brand's
 // own geometry.
 //
-// Structure: `sides`-gon rings (sides from the design's points sliders) every `spacing`
-// units, twisted per-ring; consecutive rings connected by longitudinal edges and
-// diagonal chords; a sparse fraction of cells filled as gradient panels. Coherence
-// jitters (low) or straightens (high) the ring vertices. The whole thing is periodic in
-// TUNNEL_LENGTH: ring 0 doubles as ring N via +L offsets on seam-crossing elements, the
-// total twist is an integer multiple of the polygon's own symmetry step, and per-frame
-// motion (a radial ripple traveling down the tunnel + a palette color wave) uses integer
-// cycle frequencies — so the exported loop stays seamless.
+// Structure — reworked for variety (Aaron: "it feels a little samey across the whole
+// animation"). One cycle of tunnel is now a sequence of seeded ZONES, each with its own
+// architecture (polygon side count from the design's points sliders, radius scale, wire/
+// panel density, ripple energy, twist rate, ring-spacing clumpiness), punctuated by 1–2
+// dense multi-ring "gate" set-pieces, all threaded on a gently curving centerline (the
+// camera still flies dead-straight — the BORE sweeps around it). A second, sparser
+// counter-twisted web sits outside the bore for parallax. Ring spacing clusters and gaps
+// instead of being metronomic; panels come in three styles (facet / dimmed full-quad
+// sail / bright accent). Everything stays a pure function of the seed, and everything is
+// periodic in TUNNEL_LENGTH: ring N wraps to ring 0 via +L offsets with nearest-angle
+// index mapping (which also bridges rings of different side counts at zone boundaries),
+// and all motion/profiles use integer cycle frequencies — so exports still loop
+// seamlessly.
 function buildGeometricTunnel(rng, geometry) {
-  const sides =
-    geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
-  const ringCount = 28 + Math.floor(rng() * 12); // rings per tunnel cycle
-  const spacing = TUNNEL_LENGTH / ringCount;
-  const radius = 15 + rng() * 9; // camera flies inside
-  const stepAng = TWO_PI / sides;
-  // Total twist over one cycle must be a whole number of polygon steps for the seam to
-  // line up; ±(1..3) steps gives a slow visible corkscrew.
-  const twistSteps = (1 + Math.floor(rng() * 3)) * (rng() < 0.5 ? -1 : 1);
-  const twistPerRing = (twistSteps * stepAng) / ringCount;
+  const clampNum = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   // coherence 0 (the default) = ragged, hand-bent scaffold; 1 = clean geometric bore
-  const jitter = 0.45 * (1 - geometry.coherence);
+  const jitterBase = 0.45 * (1 - geometry.coherence);
+  const radiusBase = 15 + rng() * 9; // camera flies inside
 
-  // Long-wavelength variety along the flight: the bore breathes wider/narrower and the
-  // scaffold gets denser/sparser as the camera travels. Both profiles are sums of
-  // integer-frequency sinusoids of zFrac, so they're periodic in the cycle and the loop
-  // seam still lines up.
+  // Long-wavelength breathing + complexity waves (integer frequencies → loop-safe)
   const radFreq1 = 1 + Math.floor(rng() * 2);
   const radFreq2 = 2 + Math.floor(rng() * 3);
   const radPhase1 = rng() * TWO_PI;
   const radPhase2 = rng() * TWO_PI;
-  const radiusAt = (zFrac) =>
-    radius *
-    (1 +
-      0.35 * Math.sin(zFrac * TWO_PI * radFreq1 + radPhase1) +
-      0.18 * Math.sin(zFrac * TWO_PI * radFreq2 + radPhase2));
+  const radiusWaveAt = (zFrac) =>
+    1 +
+    0.35 * Math.sin(zFrac * TWO_PI * radFreq1 + radPhase1) +
+    0.18 * Math.sin(zFrac * TWO_PI * radFreq2 + radPhase2);
   const cxFreq = 1 + Math.floor(rng() * 3);
   const cxPhase = rng() * TWO_PI;
-  // 0.15–1: sparse stretches stay recognizably built, dense stretches fully cage
   const complexityAt = (zFrac) =>
     0.575 + 0.425 * Math.sin(zFrac * TWO_PI * cxFreq + cxPhase);
 
-  const vertCount = ringCount * sides;
+  // Zones: 3–5 stretches of the cycle, each rolling its own architecture.
+  const zoneCount = 3 + Math.floor(rng() * 3);
+  const zones = [];
+  {
+    const weights = [];
+    let sum = 0;
+    for (let i = 0; i < zoneCount; i++) {
+      const w = 0.6 + rng();
+      weights.push(w);
+      sum += w;
+    }
+    let acc = 0;
+    for (let i = 0; i < zoneCount; i++) {
+      const end = acc + weights[i] / sum;
+      zones.push({
+        end,
+        sides:
+          geometry.pointsMin +
+          Math.round(rng() * (geometry.pointsMax - geometry.pointsMin)),
+        radiusScale: 0.6 + rng() * 0.75,
+        density: 0.3 + rng() * 1.0,
+        rippleAmp: 0.02 + rng() * 0.14,
+        twistRate: (0.05 + rng() * 0.15) * (rng() < 0.5 ? -1 : 1), // radians per ring
+        spacingVar: 0.25 + rng() * 0.95 // ring clumpiness
+      });
+      acc = end;
+    }
+  }
+  const zoneAt = (zFrac) => {
+    const t = ((zFrac % 1) + 1) % 1;
+    for (const z of zones) if (t < z.end) return z;
+    return zones[zones.length - 1];
+  };
+  // Bore radius: zone scale steps at boundaries (an intentional architecture change),
+  // the breathing wave moves smoothly within them. Clamped so the camera always clears
+  // the wall and the bore stays inside the outer web.
+  const boreRadiusAt = (zFrac) =>
+    clampNum(radiusBase * zoneAt(zFrac).radiusScale * radiusWaveAt(zFrac), 8, 34);
+
+  // Curved centerline: the bore drifts laterally around the straight camera path.
+  // Amplitude scales with (radius - 8) so the camera is always comfortably inside.
+  const pfx1 = 1 + Math.floor(rng() * 2);
+  const pfx2 = 2 + Math.floor(rng() * 2);
+  const pfy1 = 1 + Math.floor(rng() * 2);
+  const pfy2 = 2 + Math.floor(rng() * 2);
+  const ppx1 = rng() * TWO_PI;
+  const ppx2 = rng() * TWO_PI;
+  const ppy1 = rng() * TWO_PI;
+  const ppy2 = rng() * TWO_PI;
+  const pathAt = (zFrac, r) => {
+    const s = 0.45 * Math.max(0, r - 8);
+    return [
+      (0.62 * Math.sin(zFrac * TWO_PI * pfx1 + ppx1) +
+        0.38 * Math.sin(zFrac * TWO_PI * pfx2 + ppx2)) * s,
+      (0.62 * Math.sin(zFrac * TWO_PI * pfy1 + ppy1) +
+        0.38 * Math.sin(zFrac * TWO_PI * pfy2 + ppy2)) * s
+    ];
+  };
+
+  // Ring list: clustered spacing (rings clump and gap per the zone's spacingVar), plus
+  // 1–2 "gates" — several rings packed 2.2 units apart with dense chord webs, the 2D
+  // vector-equilibrium look as a flythrough set-piece.
+  const rings = []; // { z, sides, step, ang0, r, zone, gate, outer, start }
+  {
+    const baseCount = 30 + Math.floor(rng() * 10);
+    const ws = [];
+    let sum = 0;
+    for (let i = 0; i < baseCount; i++) {
+      const zn = zoneAt(i / baseCount);
+      const w = 0.4 + rng() * 1.4 * zn.spacingVar;
+      ws.push(w);
+      sum += w;
+    }
+    let z = 0;
+    for (let i = 0; i < baseCount; i++) {
+      rings.push({ z, gate: false, outer: false });
+      z += (ws[i] / sum) * TUNNEL_LENGTH;
+    }
+  }
+  const gateCount = 1 + Math.floor(rng() * 2);
+  for (let g = 0; g < gateCount; g++) {
+    const zc = rng() * TUNNEL_LENGTH;
+    const n = 3 + Math.floor(rng() * 2);
+    for (let k = 0; k < n; k++) {
+      rings.push({ z: (zc + k * 2.2) % TUNNEL_LENGTH, gate: true, outer: false });
+    }
+  }
+  rings.sort((a, b) => a.z - b.z);
+  {
+    let ang0 = rng() * TWO_PI;
+    for (const ring of rings) {
+      const zn = zoneAt(ring.z / TUNNEL_LENGTH);
+      ang0 += zn.twistRate;
+      ring.zone = zn;
+      ring.sides = zn.sides;
+      ring.step = TWO_PI / zn.sides;
+      ring.ang0 = ang0;
+      ring.r = boreRadiusAt(ring.z / TUNNEL_LENGTH) * (ring.gate ? 1.15 : 1); // gates flare
+    }
+  }
+
+  // Outer web: a sparser, counter-twisting second lattice outside the bore — two layers
+  // of structure in parallax reads far more complex than one.
+  const outerRings = [];
+  {
+    const oSides = 5 + Math.floor(rng() * 4);
+    const oCount = 10 + Math.floor(rng() * 5);
+    const oRadius = 38 + rng() * 5;
+    const oTwist = (0.1 + rng() * 0.2) * (rng() < 0.5 ? -1 : 1);
+    let oa = rng() * TWO_PI;
+    for (let i = 0; i < oCount; i++) {
+      oa += oTwist;
+      outerRings.push({
+        z: ((i + rng() * 0.4) / oCount) * TUNNEL_LENGTH,
+        sides: oSides,
+        step: TWO_PI / oSides,
+        ang0: oa,
+        r: oRadius,
+        zone: null,
+        gate: false,
+        outer: true
+      });
+    }
+  }
+
+  const allRings = rings.concat(outerRings);
+  let vertCount = 0;
+  for (const ring of allRings) {
+    ring.start = vertCount;
+    vertCount += ring.sides;
+  }
   const baseAng = new Float32Array(vertCount);
   const baseR = new Float32Array(vertCount);
   const baseZ = new Float32Array(vertCount);
+  const centerX = new Float32Array(vertCount); // static curved-centerline offset
+  const centerY = new Float32Array(vertCount);
   const ripplePhase = new Float32Array(vertCount);
   const rippleFreq = new Uint8Array(vertCount);
+  const rippleAmp = new Float32Array(vertCount); // per-zone ripple energy
   const colorJitter = new Float32Array(vertCount); // per-vertex palette phase offset
-  const idx = (ring, j) => ring * sides + (((j % sides) + sides) % sides);
-  for (let ring = 0; ring < ringCount; ring++) {
-    for (let j = 0; j < sides; j++) {
-      const v = idx(ring, j);
-      baseAng[v] = j * stepAng + ring * twistPerRing + (rng() - 0.5) * stepAng * jitter;
-      baseR[v] = radiusAt(ring / ringCount) * (1 + (rng() - 0.5) * jitter);
-      baseZ[v] = ring * spacing + (rng() - 0.5) * spacing * jitter * 0.6;
+  const dim = new Float32Array(vertCount); // outer web renders fainter
+  for (const ring of allRings) {
+    const zFrac = ring.z / TUNNEL_LENGTH;
+    // Gates read as machined, not hand-bent — much less jitter than their zone
+    const jitter = jitterBase * (ring.gate ? 0.3 : 1) * (ring.outer ? 0.6 : 1);
+    const [cx, cy] = pathAt(zFrac, boreRadiusAt(zFrac));
+    for (let j = 0; j < ring.sides; j++) {
+      const v = ring.start + j;
+      baseAng[v] = ring.ang0 + j * ring.step + (rng() - 0.5) * ring.step * jitter;
+      baseR[v] = ring.r * (1 + (rng() - 0.5) * jitter);
+      baseZ[v] = ring.z + (rng() - 0.5) * jitter * 2.0;
+      centerX[v] = cx;
+      centerY[v] = cy;
       ripplePhase[v] = rng() * TWO_PI;
       rippleFreq[v] = 1 + Math.floor(rng() * 3); // 1–3 ripples per cycle
+      rippleAmp[v] = ring.outer
+        ? 0.04
+        : ring.zone.rippleAmp * (ring.gate ? 0.5 : 1);
       // Wide per-vertex palette offset: adjacent corners land on genuinely different
       // palette stops, so panels get strong multi-color gradients, not near-flat fills
       colorJitter[v] = (rng() - 0.5) * 0.3;
+      dim[v] = ring.outer ? 0.65 : 1;
     }
   }
 
   // Elements reference vertex indices; zOff carries seam-crossing endpoints one period
-  // forward so the last ring connects to (ring 0 + TUNNEL_LENGTH), not back across the
-  // whole tunnel.
+  // forward so the last ring connects to (ring 0 + TUNNEL_LENGTH). Rings with different
+  // side counts (zone boundaries, the wrap) are bridged by nearest-ideal-angle mapping.
+  const vidx = (ring, j) => ring.start + (((j % ring.sides) + ring.sides) % ring.sides);
+  const mapJ = (ringA, j, ringB) =>
+    Math.round((ringA.ang0 + j * ringA.step - ringB.ang0) / ringB.step);
   const edges = []; // { a, b, aOff, bOff }
-  const panels = []; // { v: [3 indices], off: [3 zOffsets] }
-  for (let ring = 0; ring < ringCount; ring++) {
-    const next = (ring + 1) % ringCount;
-    const off = ring + 1 === ringCount ? TUNNEL_LENGTH : 0;
-    // Patchy wireframe (Aaron: "maybe the wireframe isn't visible everywhere"): each
-    // ring section rolls its own wire density — some sections nearly bare, others fully
-    // caged — so the scaffold comes and goes along the flight instead of being uniform.
-    const wire = (0.15 + rng() * 0.85) * complexityAt(ring / ringCount);
-    for (let j = 0; j < sides; j++) {
-      // Ring polygon edge
-      if (rng() < 0.8 * wire) edges.push({ a: idx(ring, j), b: idx(ring, j + 1), aOff: 0, bOff: 0 });
-      // Longitudinal rail to the next ring
-      if (rng() < 0.65 * wire) edges.push({ a: idx(ring, j), b: idx(next, j), aOff: 0, bOff: off });
-      // Diagonal chord
-      if (rng() < 0.3 * wire) edges.push({ a: idx(ring, j), b: idx(next, j + 1), aOff: 0, bOff: off });
-      // Long in-ring chord (the 2D star-web look, occasionally)
-      if (sides >= 5 && rng() < 0.12 * wire) {
-        const skip = 2 + Math.floor(rng() * (Math.floor(sides / 2) - 1));
-        edges.push({ a: idx(ring, j), b: idx(ring, j + skip), aOff: 0, bOff: 0 });
-      }
-      // Gradient panel filling one cell wall (two triangles' worth would read solid —
-      // one keeps it faceted); fill rate rises with coherence
-      if (rng() < (0.28 + geometry.coherence * 0.3) * complexityAt(ring / ringCount)) {
-        panels.push(
-          rng() < 0.5
-            ? { v: [idx(ring, j), idx(next, j), idx(next, j + 1)], off: [0, off, off] }
-            : { v: [idx(ring, j), idx(ring, j + 1), idx(next, j + 1)], off: [0, 0, off] }
-        );
+  const panels = []; // { v: [3 indices], off: [3 zOffsets], mul: color multiplier }
+  const connectChain = (chain, { wireScale, panelScale }) => {
+    for (let i = 0; i < chain.length; i++) {
+      const A = chain[i];
+      const B = chain[(i + 1) % chain.length];
+      const off = i + 1 === chain.length ? TUNNEL_LENGTH : 0;
+      const zFrac = A.z / TUNNEL_LENGTH;
+      const densityMul = A.zone ? 0.35 + A.zone.density : 1;
+      // Patchy wireframe: each ring section rolls its own wire density — some sections
+      // nearly bare, others fully caged — modulated by the zone and complexity wave.
+      const wire = clampNum(
+        (0.15 + rng() * 0.85) * complexityAt(zFrac) * densityMul * (A.gate ? 2.2 : 1) * wireScale,
+        0,
+        1.15
+      );
+      const panelChance =
+        (0.28 + geometry.coherence * 0.3) *
+        complexityAt(zFrac) *
+        densityMul *
+        panelScale *
+        (A.gate ? 0.5 : 1); // gates are wire showpieces, not panel walls
+      for (let j = 0; j < A.sides; j++) {
+        const jB = mapJ(A, j, B);
+        // Ring polygon edge
+        if (rng() < 0.8 * wire) edges.push({ a: vidx(A, j), b: vidx(A, j + 1), aOff: 0, bOff: 0 });
+        // Longitudinal rail to the next ring
+        if (rng() < 0.65 * wire) edges.push({ a: vidx(A, j), b: vidx(B, jB), aOff: 0, bOff: off });
+        // Diagonal chord
+        if (rng() < 0.3 * wire) edges.push({ a: vidx(A, j), b: vidx(B, jB + 1), aOff: 0, bOff: off });
+        // Long in-ring chord (the 2D star-web look; gates web up heavily)
+        if (A.sides >= 5 && rng() < (A.gate ? 0.55 : 0.12) * wire) {
+          const skip = 2 + Math.floor(rng() * (Math.floor(A.sides / 2) - 1));
+          edges.push({ a: vidx(A, j), b: vidx(A, j + skip), aOff: 0, bOff: 0 });
+        }
+        // Gradient panels, three styles: single facet (most), a dimmed full-quad "sail"
+        // (rare — deliberately solid), or a brighter accent facet.
+        if (rng() < panelChance) {
+          const roll = rng();
+          if (roll < 0.15) {
+            panels.push({ v: [vidx(A, j), vidx(B, jB), vidx(B, jB + 1)], off: [0, off, off], mul: 0.8 });
+            panels.push({ v: [vidx(A, j), vidx(B, jB + 1), vidx(A, j + 1)], off: [0, off, 0], mul: 0.8 });
+          } else if (roll < 0.3) {
+            panels.push({ v: [vidx(A, j), vidx(B, jB), vidx(B, jB + 1)], off: [0, off, off], mul: 1.35 });
+          } else {
+            panels.push(
+              rng() < 0.5
+                ? { v: [vidx(A, j), vidx(B, jB), vidx(B, jB + 1)], off: [0, off, off], mul: 1 }
+                : { v: [vidx(A, j), vidx(A, j + 1), vidx(B, jB + 1)], off: [0, 0, off], mul: 1 }
+            );
+          }
+        }
       }
     }
+  };
+  connectChain(rings, { wireScale: 1, panelScale: 1 });
+  connectChain(outerRings, { wireScale: 0.45, panelScale: 0.15 });
+
+  // Panels blend normally (not additively), so draw order matters: static centroid z per
+  // panel, sorted back-to-front against the camera every frame (buffer order = draw
+  // order within one mesh). Edges/stars are additive and order-independent.
+  const panelZ = new Float32Array(panels.length);
+  for (let pIdx = 0; pIdx < panels.length; pIdx++) {
+    const { v, off } = panels[pIdx];
+    panelZ[pIdx] =
+      (baseZ[v[0]] + off[0] + baseZ[v[1]] + off[1] + baseZ[v[2]] + off[2]) / 3;
   }
+  const panelOrder = Array.from(panels, (_, i) => i);
+  const panelDepth = new Float32Array(panels.length);
 
   const group = new THREE.Group();
 
@@ -448,24 +623,24 @@ function buildGeometricTunnel(rng, geometry) {
     for (let v = 0; v < vertCount; v++) {
       const zFrac = baseZ[v] / TUNNEL_LENGTH;
       const ripple =
-        1 + 0.08 * Math.sin(a * rippleFreq[v] + ripplePhase[v] + zFrac * TWO_PI * 2);
+        1 + rippleAmp[v] * Math.sin(a * rippleFreq[v] + ripplePhase[v] + zFrac * TWO_PI * 2);
       const ang = baseAng[v] + 0.04 * Math.sin(a + ripplePhase[v]);
       const r = baseR[v] * ripple;
-      vertPos[v * 3] = Math.cos(ang) * r;
-      vertPos[v * 3 + 1] = Math.sin(ang) * r;
+      vertPos[v * 3] = Math.cos(ang) * r + centerX[v];
+      vertPos[v * 3 + 1] = Math.sin(ang) * r + centerY[v];
       vertPos[v * 3 + 2] = baseZ[v];
 
       const p = paletteAtHsl(paletteHsl, zFrac * 2 + progress + colorJitter[v]);
       _c.setHSL(p.h, Math.min(1, p.s + 0.2), Math.min(0.68, p.l + 0.12));
-      vertCol[v * 3] = _c.r;
-      vertCol[v * 3 + 1] = _c.g;
-      vertCol[v * 3 + 2] = _c.b;
+      vertCol[v * 3] = _c.r * dim[v];
+      vertCol[v * 3 + 1] = _c.g * dim[v];
+      vertCol[v * 3 + 2] = _c.b * dim[v];
       // Panel variant: full chroma at MID lightness — pushing lightness too high reads
       // pastel/white, not colorful; vivid lives at s=1, l≈0.5 (checked against renders)
       _c.setHSL(p.h, 1, Math.max(0.45, Math.min(0.58, p.l + 0.06)));
-      vertColPanel[v * 3] = _c.r;
-      vertColPanel[v * 3 + 1] = _c.g;
-      vertColPanel[v * 3 + 2] = _c.b;
+      vertColPanel[v * 3] = _c.r * dim[v];
+      vertColPanel[v * 3 + 1] = _c.g * dim[v];
+      vertColPanel[v * 3 + 2] = _c.b * dim[v];
     }
     for (let e = 0; e < edges.length; e++) {
       const { a: va, b: vb, aOff, bOff } = edges[e];
@@ -479,13 +654,22 @@ function buildGeometricTunnel(rng, geometry) {
       edgePositions[o + 2] += aOff;
       edgePositions[o + 5] += bOff;
     }
-    for (let pIdx = 0; pIdx < panels.length; pIdx++) {
-      const { v, off } = panels[pIdx];
+    // Back-to-front panel sort: distance ahead of the camera, wrapped into one period
+    // (the ±TUNNEL_LENGTH copies share buffer slots, so ordering by the wrapped distance
+    // keeps every visible copy consistent).
+    const camZ = progress * TUNNEL_LENGTH;
+    for (let i = 0; i < panels.length; i++) {
+      panelDepth[i] = ((panelZ[i] - camZ) % TUNNEL_LENGTH + TUNNEL_LENGTH) % TUNNEL_LENGTH;
+    }
+    panelOrder.sort((i, j) => panelDepth[j] - panelDepth[i]);
+    for (let slot = 0; slot < panelOrder.length; slot++) {
+      const pIdx = panelOrder[slot];
+      const { v, off, mul } = panels[pIdx];
       for (let corner = 0; corner < 3; corner++) {
-        const o = (pIdx * 3 + corner) * 3;
+        const o = (slot * 3 + corner) * 3;
         for (let k = 0; k < 3; k++) {
           panelPositions[o + k] = vertPos[v[corner] * 3 + k];
-          panelColors[o + k] = vertColPanel[v[corner] * 3 + k];
+          panelColors[o + k] = Math.min(1, vertColPanel[v[corner] * 3 + k] * mul);
         }
         panelPositions[o + 2] += off[corner];
       }
