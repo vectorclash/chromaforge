@@ -38,53 +38,32 @@ jobs:
           # also off. See src/components/ui/Turnstile.jsx.
           VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
 
-      - name: Deploy to Hostinger via FTP
-        id: deploy
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        continue-on-error: true
-        with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: ${{ secrets.FTP_PATH }}
-          protocol: ftps
-          timeout: 60000
-
-      # Hostinger's FTP endpoint is occasionally flaky. One immediate retry wasn't always
-      # enough -- roughly 1 in 10 deploys failed both back-to-back attempts (confirmed from
-      # the Actions run history, 2026-07-10) -- so retries now wait 60s first, giving a
-      # transient outage time to clear, and there's a third attempt before giving up.
-      - name: Wait before retry
-        if: steps.deploy.outcome == 'failure'
-        run: sleep 60
-
-      - name: Retry deploy if failed
-        id: retry
-        if: steps.deploy.outcome == 'failure'
-        continue-on-error: true
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: ${{ secrets.FTP_PATH }}
-          protocol: ftps
-          timeout: 60000
-
-      - name: Wait before final retry
-        if: steps.retry.outcome == 'failure'
-        run: sleep 60
-
-      - name: Final retry
-        if: steps.retry.outcome == 'failure'
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: ${{ secrets.FTP_PATH }}
-          protocol: ftps
-          timeout: 60000
+      # rsync over SSH replaced the old FTP deploy (2026-07-10): Hostinger's FTP endpoint
+      # had repeated multi-minute outages that survived even three spaced retry attempts
+      # (see git history for the FTP version and its retry ladder; the FTP_* repo secrets
+      # still exist if a rollback is ever needed). SSH host/port/user/path are fixed
+      # account facts, not secrets -- only the key is. The pinned host key below is the
+      # server's real ed25519 key (captured via ssh-keyscan 2026-07-10); if Hostinger
+      # migrates the server this check fails loudly rather than trusting a new host
+      # silently. --delete keeps the web root an exact mirror of dist/ -- safe because
+      # everything the site needs (including .htaccess) ships in dist/ via public/.
+      - name: Deploy to Hostinger via rsync over SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo '[45.137.159.160]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN9ovrpXkuA4/afZmktfMJGvkX5pavmxwZP13E4lACJz' >> ~/.ssh/known_hosts
+          for attempt in 1 2 3; do
+            if rsync -az --delete --timeout=60 \
+              -e "ssh -i ~/.ssh/deploy_key -p 65002 -o ConnectTimeout=15 -o BatchMode=yes" \
+              ./dist/ u141529136@45.137.159.160:domains/chromaforge.app/public_html/; then
+              echo "Deployed on attempt $attempt"
+              exit 0
+            fi
+            echo "Attempt $attempt failed; waiting 60s"
+            sleep 60
+          done
+          echo "All rsync attempts failed" >&2
+          exit 1
