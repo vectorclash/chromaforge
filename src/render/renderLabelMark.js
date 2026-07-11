@@ -8,20 +8,29 @@ export default function renderLabelMark(config) {
   canvas.height = config.height;
   const ctx = canvas.getContext('2d');
 
+  // Two-panel layout (see generateLabelMark): the mark lives in its own dark panel, and
+  // the accent panel (wide placements only) is a flat fill of the design's chosen accent.
+  // Older configs without `panels` fall back to the whole canvas as the mark panel.
+  const markPanel = config.panels?.mark ?? { x: 0, y: 0, w: config.width, h: config.height };
   ctx.fillStyle = config.backgroundColor;
-  ctx.fillRect(0, 0, config.width, config.height);
+  ctx.fillRect(markPanel.x, markPanel.y, markPanel.w, markPanel.h);
+  if (config.panels?.accent) {
+    const a = config.panels.accent;
+    ctx.fillStyle = config.accentColor;
+    ctx.fillRect(a.x, a.y, a.w, a.h);
+  }
 
   // Scale/center against the mark's real bounding box (see generateLabelMark's
-  // computeBounds), not the target canvas's own dims -- centers the true geometry
-  // regardless of how short/wide (label_inside) or square (label_outside) the target is.
+  // computeBounds), not the panel's own dims -- centers the true geometry regardless of
+  // how short/wide or square the panel is.
   const { bounds } = config;
   const margin = 0.82;
-  const scale = Math.min(config.width / bounds.width, config.height / bounds.height) * margin;
+  const scale = Math.min(markPanel.w / bounds.width, markPanel.h / bounds.height) * margin;
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
   const toCanvas = (x, y) => [
-    config.width / 2 + (x - centerX) * scale,
-    config.height / 2 + (y - centerY) * scale
+    markPanel.x + markPanel.w / 2 + (x - centerX) * scale,
+    markPanel.y + markPanel.h / 2 + (y - centerY) * scale
   ];
 
   ctx.lineCap = 'round';

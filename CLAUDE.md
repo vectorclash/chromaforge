@@ -531,6 +531,15 @@ from print rendering above (video vs. still images) — don't conflate the two.
     the front's full geometry-laden composition; previously this was already true in
     practice as an accident of `label_panel` never being one of
     `getGeometryPlacementOptions`' checkbox keys, now it's an explicit, guaranteed rule.
+    **Split-panel layout for wide labels (2026-07-10, user's idea, user-approved from a
+    rendered QA page)**: `label_inside`'s 2.5:1 canvas no longer holds the mark alone
+    centered in a long dark field — wide placements (aspect ≥ 1.6,
+    `LABEL_MARK_GENERATOR_VERSION = 3`) split into a square dark panel with the mark plus
+    a flat fill of the design's chosen accent (the same `mainColorHex` the colored chords
+    spin from, so the panels share a root color; zero new rng draws). Panel rects live in
+    the generator's config (`panels.mark`/`panels.accent`) so `renderLabelMark` stays
+    layout-agnostic; square `label_outside` keeps the single centered panel
+    (`panels.accent = null`).
   - **Geometry layout toggle for two-leg-canvas products, 2026-07-05**: mesh shorts
     (693) and joggers (784) print from one flat front/back canvas that gets physically cut
     into two garment legs when sewn (see their `PRODUCT_MOCKUP_CONFIG` entries'
