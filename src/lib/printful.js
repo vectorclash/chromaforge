@@ -215,7 +215,21 @@ const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back'],
-    mockupStyleIds: [12675, 12676]
+    // Unlike every other product, the pillow's Default Front/Back style ids are
+    // restricted_to_variants per SIZE (each size is photographed separately), so a single
+    // mockupStyleIds pair only works for one variant -- Printful rejects the task for the
+    // rest. mockupStyleIdsByVariant (checked first, see resolveMockupStyleIds) maps each
+    // catalog variant id to its own Default Front/Back pair, pulled live from
+    // GET /v2/catalog-products/83/mockup-styles. mockupStyleIds stays as the 18"x18"
+    // fallback for any variant Printful adds later.
+    mockupStyleIds: [12675, 12676],
+    mockupStyleIdsByVariant: {
+      49853: [31042, 31050], // 14"x14"
+      49854: [31049, 31051], // 16"x16"
+      4532: [12675, 12676], // 18"x18"
+      9513: [12677, 12678], // 20"x12"
+      11075: [12673, 12674] // 22"x22"
+    }
   }, // pillow
   693: {
     technique: 'cut-sew',
@@ -291,6 +305,12 @@ const PRODUCT_MOCKUP_CONFIG = {
 
 export function getMockupConfigForProduct(productId) {
   return PRODUCT_MOCKUP_CONFIG[productId] || { technique: 'cut-sew' };
+}
+
+// Some products (the pillow, 83) restrict each mockup style to specific variants, so the
+// style pair to request depends on which variant is selected -- see 83's config comment.
+export function resolveMockupStyleIds(cfg, variantId) {
+  return cfg.mockupStyleIdsByVariant?.[variantId] || cfg.mockupStyleIds;
 }
 
 // Printful's real per-product valid values for the stitch_color option (GET /products/:id

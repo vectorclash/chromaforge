@@ -3,6 +3,7 @@ import {
   createMockupTask,
   getMockupTask,
   getMockupConfigForProduct,
+  resolveMockupStyleIds,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   capRenderStrategy
@@ -190,6 +191,7 @@ export function useMockup() {
         // (the track jacket, 801) that then succeeds immediately on a second attempt with
         // the exact same inputs -- a transient flake on their end, not anything wrong with
         // what we sent. One automatic retry before surfacing a failure to the user.
+        const mockupStyleIds = resolveMockupStyleIds(cfg, variant.id);
         let task2 = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           task2 = null;
@@ -199,7 +201,7 @@ export function useMockup() {
             variantIds: [variant.id],
             placements,
             productOptions: productOptions || cfg.productOptions,
-            mockupStyleIds: cfg.mockupStyleIds
+            mockupStyleIds
           });
 
           setStatus('polling');
@@ -227,10 +229,10 @@ export function useMockup() {
         });
         // Printful doesn't guarantee the response order matches the requested
         // mockupStyleIds order (confirmed live: the track jacket comes back back-then-front
-        // even though front is requested first) -- re-sort by cfg.mockupStyleIds so front is
-        // always images[0] regardless of what Printful hands back.
+        // even though front is requested first) -- re-sort by the requested style ids so
+        // front is always images[0] regardless of what Printful hands back.
         unique.sort(
-          (a, b) => cfg.mockupStyleIds.indexOf(a.style_id) - cfg.mockupStyleIds.indexOf(b.style_id)
+          (a, b) => mockupStyleIds.indexOf(a.style_id) - mockupStyleIds.indexOf(b.style_id)
         );
         mockupCache.set(key, unique);
         persistMockup(key, unique);

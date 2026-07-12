@@ -154,6 +154,35 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
+- [ ] **Printful catalog-drift check (scheduled), before full launch** (2026-07-12, Aaron
+      — "add later, before we launch fully"). Context: pillow (83) mockups broke silently
+      for every size except 18″×18″ because Printful restricted its Default Front/Back
+      mockup styles per-variant when they added the new 14″/16″ sizes — the hardcoded
+      `mockupStyleIds` pair in `PRODUCT_MOCKUP_CONFIG` only covered one variant (fixed
+      same day with `mockupStyleIdsByVariant` + `resolveMockupStyleIds`; all 10 other
+      products audited clean, unrestricted styles). The v2 API is still beta, so this
+      class of silent catalog change will likely recur. Plan: a GitHub Actions cron job
+      (daily/weekly) that, for each product in `PRODUCT_MOCKUP_CONFIG`, fetches
+      `/v2/catalog-products/{id}` + `/mockup-styles` + `/catalog-variants` and asserts:
+      configured style ids exist and cover all variants, configured placements exist,
+      stitch_color values still valid, product not discontinued — ~20 read-only GETs, no
+      mockup quota. Also worth asserting printfile dimensions haven't changed (the same
+      axis as the label_inside launch blocker). Alert on failure via GitHub's own
+      failed-workflow email (simplest) or the existing `ORDER_ALERT_SMTP_*` pattern.
+      Cheap companion fix while in there: `printful-mockup/index.ts` should log Printful's
+      error body on non-2xx so `get_logs` shows *why*, not just "POST | 400".
+      **Related constraint, measured live 2026-07-12 (from Printful's own
+      `x-ratelimit-*` headers — not documented anywhere)**: `POST /v2/mockup-tasks` is
+      limited to **2 requests per 60s per API key** (even rejected/400 requests count;
+      polling GETs are on the general 120/60s bucket). That's shared across ALL app
+      users, so our edge function's 20/user/min limit is not the binding one — two users
+      previewing in the same minute already exhausts it. At any real traffic the mockup
+      preview needs graceful 429 handling (Printful's 429 body says exactly how many
+      seconds to wait — auto-retry with that delay) or queuing. Limit may rise on a paid
+      Printful plan — re-check the header if the account upgrades. Docs also mention an
+      unquantified "daily file limit" for the mockup generator — ask support (can piggyback
+      on the open label_inside ticket).
+
 - [x] **Artwork picker redesign for ProductPage** (planned 2026-07-09, built 2026-07-10) —
       replaced the "Choose artwork" horizontal scroll strip with pinned tiles + a
       "Browse gallery" modal, per the approved mockup
