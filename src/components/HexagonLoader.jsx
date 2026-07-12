@@ -40,6 +40,10 @@ class HexagonLoader extends React.Component {
           scale: 1,
           yoyo: true,
           repeat: 1,
+          // Keep the glow on its own 3D-composited layer for the whole tween --
+          // GSAP rewrites `transform` each frame, which would otherwise clobber the
+          // translateZ(0) layer hint in CSS and let the blur/blend flash on mobile.
+          force3D: true,
           ease: Quad.easeInOut
         }
       );

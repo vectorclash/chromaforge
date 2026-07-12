@@ -286,6 +286,12 @@
   z-index: 1;
   overflow: visible;
   mix-blend-mode: screen;
+  /* Promote to a stable, isolated compositing layer. Without this, the blur +
+     mix-blend-mode + GSAP scale/opacity yoyo intermittently paints the div's
+     un-blurred bounding box for a frame (the sharp rectangular flash/artifact). */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 /* ColorField — heavily stateful + jscolor-integrated, so most of it stays custom CSS:
