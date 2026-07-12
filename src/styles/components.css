@@ -617,6 +617,37 @@
   width: 100%;
 }
 
+/* SaveButtonLabel -- the Save button's animated two-line label. Both lines are centered
+   inside the button's fixed 60px height, so the subtitle never grows the button box. */
+.save-btn-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1.1;
+}
+.save-btn-label-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.save-btn-check {
+  /* GSAP owns opacity/scale/rotate (see SaveButtonLabel.jsx); transform-origin centers the
+     pop. Color inherits the button's current text color so it tracks the hover state. */
+  transform-origin: center;
+  overflow: visible;
+}
+.save-btn-sub {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: none;
+  opacity: 0.6;
+  min-height: 11px;
+  white-space: nowrap;
+}
+
 /* "Go to studio" (compact/homepage-hero) and the full studio's "Return to ..." link
    (non-compact, see StudioPage's returnTo) share this class. Anchored to the bottom of
    the panel itself (top: 100%) rather than living inside it as a .row, so it reads as a
@@ -671,6 +702,15 @@
   border-color: var(--color-accent);
   outline: none;
   background: linear-gradient(42deg, rgba(44, 2, 77, 0.2), rgba(230, 0, 140, 0.2));
+}
+
+/* Save-panel confirmation check — GSAP owns opacity/scale/rotate + the stroke draw (see
+   saveToGallery); center transform-origin makes the pop symmetric, overflow: visible keeps
+   the round stroke caps from clipping mid-draw. */
+.gallery-saved-check {
+  transform-origin: center;
+  overflow: visible;
+  flex-shrink: 0;
 }
 
 /* Save-link panel (#controls-save .text-container) — the share-link box uses an inline

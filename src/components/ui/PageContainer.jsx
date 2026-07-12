@@ -2,9 +2,10 @@ import React from 'react';
 
 // Standard page wrapper for content routes: an optional display title/subtitle header
 // over the page body. Keeps headings consistent across Shop/Gallery/Account.
-export default function PageContainer({ title, subtitle, actions, children }) {
+export default function PageContainer({ title, subtitle, actions, breadcrumb, children }) {
   return (
     <div>
+      {breadcrumb && <div className="mb-4">{breadcrumb}</div>}
       {(title || subtitle || actions) && (
         <header className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
           <div>

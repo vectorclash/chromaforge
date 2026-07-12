@@ -574,16 +574,47 @@ export default class DisplayCanvas extends React.Component {
       // an earlier version tried to smooth that resize instead of avoiding it and never
       // quite lost a residual pop no matter how its timing/easing was tuned.
       //
-      // The id itself uses GSAP's TextPlugin (same mechanism as ProductPage.jsx's mockup
-      // status narration) rather than a fade -- it "types" onto the .share-link-id span,
-      // which the JSX below deliberately renders with no text child so the DOM's current
-      // (empty, while saving) textContent is what the tween types from.
+      // The confirmation itself now transitions via GSAP's TextPlugin (same mechanism as
+      // ProductPage.jsx's mockup status narration and the share-link box below) rather than
+      // a crossfade between two blocks: the title + subtitle "type" from their 'saving'
+      // copy to their 'saved' copy in place, and the check draws + pops in after the title
+      // lands. The animated spans render their 'saving' text statically in the JSX so
+      // React never overwrites what these tweens type on. The id likewise types onto the
+      // .share-link-id span (rendered with no text child, so its empty-while-saving
+      // textContent is what that tween types from).
+      const savedSubline = this.state.animationMode
+        ? 'Your animation is in your gallery — view it any time.'
+        : 'Your design is in your gallery — view it any time or put it on a product.';
       gsap.delayedCall(0.05, () => {
-        gsap.fromTo(
-          '.gallery-saved-alert',
-          { opacity: 0, y: 8, scale: 0.96 },
-          { duration: DURATION_BASE, opacity: 1, y: 0, scale: 1, ease: 'back.out(1.7)' }
-        );
+        gsap.to('.gallery-status-title', {
+          duration: 0.5,
+          ease: 'none',
+          text: 'Saved to your gallery'
+        });
+        gsap.to('.gallery-status-sub', {
+          duration: 0.6,
+          ease: 'none',
+          text: savedSubline
+        });
+        // Check: draw its stroke + pop its scale in, landing just as the title finishes
+        // typing. autoAlpha/scale/rotate is GSAP's; the JSX starts it at opacity 0.
+        const check = this.mount?.querySelector?.('.gallery-saved-check');
+        const checkPath = check?.querySelector('path');
+        if (check) {
+          gsap.fromTo(
+            check,
+            { autoAlpha: 0, scale: 0, rotate: -25 },
+            { autoAlpha: 1, scale: 1, rotate: 0, duration: 0.4, ease: 'back.out(2.5)', delay: 0.4 }
+          );
+        }
+        if (checkPath) {
+          const len = checkPath.getTotalLength();
+          gsap.fromTo(
+            checkPath,
+            { strokeDasharray: len, strokeDashoffset: len },
+            { strokeDashoffset: 0, duration: 0.32, ease: 'power2.out', delay: 0.46 }
+          );
+        }
         gsap.to('.share-link-id', { duration: 1, ease: 'none', text: this.shareDesignId });
       });
     } catch (err) {
@@ -2263,9 +2294,16 @@ export default class DisplayCanvas extends React.Component {
                       a completely separate, non-transitioning display and doesn't need this. */}
                   {(galleryStatus === 'saving' || galleryStatus === 'saved') ? (
                     <div className="relative">
-                      <div className="gallery-saved-alert opacity-0">
+                      {/* Height reserver: the FINAL saved content, in-flow but invisible, so
+                          the panel's height is fixed to the (taller) saved copy from the very
+                          first 'saving' frame -- the animated overlay below types in place
+                          over it and the container never resizes. Same no-resize philosophy
+                          as before; only the transition mechanism changed (TextPlugin type-
+                          through + a popped-in check, in place of the old crossfade between
+                          two separate blocks). */}
+                      <div className="pointer-events-none opacity-0" aria-hidden="true">
                         <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
-                          <span className="text-[#a6e000]">✓ </span>Saved to your gallery
+                          Saved to your gallery
                         </h6>
                         <p className="mt-2 text-sm leading-snug text-white/60">
                           {animationMode
@@ -2273,23 +2311,61 @@ export default class DisplayCanvas extends React.Component {
                             : 'Your design is in your gallery — view it any time or put it on a product.'}
                         </p>
                       </div>
-                      {/* Overlaid on the space the (still invisible-until-saved) block above
-                          already reserves -- a plain CSS crossfade is enough here since
-                          nothing needs to resize, just fade out once the GSAP pop-in (see
-                          saveToGallery) takes over showing the real confirmation. */}
-                      <div
-                        className={
-                          'absolute inset-0 transition-opacity duration-300 ' +
-                          (galleryStatus === 'saved' ? 'pointer-events-none opacity-0' : 'opacity-100')
-                        }
-                      >
-                        <h6 className="m-0 font-display text-xl font-bold text-neutral-50">Saving…</h6>
+                      {/* Animated overlay. The title span and subtitle both render their
+                          'saving' text statically (never keyed to galleryStatus) so React
+                          won't overwrite the text GSAP types onto them once 'saved' lands --
+                          same trick as the .share-link-id box. saveToGallery drives the
+                          TextPlugin type-through + the check's draw/pop-in. */}
+                      <div className="absolute inset-0">
+                        <h6 className="m-0 inline-flex items-center gap-2 font-display text-xl font-bold text-neutral-50">
+                          <span className="gallery-status-title">Saving…</span>
+                          <svg
+                            className="gallery-saved-check text-[#a6e000]"
+                            viewBox="0 0 24 24"
+                            width="18"
+                            height="18"
+                            fill="none"
+                            aria-hidden="true"
+                            style={{ opacity: 0 }}
+                          >
+                            <path
+                              d="M4 12.5 L10 18 L20 6"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </h6>
+                        <p className="gallery-status-sub mt-2 text-sm leading-snug text-white/60">
+                          Adding it to your gallery…
+                        </p>
                       </div>
                     </div>
                   ) : (
-                    <h6 className="m-0 font-display text-xl font-bold text-neutral-50">
+                    <h6 className="m-0 inline-flex items-center gap-2 font-display text-xl font-bold text-neutral-50">
                       {galleryError && 'Save failed'}
-                      {!galleryStatus && !galleryError && 'Saved to your gallery'}
+                      {!galleryStatus && !galleryError && (
+                        <>
+                          Saved to your gallery
+                          <svg
+                            className="text-[#a6e000]"
+                            viewBox="0 0 24 24"
+                            width="18"
+                            height="18"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M4 12.5 L10 18 L20 6"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </>
+                      )}
                     </h6>
                   )}
                   {galleryError && <p className="mt-2 text-sm text-red-300">{galleryError}</p>}

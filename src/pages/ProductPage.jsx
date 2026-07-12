@@ -651,10 +651,16 @@ export default function ProductPage() {
   return (
     <PageContainer
       title={product.title}
-      actions={
-        <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
-          ← Shop
-        </Link>
+      breadcrumb={
+        <nav className="font-quicksand text-sm text-text-muted" aria-label="Breadcrumb">
+          <Link to="/shop" className="transition hover:text-text">
+            Shop
+          </Link>
+          <span className="px-1.5 text-text-muted/60" aria-hidden="true">
+            ›
+          </span>
+          <span className="text-text-secondary">{product.title}</span>
+        </nav>
       }
     >
       {/* Step 1: artwork. Full-width, above the gallery/purchase columns -- it drives both.
