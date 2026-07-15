@@ -24,7 +24,13 @@ tracks what's true now, not history.
       "go-live"): zero-cost draft-order tests for the other six label_inside products —
       hoodie (388), sweatshirt (320), mesh shorts (693), joggers (784), track jacket (801),
       crossbody bag (744). The support ticket can be closed or kept as an FYI to Printful
-      about the v2 bug. Historical root-cause trail below.
+      about the v2 bug. **Remaining-products validation DONE 2026-07-15**: all six
+      remaining label_inside products passed zero-cost v1 draft tests with full real
+      pipeline-rendered placements incl. label_inside/label_outside marks — hoodie
+      (166992864), sweatshirt (166992869), mesh shorts (166992871), joggers (166992874),
+      track jacket (166992878), crossbody bag (166992881); every file `ok`, drafts stable
+      well past the old failure window, left unconfirmed/unbilled. Every store product's
+      order path is now verified fulfillable. Historical root-cause trail below.
       **Original root cause write-up (2026-07-05/09, superseded by the v1 port):** several
       starter products failed Printful's production pipeline on real orders:
       `create-checkout-session`/`stripe-webhook` succeed, Stripe charges go through, a real
