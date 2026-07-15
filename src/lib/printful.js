@@ -470,7 +470,19 @@ async function renderLabelMarkBlob(design, spec, { transparent = false } = {}) {
 
 export async function renderAndUploadPrintFiles(
   entries,
-  { printfileSpecs, design, renderOne, pocketCrop = null, geometryPlacements = null, geometryLayout = null }
+  {
+    printfileSpecs,
+    design,
+    renderOne,
+    pocketCrop = null,
+    geometryPlacements = null,
+    geometryLayout = null,
+    // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
+    // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
+    // real work (a t-shirt's front+back share one render). Never called on failure paths;
+    // the caller's own error handling owns those.
+    onProgress = null
+  }
 ) {
   // rendered[cacheKey] holds the in-flight PROMISE, not the resolved URL -- what makes this
   // dedup-safe under concurrency. Every entry below is assigned its promise in one
@@ -519,6 +531,22 @@ export async function renderAndUploadPrintFiles(
     }
     return [placementKey, rendered[cacheKey]];
   });
+
+  // Progress observers ride alongside the real awaits (side .then on each unique
+  // promise, rejections deliberately swallowed HERE ONLY -- Promise.all below still
+  // surfaces them to the caller).
+  if (onProgress) {
+    const unique = Object.values(rendered);
+    const total = unique.length;
+    let done = 0;
+    onProgress(0, total);
+    for (const p of unique) {
+      p.then(
+        () => onProgress(++done, total),
+        () => {}
+      );
+    }
+  }
 
   const urls = {};
   await Promise.all(

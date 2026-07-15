@@ -167,18 +167,67 @@ function preventOrphan(text) {
 // was rolled for each threshold index the first time it's reached -- without it, re-picking
 // randomly on every one-second tick would make the line flicker between options instead of
 // holding steady until the next threshold.
-function statusNarration(elapsedSeconds, picks) {
+function statusNarration(elapsedSeconds, picks, timeline = STATUS_TIMELINE) {
   let idx = 0;
-  for (let i = 0; i < STATUS_TIMELINE.length; i++) {
-    if (STATUS_TIMELINE[i].at > elapsedSeconds) break;
+  for (let i = 0; i < timeline.length; i++) {
+    if (timeline[i].at > elapsedSeconds) break;
     idx = i;
   }
   if (!picks.has(idx)) {
-    const options = STATUS_TIMELINE[idx].texts;
+    const options = timeline[idx].texts;
     picks.set(idx, options[Math.floor(Math.random() * options.length)]);
   }
   return preventOrphan(picks.get(idx));
 }
+
+// Same narration treatment for the "Buy now" -> Stripe gap, which is the single longest
+// wait in the app: every placement renders at TRUE print resolution server-side before
+// the checkout session can even be created (a cold render machine plus a multi-placement
+// garment is legitimately 30-90s+, confirmed live). Without this the button just sat on
+// a static "Preparing checkout..." long enough to read as broken. Real progress (file
+// counts, from renderAndUploadPrintFiles' onProgress) is shown alongside these lines.
+const CHECKOUT_TIMELINE = [
+  {
+    at: 0,
+    texts: [
+      'Preparing your order for production.',
+      'Beginning print-file generation. Standby.',
+      'Initiating checkout sequence.'
+    ]
+  },
+  {
+    at: 8,
+    texts: [
+      'Rendering each panel at true print resolution -- far larger than your screen.',
+      'Composing production files from your seed. These are print-sized; patience.',
+      'Rendering print files. Every panel, full resolution, no shortcuts.'
+    ]
+  },
+  {
+    at: 25,
+    texts: [
+      'Large garments carry large print areas. The render servers are working.',
+      'Still rendering. A hoodie is measured in tens of millions of pixels.',
+      'Production files take longer than previews. This is the real thing.'
+    ]
+  },
+  {
+    at: 50,
+    texts: [
+      'Running long, but within expected parameters. Do not close this page.',
+      'Slightly behind my estimate. Your order is safe; the renders continue.',
+      'Taking longer than projected. Nothing is broken -- these files are enormous.'
+    ]
+  },
+  {
+    at: 85,
+    texts: [
+      'Nearly there. The moment the last file lands, you will be sent to checkout.',
+      'Final files uploading. Secure checkout follows immediately.',
+      'Almost done. Stripe is next.'
+    ]
+  }
+];
 
 // Decodes each STATUS_TIMELINE line in via GSAP's ScrambleTextPlugin instead of an instant
 // swap -- kept short (0.45s) and letters-only (no symbols) so it reads as a terminal
@@ -342,6 +391,21 @@ export default function ProductPage() {
     }
     prevStatusRef.current = status;
   }, [status]);
+
+  // Checkout wait feedback (see CHECKOUT_TIMELINE): a per-run elapsed counter driving the
+  // narration line, plus real file progress from renderAndUploadPrintFiles' onProgress.
+  // Same picks-per-run mechanism as the mockup narration above.
+  const [checkoutElapsed, setCheckoutElapsed] = useState(0);
+  const [checkoutProgress, setCheckoutProgress] = useState(null); // { done, total } | null
+  const checkoutNarrationPicksRef = useRef(new Map());
+  useEffect(() => {
+    if (!checkoutBusy) return undefined;
+    checkoutNarrationPicksRef.current = new Map();
+    setCheckoutElapsed(0);
+    const startedAt = Date.now();
+    const timer = setInterval(() => setCheckoutElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [checkoutBusy]);
 
   // Stripe bounces back here with ?checkout=canceled on cancel_url -- no dedicated cancel
   // page, just surface it through the existing checkoutNotice mechanism.
@@ -616,6 +680,7 @@ export default function ProductPage() {
   const onBuyNowClick = async () => {
     setCheckoutBusy(true);
     setCheckoutNotice(null);
+    setCheckoutProgress(null);
     try {
       const entries = resolvePlacementEntries(printfileSpecs, variant);
       if (!entries) throw new Error('No printfile mapping for this variant.');
@@ -626,8 +691,12 @@ export default function ProductPage() {
         renderOne: renderPrintFileStrategy,
         pocketCrop: cfg.pocketCrop || null,
         geometryPlacements,
-        geometryLayout: effectiveGeometryLayout
+        geometryLayout: effectiveGeometryLayout,
+        onProgress: (done, total) => setCheckoutProgress({ done, total })
       });
+      // Renders finished; the remaining wait is session creation -- null the counts so the
+      // UI stops saying "file N of M" once that's no longer what's happening.
+      setCheckoutProgress(null);
       const { url, orderId } = await createCheckoutSession({
         productId: product.id,
         productTitle: product.title,
@@ -1046,6 +1115,20 @@ export default function ProductPage() {
               >
                 {checkoutBusy ? 'Preparing checkout…' : 'Buy now'}
               </Button>
+            )}
+            {checkoutBusy && (
+              <div className="mt-3 flex flex-col items-center gap-1 text-center" aria-live="polite">
+                <ScrambleText
+                  text={statusNarration(checkoutElapsed, checkoutNarrationPicksRef.current, CHECKOUT_TIMELINE)}
+                  className="max-w-xs text-xs text-text-secondary"
+                />
+                <p className="font-mono text-[11px] text-text-muted">
+                  {checkoutProgress && checkoutProgress.total > 0
+                    ? `print file ${Math.min(checkoutProgress.done + 1, checkoutProgress.total)} of ${checkoutProgress.total} · `
+                    : ''}
+                  {checkoutElapsed}s elapsed
+                </p>
+              </div>
             )}
             <div className="mt-4 space-y-1.5">
               {user && !storeEnabled && (
