@@ -7,9 +7,26 @@ tracks what's true now, not history.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
-- [ ] **Root cause: the `label_inside` placement, not file size — read this bullet's first
-      paragraph only unless you need the historical evidence trail.** Several starter
-      products fail Printful's production pipeline on real orders:
+- [x] **RESOLVED 2026-07-15: the `label_inside` failures were specific to Printful's
+      v2-beta ORDERS API — `stripe-webhook` now submits orders via the stable v1 API
+      (commit 8ceb17e, deployed), labels kept, no placement filtering needed.** Proven by
+      controlled v1 draft orders (166979280, then 166981022 with all 8 real
+      pipeline-rendered zip-hoodie placements incl. the real 375×150 label mark — every
+      file `ok`, stable, Aaron-verified in the dashboard) and a full live-site e2e checkout
+      through the ported webhook (order 166989163, same result). v1 quirk handled in the
+      port: v1 hard-rejects some products without their required item option (zip hoodie
+      needs explicit `stitch_color`; v2 defaulted it) — mapped from
+      `order_items.product_options`' `{name,value}` shape to v1's `{id,value}`. Mockups
+      deliberately stay on v2 (works fine). Same-day related fix: the Fly render-service
+      was stale (rendering GENERATOR_VERSION 3 vs. designs at v6, so Buy Now errored with
+      "generatorVersion mismatch" before any of this could run) — redeployed; **redeploy
+      render-service whenever GENERATOR_VERSION bumps**. Remaining validation (below in
+      "go-live"): zero-cost draft-order tests for the other six label_inside products —
+      hoodie (388), sweatshirt (320), mesh shorts (693), joggers (784), track jacket (801),
+      crossbody bag (744). The support ticket can be closed or kept as an FYI to Printful
+      about the v2 bug. Historical root-cause trail below.
+      **Original root cause write-up (2026-07-05/09, superseded by the v1 port):** several
+      starter products failed Printful's production pipeline on real orders:
       `create-checkout-session`/`stripe-webhook` succeed, Stripe charges go through, a real
       Printful order is created and shows as `draft` — then ~10-40s later (Printful's own
       async file-processing job) it flips to `failed` with no detail beyond "Failed to

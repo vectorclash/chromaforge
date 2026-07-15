@@ -235,24 +235,23 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   **None of this was actually the root cause of the checkout failures that prompted it,
   though** — see the next bullet, and `TODO.md`'s "Blocking launch" section for the live
   details/evidence.
-- **Printful's own production pipeline can't process files built to its own
-  documented-correct spec, for several starter products — found live, 2026-07-05/06, not
-  fixable from this codebase.** A real Printful order (Stripe charge succeeds,
-  `stripe-webhook` creates the order fine) can still end up `failed` ~10-40s later via
-  Printful's own async file-processing, with the order-item's `placements` silently emptied
-  and no error detail beyond "Failed to process design." Confirmed via a synthetic order
-  submitted with trivial solid-color placeholder files at the exact same dimensions (no
-  rendering/geometry/content involved) failing identically — rules out anything in this
-  app's renderer. Also checked the failing file against a working one for anything else
-  that might differ (RGB vs RGBA, DPI, color space) — identical on every axis; size is the
-  only difference, and **Printful's own official design-template PDF for mesh shorts
-  explicitly specifies 75"×29" at 150dpi/sRGB for this exact placement** — this is the
-  documented-correct spec, not a guess or a stale catalog value, and production still can't
-  handle it. Confirmed working at 28×36in (t-shirt), confirmed failing at 35×40in (zip
-  hoodie) and 75×29in (mesh shorts). Hoodie/sweatshirt/track jacket/joggers are all larger
-  than the known-failing zip hoodie and untested but suspect. See `TODO.md`'s "Blocking
-  launch" section for the full product-by-product breakdown and order IDs — needs a
-  Printful support ticket, not more debugging here.
+- **Printful order failures: root cause was the `label_inside` placement on the v2-beta
+  ORDERS API, RESOLVED 2026-07-15 by porting `stripe-webhook` to the stable v1 orders
+  API** (the original "production can't handle these print-area sizes" theory, and the
+  later "not fixable from this codebase" conclusion, were both disproven). History: real
+  orders on v2 would go `failed` ~10-40s after creation via Printful's async
+  file-processing (placements silently emptied, "Failed to process design") whenever the
+  order included `label_inside`; the exact same product/placements/files process cleanly
+  on v1 — proven via controlled v1 draft orders (166981022: all 8 zip-hoodie placements
+  incl. the real label mark, all `ok`) and a full live e2e checkout through the ported
+  webhook (166989163). Labels are submitted normally again; no placement filtering.
+  Mockups deliberately stay on v2 (`printful-mockup`/`useMockup` — works fine there).
+  v1 gotcha handled in the port: v1 hard-rejects some products without their required
+  item option (zip hoodie needs explicit `stitch_color`) where v2 silently defaulted it —
+  the webhook maps `order_items.product_options` `{name,value}` → v1 `options`
+  `{id,value}`. Also: v1's `DELETE /orders/{id}` marks a draft `canceled` but leaves it
+  visible in the dashboard, and failed orders have their files list emptied server-side.
+  See `TODO.md`'s (now-resolved) "Blocking launch" item for the full evidence trail.
 - `supabase/functions/render-print-file/index.ts` deliberately uses plain `fetch()` against
   Supabase's Auth (`/auth/v1/user`) and Storage (`/storage/v1/object/...`) REST endpoints
   instead of the `@supabase/supabase-js` SDK every other function uses — pulling in the
@@ -713,9 +712,11 @@ Key facts:
     claims the pending→paid transition proceeds, the other no-ops. The Printful recipient
     includes `session.customer_details.email` so Printful can send shipping/tracking
     notifications (Stripe receipt emails are a separate dashboard toggle — see TODO.md).
-    Printful's v2 Orders API (`POST /v2/orders`) **always creates an unconfirmed draft** —
-    a separate `POST /v2/orders/{id}/confirm` actually charges/fulfills it; the webhook
-    does both back-to-back since the customer already paid via Stripe.
+    Orders go through Printful's **stable v1 API** (ported from v2 2026-07-15 — v2's
+    order pipeline fails any order with `label_inside`; see "Server-side print
+    rendering"): `POST /orders` creates an unconfirmed draft by default, and a separate
+    `POST /orders/{id}/confirm` actually charges/fulfills it; the webhook does both
+    back-to-back since the customer already paid via Stripe.
   - **Edge-function auth gotcha, fixed 2026-07-01**: `verify_jwt = true` is NOT "signed-in
     users only" — the public anon key shipped in the JS bundle is itself a valid JWT and
     passes that gate (confirmed live: it reached `printful-mockup`'s logic before the fix).
@@ -829,16 +830,20 @@ credential, checkout dimension validation, render-service memory/concurrency, an
 off-center-geometry regression) — see this file's other sections and `git log` for
 specifics rather than assuming this paragraph stays current for long.
 
-**Real, live-tested checkout currently works end to end for at least the t-shirt**
-(confirmed 2026-07-05: Stripe charge → Printful order → stays in valid `draft`, never
-fails). **Several other products (mesh shorts, zip hoodie confirmed; hoodie, sweatshirt,
-track jacket, joggers suspected) currently cannot actually be fulfilled** — Printful's own
-catalog and production pipeline disagree on print-area size, unrelated to anything in this
-codebase (see "Server-side print rendering" above and `TODO.md`'s "Blocking launch"
-section for the full evidence and product list). `PRINTFUL_SKIP_CONFIRM` is still set
-(intentionally, for continued testing), so no order can be confirmed/billed/produced yet
-regardless — check whether it's still set before assuming real customers can complete a
-purchase.
+**Real, live-tested checkout works end to end, including the previously-failing
+label_inside products** (2026-07-15: live-site Stripe test checkout → ported v1
+`stripe-webhook` → Printful order 166989163, zip hoodie with all 8 placements `ok` and
+stable — the product/placement combination that used to fail every time on v2; see the
+label_inside bullet under "Server-side print rendering"). The other six `label_inside`
+products (hoodie, sweatshirt, mesh shorts, joggers, track jacket, crossbody bag) still
+want a zero-cost draft-order test each before launch, but the failure mechanism is fixed.
+`PRINTFUL_SKIP_CONFIRM` is still set (intentionally), so no order can be
+confirmed/billed/produced yet — check whether it's still set before assuming real
+customers can complete a purchase. `STORE_ENABLED` is also currently `false` (purchasing
+paused; flipped on only for e2e tests). Operational gotcha proven live 2026-07-15: the
+Fly render-service ships a frozen bundle of `src/render` — **it must be redeployed
+(`flyctl deploy --config render-service/fly.toml` from the repo root) whenever
+`GENERATOR_VERSION` bumps**, or every Buy Now fails with "generatorVersion mismatch."
 
 A full pre-launch review + hardening pass landed 2026-07-01 (checkout shipping/tax, the
 webhook race fix, the mockup-function auth gate, OG/meta tags with a pipeline-rendered
