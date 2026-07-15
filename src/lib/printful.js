@@ -456,11 +456,15 @@ function includesGeometry(placementKey, frontKey, geometryPlacements) {
 // same design-mockups bucket every other print/mockup file already lives in.
 const LABEL_MARK_PLACEMENTS = new Set(['label_inside', 'label_outside']);
 
-async function renderLabelMarkBlob(design, spec) {
-  const config = generateLabelMark(design, spec.width, spec.height);
+async function renderLabelMarkBlob(design, spec, { transparent = false } = {}) {
+  const config = generateLabelMark(design, spec.width, spec.height, { transparent });
   const canvas = renderLabelMark(config);
+  // The transparent variant must ship as PNG -- JPEG has no alpha channel, and the whole
+  // point is that unfilled pixels stay unprinted. The paneled variant keeps JPEG (smaller,
+  // no alpha needed).
+  const [type, quality] = transparent ? ['image/png', undefined] : ['image/jpeg', 0.95];
   return new Promise((resolve, reject) =>
-    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Label mark render failed'))), 'image/jpeg', 0.95)
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Label mark render failed'))), type, quality)
   );
 }
 
@@ -493,7 +497,9 @@ export async function renderAndUploadPrintFiles(
       if (!rendered[cacheKey]) {
         const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
         rendered[cacheKey] = spec
-          ? renderLabelMarkBlob(design, spec).then(blob => uploadMockupSourceImage(blob, `${printfileId}-label`))
+          ? renderLabelMarkBlob(design, spec, { transparent: placementKey === 'label_outside' }).then(blob =>
+              uploadMockupSourceImage(blob, `${printfileId}-label`)
+            )
           : Promise.resolve(null);
       }
       return [placementKey, rendered[cacheKey]];
@@ -754,10 +760,13 @@ export async function uploadMockupSourceImage(blob, label) {
   const hash = [...new Uint8Array(digest).slice(0, 8)]
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-  const path = `${user.id}/mockup-${hash}-${label}.jpg`;
+  // Extension follows the blob's real type -- transparent label marks are PNG (alpha),
+  // everything else stays JPEG.
+  const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+  const path = `${user.id}/mockup-${hash}-${label}.${ext}`;
   const { error } = await supabase.storage
     .from(MOCKUP_BUCKET)
-    .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
   if (error) throw error;
 
   return supabase.storage.from(MOCKUP_BUCKET).getPublicUrl(path).data.publicUrl;

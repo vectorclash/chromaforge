@@ -15,7 +15,7 @@
 import tinycolor from 'tinycolor2';
 import { makeRng, randInt } from './prng';
 
-export const LABEL_MARK_GENERATOR_VERSION = 3;
+export const LABEL_MARK_GENERATOR_VERSION = 4;
 
 // Wide placements (label_inside is 375x150, 2.5:1) get a two-panel layout: a square dark
 // panel holding the mark, and the remaining rectangle filled flat with the design's own
@@ -117,7 +117,16 @@ function legibleAccent(hex) {
 // width/height are the target placement's own printfile dims (e.g. 375x150 for
 // label_inside, 450x450 for label_outside) -- the renderer scales/centers the mark to fit
 // whichever aspect it's given.
-export function generateLabelMark(design, width, height) {
+//
+// `transparent` (v4, Aaron-approved from real track-jacket draft mockups, order
+// 166999659): no panel fills at all -- the mark prints directly over whatever the
+// placement sits on. Printful composites label placements OVER the garment's own print
+// (confirmed on a real mockup, not bare fabric), so the dark-panel look isn't needed for
+// contrast there. Ink colors invert to survive without the dark field: the ring becomes
+// the dark ink itself, and the light greyscale chords flip to their dark complements;
+// the colored accent spins stay as-is. Used for label_outside; label_inside keeps the
+// dark split-panel (it's a sewn-in tag -- the panel IS the look there).
+export function generateLabelMark(design, width, height, { transparent = false } = {}) {
   const rng = makeRng(`${design.seed}-label`);
   const colors = design.colors?.length ? design.colors : [DEFAULT_BASE_COLOR];
   const mainColorHex = legibleAccent(colors[randInt(rng, 0, colors.length - 1)]);
@@ -138,8 +147,12 @@ export function generateLabelMark(design, width, height) {
         .spin(-15 + rng() * 30)
         .toHexString();
     } else {
+      // Same rng draw either way (transparency must never shift which chords survive);
+      // only the mapping of the drawn value to ink changes. Light greys read against the
+      // dark panel; their inverses read against the print/fabric when there's no panel.
       const grey = Math.round(100 + rng() * 155);
-      color = tinycolor({ r: grey, g: grey, b: grey }).toHexString();
+      const g = transparent ? 255 - grey : grey;
+      color = tinycolor({ r: g, g: g, b: g }).toHexString();
     }
     lines.push({ x1, y1, x2, y2, color });
   }
@@ -165,10 +178,13 @@ export function generateLabelMark(design, width, height) {
     generatorVersion: LABEL_MARK_GENERATOR_VERSION,
     width,
     height,
-    backgroundColor: BACKGROUND_COLOR,
-    ringColor: RING_COLOR,
+    transparent,
+    // null background = the renderer paints no fills at all (transparent canvas); the
+    // ring flips from white-on-dark to the dark ink itself.
+    backgroundColor: transparent ? null : BACKGROUND_COLOR,
+    ringColor: transparent ? BACKGROUND_COLOR : RING_COLOR,
     accentColor: mainColorHex,
-    panels,
+    panels: transparent ? { ...panels, accent: null } : panels,
     bounds: BOUNDS,
     ring: { center: RING_CENTER, radius: RING_RADIUS },
     lines

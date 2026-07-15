@@ -619,12 +619,27 @@ Key facts:
     **Split-panel layout for wide labels (2026-07-10, user's idea, user-approved from a
     rendered QA page)**: `label_inside`'s 2.5:1 canvas no longer holds the mark alone
     centered in a long dark field — wide placements (aspect ≥ 1.6,
-    `LABEL_MARK_GENERATOR_VERSION = 3`) split into a square dark panel with the mark plus
+    `LABEL_MARK_GENERATOR_VERSION = 3`; now 4, see below) split into a square dark panel with the mark plus
     a flat fill of the design's chosen accent (the same `mainColorHex` the colored chords
     spin from, so the panels share a root color; zero new rng draws). Panel rects live in
     the generator's config (`panels.mark`/`panels.accent`) so `renderLabelMark` stays
     layout-agnostic; square `label_outside` keeps the single centered panel
     (`panels.accent = null`).
+    **Transparent label_outside + heavier mark (2026-07-15, `LABEL_MARK_GENERATOR_VERSION
+    = 4`, Aaron-approved from real track-jacket draft mockups — orders 166996698/166999659):**
+    Printful composites label placements OVER the garment's own print (confirmed on a real
+    mockup — not bare fabric), so `label_outside` now renders with NO panel fills at all
+    (`transparent: true` through `generateLabelMark`/`renderLabelMark`/`renderLabelMarkBlob`,
+    PNG not JPEG since alpha is the point; `uploadMockupSourceImage` extension/contentType
+    follow the blob type) with inverted inks (ring = the dark `#181520` itself, light greys
+    flipped to dark complements, accent spins unchanged; same rng draws, so transparency
+    never shifts which chords survive). Both placements' mark also shrank 15%
+    (`margin` 0.82→0.697) with heavier strokes (3→5.5 lines, 4.5→8 ring) — the thin
+    full-size mark read spindly printed over a busy composition. `label_inside` keeps the
+    dark split-panel look (it's a sewn tag; the panel is the look). Test-order gotcha worth
+    remembering: **Printful dedupes fetched files by URL** — re-serving different bytes at
+    a previously-used URL silently reuses their cached copy (bit us live: order 166998144
+    got the old mark; the real checkout is immune since uploads are content-hashed).
   - **Geometry layout toggle for two-leg-canvas products, 2026-07-05**: mesh shorts
     (693) and joggers (784) print from one flat front/back canvas that gets physically cut
     into two garment legs when sewn (see their `PRODUCT_MOCKUP_CONFIG` entries'
