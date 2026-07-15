@@ -6,11 +6,16 @@
 // webhook caller carries no Supabase JWT at all, only a Stripe-Signature header. Auth here
 // is entirely the signature check below, not Supabase's JWT gate.
 //
-// Printful order API (verified against https://developers.printful.com/docs/v2-beta/, not
-// guessed): POST /v2/orders always creates a DRAFT, uncharged order; a separate
-// POST /v2/orders/{id}/confirm actually confirms/fulfills it. Since the customer has
-// already paid via Stripe by the time this runs, we create + immediately confirm in one go
-// -- there's no reason to leave a paid order sitting as an unconfirmed draft.
+// Printful order API: this function deliberately uses the STABLE v1 orders API, not the
+// v2 beta the mockup pipeline uses. Ported from v2 on 2026-07-15 after live-proving that
+// v2's order pipeline fails any order containing the label_inside placement (~10-40s
+// after creation, via async file processing, placements silently emptied) while v1
+// processes the exact same product/placements/files cleanly -- verified with real draft
+// orders 166979280 and 166981022 (all 8 zip-hoodie placements incl. label_inside, files
+// all 'ok', stable). POST /orders creates a DRAFT, uncharged order by default; a separate
+// POST /orders/{id}/confirm actually confirms/fulfills it. Since the customer has already
+// paid via Stripe by the time this runs, we create + immediately confirm in one go --
+// there's no reason to leave a paid order sitting as an unconfirmed draft.
 //
 // Deploy with: npx supabase functions deploy stripe-webhook --no-verify-jwt
 // Needs: STRIPE_WEBHOOK_SECRET, PRINTFUL_API_KEY (same order-capable key the other two
@@ -28,7 +33,7 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
 
-const PRINTFUL_API_BASE = "https://api.printful.com/v2";
+const PRINTFUL_API_BASE = "https://api.printful.com";
 const STORE_ID = "18363066"; // same store as printful-mockup.js -- not a secret, just an account id
 
 Deno.serve(async req => {
@@ -182,14 +187,24 @@ Deno.serve(async req => {
     },
     items: items.map(item => ({
       quantity: item.quantity,
-      catalog_variant_id: item.variant_id,
-      source: "catalog",
-      ...(item.product_options ? { product_options: item.product_options } : {}),
-      placements: Object.entries(item.print_file_urls as Record<string, string>).map(
+      variant_id: item.variant_id,
+      // order_items.product_options is stored in the v2/mockup shape ({ name, value },
+      // from PRODUCT_MOCKUP_CONFIG's productOptions); v1 item options use { id, value }.
+      // Unlike v2, v1 HARD-REJECTS some products without their required option (confirmed
+      // live: the zip hoodie 400s without an explicit stitch_color), so this mapping is
+      // load-bearing, not cosmetic.
+      ...(item.product_options
+        ? {
+            options: (item.product_options as Array<{ name: string; value: string }>).map(
+              ({ name, value }) => ({ id: name, value })
+            )
+          }
+        : {}),
+      // v1 file types match our placement keys except 'front', which v1 calls 'default'.
+      files: Object.entries(item.print_file_urls as Record<string, string>).map(
         ([placement, url]) => ({
-          placement,
-          technique: "cut-sew",
-          layers: [{ type: "file", url }]
+          type: placement === "front" ? "default" : placement,
+          url
         })
       )
     }))
