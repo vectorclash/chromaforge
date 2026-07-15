@@ -165,6 +165,7 @@ export default class DisplayCanvas extends React.Component {
   componentWillUnmount() {
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     clearTimeout(this.geometryRegenTimer);
+    clearTimeout(this.threeDColorTimer);
   }
 
   componentDidUpdate(prevProps) {
@@ -1215,6 +1216,25 @@ export default class DisplayCanvas extends React.Component {
     );
   }
 
+  // 3D scenes rebuild instantly, so palette changes apply live too (same 350ms debounce
+  // as the geometry sliders) -- without this, color edits only reached the 3D scene on
+  // the next Generate, which read as colors doing nothing. Reads values from the DOM the
+  // same way updateColors() does, since jscolor edits live in the uncontrolled inputs.
+  syncThreeDColors() {
+    if (!this.state.threeDMode || !this.state.threeDDesign) return;
+    clearTimeout(this.threeDColorTimer);
+    this.threeDColorTimer = setTimeout(() => {
+      const colorFields = document.querySelectorAll('.color');
+      const colors = this.state.colors.map((colorObj, index) =>
+        colorFields[index] ? colorFields[index].value : colorObj.value || colorObj
+      );
+      this.setState(s => ({
+        threeDDesign: s.threeDDesign && { ...s.threeDDesign, colors },
+        isSaved: false
+      }));
+    }, 350);
+  }
+
   onDismissBranchNotice() {
     this.setState({ showBranchNotice: false });
   }
@@ -1584,7 +1604,7 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onClearColors() {
-    this.setState({ colors: [] });
+    this.setState({ colors: [] }, () => this.syncThreeDColors());
     this.nextColorId = 0;
   }
 
@@ -1602,7 +1622,7 @@ export default class DisplayCanvas extends React.Component {
         { id: base + 3, value: '#00e5ff' },
         { id: base + 4, value: '#4c00ff' }
       ]
-    });
+    }, () => this.syncThreeDColors());
     this.nextColorId = base + 5;
     gsap.delayedCall(0.05, () => this.animateColors());
   }
@@ -1613,9 +1633,7 @@ export default class DisplayCanvas extends React.Component {
       id: this.nextColorId++,
       value: new tinycolor.random().toHexString()
     });
-    this.setState({
-      colors: colors
-    });
+    this.setState({ colors: colors }, () => this.syncThreeDColors());
 
     gsap.delayedCall(0.05, () => {
       this.animateColors();
@@ -1633,9 +1651,7 @@ export default class DisplayCanvas extends React.Component {
     // Filter out the color to remove by ID
     colors = colors.filter(colorObj => colorObj.id !== colorId);
 
-    this.setState({
-      colors: colors
-    });
+    this.setState({ colors: colors }, () => this.syncThreeDColors());
   }
 
   onReorderColors(draggedColorId, targetColorId) {
@@ -1663,9 +1679,7 @@ export default class DisplayCanvas extends React.Component {
     // the displacement, so it could never be "replaced".
     [colors[draggedIndex], colors[targetIndex]] = [colors[targetIndex], colors[draggedIndex]];
 
-    this.setState({
-      colors: colors
-    });
+    this.setState({ colors: colors }, () => this.syncThreeDColors());
   }
 
   onKeyUp(e) {
@@ -2036,6 +2050,7 @@ export default class DisplayCanvas extends React.Component {
                       colorId={colorObj.id}
                       callback={this.onRemoveColorbuttonClick.bind(this)}
                       onReorder={this.onReorderColors.bind(this)}
+                      onEdit={() => this.syncThreeDColors()}
                     />
                   ))}
                   {colors.length < 6 ? (

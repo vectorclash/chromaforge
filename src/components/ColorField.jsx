@@ -46,6 +46,7 @@ export default class ColorField extends React.Component {
 
   onColorInput(e) {
     this.adjustColor(e.target.value);
+    this.props.onEdit?.();
   }
 
   // Runs on mousedown/touchstart, i.e. before the browser applies focus for *this* tap --

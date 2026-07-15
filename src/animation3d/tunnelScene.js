@@ -164,7 +164,7 @@ function paletteAtHsl(hsls, t) {
 // (blue-white, warm, near-white) that anchor the field so it always reads as space.
 function starPersonality(rng) {
   const t = rng();
-  if (t < 0.42) {
+  if (t < 0.55) {
     // Palette-tracking — small per-star hue offset around the cycling palette color
     return {
       fixed: false,
@@ -172,7 +172,7 @@ function starPersonality(rng) {
       sat: 0.8 + rng() * 0.2,
       lit: 0.5 + rng() * 0.18
     };
-  } else if (t < 0.64) {
+  } else if (t < 0.72) {
     // Blue-white (O/B type)
     return { fixed: true, hue: 0.55 + rng() * 0.1, sat: 0.65 + rng() * 0.3, lit: 0.55 + rng() * 0.18 };
   } else if (t < 0.8) {
@@ -314,7 +314,12 @@ function buildGeometricTunnel(rng, geometry) {
   const clampNum = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   // coherence 0 (the default) = ragged, hand-bent scaffold; 1 = clean geometric bore
   const jitterBase = 0.45 * (1 - geometry.coherence);
-  const radiusBase = 15 + rng() * 9; // camera flies inside
+  // `size` scales the whole structure (bore + outer web); `chance` scales structural
+  // density (wires/panels). Both are pure multipliers with defaults ≡ 1 (size 0.5,
+  // chance 0.4), so default-settings scenes are unchanged and no rng draws move.
+  const sizeScale = 0.55 + geometry.size * 0.9;
+  const densityScale = 0.35 + geometry.chance * 1.625;
+  const radiusBase = (15 + rng() * 9) * sizeScale; // camera flies inside
 
   // Long-wavelength breathing + complexity waves (integer frequencies → loop-safe)
   const radFreq1 = 1 + Math.floor(rng() * 2);
@@ -349,8 +354,20 @@ function buildGeometricTunnel(rng, geometry) {
     let acc = 0;
     for (let i = 0; i < zoneCount; i++) {
       const end = acc + weights[i] / sum;
+      // Zone archetype: most zones are 'normal'; some roll 'sparse' (a near-empty
+      // breather stretch — a few bare ribs, almost no panels) or 'caged' (densely
+      // webbed, panel-heavy). Distinct architecture changes read as travel through
+      // different places, where continuous parameter drift alone read as samey.
+      const styleRoll = rng();
+      const style = styleRoll < 0.2 ? 'sparse' : styleRoll < 0.45 ? 'caged' : 'normal';
       zones.push({
         end,
+        style,
+        wireMul: style === 'sparse' ? 0.3 : style === 'caged' ? 1.6 : 1,
+        panelMul: style === 'sparse' ? 0.25 : style === 'caged' ? 1.5 : 1,
+        // Per-zone palette emphasis: each stretch of tunnel leans on a different part
+        // of the design's palette, so added colors show up as visibly distinct zones.
+        paletteOffset: rng(),
         sides:
           geometry.pointsMin +
           Math.round(rng() * (geometry.pointsMax - geometry.pointsMin)),
@@ -374,7 +391,7 @@ function buildGeometricTunnel(rng, geometry) {
   // the breathing wave moves smoothly within them. Clamped so the camera always clears
   // the wall and the bore stays inside the outer web.
   const boreRadiusAt = (zFrac) =>
-    clampNum(radiusBase * zoneAt(zFrac).radiusScale * radiusWaveAt(zFrac), 8, 34);
+    clampNum(radiusBase * zoneAt(zFrac).radiusScale * radiusWaveAt(zFrac), 8, 34 * sizeScale);
 
   // Curved centerline: the bore drifts laterally around the straight camera path.
   // Amplitude scales with (radius - 8) so the camera is always comfortably inside.
@@ -444,7 +461,7 @@ function buildGeometricTunnel(rng, geometry) {
   {
     const oSides = 5 + Math.floor(rng() * 4);
     const oCount = 10 + Math.floor(rng() * 5);
-    const oRadius = 38 + rng() * 5;
+    const oRadius = (38 + rng() * 5) * sizeScale;
     const oTwist = (0.1 + rng() * 0.2) * (rng() < 0.5 ? -1 : 1);
     let oa = rng() * TWO_PI;
     for (let i = 0; i < oCount; i++) {
@@ -496,8 +513,10 @@ function buildGeometricTunnel(rng, geometry) {
         ? 0.04
         : ring.zone.rippleAmp * (ring.gate ? 0.5 : 1);
       // Wide per-vertex palette offset: adjacent corners land on genuinely different
-      // palette stops, so panels get strong multi-color gradients, not near-flat fills
-      colorJitter[v] = (rng() - 0.5) * 0.3;
+      // palette stops, so panels get strong multi-color gradients, not near-flat fills.
+      // The zone's paletteOffset shifts the whole stretch's emphasis so different tunnel
+      // sections visibly foreground different palette colors.
+      colorJitter[v] = (rng() - 0.5) * 0.3 + (ring.zone ? ring.zone.paletteOffset : 0);
       dim[v] = ring.outer ? 0.65 : 1;
     }
   }
@@ -516,13 +535,15 @@ function buildGeometricTunnel(rng, geometry) {
       const B = chain[(i + 1) % chain.length];
       const off = i + 1 === chain.length ? TUNNEL_LENGTH : 0;
       const zFrac = A.z / TUNNEL_LENGTH;
-      const densityMul = A.zone ? 0.35 + A.zone.density : 1;
+      const densityMul = (A.zone ? 0.35 + A.zone.density : 1) * densityScale;
+      const zoneWireMul = A.zone ? A.zone.wireMul : 1;
+      const zonePanelMul = A.zone ? A.zone.panelMul : 1;
       // Patchy wireframe: each ring section rolls its own wire density — some sections
       // nearly bare, others fully caged — modulated by the zone and complexity wave.
       // Coherence raises the wire floor: less patchy, closer to a complete cage
       const wire = clampNum(
         (0.15 + rng() * 0.85 + coh * 0.4) *
-          complexityAt(zFrac) * densityMul * (A.gate ? 2.2 : 1) * wireScale,
+          complexityAt(zFrac) * densityMul * zoneWireMul * (A.gate ? 2.2 : 1) * wireScale,
         0,
         1.15
       );
@@ -530,6 +551,7 @@ function buildGeometricTunnel(rng, geometry) {
         (0.28 + geometry.coherence * 0.3) *
         complexityAt(zFrac) *
         densityMul *
+        zonePanelMul *
         panelScale *
         (A.gate ? 0.5 : 1); // gates are wire showpieces, not panel walls
       for (let j = 0; j < A.sides; j++) {
@@ -785,8 +807,17 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     maxSpread: 90,
     baseHue: (dominantHue + 150 + rng() * 60) % 360
   });
-  domeHex[1] = accents[0];
-  domeHex[3] = accents[1];
+  // Accent share scales down as the user supplies more colors: a 1–2 color palette
+  // still gets two accent slots (avoids the single-hue wash), but once the user has
+  // deliberately built a 3+ color palette their colors own 3 of the 4 dome slots —
+  // previously accents always took half the dome, which is why adding colors barely
+  // changed the background.
+  if (palette.length >= 3) {
+    domeHex[3] = accents[0];
+  } else {
+    domeHex[1] = accents[0];
+    domeHex[3] = accents[1];
+  }
   const bgColors = domeHex.map(hex => new THREE.Color(hex));
   // ~1/3 accent share in the triangles/nebulae keeps the design's palette dominant while
   // guaranteeing multi-hue contrast in every layer.
