@@ -161,10 +161,46 @@ export default class DisplayCanvas extends React.Component {
     this.queue.loadManifest(queueItems);
 
     this.checkAudioExportSupport();
+
+    // Compact (homepage hero) only: the artwork renders slightly oversized (scale 1.12)
+    // and drifts upward at a fraction of the scroll speed -- a parallax against the rest
+    // of the homepage scrolling past. The offset is clamped to what the overscale can
+    // cover (6% of the container height per direction) so an edge never slides into
+    // view. Transform only -- every GSAP tween on .image-container animates alpha, so
+    // nothing fights this. rAF-throttled; skipped under prefers-reduced-motion.
+    if (this.props.compact && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      // The page scrolls inside SiteLayout's own overflow-y viewport, NOT the document
+      // (window.scrollY stays 0 forever -- confirmed live, the first window-scroll
+      // version never moved). Listen on that ancestor instead; scroll events don't
+      // bubble, but they do fire on the scrolling element itself, found by walking up
+      // from this component's root.
+      const scroller = document.querySelector('.display-canvas')?.closest('.overflow-y-auto');
+      let raf = 0;
+      const apply = () => {
+        raf = 0;
+        const el = document.querySelector('.image-container');
+        if (!el || !scroller) return;
+        const max = el.clientHeight * 0.06;
+        // Positive (downward) offset: the section scrolls up past the viewport while the
+        // artwork inside it lags behind, i.e. the background moves slower than the page.
+        const y = Math.min(scroller.scrollTop * 0.15, max);
+        el.style.transform = `translateY(${y}px) scale(1.12)`;
+      };
+      this.onHeroParallaxScroll = () => {
+        if (!raf) raf = requestAnimationFrame(apply);
+      };
+      this.heroParallaxScroller = scroller;
+      scroller?.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
+      // Set the initial oversize before any scroll happens.
+      this.onHeroParallaxScroll();
+    }
   }
 
   componentWillUnmount() {
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
+    if (this.onHeroParallaxScroll) {
+      this.heroParallaxScroller?.removeEventListener('scroll', this.onHeroParallaxScroll);
+    }
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);
   }

@@ -395,7 +395,15 @@ updates key off `currentDesign`; a pending-bitmap handoff covers whichever of
 scene-init/first-render finishes last. The scene fades in wearing the model's own white baseColor sheet the moment it loads
 (seeded onto the texture canvas from a stable copy — blending a canvas onto itself would
 compound per frame), so there's never a shirtless gap on first load; the first design
-crossfades in from white. The shirt NEVER leaves during a generate: it keeps
+crossfades in from white. A generate-transition ShaderPass (EffectComposer) combines chromatic aberration — a
+uniform LATERAL RGB split, NOT radial-from-center (radial was tried and user-rejected:
+nothing visible at the centered shirt's chest, anaglyph mush at the edges) — with an
+animated heat-haze distortion (crossed scrolling sine waves, uTime from the rAF clock),
+both scaled by one normalized `uAmount` tweened up on generate start and to 0 with the
+crossfade; alpha takes the max of the three taps so the fringe isn't clipped at the
+silhouette. The pass stays in the chain at 0 (identity) rather than branching render
+paths. Note the aberration is content-dependent — near-monochrome designs (e.g. all-blue)
+show it faintly since the shifted channels carry little signal. The shirt NEVER leaves during a generate: it keeps
 the old design while the background renders, then TEXTURE-level crossfades to the new
 sheet (the material's single persistent canvas is re-blended old/new per tween frame —
 deliberately not a second shirt mesh, which would z-fight its coplanar twin) the moment
@@ -410,7 +418,13 @@ The shirt is a shop link (button wrapping the WebGL mount, `onShopClick` → `/s
 design carries via StudioContext — no params needed) with a frosted "Shop →" pill hover/focus
 hint at the shirt's top-right (an under-the-shirt "Shop this design" caption was
 user-rejected on wording + placement); the hover scale lives on the button, not the mount,
-since GSAP owns the mount's inline transform. An ambient `.hero-dot-grid` layer (masked dot pattern, `components.css`) sits behind the
+since GSAP owns the mount's inline transform. The hero artwork parallaxes on scroll (compact only, DisplayCanvas.componentDidMount):
+`.image-container` renders at scale 1.12 and drifts down at 0.15× scroll speed, clamped
+to the 6% the overscale can cover — the listener attaches to SiteLayout's `.overflow-y-auto`
+scroll viewport, NOT window (the document never scrolls; `window.scrollY` stays 0 —
+confirmed live when the first window-scroll version never moved). Transform only, so the
+alpha-only GSAP tweens on `.image-container` don't conflict; skipped under
+prefers-reduced-motion. An ambient `.hero-dot-grid` layer (masked dot pattern, `components.css`) sits behind the
 compact UI, extending ~110px past it and dissipating with distance via intersecting X/Y
 gradient masks (`mask-composite: intersect` — rectangular falloff, not radial).
 Compact buttons are smaller than the studio's (56/50px vs 80/60) and sit in a tight stack

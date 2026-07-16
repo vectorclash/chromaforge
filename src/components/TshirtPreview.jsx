@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap/all';
 import ArrowIcon from './buttons/ArrowIcon';
 import { useStudio } from '../context/StudioContext';
-import { DURATION_SLOW } from '../utils/motionTokens';
+import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 
 // Small live 3D garment preview for the homepage hero panel: the current design rendered
 // as the base-color texture of a t-shirt model, slowly rotating. three.js is dynamically
@@ -42,6 +42,55 @@ const SLEEVE_ISLANDS = [
 const BODY_RENDER = { w: 512, h: 744 };
 const SLEEVE_RENDER = { w: 512, h: 270 };
 
+// Generate-transition pass: chromatic aberration + animated wavy distortion, both scaled
+// by one normalized strength uniform (uAmount 0..1) so they rise and fall together.
+// The aberration is a uniform LATERAL RGB split (red left, blue right) rather than
+// radial-from-center -- radial was tried first and didn't read as aberration at this
+// size (nothing happens at the centered shirt's chest while the edges turn into
+// misregistered anaglyph channels); a small constant split gives the classic crisp
+// red/blue ghost edges everywhere. The distortion is two crossed sine waves scrolling
+// via uTime (fed from the rAF clock), so the shirt shimmers like heat-haze while the
+// render is in flight. Alpha takes the max of the three taps so the fringe isn't
+// clipped at the silhouette.
+const ABERRATION_PEAK = 1;
+const AberrationShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uAmount: { value: 0 },
+    uTime: { value: 0 }
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float uAmount;
+    uniform float uTime;
+    varying vec2 vUv;
+    void main() {
+      vec2 uv = vUv;
+      // Two incommensurate octaves per axis with cross-axis phase terms -- a single
+      // sine per axis read as a uniform corrugated ripple; the mixed frequencies give
+      // larger, irregular blob-like warps instead.
+      float nx = sin(uv.y * 6.8 + uTime * 3.1)
+               + 0.6 * sin(uv.y * 13.7 - uTime * 4.3 + uv.x * 5.2);
+      float ny = cos(uv.x * 5.9 - uTime * 2.6)
+               + 0.6 * cos(uv.x * 11.3 + uTime * 3.8 + uv.y * 4.4);
+      uv.x += nx * 0.012 * uAmount;
+      uv.y += ny * 0.009 * uAmount;
+      vec2 off = vec2(0.02 * uAmount, 0.0);
+      vec4 cr = texture2D(tDiffuse, uv - off);
+      vec4 cc = texture2D(tDiffuse, uv);
+      vec4 cb = texture2D(tDiffuse, uv + off);
+      gl_FragColor = vec4(cr.r, cc.g, cb.b, max(max(cr.a, cc.a), cb.a));
+    }
+  `
+};
+
 // `waiting` is the hero background's own isLoading (true from the Generate click until
 // setImage fades the new artwork in). The shirt NEVER leaves during a generate (an
 // earlier dip-out/return version made the centered shirt+buttons+loader arrangement
@@ -77,8 +126,15 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
     s.api.setSheet(sheet, { animate: true });
   };
 
+  // Chromatic aberration rides the same signal: snaps up when a generate starts, eases
+  // back to zero over the same span as the texture crossfade when the new design lands.
   useEffect(() => {
-    if (!waiting) commitStagedSheet();
+    if (waiting) {
+      stateRef.current.api?.setAberration(ABERRATION_PEAK, DURATION_FAST);
+    } else {
+      commitStagedSheet();
+      stateRef.current.api?.setAberration(0, DURATION_SLOW);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waiting]);
 
@@ -90,10 +146,14 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
 
     (async () => {
       try {
-        const [THREE, { GLTFLoader }] = await Promise.all([
-          import('three'),
-          import('three/examples/jsm/loaders/GLTFLoader.js')
-        ]);
+        const [THREE, { GLTFLoader }, { EffectComposer }, { RenderPass }, { ShaderPass }] =
+          await Promise.all([
+            import('three'),
+            import('three/examples/jsm/loaders/GLTFLoader.js'),
+            import('three/examples/jsm/postprocessing/EffectComposer.js'),
+            import('three/examples/jsm/postprocessing/RenderPass.js'),
+            import('three/examples/jsm/postprocessing/ShaderPass.js')
+          ]);
         if (disposed) return;
 
         // WebGL context creation can genuinely fail (GPU blocklists, headless) -- the
@@ -254,15 +314,37 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           }
         }
 
+        // Postprocessing chain for the generate-transition chromatic aberration. The
+        // pass stays in the chain at uAmount 0 (visually identity) -- swapping between
+        // composer/direct rendering per state isn't worth the branching at this size.
+        const composer = new EffectComposer(renderer);
+        composer.setPixelRatio(renderer.getPixelRatio());
+        composer.setSize(size, size);
+        composer.addPass(new RenderPass(scene, camera));
+        const aberrationPass = new ShaderPass(AberrationShader);
+        composer.addPass(aberrationPass);
+        let aberrationTween = null;
+        const setAberration = (value, duration) => {
+          aberrationTween?.kill();
+          aberrationTween = gsap.to(aberrationPass.uniforms.uAmount, {
+            value,
+            duration,
+            ease: value > 0 ? 'power2.out' : 'power2.inOut'
+          });
+        };
+
         let raf = 0;
-        const animate = () => {
+        const animate = now => {
           pivot.rotation.y += (targetYaw - pivot.rotation.y) * 0.04;
-          renderer.render(scene, camera);
+          aberrationPass.uniforms.uTime.value = now * 0.001;
+          composer.render();
           raf = requestAnimationFrame(animate);
         };
         raf = requestAnimationFrame(animate);
 
-        stateRef.current.api = { setSheet };
+        stateRef.current.api = { setSheet, setAberration };
+        // If a generate is already in flight when the scene comes up, join it mid-state.
+        if (stateRef.current.waiting) setAberration(ABERRATION_PEAK, DURATION_FAST);
         // The white tee is already on the canvas -- show the shirt now. hasTexture is set
         // here (not on the first design commit) so that first commit crossfades from
         // white instead of applying instantly.
@@ -276,13 +358,16 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           cancelAnimationFrame(raf);
           inputCleanups.forEach(fn => fn());
           crossfadeTween?.kill();
+          aberrationTween?.kill();
           stateRef.current.api = null;
           texture.dispose();
           materials.forEach(mat => mat.dispose());
+          composer.dispose?.();
           renderer.dispose();
           if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
         };
-      } catch {
+      } catch (err) {
+        console.error('TshirtPreview init failed:', err);
         if (!disposed) setFailed(true);
       }
     })();
