@@ -407,6 +407,26 @@ export default function ProductPage() {
     return () => clearInterval(timer);
   }, [checkoutBusy]);
 
+  // While a checkout is being prepared (Buy Now clicked, print files rendering, Stripe
+  // session being created), warn on tab close/refresh/external navigation -- abandoning
+  // mid-run wastes the render work and can strand the run right before the Stripe
+  // redirect. beforeunload prompts are browser-generic (custom text is ignored by every
+  // modern browser), so the wording lives in the on-page narration instead. The guard
+  // must stand down for the flow's own intentional page leave -- the redirect to Stripe
+  // IS a navigation -- via checkoutLeaveOkRef, set just before window.location.href.
+  const checkoutLeaveOkRef = useRef(false);
+  useEffect(() => {
+    if (!checkoutBusy) return undefined;
+    const onBeforeUnload = e => {
+      if (checkoutLeaveOkRef.current) return;
+      e.preventDefault();
+      // Required for Chrome to actually show the prompt.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [checkoutBusy]);
+
   // Stripe bounces back here with ?checkout=canceled on cancel_url -- no dedicated cancel
   // page, just surface it through the existing checkoutNotice mechanism.
   useEffect(() => {
@@ -678,6 +698,10 @@ export default function ProductPage() {
   // toggle a checkbox or the layout after generating a mockup and buy something they never
   // previewed.
   const onBuyNowClick = async () => {
+    // Re-arm the leave guard: after a Stripe redirect the ref stays true, and coming BACK
+    // from Stripe can restore this page from the bfcache with all its state intact -- a
+    // second Buy Now run would otherwise be unguarded.
+    checkoutLeaveOkRef.current = false;
     setCheckoutBusy(true);
     setCheckoutNotice(null);
     setCheckoutProgress(null);
@@ -710,6 +734,8 @@ export default function ProductPage() {
       // CheckoutSuccessPage reads this rather than looking the order up by Stripe session
       // id -- simpler, and avoids needing a session-id-keyed lookup RPC.
       sessionStorage.setItem('chromaforge:lastOrderId', orderId);
+      // Intentional page leave -- stand the beforeunload guard down for the Stripe redirect.
+      checkoutLeaveOkRef.current = true;
       window.location.href = url;
     } catch (err) {
       setCheckoutNotice(err.message);
