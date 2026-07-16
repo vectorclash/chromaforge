@@ -17,6 +17,18 @@ function send(res, status, body) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // Pre-warm hook: Fly wakes a scaled-to-zero machine on ANY incoming request, so the
+  // frontend fires a throttled no-cors ping here the moment purchase intent appears
+  // (first mockup render -- see lib/printful.js's warmRenderService) and the cold-start
+  // is already paid by the time Buy Now actually needs /render. Deliberately unauthed:
+  // it does zero work, and an unauthenticated request already woke the machine anyway
+  // (auth is checked in here, after Fly has started us) -- this adds no new surface.
+  if (req.method === 'GET' && req.url === '/warmup') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   if (req.method !== 'POST' || req.url !== '/render') {
     send(res, 404, { error: 'Not found' });
     return;

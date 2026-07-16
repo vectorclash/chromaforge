@@ -261,6 +261,13 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   `deno.json`/import map needed as a result. If this function ever needs more than
   "verify a JWT" + "upload a file," reconsider whether the SDK's bundle-time cost is worth
   it, but don't reach for it by default here.
+- **Pre-warm (2026-07-16)**: `GET /warmup` on the render-service is a no-op, no-auth
+  endpoint whose only job is making Fly wake the scaled-to-zero machine;
+  `warmRenderService()` (`lib/printful.js`) fires a no-cors, 2-min-throttled ping at it on
+  every mockup request (`useMockup.generate`, before the cache check on purpose) so the
+  ~6s cold start (measured live) is already paid before a Buy Now needs `/render`. Idle
+  scale-to-zero behavior is unchanged; the URL isn't a secret (only RENDER_SERVICE_KEY
+  is, and /warmup never touches it).
 - `RENDER_SERVICE_KEY` (shared secret, `X-Render-Key` header) is set both as a Fly.io
   secret (`flyctl secrets set RENDER_SERVICE_KEY=... --app chromaforge-render`) and as the
   `render-print-file` Edge Function's `RENDER_SERVICE_KEY` secret — same value, two places,

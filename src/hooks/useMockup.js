@@ -6,7 +6,8 @@ import {
   resolveMockupStyleIds,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
-  capRenderStrategy
+  capRenderStrategy,
+  warmRenderService
 } from '../lib/printful';
 import { useStudio } from '../context/StudioContext';
 
@@ -155,6 +156,12 @@ export function useMockup() {
         setError('No printfile mapping for this variant.');
         return;
       }
+
+      // A mockup request is the strongest pre-purchase signal there is -- start waking
+      // the scale-to-zero render-service now so a later Buy Now doesn't pay its cold
+      // start. Before the cache check on purpose: a returning visitor whose mockup is
+      // cached is just as likely to buy.
+      warmRenderService();
 
       const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions);
       currentKeyRef.current = key;
