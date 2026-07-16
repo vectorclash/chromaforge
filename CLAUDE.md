@@ -376,9 +376,11 @@ the current design. No idle spin (Aaron's call, replacing a first rotating versi
 shirt faces forward and eases toward the mouse's horizontal position — or, on touch
 devices (`pointer: coarse`), with the phone's side-to-side tilt (deviceorientation gamma,
 ±25° tilt = full range; baseline is the first reading and drifts slowly toward the live
-angle so a changed grip re-centers; iOS 13+ needs `DeviceOrientationEvent.requestPermission()`
-called from a first-touch handler — denied just leaves it static) — capped at ±15° yaw
-either way, static under prefers-reduced-motion. Below 480px the shirt+buttons row stacks
+angle so a changed grip re-centers) — capped at ±15° yaw either way, static under
+prefers-reduced-motion. Tilt runs ONLY where no permission prompt is needed (Android);
+iOS 13+'s `requestPermission()`-on-first-tap flow was tried and user-rejected live (the
+natural first tap is the shirt itself, so the prompt fired after navigating to the shop) —
+iOS deliberately gets a static shirt, don't reintroduce the prompt. Below 480px the shirt+buttons row stacks
 vertically (`.hero-compact-row` media query — side-by-side overflows a phone viewport). The model (Sketchfab "Tshirt" by khalilchahi99, CC-BY-4.0 —
 attribution in its license.txt) lives in `public/models/tshirt/` (GLTFLoader fetches
 scene.bin/textures by URL; Vite can't resolve those from src/assets — the src/assets copy

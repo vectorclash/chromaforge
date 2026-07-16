@@ -567,7 +567,7 @@
 @media (max-width: 480px) {
   .display-canvas .controls-inner.controls-compact .hero-compact-row {
     flex-direction: column;
-    gap: 8px;
+    gap: 16px;
   }
   .display-canvas .controls-inner.controls-compact .hero-dot-grid {
     inset: -70px -60px;

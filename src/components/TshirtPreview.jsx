@@ -240,20 +240,12 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
 
         if (!reducedMotion) {
           if (isTouch && typeof DeviceOrientationEvent !== 'undefined') {
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-              // iOS 13+: orientation access needs an explicit permission request, and the
-              // request itself must come from a user gesture -- hook the first touch.
-              // Denied/failed just leaves the shirt static, same as reduced motion.
-              const onFirstTouch = () => {
-                DeviceOrientationEvent.requestPermission()
-                  .then(state => {
-                    if (state === 'granted') startOrientation();
-                  })
-                  .catch(() => {});
-              };
-              window.addEventListener('touchend', onFirstTouch, { once: true });
-              inputCleanups.push(() => window.removeEventListener('touchend', onFirstTouch));
-            } else {
+            // Only where orientation works WITHOUT a permission prompt (Android). iOS 13+
+            // gates it behind DeviceOrientationEvent.requestPermission(), which must be
+            // called from a tap -- tried and user-rejected: the natural first tap is the
+            // shirt itself, so the prompt appeared after navigating away to the shop.
+            // A permission dialog isn't worth a decorative tilt; iOS gets a static shirt.
+            if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
               startOrientation();
             }
           } else {
