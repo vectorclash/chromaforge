@@ -82,7 +82,7 @@ const AberrationShader = {
                + 0.6 * cos(uv.x * 11.3 + uTime * 3.8 + uv.y * 4.4);
       uv.x += nx * 0.012 * uAmount;
       uv.y += ny * 0.009 * uAmount;
-      vec2 off = vec2(0.02 * uAmount, 0.0);
+      vec2 off = vec2(0.06 * uAmount, 0.0);
       vec4 cr = texture2D(tDiffuse, uv - off);
       vec4 cc = texture2D(tDiffuse, uv);
       vec4 cb = texture2D(tDiffuse, uv + off);
