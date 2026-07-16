@@ -189,8 +189,8 @@ tracks what's true now, not history.
       `.github/workflows/printful-catalog-check.yml` (13:17 UTC + manual dispatch); alert
       channel is GitHub's failed-workflow email. Companion fix shipped same day:
       `printful-mockup` now logs Printful's error body on non-2xx (deployed).
-      **ACTION NEEDED (Aaron): add the `PRINTFUL_API_KEY` repo secret on GitHub** (Settings
-      → Secrets and variables → Actions) — the workflow can't run without it.
+      `PRINTFUL_API_KEY` repo secret added and a manual dispatch ran green (Aaron,
+      2026-07-16) — the cron is fully operational.
       Still open from the original item: graceful 429 handling on mockup tasks (Printful's
       real limit is 2 mockup-task POSTs/60s across ALL users; the 429 body says how long to
       wait — auto-retry with that delay). Matters once real traffic exists.
