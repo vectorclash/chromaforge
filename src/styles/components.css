@@ -510,21 +510,38 @@
    keeps it behind the shirt/buttons but above the artwork (controls-inner's own z-index
    makes it a stacking context, so -1 can't escape below the canvas). */
 .display-canvas .controls-inner.controls-compact .hero-dot-grid {
+  /* Single source of truth for the dot grid's look -- edit these, nothing else.
+     --dot-bleed-*  = total distance the layer extends past the panel (outer edge).
+     --dot-fade-*   = width of the gradient itself, measured in from that outer edge --
+                      independent of bleed, so the flat "fully opaque" zone in the middle
+                      can be made bigger or smaller without changing how far the dots reach,
+                      and vice versa. Fade width can't exceed bleed (nothing left to fade
+                      into) -- keep dot-fade-* <= dot-bleed-*. */
+  --dot-size: 1.2px;
+  --dot-falloff: 1.9px;
+  --dot-opacity: 0.35;
+  --dot-spacing: 20px;
+  --dot-bleed-x: 80px;
+  --dot-bleed-y: 80px;
+  --dot-fade-x: 120px;
+  --dot-fade-y: 120px;
+
   position: absolute;
-  inset: -110px -130px;
+  inset: calc(-1 * var(--dot-bleed-y)) calc(-1 * var(--dot-bleed-x));
   z-index: -1;
   pointer-events: none;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.55) 1.2px, transparent 1.9px);
-  background-size: 26px 26px;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, var(--dot-opacity)) var(--dot-size), transparent var(--dot-falloff));
+  background-size: var(--dot-spacing) var(--dot-spacing);
   background-position: center;
   -webkit-mask-image:
-    linear-gradient(to right, transparent, black 130px, black calc(100% - 130px), transparent),
-    linear-gradient(to bottom, transparent, black 110px, black calc(100% - 110px), transparent);
+    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
+    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
   mask-image:
-    linear-gradient(to right, transparent, black 130px, black calc(100% - 130px), transparent),
-    linear-gradient(to bottom, transparent, black 110px, black calc(100% - 110px), transparent);
+    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
+    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
   -webkit-mask-composite: source-in;
   mask-composite: intersect;
+  mix-blend-mode: color-burn;
 }
 
 /* Hover hint on the shirt-model shop link: a small "Shop →" pill in the shirt's
@@ -568,15 +585,6 @@
   .display-canvas .controls-inner.controls-compact .hero-compact-row {
     flex-direction: column;
     gap: 16px;
-  }
-  .display-canvas .controls-inner.controls-compact .hero-dot-grid {
-    inset: -70px -60px;
-    -webkit-mask-image:
-      linear-gradient(to right, transparent, black 70px, black calc(100% - 70px), transparent),
-      linear-gradient(to bottom, transparent, black 70px, black calc(100% - 70px), transparent);
-    mask-image:
-      linear-gradient(to right, transparent, black 70px, black calc(100% - 70px), transparent),
-      linear-gradient(to bottom, transparent, black 70px, black calc(100% - 70px), transparent);
   }
 }
 
