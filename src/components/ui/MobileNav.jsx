@@ -124,6 +124,13 @@ export default function MobileNav({ open, onClose }) {
       aria-modal="true"
       aria-label="Site navigation"
       className="fixed inset-0 z-10 flex flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
+      // Mounts hidden: the entrance tween runs in a useEffect, which usually beats the
+      // browser's next paint but not always -- without this, roughly 1-in-8 opens painted
+      // one frame of the fully-opaque panel before GSAP snapped it to 0 and faded in (a
+      // visible pop-then-fade, user-reported on device). GSAP's inline autoAlpha
+      // overrides this immediately; React re-renders won't reapply it since the style
+      // prop's value never changes.
+      style={{ opacity: 0, visibility: 'hidden' }}
     >
       {/* Active artwork as the panel's background, same treatment as SiteFooter -- 75%
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
