@@ -461,6 +461,134 @@
   }
 }
 
+/* Compact hero panel -- no glass backing: the 3D shirt + buttons float directly over the
+   artwork. Kills the frosted glass, gradient bottom border, padding, and min-width the
+   base .controls-inner carries; the buttons get their own separation instead (the Generate
+   gradient is opaque already; Save gets a dark translucent fill since its base style is
+   transparent-with-border, unreadable over bright artwork). Buttons are deliberately
+   smaller than the full studio's (56/50 vs 80/60); the shirt is sized larger than the
+   button column on purpose -- it's the panel's visual anchor. */
+.display-canvas .controls-inner.controls-compact {
+  backdrop-filter: none;
+  border-bottom: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  min-width: 0;
+  width: auto;
+}
+.display-canvas .controls-inner.controls-compact::after {
+  display: none;
+}
+.display-canvas .controls-inner.controls-compact .row {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.display-canvas .controls-inner.controls-compact .row button {
+  /* mix-blend-mode: lighten (the base .row button value) only made sense against the
+     glass backing; straight over the artwork it washes the buttons out. */
+  mix-blend-mode: normal;
+  height: 50px;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.35));
+}
+.display-canvas .controls-inner.controls-compact .row .button-large {
+  height: 56px;
+}
+.display-canvas .controls-inner.controls-compact .row .button-small {
+  background: rgba(24, 21, 32, 0.45);
+  backdrop-filter: blur(4px);
+}
+.display-canvas .controls-inner.controls-compact .row .button-small:hover {
+  background: rgba(166, 224, 0, 0.15);
+}
+.display-canvas .controls-inner.controls-compact .tshirt-preview {
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+}
+/* Ambient dot grid behind the compact hero UI -- extends past the panel and dissipates
+   with distance: the intersecting X/Y gradient masks hold the dots at full strength
+   around the UI itself, then fall off to nothing over the outer ~90px band. z-index -1
+   keeps it behind the shirt/buttons but above the artwork (controls-inner's own z-index
+   makes it a stacking context, so -1 can't escape below the canvas). */
+.display-canvas .controls-inner.controls-compact .hero-dot-grid {
+  position: absolute;
+  inset: -110px -130px;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.55) 1.2px, transparent 1.9px);
+  background-size: 26px 26px;
+  background-position: center;
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, black 130px, black calc(100% - 130px), transparent),
+    linear-gradient(to bottom, transparent, black 110px, black calc(100% - 110px), transparent);
+  mask-image:
+    linear-gradient(to right, transparent, black 130px, black calc(100% - 130px), transparent),
+    linear-gradient(to bottom, transparent, black 110px, black calc(100% - 110px), transparent);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+
+/* Hover hint on the shirt-model shop link: a small "Shop →" pill in the shirt's
+   top-right corner (nav vocabulary -- matches the header's Shop item and the
+   "Go to studio →" arrow language, not a marketing caption; a first under-the-shirt
+   "Shop this design" label was user-rejected on both wording and placement). Frosted
+   pill so it holds up over any artwork; slides in slightly toward the shirt. */
+.display-canvas .controls-compact .tshirt-shop-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(24, 21, 32, 0.6);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--color-text);
+  font-family: var(--font-quicksand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.9);
+  pointer-events: none;
+  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+}
+.display-canvas .controls-compact .tshirt-preview-btn:hover .tshirt-shop-hint,
+.display-canvas .controls-compact .tshirt-preview-btn:focus-visible .tshirt-shop-hint {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* Small screens: the side-by-side shirt+buttons row (~430px) overflows a phone viewport
+   (found via 390px-wide emulation -- the shirt pinned to the corner and the buttons
+   clipped), so the layout stacks: shirt above, buttons below. */
+@media (max-width: 480px) {
+  .display-canvas .controls-inner.controls-compact .hero-compact-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .display-canvas .controls-inner.controls-compact .hero-dot-grid {
+    inset: -70px -60px;
+    -webkit-mask-image:
+      linear-gradient(to right, transparent, black 70px, black calc(100% - 70px), transparent),
+      linear-gradient(to bottom, transparent, black 70px, black calc(100% - 70px), transparent);
+    mask-image:
+      linear-gradient(to right, transparent, black 70px, black calc(100% - 70px), transparent),
+      linear-gradient(to bottom, transparent, black 70px, black calc(100% - 70px), transparent);
+  }
+}
+
+/* In compact the studio link sits inside the button column (under Save), not absolutely
+   centered below the whole panel like the full studio's return link. */
+.display-canvas .controls-inner.controls-compact .go-to-studio-btn {
+  position: static;
+  transform: none;
+  margin-top: 8px;
+  align-self: center;
+}
+
 /* Panel rows — flex layout + the buttons/inputs. Effect-heavy and tied together by
    descendant-selector specificity (base `.row button` would out-specify per-button
    utilities), so the whole tree stays scoped CSS. Gradients/border-colors on

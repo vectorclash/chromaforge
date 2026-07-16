@@ -18,6 +18,7 @@ import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
+import TshirtPreview from './TshirtPreview';
 import CloseButton from './buttons/CloseButton';
 import GenerateStarField from './Canvas/GenerateStarField';
 import StarField from './Canvas/StarField';
@@ -678,7 +679,10 @@ export default class DisplayCanvas extends React.Component {
         // Animate backdrop-filter from 0 alongside the image fade. Because GSAP updates
         // the inline value every frame, iOS re-composites each frame rather than caching
         // a stale snapshot — so we can run both animations in parallel safely.
-        const panel = document.querySelector('#controls-main');
+        // Compact (homepage hero) has no glass panel at all (.controls-compact) -- animating
+        // an inline backdrop-filter onto it painted a visible blur/brightness rectangle
+        // over the artwork for the duration of the tween, a ghost of the removed glass.
+        const panel = this.props.compact ? null : document.querySelector('#controls-main');
         if (panel) {
           const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(panel);
           panel.style.backdropFilter = 'none';
@@ -1863,39 +1867,52 @@ export default class DisplayCanvas extends React.Component {
             ''
           )}
           {compact ? (
-            // Homepage hero: a fixed, minimal state -- no glass chrome, no toggle. Image/
-            // Animation, Download, and Settings only exist on the full standalone studio
-            // (compact=false, see the other branch / pages/StudioPage.jsx's `compact` prop).
+            // Homepage hero: a fixed, minimal state -- no glass backing at all (see
+            // .controls-compact in components.css): a live 3D shirt preview of the design
+            // on the left, the (smaller) Generate/Save stack on the right, all floating
+            // directly over the artwork. Image/Animation, Download, and Settings only
+            // exist on the full standalone studio (compact=false, see the other branch /
+            // pages/StudioPage.jsx's `compact` prop).
             <div
               id="controls-main"
               className={
-                'controls-inner absolute z-[1] flex min-w-[400px] flex-col justify-center gap-3 rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+                'controls-inner controls-compact absolute z-[1] flex flex-col items-center' +
                 (controlsBlurred ? ' controls-blurred' : '')
               }
             >
-              <div className="row">
-                <button
-                  onClick={this.onGenerateButtonClick.bind(this)}
-                  className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
-                >
-                  {generateDisabled ? 'Generating' : 'Generate'}
-                </button>
+              <div className="hero-dot-grid" aria-hidden />
+              <div className="hero-compact-row flex flex-row items-center gap-4">
+                <TshirtPreview
+                  size={190}
+                  waiting={isLoading}
+                  onShopClick={() => this.props.onNavigate?.('/shop')}
+                />
+                <div className="flex w-[220px] flex-col gap-2.5">
+                  <div className="row">
+                    <button
+                      onClick={this.onGenerateButtonClick.bind(this)}
+                      className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
+                    >
+                      {generateDisabled ? 'Generating' : 'Generate'}
+                    </button>
+                  </div>
+                  <div className="row">
+                    <button
+                      onClick={this.onSaveButtonClick.bind(this)}
+                      className="button-small"
+                      style={{ width: '100%' }}
+                    >
+                      {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => this.props.onNavigate?.('/studio', { state: { from: '/' } })}
+                    className="go-to-studio-btn"
+                  >
+                    Go to studio <ArrowIcon />
+                  </button>
+                </div>
               </div>
-              <div className="row">
-                <button
-                  onClick={this.onSaveButtonClick.bind(this)}
-                  className="button-small"
-                  style={{ width: '100%' }}
-                >
-                  {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
-                </button>
-              </div>
-              <button
-                onClick={() => this.props.onNavigate?.('/studio', { state: { from: '/' } })}
-                className="go-to-studio-btn"
-              >
-                Go to studio <ArrowIcon />
-              </button>
             </div>
           ) : (
             <div

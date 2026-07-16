@@ -366,6 +366,56 @@ Key facts:
   palette-phase jitter (±0.3) for strong multi-color gradients; wireframe density rolls
   per ring section (some sections bare, some fully caged) so the scaffold isn't uniform.
 
+### Homepage hero: 3D t-shirt preview (2026-07-16)
+The hero's compact studio panel (DisplayCanvas's `compact` branch) lost its glass backing
+(`.controls-compact` overrides in `components.css` kill the backdrop-filter/gradient
+border/padding; Save gets its own dark translucent fill since its base style is
+transparent-with-border) and gained `src/components/TshirtPreview.jsx`: a three.js
+t-shirt (lazy `import('three')`, same treatment as Animation3DPreview) textured live with
+the current design. No idle spin (Aaron's call, replacing a first rotating version) — the
+shirt faces forward and eases toward the mouse's horizontal position — or, on touch
+devices (`pointer: coarse`), with the phone's side-to-side tilt (deviceorientation gamma,
+±25° tilt = full range; baseline is the first reading and drifts slowly toward the live
+angle so a changed grip re-centers; iOS 13+ needs `DeviceOrientationEvent.requestPermission()`
+called from a first-touch handler — denied just leaves it static) — capped at ±15° yaw
+either way, static under prefers-reduced-motion. Below 480px the shirt+buttons row stacks
+vertically (`.hero-compact-row` media query — side-by-side overflows a phone viewport). The model (Sketchfab "Tshirt" by khalilchahi99, CC-BY-4.0 —
+attribution in its license.txt) lives in `public/models/tshirt/` (GLTFLoader fetches
+scene.bin/textures by URL; Vite can't resolve those from src/assets — the src/assets copy
+is the original). Its baseColor atlas is a square sheet of flat cut-pattern UV islands
+(front/back body panels, two sleeves, hem strips). **Per-island composition, not full-bleed**
+(user caught the first full-bleed version putting an off-center crop on each panel): each
+island family gets its own recompose-per-ratio render (body ≈0.69 portrait, sleeve ≈1.9
+landscape, via StudioContext.renderDesignBlob, gated on queueReady) composited into
+flood-fill-measured island rects (constants in TshirtPreview.jsx, measured off the model's
+own material_baseColor.jpeg); hem strips sample a full-bleed base layer underneath. Texture
+updates key off `currentDesign`; a pending-bitmap handoff covers whichever of
+scene-init/first-render finishes last. The scene fades in wearing the model's own white baseColor sheet the moment it loads
+(seeded onto the texture canvas from a stable copy — blending a canvas onto itself would
+compound per frame), so there's never a shirtless gap on first load; the first design
+crossfades in from white. The shirt NEVER leaves during a generate: it keeps
+the old design while the background renders, then TEXTURE-level crossfades to the new
+sheet (the material's single persistent canvas is re-blended old/new per tween frame —
+deliberately not a second shirt mesh, which would z-fight its coplanar twin) the moment
+DisplayCanvas's `isLoading` flips false via the `waiting` prop — the same signal that
+fades `.image-container` in. Two earlier versions were user-rejected: watching
+`currentDesign` (misaligned — the shirt's small renders finish in ~200ms while the 4K
+background is still going) and a dip-out/return (hid the shirt mid-generate, visibly
+unbalancing the centered shirt/buttons/loader arrangement). Also `setImage`'s inline
+backdrop-filter tween on `#controls-main` is skipped when compact (it painted a ghost
+rectangle of the removed glass over every image fade-in). WebGL init failure hides the preview (returns null) instead of a dead canvas.
+The shirt is a shop link (button wrapping the WebGL mount, `onShopClick` → `/shop`; the
+design carries via StudioContext — no params needed) with a frosted "Shop →" pill hover/focus
+hint at the shirt's top-right (an under-the-shirt "Shop this design" caption was
+user-rejected on wording + placement); the hover scale lives on the button, not the mount,
+since GSAP owns the mount's inline transform. An ambient `.hero-dot-grid` layer (masked dot pattern, `components.css`) sits behind the
+compact UI, extending ~110px past it and dissipating with distance via intersecting X/Y
+gradient masks (`mask-composite: intersect` — rectangular falloff, not radial).
+Compact buttons are smaller than the studio's (56/50px vs 80/60) and sit in a tight stack
+with the "Go to studio" link directly beneath them (`.controls-compact .go-to-studio-btn`
+un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
+larger than the button column — it's the panel's visual anchor.
+
 ### Backend: Supabase, seed-first schema
 - `supabase/migrations/0001_initial_schema.sql` — `profiles` (1:1 auth.users, trigger
   auto-created on signup), `designs` (`data` jsonb = `{ generatorVersion, seed, colors,
