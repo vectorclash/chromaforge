@@ -177,7 +177,25 @@ tracks what's true now, not history.
 
 ## Code — high value, near term
 
-- [ ] **Printful catalog-drift check (scheduled), before full launch** (2026-07-12, Aaron
+- [x] **Printful catalog-drift check (scheduled) — BUILT 2026-07-16.**
+      `scripts/check-printful-catalog.mjs` (plain Node; PRODUCT_MOCKUP_CONFIG extracted to
+      `src/lib/printfulMockupConfig.js` so it imports outside Vite) asserts per product:
+      not discontinued, stitch_color values valid, configured placements exist, printfile
+      dims match `scripts/printful-catalog-baseline.json` (regenerate deliberately with
+      `--write-baseline` after reviewing a change), every configured style id exists, and
+      each variant's RESOLVED style pair isn't restricted away from it (the exact pillow
+      failure; a new variant uncovered by the fallback pair fails too). Verified live: all
+      11 products pass; negative-tested (tampered baseline correctly fails). Runs daily via
+      `.github/workflows/printful-catalog-check.yml` (13:17 UTC + manual dispatch); alert
+      channel is GitHub's failed-workflow email. Companion fix shipped same day:
+      `printful-mockup` now logs Printful's error body on non-2xx (deployed).
+      **ACTION NEEDED (Aaron): add the `PRINTFUL_API_KEY` repo secret on GitHub** (Settings
+      → Secrets and variables → Actions) — the workflow can't run without it.
+      Still open from the original item: graceful 429 handling on mockup tasks (Printful's
+      real limit is 2 mockup-task POSTs/60s across ALL users; the 429 body says how long to
+      wait — auto-retry with that delay). Matters once real traffic exists.
+      <details><summary>Original item (2026-07-12), for context</summary>
+- [previously open] **Printful catalog-drift check (scheduled), before full launch** (2026-07-12, Aaron
       — "add later, before we launch fully"). Context: pillow (83) mockups broke silently
       for every size except 18″×18″ because Printful restricted its Default Front/Back
       mockup styles per-variant when they added the new 14″/16″ sizes — the hardcoded
@@ -205,6 +223,7 @@ tracks what's true now, not history.
       Printful plan — re-check the header if the account upgrades. Docs also mention an
       unquantified "daily file limit" for the mockup generator — ask support (can piggyback
       on the open label_inside ticket).
+      </details>
 
 - [x] **Artwork picker redesign for ProductPage** (planned 2026-07-09, built 2026-07-10) —
       replaced the "Choose artwork" horizontal scroll strip with pinned tiles + a

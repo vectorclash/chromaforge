@@ -122,6 +122,14 @@ Deno.serve(async req => {
       })
     });
     const data = await printfulRes.json();
+    if (!printfulRes.ok) {
+      // Without this, get_logs only shows "POST | 400" with no indication of WHY
+      // Printful rejected the task -- log the body so failures are diagnosable.
+      console.error(
+        `printful mockup-task create failed (${printfulRes.status}) product=${productId}:`,
+        JSON.stringify(data).slice(0, 1000)
+      );
+    }
     return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
   }
 

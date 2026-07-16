@@ -1,0 +1,30 @@
+# Scheduled Printful catalog-drift check -- asserts the live catalog still matches what
+# PRODUCT_MOCKUP_CONFIG hardcodes (style ids/variant coverage, placements, option values,
+# printfile dimensions vs scripts/printful-catalog-baseline.json, discontinuation).
+# See scripts/check-printful-catalog.mjs for the full rationale (the pillow's mockups
+# broke silently once already when Printful restricted styles per-variant).
+#
+# Alerting is GitHub's own failed-workflow email -- no extra infrastructure. On a real
+# catalog change: review it, update PRODUCT_MOCKUP_CONFIG (and pocketCrop math if
+# dimensions moved), then `node scripts/check-printful-catalog.mjs --write-baseline`.
+#
+# Requires the PRINTFUL_API_KEY repo secret (read-only GETs only, ~33 per run).
+name: Printful catalog drift check
+
+on:
+  schedule:
+    - cron: '17 13 * * *' # daily, 13:17 UTC (off the top of the hour per GitHub's advice)
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check catalog against config + baseline
+        env:
+          PRINTFUL_API_KEY: ${{ secrets.PRINTFUL_API_KEY }}
+        run: node scripts/check-printful-catalog.mjs
