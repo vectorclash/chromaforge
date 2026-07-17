@@ -207,11 +207,22 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.setSize(size, size);
+        // The material's Lambert diffuse term is albedo/pi * irradiance, so a surface
+        // lit by ambient alone (most of a curved garment -- only the side facing `key`
+        // gets direct contribution) rendered noticeably darker than the true texture at
+        // the old 2.4 ambient intensity (2.4/pi = 76%). Raised so that floor lands near
+        // 100% (3.2/pi = 102%); ACESFilmicToneMapping rolls the now-brighter directly-lit
+        // side (which would otherwise hard-clip to white, losing color/saturation) off
+        // gracefully instead of clipping -- confirmed both ends needed together, since
+        // raising ambient alone without tone mapping pushed the lit side further into
+        // washed-out clipping.
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
-        scene.add(new THREE.AmbientLight(0xffffff, 2.4));
-        const key = new THREE.DirectionalLight(0xffffff, 2.2);
+        scene.add(new THREE.AmbientLight(0xffffff, 3.2));
+        const key = new THREE.DirectionalLight(0xffffff, 1.6);
         key.position.set(2, 3, 4);
         scene.add(key);
 
