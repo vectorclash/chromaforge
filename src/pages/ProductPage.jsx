@@ -1054,9 +1054,11 @@ export default function ProductPage() {
                       className="max-w-xs animate-reveal-quick text-xs text-text-secondary"
                       style={{ animationDelay: '120ms' }}
                     />
-                    <p className="animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
-                      {elapsedSeconds}s elapsed
-                    </p>
+                    {status !== 'queued' && (
+                      <p className="animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
+                        {elapsedSeconds}s elapsed
+                      </p>
+                    )}
                     {storeEnabled && (
                       <button
                         type="button"
