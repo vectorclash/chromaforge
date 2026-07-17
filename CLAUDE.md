@@ -864,6 +864,39 @@ larger than the button column — it's the panel's visual anchor.
     direct-to-customer shipping/tracking emails (still Printful-branded — would need
     `printful-webhook`, which already tracks status changes, to drive a Chromaforge-branded
     equivalent instead) and Printful's paid custom-packaging-insert add-on.
+    **Real bug caught via a live end-to-end test the same day**: `packing_slip`'s
+    `custom_order_id` was set to the full order uuid (36 chars incl. dashes) — Printful
+    caps that field at 20 chars and rejected `POST /orders` outright with "Custom Order Id
+    should contain at most 20 characters," so the order was never created even though
+    Stripe had already charged the card (not an edge case — every order id is a uuid, so
+    this failed every single checkout). Landed the customer on `CheckoutSuccessPage`'s
+    generic "we hit a snag" failure state (see that page's handling of `status: 'failed'`).
+    Fixed by stripping dashes and truncating to 20 hex chars; re-verified live
+    (order id `707f0344…` → Printful draft `167236336`, `status: 'submitted'`, no failure).
+  - **Page-leave guard during checkout: two real rounds of live-caught bugs, 2026-07-17.**
+    The existing `beforeunload` listener (warns on tab close/refresh while Buy Now's async
+    render→upload→session-creation is running) only fires on an actual browser-level
+    unload — it does nothing for React Router's client-side routing, since a `<Link>`
+    click never unloads the document. Round one (confirmed live: clicked a nav link mid-
+    checkout, no warning shown, then forced to Stripe from the Shop page moments later):
+    added a capture-phase `click` listener on internal links that shows a `confirm()` and
+    blocks the click if declined. Round two (confirmed live: back button instead of a link
+    click — same no-warning, same forced-redirect-later symptom): `popstate` isn't
+    cancelable and React Router's own history listener has already switched routes by the
+    time any handler here could run, so the click-capture trick doesn't extend to
+    back/forward at all; reliably intercepting those needs React Router's data-router APIs
+    (`createBrowserRouter` + `useBlocker`), which this app doesn't use (plain
+    `<BrowserRouter>`) — judged too large a routing migration to fold into this fix.
+    Instead of chasing every possible exit gesture, `ProductPage.jsx` now guards the actual
+    harmful consequence directly via an `isMountedRef`: if the component that kicked off
+    checkout is gone by the time the async work finishes, the forced
+    `window.location.href` redirect to Stripe is skipped rather than firing from wherever
+    the customer has since navigated to. A silently abandoned `pending` order is harmless
+    (already excluded from order history — see `checkout.js`'s `listMyActiveOrders`
+    comment) and Buy Now is always re-clickable. Net result: the warn-before-leaving
+    behavior only covers real unloads and in-app link clicks (not back/forward), but the
+    actual bad outcome — an unannounced redirect to Stripe from an unrelated page — cannot
+    happen via any exit path anymore.
   - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
     failure could be a fixable data issue (bad address, stale variant) that's
     resubmittable, not necessarily a "give the money back" situation, so this is a
