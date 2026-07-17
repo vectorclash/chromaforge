@@ -12,7 +12,10 @@ import { useStudio } from '../../context/StudioContext';
 // Rendered bigger than the 320x320 gallery thumbnail so the artwork actually looks crisp
 // full-screen-ish, but well short of print resolution -- this is a preview, not a print
 // file. Comfortably covers the panel's own viewport-fit cap (see PANEL_SIZE_CLASS) at up
-// to ~1.5x device pixel ratio.
+// to ~1.5x device pixel ratio. Uses renderDesignBlob's highDensity option (see
+// StudioContext.jsx) since 1400 is still under DISPLAY_RENDER_CAP -- without it this would
+// generate a composition genuinely less dense than the design's own full-size render, not
+// just a smaller one.
 const MODAL_RENDER_SIZE = 1400;
 
 // The whole panel scales continuously with the viewport instead of jumping between fixed
@@ -65,7 +68,7 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
     if (!design || design.kind === 'animation' || !queueReady) return;
     let cancelled = false;
     let url;
-    renderDesignBlob(design.data, MODAL_RENDER_SIZE, MODAL_RENDER_SIZE)
+    renderDesignBlob(design.data, MODAL_RENDER_SIZE, MODAL_RENDER_SIZE, { highDensity: true })
       .then(blob => {
         if (cancelled) return;
         url = URL.createObjectURL(blob);

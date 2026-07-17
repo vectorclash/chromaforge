@@ -206,6 +206,18 @@ export function resolvePlacementEntries(printfileSpecs, variant, placementFilter
 // only 4 Mpx, versus the ~16.7 Mpx ceiling).
 const RENDER_CAP = 2000;
 
+// Same cap-and-scale math capRenderStrategy uses below, factored out so any other caller
+// that needs "what size would the mockup preview render this printfile at" (e.g.
+// TshirtPreview.jsx's hero shirt, which needs to match the real mockup's element DENSITY,
+// not just its aspect ratio -- getCountScale in render/scale.js scales element counts off
+// absolute rendered area relative to the studio's reference resolution, so rendering
+// smaller than this produces a visibly sparser composition even at the correct aspect)
+// can get the exact same numbers instead of drifting from a re-derived approximation.
+export function capMockupRenderSize(width, height, cap = RENDER_CAP) {
+  const scale = cap / Math.max(width, height);
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
 // Pre-warm the Fly.io render-service the moment purchase intent appears (first mockup
 // render on a product page), so its scale-to-zero cold start is already paid by the time
 // Buy Now actually needs a print-resolution render. Fly wakes a stopped machine on ANY
@@ -538,9 +550,7 @@ async function makeCalibrationGridBlob(width, height) {
 // same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
 export function capRenderStrategy(renderDesignBlob) {
   return async (design, spec, printfileId, includeGeometry, regionsConfig = null, geometryLayout = null) => {
-    const scale = RENDER_CAP / Math.max(spec.width, spec.height);
-    const width = Math.round(spec.width * scale);
-    const height = Math.round(spec.height * scale);
+    const { width, height } = capMockupRenderSize(spec.width, spec.height);
     if (!regionsConfig) {
       const blob = await renderDesignBlob(design, width, height, { includeGeometry, geometryLayout });
       return uploadMockupSourceImage(blob, printfileId);
@@ -558,9 +568,7 @@ export function capRenderStrategy(renderDesignBlob) {
     // keeps the pocket's content a true continuation of whatever the front actually shows,
     // geometry included or not, rather than assuming the front always has geometry on.
     const { regions, sourceSpec } = regionsConfig;
-    const srcScale = RENDER_CAP / Math.max(sourceSpec.width, sourceSpec.height);
-    const srcW = Math.round(sourceSpec.width * srcScale);
-    const srcH = Math.round(sourceSpec.height * srcScale);
+    const { width: srcW, height: srcH } = capMockupRenderSize(sourceSpec.width, sourceSpec.height);
     const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry, geometryLayout });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
     return uploadMockupSourceImage(blob, `${printfileId}-pocket`);

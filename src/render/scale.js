@@ -30,6 +30,33 @@ export function getCountScale(width, height) {
   return Math.sqrt((width * height) / REFERENCE_AREA);
 }
 
+// Same cap-and-scale tradeoff as lib/printful.js's RENDER_CAP (mobile canvas-area limits vs.
+// getCountScale density -- see that constant's own comment for the full reasoning), reused
+// here for renders that aren't tied to any specific Printful printfile: gallery/preview
+// thumbnails, which are generated once (at save time, or on-demand when a modal opens) and
+// then displayed small, not printed. A THUMBNAIL_SIZE=320 gallery thumbnail rendered
+// DIRECTLY at 320x320 sits at getCountScale(320,320) ≈ 0.11 -- an accurate small render of a
+// genuinely sparse composition, not a bug in the scaling math itself, but it means the saved
+// thumbnail JPEG doesn't actually depict the same density of stars/geometry the design shows
+// at any size a person would call "the real image" (found via the same kind of side-by-side
+// comparison that caught TshirtPreview's identical issue -- see that component's header
+// comment). Fix is the same shape: generate at a DENSER size (long edge >= DISPLAY_RENDER_CAP)
+// and let the caller downscale into the small output canvas, so the thumbnail is a true
+// downsample of a rich composition instead of a small, independently-sparse one.
+export const DISPLAY_RENDER_CAP = 2000;
+
+// Scales (width, height) UP so its long edge reaches `cap`, preserving aspect exactly --
+// never shrinks (a request already >= cap is returned unchanged, since it's already dense
+// enough). Deliberately one-directional: unlike lib/printful.js's capMockupRenderSize (which
+// always scales to a printfile's real dimensions, functionally always shrinking in practice),
+// this must never shrink a caller's requested size out from under it.
+export function densityFloorSize(width, height, cap = DISPLAY_RENDER_CAP) {
+  const maxDim = Math.max(width, height);
+  if (maxDim >= cap) return { width, height };
+  const scale = cap / maxDim;
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
 // Sizes should scale off the smaller dimension, not width alone -- a tall/narrow canvas
 // (e.g. a 3150x5550 print) previously sized elements off its narrow axis only, making them
 // look tiny relative to the canvas's actual visual scale. Use this specifically where an

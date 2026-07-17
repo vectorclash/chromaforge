@@ -3,6 +3,7 @@ import { gsap } from 'gsap/all';
 import ArrowIcon from './buttons/ArrowIcon';
 import { useStudio } from '../context/StudioContext';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
+import { capMockupRenderSize } from '../lib/printful';
 
 // Small live 3D garment preview for the homepage hero panel: the current design rendered
 // as the base-color texture of a t-shirt model, slowly rotating. three.js is dynamically
@@ -20,12 +21,35 @@ import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 // of the artwork on each panel (each island samples its own region of the sheet) -- the
 // design never read as centered on the shirt. Instead, each island gets its own
 // recompose-per-ratio render (same philosophy as the print pipeline: a sibling
-// composition generated fresh from the seed at the island's aspect), composited into the
-// island's measured rect. Rects were flood-fill measured off the model's own
-// material_baseColor.jpeg (2048-space, generous bounding boxes; the curved
-// neckline/hem edges just clip whatever falls outside the island -- invisible, same as
-// any print overhang). Both body panels share one render (aspects within 5%), as do the
-// sleeves; the tiny hem strips sample the full-bleed base layer drawn underneath.
+// composition generated fresh from the seed), composited into the island's measured
+// rect. Rects were flood-fill measured off the model's own material_baseColor.jpeg
+// (2048-space, generous bounding boxes; the curved neckline/hem edges just clip
+// whatever falls outside the island -- invisible, same as any print overhang). Both body
+// panels share one render, as do the sleeves (matching the real product's own printfile
+// sharing -- see below); the tiny hem strips sample the full-bleed base layer drawn
+// underneath.
+//
+// Render size matches EXACTLY what a real mockup preview generates for this garment's
+// front/back and sleeve panels -- not just the aspect ratio, but the actual resolution,
+// via capMockupRenderSize (the same cap-and-scale math capRenderStrategy in lib/printful.js
+// uses for real Printful mockup source images, factored out so both stay numerically
+// identical). Body/sleeve printfile dims (product 257 -- All-Over Print Men's Crew Neck
+// T-Shirt, the closest real product to this decorative model, from
+// `scripts/printful-catalog-baseline.json`: front/back share printfile 94 at 4200x5400,
+// both sleeves share printfile 95 at 3000x1800) are the same numbers a real mockup/order
+// for this product would use.
+//
+// Matching only the ASPECT ratio (an earlier version of this fix) wasn't enough: the
+// generator is ratio-aware, and getCountScale (render/scale.js) scales element counts off
+// the render's ABSOLUTE area relative to the studio's reference resolution, not the aspect
+// alone -- rendering at a small island-sized canvas (the original bug) or even a modest
+// same-aspect canvas (this component's first attempted fix) still lands far below a real
+// mockup's ~61%-of-reference density (RENDER_CAP=2000's own comment has the math), so the
+// shirt visibly showed fewer stars/geometry and a different color structure than an actual
+// Printful mockup of the same design (Aaron, live comparison). Rendering at the mockup
+// pipeline's own resolution and then downscaling into the small UV islands (via drawCover,
+// below) keeps the generated COMPOSITION itself density-matched to a real mockup; only the
+// on-screen presentation is small, same as thumbnailing any other full-resolution image.
 const TEXTURE_SIZE = 1024;
 const ATLAS = 2048;
 const BODY_ISLANDS = [
@@ -36,11 +60,33 @@ const SLEEVE_ISLANDS = [
   { x: 125, y: 30, w: 729, h: 385 },
   { x: 1196, y: 33, w: 729, h: 385 }
 ];
-// Render sizes at each island family's aspect ratio (body 916/1332 ≈ 0.69 portrait,
-// sleeve 729/385 ≈ 1.9 landscape), at roughly the resolution they occupy in the
-// 1024 composite.
-const BODY_RENDER = { w: 512, h: 744 };
-const SLEEVE_RENDER = { w: 512, h: 270 };
+const BODY_PRINTFILE = { width: 4200, height: 5400 }; // product 257, printfile 94 (front+back)
+const SLEEVE_PRINTFILE = { width: 3000, height: 1800 }; // product 257, printfile 95 (both sleeves)
+const bodyCap = capMockupRenderSize(BODY_PRINTFILE.width, BODY_PRINTFILE.height);
+const sleeveCap = capMockupRenderSize(SLEEVE_PRINTFILE.width, SLEEVE_PRINTFILE.height);
+const BODY_RENDER = { w: bodyCap.width, h: bodyCap.height };
+const SLEEVE_RENDER = { w: sleeveCap.width, h: sleeveCap.height };
+
+// Crops `img` to `dw`x`dh`'s aspect (centered) and draws it filling the dest rect exactly
+// -- no stretching. Needed now that each render's aspect intentionally matches the real
+// print file rather than the destination island's own shape.
+function drawCover(ctx, img, dx, dy, dw, dh) {
+  const srcAspect = img.width / img.height;
+  const destAspect = dw / dh;
+  let sx, sy, sw, sh;
+  if (srcAspect > destAspect) {
+    sh = img.height;
+    sw = sh * destAspect;
+    sx = (img.width - sw) / 2;
+    sy = 0;
+  } else {
+    sw = img.width;
+    sh = sw / destAspect;
+    sx = 0;
+    sy = (img.height - sh) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
 
 // Generate-transition pass: chromatic aberration + animated wavy distortion, both scaled
 // by one normalized strength uniform (uAmount 0..1) so they rise and fall together.
@@ -400,21 +446,19 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const ctx = canvas.getContext('2d');
         const sc = TEXTURE_SIZE / ATLAS;
         ctx.drawImage(base, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-        BODY_ISLANDS.forEach(r =>
-          ctx.drawImage(body, r.x * sc, r.y * sc, r.w * sc, r.h * sc)
-        );
+        BODY_ISLANDS.forEach(r => drawCover(ctx, body, r.x * sc, r.y * sc, r.w * sc, r.h * sc));
         // The two sleeve islands map onto the garment in opposite orientations, so the
         // second draw is horizontally mirrored -- identical draws made one worn sleeve
         // read as flipped relative to the other (user-caught); mirroring restores
         // left/right symmetry on the shirt.
         SLEEVE_ISLANDS.forEach((r, i) => {
           if (i === 0) {
-            ctx.drawImage(sleeve, r.x * sc, r.y * sc, r.w * sc, r.h * sc);
+            drawCover(ctx, sleeve, r.x * sc, r.y * sc, r.w * sc, r.h * sc);
           } else {
             ctx.save();
             ctx.translate((r.x + r.w) * sc, r.y * sc);
             ctx.scale(-1, 1);
-            ctx.drawImage(sleeve, 0, 0, r.w * sc, r.h * sc);
+            drawCover(ctx, sleeve, 0, 0, r.w * sc, r.h * sc);
             ctx.restore();
           }
         });

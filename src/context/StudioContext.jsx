@@ -4,6 +4,7 @@ import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
 import { isSameDesign } from '../render/designSettings';
+import { densityFloorSize } from '../render/scale';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -80,18 +81,48 @@ export function StudioProvider({ children }) {
   // design -- only merch placement rendering (lib/printful.js's capRenderStrategy) ever
   // passes these, driven by ProductPage.jsx's per-placement geometry checkboxes and
   // two-leg-canvas layout toggle respectively.
-  const renderDesignBlob = useCallback(async (config, width, height, { includeGeometry = true, geometryLayout = null } = {}) => {
-    if (!queueRef.current) throw new Error('Render assets are still loading.');
-    const built = generateArtwork(config.seed, width, height, config.colors, config.settings, {
-      includeGeometry,
-      geometryLayout
-    });
-    const canvas = renderArtwork(built, queueRef.current);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-    canvas.width = 0;
-    canvas.height = 0;
-    return blob;
-  }, []);
+  //
+  // `highDensity` (default false): when the output size is small display real estate (a
+  // gallery thumbnail, a modal preview) rather than a size someone chose for a specific
+  // reason (a merch placement's own printfile-matched size, or a live-preview size where
+  // regenerating a much bigger canvas on every keystroke/generate would add real input lag),
+  // generate at a denser canvas (render/scale.js's densityFloorSize) and downscale into the
+  // requested output -- otherwise getCountScale's own area-based falloff makes a small
+  // direct render genuinely sparser than "the same design at a size someone would call the
+  // real image," not just smaller (see densityFloorSize's comment; caught the same way
+  // TshirtPreview's identical issue was). Opt-in, not the default, specifically so this
+  // doesn't add render cost to the hot paths that already call this on every design change
+  // (the mini-generator/footer/mobile-nav previews) -- only callers that render once per
+  // save or on-demand (thumbnails, the gallery modal) opt in.
+  const renderDesignBlob = useCallback(
+    async (config, width, height, { includeGeometry = true, geometryLayout = null, highDensity = false } = {}) => {
+      if (!queueRef.current) throw new Error('Render assets are still loading.');
+      const { width: genWidth, height: genHeight } = highDensity
+        ? densityFloorSize(width, height)
+        : { width, height };
+      const built = generateArtwork(config.seed, genWidth, genHeight, config.colors, config.settings, {
+        includeGeometry,
+        geometryLayout
+      });
+      const canvas = renderArtwork(built, queueRef.current);
+      let outputCanvas = canvas;
+      if (genWidth !== width || genHeight !== height) {
+        outputCanvas = document.createElement('canvas');
+        outputCanvas.width = width;
+        outputCanvas.height = height;
+        // genWidth/genHeight share width/height's exact aspect (densityFloorSize scales
+        // uniformly) -- a plain scaled draw is a true downsample, no cropping needed.
+        outputCanvas.getContext('2d').drawImage(canvas, 0, 0, width, height);
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      const blob = await new Promise(resolve => outputCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+      outputCanvas.width = 0;
+      outputCanvas.height = 0;
+      return blob;
+    },
+    []
+  );
 
   // Derived small preview of the current design -- the single render both the mini-generator
   // widget and the footer art band read, so regenerating once updates both at once instead of
@@ -150,7 +181,7 @@ export function StudioProvider({ children }) {
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
       const source = compactData.animation && compactData.frames ? compactData.frames[0] : compactData;
       if (source?.seed !== undefined) {
-        renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE)
+        renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE, { highDensity: true })
           .then(blob => uploadDesignThumbnail(row.id, blob))
           .catch(err => console.error('Thumbnail upload failed:', err));
       }

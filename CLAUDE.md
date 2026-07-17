@@ -476,6 +476,25 @@ larger than the button column — it's the panel's visual anchor.
   designs saved before this existed. My Designs has a per-row Delete (wired to the
   existing `deleteDesign`); the Public tab pages 20 at a time via `listPublicDesigns`'s
   `before` cursor with a "Load More" button.
+- **Real bug found and fixed, 2026-07-16: thumbnails/modal previews rendered sparse.**
+  Direct small renders (320×320 thumbnails, the 1400×1400 gallery modal preview) hit
+  `getCountScale`'s own area-based falloff — a 320×320 canvas is ~1.2% of the studio's
+  reference area, so it genuinely generates a sparser composition, not just a smaller
+  picture of the same one (same root cause TshirtPreview's island renders hit earlier).
+  Fixed the same shape as that fix: `render/scale.js`'s new `densityFloorSize` scales a
+  requested size UP to a 2000px-long-edge floor (`DISPLAY_RENDER_CAP`) before generating,
+  and `StudioContext.renderDesignBlob` takes an opt-in `highDensity` flag that generates at
+  the floor size and downscales into the requested canvas — a true downsample of a dense
+  composition. Opt-in (not default) so the hot paths that re-render on every design change
+  (mini-generator/footer/mobile-nav previews) don't pay the extra render cost; only
+  thumbnail save (`StudioContext`) and `GalleryModal` opted in. `lib/printful.js`'s
+  `capMockupRenderSize` (factored out of `capRenderStrategy`) does the same cap-and-scale
+  math for TshirtPreview's mockup-matched island renders, which need to match a real
+  Printful mockup's density exactly (not just the 2000px floor) — see that component's
+  header comment. Existing Storage thumbnails (saved before this fix, sparse) were
+  backfilled in place via `render-service/backfill-thumbnails.mjs` (one-off, re-runnable,
+  read-only on the `designs` table — only overwrites the derived thumbnail JPEG at its
+  existing Storage path); kept in the repo as a reference/re-run tool, not deleted after use.
 - **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
   egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
   `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every
