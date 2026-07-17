@@ -763,6 +763,27 @@ larger than the button column — it's the panel's visual anchor.
   `supabase/migrations/0005_orders_schema.sql` + `0006_order_items_product_options.sql`
   (`orders`/`order_items`, owner-read-only RLS, **no client insert/update policy at all** —
   only the service role, used exclusively by these two functions, writes orders).
+  - **Stale pending-order cleanup, 2026-07-17** (`supabase/migrations/
+    0010_cancel_stale_pending_orders_cron.sql`): `create-checkout-session` always writes a
+    `pending` orders row (and a real Stripe Checkout Session) before the browser ever
+    reaches Stripe; if the customer never completes payment there was no expiry at all —
+    these accumulated forever. A `pg_cron` job (`cancel-stale-pending-orders`, hourly)
+    now cancels anything still `pending` 24h after creation, matching Stripe's own default
+    Checkout Session expiry (no `expires_at` override is set, so past 24h the session
+    can't be completed regardless — guaranteed abandoned, not just probably). Deliberately
+    DB-only: the print/mockup files an abandoned order references are content-hashed in
+    the `design-mockups` bucket and can be shared with other orders/live mockup previews
+    (see `lib/printful.js`'s `uploadMockupSourceImage`), so there's no safe way to know a
+    file is only referenced by one abandoned order — Storage is left untouched.
+    **Applied directly via the Supabase MCP tooling, not `npx supabase db push`** — this
+    project's remote migration history (`supabase_migrations.schema_migrations`, visible
+    via `list_migrations`) is tracked under generated timestamp versions from that same
+    path, not the sequential `0001`–`0010` local filenames (`npx supabase migration list`
+    shows all local versions as unmatched against remote); local files exist for
+    readability/history but `db push` would try to (re-)apply all of them and conflict
+    with schema that's already live. Keep using `apply_migration`/`execute_sql` for schema
+    changes on this project rather than `db push`, unless that drift is deliberately
+    reconciled first.
   - **Store-wide purchasing kill switch**: `supabase/functions/_shared/storeStatus.ts`'s
     `isStoreEnabled()`, gated on the `STORE_ENABLED` secret (same instant-toggle pattern as
     `PRICE_MARKUP_PERCENT` in `pricing.ts` — `npx supabase secrets set STORE_ENABLED=false`,
