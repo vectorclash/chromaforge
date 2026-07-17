@@ -1886,7 +1886,7 @@ export default class DisplayCanvas extends React.Component {
         )}
         {(animationFrames.length > 0 || (animationMode && threeDMode && threeDDesign)) && (
           <button
-            className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[5em] w-[5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
+            className="animation-pause absolute left-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center border-none bg-transparent p-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
             onClick={e => { e.stopPropagation(); this.setState({ animationPaused: !animationPaused }); }}
             aria-label={animationPaused ? 'Play' : 'Pause'}
           >
