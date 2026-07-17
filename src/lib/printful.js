@@ -659,8 +659,17 @@ export async function uploadMockupSourceImage(blob, label) {
 // function callers (lib/checkout.js) hit the same fix instead of re-discovering it.
 export async function unwrapFunctionsError(error) {
   try {
+    const status = error?.context?.status;
     const body = await error.context.json();
-    return new Error(body?.error?.message || body?.message || error.message);
+    const message = body?.error?.message || body?.error || body?.message || error.message;
+    const wrapped = new Error(message);
+    // Surfaced so callers can react to rate limiting specifically -- e.g. printful-mockup's
+    // POST gate (per-user AND Printful's own store-wide cap, see that function's header
+    // comment) returns { error, retryAfterSeconds, status: 429 } and useMockup auto-retries
+    // using it instead of treating a busy Printful as a hard failure.
+    if (status) wrapped.status = status;
+    if (typeof body?.retryAfterSeconds === 'number') wrapped.retryAfterSeconds = body.retryAfterSeconds;
+    return wrapped;
   } catch {
     return error;
   }

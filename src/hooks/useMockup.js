@@ -22,7 +22,30 @@ const POLL_MAX_TRIES = 45;
 
 // Exported so callers (ProductPage) share one definition of "actively working" instead of
 // re-deriving it from status strings independently.
-export const BUSY_STATUSES = ['rendering', 'creating', 'polling'];
+export const BUSY_STATUSES = ['rendering', 'creating', 'polling', 'queued'];
+
+// Printful's mockup-task creation endpoint has a hard, undocumented, STORE-WIDE cap --
+// measured live at 2 POST /v2/mockup-tasks per 60s, shared across every user of the app
+// (see TODO.md), not per-user -- our own edge function's per-user limiter was never the
+// binding constraint. printful-mockup now enforces a matching global gate and reports
+// `retryAfterSeconds` on either its own 429 or a real one passed through from Printful
+// (see unwrapFunctionsError). Rather than surfacing that as a hard failure the moment two
+// people preview in the same minute, wait out the window and retry automatically --
+// bounded so a genuinely stuck/down Printful doesn't hang a customer forever.
+const MAX_QUEUE_WAIT_MS = 3 * 60 * 1000;
+
+async function createMockupTaskWithBackoff(args, onWait) {
+  const deadline = Date.now() + MAX_QUEUE_WAIT_MS;
+  for (;;) {
+    try {
+      return await createMockupTask(args);
+    } catch (err) {
+      if (err.status !== 429 || Date.now() >= deadline) throw err;
+      const waitSeconds = Math.min(Math.max(err.retryAfterSeconds || 20, 5), 60);
+      await onWait(waitSeconds);
+    }
+  }
+}
 
 // Caches a completed mockup by (product, exact printfile-id mapping, design content) so
 // switching artwork/variant and back doesn't force another 30-90s Printful round trip for
@@ -98,6 +121,9 @@ export function useMockup() {
   const [error, setError] = useState(null);
   const [images, setImages] = useState([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // Seconds remaining before the next auto-retry while status is 'queued' (Printful's
+  // store-wide mockup-task cap is temporarily exhausted) -- null outside that state.
+  const [retryWaitSeconds, setRetryWaitSeconds] = useState(null);
   const busyStartRef = useRef(null);
   // Cache key of the generation currently running (null when none), and cache key of the
   // selection the UI currently shows. Together these fix two real problems with switching
@@ -177,6 +203,20 @@ export function useMockup() {
       setStatus('rendering');
       setError(null);
       setImages([]);
+      setRetryWaitSeconds(null);
+
+      // Ticks a visible countdown down to 0, then flips back to 'creating' so the actual
+      // retry happens under the same status the very first attempt used.
+      const onWait = async waitSeconds => {
+        setStatus('queued');
+        for (let s = waitSeconds; s > 0; s--) {
+          setRetryWaitSeconds(s);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        setRetryWaitSeconds(null);
+        setStatus('creating');
+      };
+
       try {
         const urls = await renderAndUploadPrintFiles(entries, {
           printfileSpecs,
@@ -203,13 +243,16 @@ export function useMockup() {
         for (let attempt = 0; attempt < 2; attempt++) {
           task2 = null;
           setStatus('creating');
-          const task = await createMockupTask({
-            productId: product.id,
-            variantIds: [variant.id],
-            placements,
-            productOptions: productOptions || cfg.productOptions,
-            mockupStyleIds
-          });
+          const task = await createMockupTaskWithBackoff(
+            {
+              productId: product.id,
+              variantIds: [variant.id],
+              placements,
+              productOptions: productOptions || cfg.productOptions,
+              mockupStyleIds
+            },
+            onWait
+          );
 
           setStatus('polling');
           for (let i = 0; i < POLL_MAX_TRIES; i++) {
@@ -301,5 +344,5 @@ export function useMockup() {
     []
   );
 
-  return { status, error, images, elapsedSeconds, generate, sync };
+  return { status, error, images, elapsedSeconds, retryWaitSeconds, generate, sync };
 }

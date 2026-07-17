@@ -25,6 +25,7 @@ import { isSameDesign } from '../render/designSettings';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import ArtworkPickerModal from '../components/ui/ArtworkPickerModal';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useJsonLd } from '../hooks/useJsonLd';
 
@@ -33,7 +34,8 @@ gsap.registerPlugin(TextPlugin);
 const STATUS_LABEL = {
   rendering: 'Rendering design…',
   creating: 'Sending to Printful…',
-  polling: 'Generating mockup…'
+  polling: 'Generating mockup…',
+  queued: 'Waiting for capacity…'
 };
 
 // Mockup generation is a multi-step round trip through Printful's servers that can run
@@ -294,6 +296,7 @@ export default function ProductPage() {
     error: mockupError,
     images,
     elapsedSeconds,
+    retryWaitSeconds,
     generate,
     sync: syncMockup
   } = useMockup();
@@ -307,6 +310,7 @@ export default function ProductPage() {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [checkoutNotice, setCheckoutNotice] = useState(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
 
   // Which placements include the geometry layer -- a per-order choice (see
   // getGeometryPlacementOptions), not part of the saved design, so the same artwork can
@@ -713,12 +717,17 @@ export default function ProductPage() {
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
-  // for why), then hand off to Stripe's hosted Checkout page. Gated behind a real mockup
-  // existing (disabled below), since buying before seeing what you're printing doesn't make
-  // sense regardless of payments. geometryPlacements/geometryLayout ride along so the print
-  // files match exactly what the approved mockup showed -- the customer could otherwise
-  // toggle a checkbox or the layout after generating a mockup and buy something they never
-  // previewed.
+  // for why), then hand off to Stripe's hosted Checkout page. The main Buy Now button stays
+  // gated behind a real mockup existing (disabled below) -- buying before seeing what you're
+  // printing shouldn't be the default path. There's also a "Buy without a preview" escape
+  // hatch (behind ConfirmDialog, see showSkipConfirm below) for when Printful's mockup
+  // service is slow/at capacity/erroring: it calls this exact same function, just without
+  // requiring hasMockup first -- the real print files render independently of whether a
+  // mockup was ever generated, so heroImage (which already falls back to the product's stock
+  // photo when !hasMockup) is the only thing that differs. geometryPlacements/geometryLayout
+  // ride along so the print files match exactly what any approved mockup showed -- the
+  // customer could otherwise toggle a checkbox or the layout after generating a mockup and
+  // buy something they never previewed.
   const onBuyNowClick = async () => {
     // Re-arm the leave guard: after a Stripe redirect the ref stays true, and coming BACK
     // from Stripe can restore this page from the bfcache with all its state intact -- a
@@ -1035,25 +1044,63 @@ export default function ProductPage() {
                       {STATUS_LABEL[status]}
                     </p>
                     <ScrambleText
-                      text={statusNarration(elapsedSeconds, narrationPicksRef.current)}
+                      text={
+                        status === 'queued'
+                          ? `Printful's preview service is busy. Retrying automatically in ${retryWaitSeconds ?? '…'}s.`
+                          : statusNarration(elapsedSeconds, narrationPicksRef.current)
+                      }
                       className="max-w-xs animate-reveal-quick text-xs text-text-secondary"
                       style={{ animationDelay: '120ms' }}
                     />
                     <p className="animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
                       {elapsedSeconds}s elapsed
                     </p>
+                    {storeEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSkipConfirm(true)}
+                        disabled={checkoutBusy}
+                        className="animate-reveal-quick cursor-pointer text-xs text-text-muted underline decoration-dotted transition hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                        style={{ animationDelay: '240ms' }}
+                      >
+                        Don't want to wait? Buy without a preview
+                      </button>
+                    )}
                   </div>
                 ) : status === 'failed' ? (
                   <div className="flex animate-pop-in flex-col items-center gap-3 text-center">
                     <p className="max-w-xs text-sm text-accent">{mockupError}</p>
-                    <Button onClick={onGenerateClick} disabled={!selectedDesign}>
-                      Try again
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <Button onClick={onGenerateClick} disabled={!selectedDesign}>
+                        Try again
+                      </Button>
+                      {storeEnabled && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => setShowSkipConfirm(true)}
+                          disabled={checkoutBusy}
+                        >
+                          Buy without a preview
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <Button onClick={onGenerateClick} disabled={!selectedDesign}>
-                    Generate mockup
-                  </Button>
+                  <div className="flex flex-col items-center gap-3">
+                    <Button onClick={onGenerateClick} disabled={!selectedDesign}>
+                      Generate mockup
+                    </Button>
+                    {storeEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSkipConfirm(true)}
+                        disabled={checkoutBusy}
+                        className="cursor-pointer text-xs text-text-muted underline decoration-dotted transition hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Buy without a preview
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -1196,7 +1243,16 @@ export default function ProductPage() {
               )}
               {user && storeEnabled && !hasMockup && (
                 <p className="text-xs leading-tight text-text-muted">
-                  Generate a mockup above before you check out.
+                  Generate a mockup above before you check out, or{' '}
+                  <button
+                    type="button"
+                    onClick={() => setShowSkipConfirm(true)}
+                    disabled={checkoutBusy}
+                    className="cursor-pointer underline decoration-dotted hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    buy without a preview
+                  </button>
+                  .
                 </p>
               )}
               {checkoutNotice && (
@@ -1214,6 +1270,19 @@ export default function ProductPage() {
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onSelect={onPickDesign}
+      />
+
+      <ConfirmDialog
+        open={showSkipConfirm}
+        title="Skip the preview?"
+        message="You haven't seen a mockup of this design on the garment yet. Your artwork still prints exactly as designed -- you'll just check out without a preview photo of it on the product first."
+        confirmLabel="Buy without preview"
+        cancelLabel="Keep waiting"
+        onConfirm={() => {
+          setShowSkipConfirm(false);
+          onBuyNowClick();
+        }}
+        onCancel={() => setShowSkipConfirm(false)}
       />
     </PageContainer>
   );

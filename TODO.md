@@ -191,9 +191,29 @@ tracks what's true now, not history.
       `printful-mockup` now logs Printful's error body on non-2xx (deployed).
       `PRINTFUL_API_KEY` repo secret added and a manual dispatch ran green (Aaron,
       2026-07-16) — the cron is fully operational.
-      Still open from the original item: graceful 429 handling on mockup tasks (Printful's
-      real limit is 2 mockup-task POSTs/60s across ALL users; the 429 body says how long to
-      wait — auto-retry with that delay). Matters once real traffic exists.
+      Graceful 429 handling — BUILT 2026-07-17. `printful-mockup` now enforces a second,
+      store-wide rate limit (`GLOBAL_RATE_LIMIT = 2`/60s, keyed on a fixed sentinel user id
+      so it reuses the existing per-user `rate_limits` table with no schema change beyond a
+      new `check_rate_limit_verbose` RPC that also reports retry-after seconds) ahead of the
+      per-user one, since the global cap is the one that actually binds — matches Printful's
+      measured limit exactly. Also normalizes a real passthrough 429 from Printful itself
+      (best-effort `Retry-After` header parse, since Printful doesn't document this
+      endpoint's 429 body shape). `useMockup.js` auto-retries on either, via a new `queued`
+      status (added to `BUSY_STATUSES`) that counts down `retryAfterSeconds` and resumes,
+      bounded to 3 minutes total so a genuinely down Printful doesn't hang the customer
+      forever. `ProductPage.jsx` narrates the wait instead of showing a bare error, and adds
+      a "Buy without a preview" escape hatch (three entry points: while queued/busy, on a
+      hard failure, and on the disabled-Buy-Now hint) behind `ConfirmDialog` — it calls the
+      exact same `onBuyNowClick` used by the real Buy Now button, unmodified, since the real
+      print-file render is already independent of whether a mockup ever succeeded; only the
+      Stripe line-item image differs (falls back to the product's stock photo, same as
+      `heroImage` already did whenever `!hasMockup`). Verified: `check_rate_limit_verbose`
+      exercised directly against the live DB (allow → allow → deny-with-shrinking-retry,
+      matching a limit=2 window), edge function deployed clean, full app build passes. NOT
+      live-verified against a real Printful 429 (would need two rapid real mockup-task
+      submissions through a signed-in session, ~30-90s each, spending real quota) — the
+      logic is verified at the DB/contract level, not observed against a live 429 from
+      Printful itself. Worth a real smoke test once there's a browser session to drive it.
       <details><summary>Original item (2026-07-12), for context</summary>
 - [previously open] **Printful catalog-drift check (scheduled), before full launch** (2026-07-12, Aaron
       — "add later, before we launch fully"). Context: pillow (83) mockups broke silently

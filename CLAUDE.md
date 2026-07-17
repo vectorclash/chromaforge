@@ -755,6 +755,31 @@ larger than the button column — it's the panel's visual anchor.
   cache). Free, no money involved. One automatic retry on Printful's occasional transient
   "Internal Server Error" for AOP products. Exposes `elapsedSeconds` + `BUSY_STATUSES` for
   UI feedback during the 30–90s+ round trip.
+  - **Global mockup-task rate limiting + graceful 429 handling, 2026-07-17.** Printful's
+    real constraint on `POST /v2/mockup-tasks` is store-wide (2 requests/60s across every
+    user, measured live off their `x-ratelimit-*` headers, undocumented) — the existing
+    per-user Edge Function limiter (20/min) was never the binding one. `printful-mockup`
+    now enforces a second gate matching that limit, keyed on a fixed sentinel user id so it
+    reuses the existing `rate_limits` table as a store-wide counter with no schema change
+    beyond one new RPC, `check_rate_limit_verbose` (`0011_global_rate_limit_retry.sql`),
+    which also reports retry-after seconds — the plain `check_rate_limit` boolean isn't
+    enough to tell a client how long to wait. A real passthrough 429 from Printful itself
+    (if the proactive gate and Printful's own window ever drift) is normalized the same
+    way, best-effort parsing `Retry-After` since Printful doesn't document this endpoint's
+    429 shape. `useMockup.js` auto-retries on either case via a new `queued` status (added
+    to `BUSY_STATUSES`) that counts down the reported wait and resumes automatically,
+    bounded to 3 minutes total so a genuinely down Printful can't hang a customer forever.
+    `ProductPage.jsx` narrates the wait instead of showing a bare error, and adds a "Buy
+    without a preview" escape hatch (behind `ConfirmDialog`) reachable while queued, on a
+    hard mockup failure, or from the disabled-Buy-Now hint — it calls the exact same
+    `onBuyNowClick` the real button uses, unmodified: the print-file render already runs
+    independently of mockup success, so only the Stripe line-item image differs (falls back
+    to the product's stock photo, same as `heroImage` already did whenever `!hasMockup`).
+    Verified: `check_rate_limit_verbose` exercised directly against the live DB
+    (allow→allow→deny with correctly shrinking retry-after), edge function deployed clean,
+    full app build passes. **Not yet live-verified against a real Printful 429** — that
+    needs two rapid real mockup-task submissions through a signed-in session (~30-90s each,
+    spends real quota) and no browser/session was available to drive one this session.
 - **Real checkout** (`supabase/functions/create-checkout-session`,
   `supabase/functions/stripe-webhook`, `src/lib/checkout.js`, wired into
   `ProductPage.jsx`'s "Buy now" and a new `CheckoutSuccessPage` + `AccountPage` order

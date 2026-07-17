@@ -13,7 +13,7 @@
 //
 // Deploy with: npx supabase functions deploy printful-mockup
 
-import { checkRateLimit } from "../_shared/rateLimit.ts";
+import { checkRateLimitVerbose } from "../_shared/rateLimit.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com/v2";
 
@@ -23,6 +23,16 @@ const STORE_ID = "18363066";
 // mockup quota; polling an already-created task (GET) doesn't.
 const RATE_LIMIT = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
+
+// Printful's REAL constraint on POST /v2/mockup-tasks, measured live off their own
+// x-ratelimit-* headers (undocumented): 2 requests/60s, shared across every user of the
+// app, not per-user -- our own RATE_LIMIT above is far looser and was never the binding
+// one (see TODO.md). GLOBAL_USER_ID is a fixed sentinel (not a real user) so this reuses
+// the existing per-(user_id, action) rate_limits table/RPC as a store-wide counter
+// without a schema change -- rate_limits.user_id has no FK to auth.users.
+const GLOBAL_USER_ID = "00000000-0000-0000-0000-000000000000";
+const GLOBAL_RATE_LIMIT = 2;
+const GLOBAL_RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,17 +69,35 @@ Deno.serve(async req => {
   }
 
   if (req.method === "POST") {
-    const withinLimit = await checkRateLimit(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      userId,
-      "printful-mockup",
-      RATE_LIMIT,
-      RATE_LIMIT_WINDOW_SECONDS
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const perUser = await checkRateLimitVerbose(
+      supabaseUrl, serviceRoleKey, userId, "printful-mockup", RATE_LIMIT, RATE_LIMIT_WINDOW_SECONDS
     );
-    if (!withinLimit) {
+    if (!perUser.allowed) {
       return Response.json(
-        { error: "Too many mockup requests. Please wait a moment and try again." },
+        {
+          error: "Too many mockup requests. Please wait a moment and try again.",
+          retryAfterSeconds: perUser.retryAfterSeconds
+        },
+        { status: 429, headers: corsHeaders }
+      );
+    }
+
+    // Checked separately from (and after) the per-user gate above: this is the one that
+    // actually binds in practice, since it's shared across every signed-in user hitting
+    // this endpoint, not just this one.
+    const global = await checkRateLimitVerbose(
+      supabaseUrl, serviceRoleKey, GLOBAL_USER_ID, "printful-mockup-global",
+      GLOBAL_RATE_LIMIT, GLOBAL_RATE_LIMIT_WINDOW_SECONDS
+    );
+    if (!global.allowed) {
+      return Response.json(
+        {
+          error: "Printful's preview service is at capacity right now.",
+          retryAfterSeconds: global.retryAfterSeconds
+        },
         { status: 429, headers: corsHeaders }
       );
     }
@@ -128,6 +156,22 @@ Deno.serve(async req => {
       console.error(
         `printful mockup-task create failed (${printfulRes.status}) product=${productId}:`,
         JSON.stringify(data).slice(0, 1000)
+      );
+    }
+    if (printfulRes.status === 429) {
+      // The proactive GLOBAL_RATE_LIMIT gate above should catch this before it ever
+      // reaches Printful, but is deliberately not perfectly in sync with Printful's own
+      // counter (e.g. right after a deploy, or if Printful's window boundary lands
+      // slightly differently than ours) -- fall back to whatever Printful itself reports.
+      // Retry-After isn't confirmed present on this endpoint (undocumented, see TODO.md),
+      // so this is best-effort with a conservative default.
+      const retryAfterHeader = printfulRes.headers.get("Retry-After");
+      const retryAfterSeconds = retryAfterHeader
+        ? parseInt(retryAfterHeader, 10) || GLOBAL_RATE_LIMIT_WINDOW_SECONDS
+        : GLOBAL_RATE_LIMIT_WINDOW_SECONDS;
+      return Response.json(
+        { error: "Printful's preview service is at capacity right now.", retryAfterSeconds },
+        { status: 429, headers: corsHeaders }
       );
     }
     return Response.json(data, { status: printfulRes.status, headers: corsHeaders });

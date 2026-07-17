@@ -36,3 +36,35 @@ export async function checkRateLimit(
   if (!res.ok) return false;
   return (await res.json()) === true;
 }
+
+// Same gate as checkRateLimit, but also reports how many seconds until the window frees
+// up -- used where the caller wants to tell the client "retry in Ns" instead of just
+// failing. See check_rate_limit_verbose in 0011_global_rate_limit_retry.sql. Fails closed
+// with a conservative full-window wait, same reasoning as checkRateLimit above.
+export async function checkRateLimitVerbose(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  userId: string,
+  action: string,
+  limit: number,
+  windowSeconds: number
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+  const res = await fetch(`${supabaseUrl}/rest/v1/rpc/check_rate_limit_verbose`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      p_user_id: userId,
+      p_action: action,
+      p_limit: limit,
+      p_window_seconds: windowSeconds
+    })
+  });
+  if (!res.ok) return { allowed: false, retryAfterSeconds: windowSeconds };
+  const rows = await res.json();
+  const row = rows?.[0];
+  return { allowed: !!row?.allowed, retryAfterSeconds: row?.retry_after_seconds ?? windowSeconds };
+}
