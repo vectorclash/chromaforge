@@ -847,6 +847,23 @@ larger than the button column — it's the panel's visual anchor.
     guessed). Stripe's "Managed Payments" (merchant-of-record tax/fraud handling) was
     explored but is **ineligible for physical goods** — it's a digital-goods-only program;
     this account uses standard Stripe Checkout instead.
+  - **Checkout branding pass (2026-07-16)**: the Stripe Checkout line item now carries the
+    customer's actual approved Printful mockup image (`ProductPage.jsx`'s `heroImage` →
+    `checkout.js` → `create-checkout-session`'s `mockupImages`, validated to an `https://`
+    string before being forwarded to Stripe rather than trusted blindly) instead of a bare
+    text line; the session sets `payment_intent_data.statement_descriptor_suffix:
+    "CHROMAFORGE"` (so the card-statement charge is recognizable) and `custom_text.submit`/
+    `after_submit` (small branded copy on Stripe's hosted page — deliberately no
+    shipping/production-time claim, since none is verified/committed to elsewhere in the
+    app). The Printful order itself now sends a `packing_slip` object (store name, the
+    `apple-touch-icon.png` mark as `logo_url` — Printful's slip renderer wants a raster
+    image, not the SVG wordmark — a thank-you message, and our own order id as
+    `custom_order_id` for support correlation) — previously omitted, so Printful's own
+    default (unbranded) slip shipped in every box. Deliberately deferred for later
+    (Aaron's call, revisit if the store takes off): white-labeling Printful's own
+    direct-to-customer shipping/tracking emails (still Printful-branded — would need
+    `printful-webhook`, which already tracks status changes, to drive a Chromaforge-branded
+    equivalent instead) and Printful's paid custom-packaging-insert add-on.
   - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
     failure could be a fixable data issue (bad address, stale variant) that's
     resubmittable, not necessarily a "give the money back" situation, so this is a
