@@ -443,6 +443,24 @@ export default function ProductPage() {
   // leaving on its own terms" concept in one place. Doesn't cover the back/forward
   // buttons (react-router's popstate handling, not a real unload either) -- an accepted
   // gap, not attempting to hijack browser history here.
+  // Real bug caught live (2026-07-17), round two: the click-capture guard above only
+  // covers <Link> clicks -- it does nothing for the browser back/forward buttons, which
+  // fire `popstate`, not a cancelable event React Router's own history listener has
+  // already acted on by the time any handler here could run. Reliably intercepting
+  // back/forward with a confirm prompt needs React Router's data-router APIs
+  // (createBrowserRouter + useBlocker), which this app doesn't use (plain <BrowserRouter>)
+  // -- too large a routing change to make as part of this fix. Instead of trying to catch
+  // every possible way to leave, this guards the actual harmful consequence directly: if
+  // the page that kicked off checkout is gone by the time rendering/session-creation
+  // finishes, don't force the browser to Stripe from wherever the customer has since
+  // navigated to (confirmed live: back button -> Shop page, no warning -> forced to Stripe
+  // moments later anyway). A silently abandoned pending order is harmless (see
+  // lib/checkout.js's listMyActiveOrders comment) and Buy Now is always re-clickable.
+  const isMountedRef = useRef(true);
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
+
   useEffect(() => {
     if (!checkoutBusy) return undefined;
     const onClickCapture = e => {
@@ -766,6 +784,11 @@ export default function ProductPage() {
         // checkout page instead of a bare text line item.
         mockupImageUrl: heroImage
       });
+      // The customer navigated away (back button, a link click that slipped past the
+      // confirm guard, etc.) while this was still running -- see isMountedRef's comment
+      // above. Session/order already exist server-side but nothing forces the browser
+      // there; a re-click of Buy Now on a future visit starts a fresh one.
+      if (!isMountedRef.current) return;
       // CheckoutSuccessPage reads this rather than looking the order up by Stripe session
       // id -- simpler, and avoids needing a session-id-keyed lookup RPC.
       sessionStorage.setItem('chromaforge:lastOrderId', orderId);
@@ -773,6 +796,7 @@ export default function ProductPage() {
       checkoutLeaveOkRef.current = true;
       window.location.href = url;
     } catch (err) {
+      if (!isMountedRef.current) return;
       setCheckoutNotice(err.message);
       setCheckoutBusy(false);
     }
