@@ -844,7 +844,23 @@ larger than the button column — it's the panel's visual anchor.
     Australia-NZ) in the same session, and the customer picks whichever matches their own
     address — Stripe doesn't cross-check the selected option against the address they
     actually type, so an honest customer picking the wrong region is a known, accepted gap,
-    not a bug. The 3 non-clothing starter products (tote bag, crossbody bag, pillow) aren't
+    not a bug.
+    **Client-side region pre-selection, 2026-07-17** (`src/lib/regionGuess.js`): found live
+    during pre-launch testing — the region list rendered with no relationship to the zip
+    code the customer had just typed, which reads as broken even though it's the documented
+    accepted gap above. Doesn't close that gap (still no cross-check), just makes the
+    common case less confusing: guesses one of the 5 regions from
+    `Intl.DateTimeFormat().resolvedOptions().timeZone` (no network call, no third-party IP
+    geolocation — keeps the Privacy page's "no trackers" promise intact) and sends it to
+    `create-checkout-session` as `guessedRegion`, which reorders `buildShippingOptions`'
+    array so that region is listed/pre-selected first (Stripe pre-selects whichever
+    shipping option appears first in the array). Falls back to the untouched US-first
+    order for an unmapped timezone or no guess at all. Live-verified end to end 2026-07-17
+    via a real UK test purchase (`STORE_ENABLED` temporarily flipped on for testing, still
+    Stripe test keys + `PRINTFUL_SKIP_CONFIRM` set): shipping charged $5.99, exactly
+    `RATE_CENTS.light.GB`; tax $0 (Stripe Tax isn't registered outside California, so
+    international destinations correctly aren't taxed today — worth revisiting if
+    UK/EU VAT compliance ever becomes a real requirement). The 3 non-clothing starter products (tote bag, crossbody bag, pillow) aren't
     covered by Printful's clothing rate tables and are approximated as `"light"` pending a
     real look-up. `SHIPPING_FLAT_CENTS` still works as an emergency override to a single
     flat rate (or 0 to disable shipping entirely), same instant-toggle pattern as the

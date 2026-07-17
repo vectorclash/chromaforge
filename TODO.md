@@ -170,6 +170,43 @@ tracks what's true now, not history.
        shorts and zip hoodie purchases also completed on our side but the Printful order
        itself failed downstream — see the new "Printful can't actually fulfill..." item
        above, a separate, non-blocking-for-this-step Printful catalog issue.
+       **Remaining pre-launch test items closed out 2026-07-17** (`STORE_ENABLED`
+       temporarily flipped `true` for this session, still on Stripe test keys and with
+       `PRINTFUL_SKIP_CONFIRM` still set — see below):
+       - **Shipping-region checkout, real test purchase to a UK address**: order
+         `cb3c2684` (t-shirt, "light" weight class) charged shipping = $5.99, exactly
+         `RATE_CENTS.light.GB` in `_shared/shipping.ts`. Tax = $0 (Stripe Tax is only
+         registered for California, so an international destination correctly isn't
+         taxed under current registrations — not a bug, but a real gap if UK
+         VAT/compliance ever becomes a requirement). `create-checkout-session` and
+         `stripe-webhook` both logged clean 200s; order reached `submitted` (Printful
+         draft created, unconfirmed).
+       - **Along the way, added client-side shipping-region pre-selection**
+         (`src/lib/regionGuess.js`, timezone-based, no network call/IP geolocation —
+         keeps the Privacy page's "no trackers" promise): Stripe's `shipping_options`
+         never cross-checks the picked rate against the typed address (a known,
+         accepted gap — see `shipping.ts`'s header comment), so this only reorders the
+         list to default to the customer's likely region instead of always showing
+         US-first; the customer can still override it manually, which is exactly how
+         the UK test above was driven.
+       - **Printful global mockup rate limit (2 req/60s store-wide), real 429 test**:
+         confirmed live via `printful-mockup`'s edge-function logs — a real 429 fired
+         on a rapid second mockup request, `queued` status kicked in, and the retry
+         countdown displayed correctly. Not just a contract-level check anymore (see
+         the "Graceful 429 handling" item below) — observed against Printful's actual
+         behavior.
+       - **Two real UI bugs found and fixed live during this pass**: (1)
+         `ConfirmDialog.jsx`'s action buttons (`.cf-btn-primary`/`.cf-btn-ghost`, fixed
+         56px height sized for short one-word labels) crushed/wrapped to 2-3 lines for
+         the longer "Buy without preview"/"Keep waiting" labels used by the
+         skip-the-preview escape hatch — the dialog's only other caller (design delete)
+         used short labels, so this never surfaced before. Fixed by stacking the
+         actions vertically (full width each) instead of side-by-side `flex-1`. (2)
+         `ProductPage.jsx`'s busy UI showed two unrelated clocks at once during
+         `queued` — a retry countdown and a separate elapsed-time count-up right below
+         it. Fixed by hiding the elapsed counter specifically during `queued` (it still
+         shows during rendering/creating/polling, where it's a single, meaningful
+         timer).
 4. [ ] Swap Stripe test → live: `STRIPE_SECRET_KEY`, register a live-mode webhook endpoint,
        set the new `STRIPE_WEBHOOK_SECRET`.
 5. [ ] Unset `PRINTFUL_SKIP_CONFIRM` — **the final switch**; after this, paid orders are
@@ -361,17 +398,18 @@ tracks what's true now, not history.
       → AccountPage's `recoveryMode` branch shows a set-new-password form →
       `updatePassword`. Verified locally: build clean, the forgot-password request/response
       round-tripped against the real Supabase project, and the recovery-hash routing was
-      exercised headlessly (Playwright) with no console errors. **Not yet verified with a
-      real emailed link** — that needs an actual "Forgot password?" click against a real
-      inbox. Also caught and fixed a real pre-existing bug this surfaced: `setImage()` in
+      exercised headlessly (Playwright) with no console errors. **Real emailed-link flow
+      also went through fine** — Aaron ran a real "Forgot password?" reset against a real
+      inbox, 2026-07-17. Also caught and fixed a real pre-existing bug this surfaced:
+      `setImage()` in
       `DisplayCanvas.jsx` had an unguarded `document.querySelector('.image-container')` in
       a `gsap.delayedCall(1, ...)` with no unmount cancellation — harmless before since
       nothing navigated away from a freshly-mounted homepage that fast, but the recovery
       redirect does exactly that every time. Now null-guarded like the neighboring
       `#controls-main` lookup already was.
       Recovery template pasted into the Dashboard's Auth → Email Templates → "Reset
-      password" (Aaron, done). Still not merged to `master`, so not live on
-      chromaforge.app yet.
+      password" (Aaron, done); this feature has since merged to `master` along with
+      everything else in `feature/account-gallery-ui` (2026-07-05) and is live.
 - [x] **Route-level code splitting**: `ShopPage`/`ProductPage`/`GalleryPage`/`AccountPage`/
       `CheckoutSuccessPage`/`TermsPage`/`PrivacyPage`/`NotFoundPage` are now `React.lazy` in
       `App.jsx`, with the `Suspense` boundary scoped to `SiteLayout`'s `<Outlet />` (not the
@@ -395,10 +433,8 @@ tracks what's true now, not history.
       backdrop, Escape-to-cancel) replaces `window.confirm` for design delete in
       `GalleryPage.jsx`. Verified live: the error toast renders in the accent treatment with
       no console errors (via a real `error_description` hash), and `ConfirmDialog` opens
-      (screenshotted), closes on Escape, with no console errors — the actual authenticated
-      delete click-through wasn't driven end-to-end (no test-account credentials available
-      in this session), so give the real "My Designs → Delete" flow one manual pass when
-      convenient.
+      (screenshotted), closes on Escape, with no console errors. **Real authenticated
+      "My Designs → Delete" click-through confirmed working by Aaron, 2026-07-17.**
 - [x] **Shared focus-visible ring** (2026-07-02) — added
       `focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
       focus-visible:outline-interactive` (compiles to the same `outline: 2px solid
