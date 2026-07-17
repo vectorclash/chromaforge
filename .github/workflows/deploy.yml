@@ -5,6 +5,17 @@ on:
     branches:
       - master
 
+# Serializes deploys instead of letting back-to-back pushes fire near-simultaneous SSH
+# connections at Hostinger -- suspected trigger of a real failure (2026-07-17) where two
+# pushes 25s apart deployed fine individually but the second's rsync failed all 3 retries
+# over ~3.75min right after the first's SSH session closed, consistent with a connection-rate
+# protection (e.g. fail2ban) on Hostinger's end reacting to the pair. cancel-in-progress:
+# false queues the second run to start only once the first fully completes, instead of
+# canceling it -- a deploy that's already rsyncing should never be killed mid-transfer.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
