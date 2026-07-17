@@ -732,6 +732,25 @@ export default class DisplayCanvas extends React.Component {
           });
         }
 
+        // The compact Save button (.controls-compact .button-small) carries its own
+        // permanent backdrop-filter (components.css) -- unlike the panel above, which has
+        // none in compact mode, so this one has no "ghost of removed glass" risk. Same iOS
+        // staleness bug as the panel though: it needs a per-frame inline write to force a
+        // recomposite once the artwork behind it changes, or it stays dark until the next
+        // scroll. Only the panel is skipped for compact; this button still needs the nudge.
+        const saveBtn = this.props.compact ? document.querySelector('.controls-compact .button-small') : null;
+        if (saveBtn) {
+          saveBtn.style.backdropFilter = 'none';
+          const b = { blur: 0 };
+          gsap.to(b, {
+            blur: 4,
+            duration: DURATION_SLOW,
+            ease: 'power2.inOut',
+            onUpdate: () => { saveBtn.style.backdropFilter = `blur(${b.blur}px)`; },
+            onComplete: () => { saveBtn.style.backdropFilter = ''; }
+          });
+        }
+
         gsap.to('.image-container', {
           duration: DURATION_SLOW,
           alpha: 1,
