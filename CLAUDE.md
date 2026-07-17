@@ -894,30 +894,33 @@ larger than the button column — it's the panel's visual anchor.
     generic "we hit a snag" failure state (see that page's handling of `status: 'failed'`).
     Fixed by stripping dashes and truncating to 20 hex chars; re-verified live
     (order id `707f0344…` → Printful draft `167236336`, `status: 'submitted'`, no failure).
-  - **Page-leave guard during checkout: two real rounds of live-caught bugs, 2026-07-17.**
-    The existing `beforeunload` listener (warns on tab close/refresh while Buy Now's async
+  - **Page-leave guard during checkout, settled 2026-07-17 after two live-caught bugs.**
+    `beforeunload` (warns on tab close/refresh/typed URL while Buy Now's async
     render→upload→session-creation is running) only fires on an actual browser-level
-    unload — it does nothing for React Router's client-side routing, since a `<Link>`
-    click never unloads the document. Round one (confirmed live: clicked a nav link mid-
-    checkout, no warning shown, then forced to Stripe from the Shop page moments later):
-    added a capture-phase `click` listener on internal links that shows a `confirm()` and
-    blocks the click if declined. Round two (confirmed live: back button instead of a link
-    click — same no-warning, same forced-redirect-later symptom): `popstate` isn't
-    cancelable and React Router's own history listener has already switched routes by the
-    time any handler here could run, so the click-capture trick doesn't extend to
-    back/forward at all; reliably intercepting those needs React Router's data-router APIs
-    (`createBrowserRouter` + `useBlocker`), which this app doesn't use (plain
-    `<BrowserRouter>`) — judged too large a routing migration to fold into this fix.
-    Instead of chasing every possible exit gesture, `ProductPage.jsx` now guards the actual
-    harmful consequence directly via an `isMountedRef`: if the component that kicked off
-    checkout is gone by the time the async work finishes, the forced
-    `window.location.href` redirect to Stripe is skipped rather than firing from wherever
-    the customer has since navigated to. A silently abandoned `pending` order is harmless
-    (already excluded from order history — see `checkout.js`'s `listMyActiveOrders`
-    comment) and Buy Now is always re-clickable. Net result: the warn-before-leaving
-    behavior only covers real unloads and in-app link clicks (not back/forward), but the
-    actual bad outcome — an unannounced redirect to Stripe from an unrelated page — cannot
-    happen via any exit path anymore.
+    unload — it does nothing for React Router's client-side routing (a `<Link>` click, or
+    back/forward) since none of those unload the document, so the async work just kept
+    running in the background regardless of what page the customer had navigated to.
+    Confirmed live twice: a nav link click, then separately the back button, each showed no
+    warning and each forced the browser to Stripe from the Shop page moments later. A
+    capture-phase `click` listener (added, then deliberately removed same day) briefly
+    plugged the link-click case with a `confirm()` prompt, but back/forward can't be caught
+    the same way — `popstate` isn't cancelable and React Router's own history listener has
+    already switched routes by the time any handler could run, so closing that gap for real
+    would need React Router's data-router APIs (`createBrowserRouter` + `useBlocker`,
+    this app uses plain `<BrowserRouter>`) — judged too large a routing migration for the
+    payoff. Landed on a smaller, more honest fix instead: `ProductPage.jsx` tracks
+    `isMountedRef` and skips the forced `window.location.href` redirect to Stripe if the
+    component that kicked off checkout is gone by the time the async work finishes, rather
+    than firing from wherever the customer has since navigated to. Once that consequence
+    was eliminated, the link-click confirm() no longer had a real justification either
+    (Aaron's call): an intentional click is a clear signal to leave, and warning on it while
+    back/forward remains a silent zero-friction exit was inconsistent, so it was removed —
+    `beforeunload` is the only remaining interruptive guard, kept specifically because a
+    real unload kills the JS execution context outright (no graceful background-finish
+    fallback exists for that one, unlike in-app navigation). Net state: no exit path can
+    force an unannounced redirect to Stripe from an unrelated page anymore; a silently
+    abandoned `pending` order is harmless and auto-cancels after 24h (see
+    `0010_cancel_stale_pending_orders_cron.sql`), and Buy Now is always re-clickable.
   - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
     failure could be a fixable data issue (bad address, stale variant) that's
     resubmittable, not necessarily a "give the money back" situation, so this is a
