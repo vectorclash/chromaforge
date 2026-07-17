@@ -20,6 +20,7 @@ import {
 } from '../lib/printful';
 import { getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
+import { guessShippingRegion } from '../lib/regionGuess';
 import { useStudio } from '../context/StudioContext';
 import { isSameDesign } from '../render/designSettings';
 import { useAuth } from '../context/AuthContext';
@@ -764,7 +765,8 @@ export default function ProductPage() {
         // Buy Now is gated behind hasMockup (disabled below), so heroImage is always a real
         // Printful mockup URL here -- shows the actual approved garment mockup on Stripe's
         // checkout page instead of a bare text line item.
-        mockupImageUrl: heroImage
+        mockupImageUrl: heroImage,
+        guessedRegion: guessShippingRegion()
       });
       // The customer navigated away (back button, a link click that slipped past the
       // confirm guard, etc.) while this was still running -- see isMountedRef's comment

@@ -81,8 +81,12 @@ function flatOverrideCents(): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : null;
 }
 
+function isRegion(value: unknown): value is Region {
+  return typeof value === "string" && (REGION_ORDER as readonly string[]).includes(value);
+}
+
 // deno-lint-ignore no-explicit-any
-export function buildShippingOptions(productId: number): any[] {
+export function buildShippingOptions(productId: number, preferredRegion?: unknown): any[] {
   const override = flatOverrideCents();
   if (override !== null) {
     if (override === 0) return [];
@@ -99,7 +103,15 @@ export function buildShippingOptions(productId: number): any[] {
   }
 
   const rates = RATE_CENTS[weightClassFor(productId)];
-  return REGION_ORDER.map(region => ({
+  // Stripe Checkout pre-selects whichever shipping option is listed first -- it never
+  // cross-checks the pick against the address the customer types (see this file's header
+  // comment), so a client-supplied guess (regionGuess.js, timezone-based) just moves the
+  // likely match to the front instead of leaving every customer looking at a US-first list.
+  // Falls back to the untouched REGION_ORDER for a missing/invalid guess.
+  const order = isRegion(preferredRegion)
+    ? [preferredRegion, ...REGION_ORDER.filter(region => region !== preferredRegion)]
+    : REGION_ORDER;
+  return order.map(region => ({
     shipping_rate_data: {
       display_name: `Shipping – ${REGION_LABEL[region]}`,
       type: "fixed_amount",
