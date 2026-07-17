@@ -179,12 +179,19 @@ Deno.serve(async req => {
   // their Printful order number. logo_url must be a publicly reachable image (not the SVG
   // wordmark -- Printful's slip renderer wants a raster image); apple-touch-icon.png is
   // already a square PNG mark built for exactly this kind of small-icon use.
+  //
+  // Real bug caught live (2026-07-17): a full order uuid (36 chars, dashes included) blew
+  // past Printful's 20-char cap on custom_order_id and made POST /orders 400 outright --
+  // Stripe had already charged the customer by this point, so this failed every single
+  // order, not an edge case (every order id is a uuid). Fixed by stripping dashes and
+  // truncating to 20 hex chars -- still enough of the real id for a support lookup
+  // (`orders.id::text like '<prefix>%'`) against the full uuid stored in our own DB.
   const packingSlip = {
     email: "support@chromaforge.app",
     store_name: "Chromaforge",
     logo_url: "https://chromaforge.app/apple-touch-icon.png",
     message: "Thanks for supporting Chromaforge! chromaforge.app",
-    custom_order_id: orderId
+    custom_order_id: orderId.replace(/-/g, "").slice(0, 20)
   };
 
   const printfulOrderBody = {
