@@ -729,7 +729,11 @@ export default function ProductPage() {
         quantity: qty,
         design: selectedDesign,
         printFileUrls,
-        productOptions: stitchColorProductOptions || cfg.productOptions
+        productOptions: stitchColorProductOptions || cfg.productOptions,
+        // Buy Now is gated behind hasMockup (disabled below), so heroImage is always a real
+        // Printful mockup URL here -- shows the actual approved garment mockup on Stripe's
+        // checkout page instead of a bare text line item.
+        mockupImageUrl: heroImage
       });
       // CheckoutSuccessPage reads this rather than looking the order up by Stripe session
       // id -- simpler, and avoids needing a session-id-keyed lookup RPC.

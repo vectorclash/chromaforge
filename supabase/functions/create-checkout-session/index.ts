@@ -122,7 +122,8 @@ Deno.serve(async req => {
     quantity,
     design,
     printFileUrls,
-    productOptions
+    productOptions,
+    mockupImageUrl
   } = body;
   if (!productId || !variantId || !quantity || !design || !printFileUrls) {
     return Response.json({ error: "Missing required fields" }, { status: 400, headers: corsHeaders });
@@ -166,6 +167,13 @@ Deno.serve(async req => {
   // checkout while sorting the dashboard side out. Same fail-open literal-"false" pattern
   // as STORE_ENABLED.
   const automaticTax = Deno.env.get("STRIPE_AUTOMATIC_TAX") !== "false";
+
+  // Stripe requires product images to be publicly reachable https URLs -- mockupImageUrl is
+  // client-supplied, so validate the scheme rather than trusting it blindly (worst case of a
+  // bad value here is just a broken line-item image, but no reason to forward garbage to
+  // Stripe's API).
+  const mockupImages =
+    typeof mockupImageUrl === "string" && mockupImageUrl.startsWith("https://") ? [mockupImageUrl] : [];
 
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
 
@@ -219,7 +227,10 @@ Deno.serve(async req => {
         {
           price_data: {
             currency: "usd",
-            product_data: { name: `${productTitle}${variantLabel ? ` (${variantLabel})` : ""}` },
+            product_data: {
+              name: `${productTitle}${variantLabel ? ` (${variantLabel})` : ""}`,
+              ...(mockupImages.length > 0 ? { images: mockupImages } : {})
+            },
             unit_amount: unitPriceCents,
             // Prices are set pre-tax; Stripe Tax adds tax on top rather than carving it
             // out of the listed price.
@@ -233,7 +244,21 @@ Deno.serve(async req => {
       shipping_address_collection: { allowed_countries: ALLOWED_SHIPPING_COUNTRIES },
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/shop/${productId}?checkout=canceled`,
-      metadata: { order_id: order.id }
+      metadata: { order_id: order.id },
+      // Statement descriptor suffix: shows on the customer's card statement appended to the
+      // account's registered short name, so a Chromaforge charge is recognizable instead of
+      // a generic default. Custom text: small branded touches on Stripe's hosted page --
+      // deliberately no shipping/production-time claim here since none is verified/committed
+      // to elsewhere in the app.
+      payment_intent_data: { statement_descriptor_suffix: "CHROMAFORGE" },
+      custom_text: {
+        submit: {
+          message: "Your one-of-a-kind Chromaforge design is made to order by our print partner."
+        },
+        after_submit: {
+          message: "Thanks for your order! You'll receive tracking details by email once it ships."
+        }
+      }
     });
   } catch (err) {
     await supabase.from("orders").update({ status: "canceled" }).eq("id", order.id);

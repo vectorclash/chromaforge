@@ -25,11 +25,22 @@ export async function createCheckoutSession({
   quantity,
   design,
   printFileUrls,
-  productOptions
+  productOptions,
+  mockupImageUrl
 }) {
   const { data, error } = await client().functions.invoke('create-checkout-session', {
     method: 'POST',
-    body: { productId, productTitle, variantId, variantLabel, quantity, design, printFileUrls, productOptions }
+    body: {
+      productId,
+      productTitle,
+      variantId,
+      variantLabel,
+      quantity,
+      design,
+      printFileUrls,
+      productOptions,
+      mockupImageUrl
+    }
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error);

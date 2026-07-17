@@ -172,6 +172,21 @@ Deno.serve(async req => {
   // All current catalog products are all-over-print cut-and-sew garments/panels (see the
   // header comment in src/lib/printful.js) -- this is a stated, deliberate catalog-wide
   // policy of this app, not a per-order guess.
+  // Branded packing slip -- the paper insert Printful puts in the box. Without this,
+  // Printful falls back to its own default slip (no Chromaforge branding at all).
+  // custom_order_id round-trips our own order uuid onto the slip/Printful dashboard, useful
+  // for correlating a support inquiry back to this order without asking the customer for
+  // their Printful order number. logo_url must be a publicly reachable image (not the SVG
+  // wordmark -- Printful's slip renderer wants a raster image); apple-touch-icon.png is
+  // already a square PNG mark built for exactly this kind of small-icon use.
+  const packingSlip = {
+    email: "support@chromaforge.app",
+    store_name: "Chromaforge",
+    logo_url: "https://chromaforge.app/apple-touch-icon.png",
+    message: "Thanks for supporting Chromaforge! chromaforge.app",
+    custom_order_id: orderId
+  };
+
   const printfulOrderBody = {
     recipient: {
       name: shippingDetails?.name ?? session.customer_details?.name ?? "",
@@ -185,6 +200,7 @@ Deno.serve(async req => {
       state_code: shippingDetails?.address?.state ?? "",
       zip: shippingDetails?.address?.postal_code ?? ""
     },
+    packing_slip: packingSlip,
     items: items.map(item => ({
       quantity: item.quantity,
       variant_id: item.variant_id,
