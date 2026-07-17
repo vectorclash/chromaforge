@@ -408,12 +408,14 @@ export default function ProductPage() {
   }, [checkoutBusy]);
 
   // While a checkout is being prepared (Buy Now clicked, print files rendering, Stripe
-  // session being created), warn on tab close/refresh/external navigation -- abandoning
-  // mid-run wastes the render work and can strand the run right before the Stripe
-  // redirect. beforeunload prompts are browser-generic (custom text is ignored by every
-  // modern browser), so the wording lives in the on-page narration instead. The guard
-  // must stand down for the flow's own intentional page leave -- the redirect to Stripe
-  // IS a navigation -- via checkoutLeaveOkRef, set just before window.location.href.
+  // session being created), warn on tab close/refresh/typed URL -- unlike leaving via
+  // in-app navigation (see isMountedRef below), an actual page unload kills the JS
+  // execution context outright, so there's no graceful "finish in the background"
+  // fallback for it; this is the one exit path worth interrupting. beforeunload prompts
+  // are browser-generic (custom text is ignored by every modern browser), so the wording
+  // lives in the on-page narration instead. The guard must stand down for the flow's own
+  // intentional page leave -- the redirect to Stripe IS a navigation -- via
+  // checkoutLeaveOkRef, set just before window.location.href.
   const checkoutLeaveOkRef = useRef(false);
   useEffect(() => {
     if (!checkoutBusy) return undefined;
@@ -427,54 +429,25 @@ export default function ProductPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [checkoutBusy]);
 
-  // Real bug caught live (2026-07-17): beforeunload ONLY fires on an actual browser-level
-  // navigation (tab close, refresh, typed URL, back/forward) -- it does nothing for
-  // React Router's own client-side routing, since clicking a <Link> (header nav, footer,
-  // etc.) never unloads the document at all. So a click away mid-checkout showed no
-  // warning, the SPA navigated normally, and onBuyNowClick's async work kept running in
-  // the background regardless -- once print files finished rendering and the Stripe
-  // session was created, `window.location.href = url` fired unconditionally and yanked the
-  // browser to Stripe from whatever page the customer had since navigated to (confirmed
-  // live: warned nothing, then forced to Stripe from the Shop page a moment later).
-  // Fixed with a capture-phase click listener on internal links, same "stand down for our
-  // own intentional Stripe redirect" flag (checkoutLeaveOkRef) the beforeunload guard uses
-  // -- that redirect is a direct `window.location.href` assignment, not a click, so it
-  // never hits this listener anyway, but sharing the ref keeps the guard's "is checkout
-  // leaving on its own terms" concept in one place. Doesn't cover the back/forward
-  // buttons (react-router's popstate handling, not a real unload either) -- an accepted
-  // gap, not attempting to hijack browser history here.
-  // Real bug caught live (2026-07-17), round two: the click-capture guard above only
-  // covers <Link> clicks -- it does nothing for the browser back/forward buttons, which
-  // fire `popstate`, not a cancelable event React Router's own history listener has
-  // already acted on by the time any handler here could run. Reliably intercepting
-  // back/forward with a confirm prompt needs React Router's data-router APIs
-  // (createBrowserRouter + useBlocker), which this app doesn't use (plain <BrowserRouter>)
-  // -- too large a routing change to make as part of this fix. Instead of trying to catch
-  // every possible way to leave, this guards the actual harmful consequence directly: if
-  // the page that kicked off checkout is gone by the time rendering/session-creation
-  // finishes, don't force the browser to Stripe from wherever the customer has since
-  // navigated to (confirmed live: back button -> Shop page, no warning -> forced to Stripe
-  // moments later anyway). A silently abandoned pending order is harmless (see
-  // lib/checkout.js's listMyActiveOrders comment) and Buy Now is always re-clickable.
+  // In-app navigation (a <Link> click, or the back/forward buttons) never unloads the
+  // document, so beforeunload above does nothing for it -- and unlike a real unload, the
+  // JS execution context survives, so onBuyNowClick's async work just keeps running in the
+  // background regardless of what page the customer is now looking at. A version of this
+  // guard used to interrupt <Link> clicks with a confirm() prompt (added, then removed,
+  // 2026-07-17) to try to warn before that happened, but back/forward can't be caught the
+  // same way -- popstate isn't cancelable and React Router's own history listener has
+  // already switched routes by the time any handler here could run, so that would've
+  // needed a much larger migration to React Router's data-router APIs (createBrowserRouter
+  // + useBlocker) to close consistently. Rather than warn on some exits and not others,
+  // this guards the actual harmful consequence directly instead: if the page that kicked
+  // off checkout is gone by the time rendering/session-creation finishes, don't force the
+  // browser to Stripe from wherever the customer has since navigated to. A silently
+  // abandoned pending order is harmless (auto-canceled after 24h -- see
+  // 0010_cancel_stale_pending_orders_cron.sql) and Buy Now is always re-clickable.
   const isMountedRef = useRef(true);
   useEffect(() => () => {
     isMountedRef.current = false;
   }, []);
-
-  useEffect(() => {
-    if (!checkoutBusy) return undefined;
-    const onClickCapture = e => {
-      if (checkoutLeaveOkRef.current) return;
-      const anchor = e.target.closest('a[href]');
-      if (!anchor || anchor.target === '_blank' || anchor.origin !== window.location.origin) return;
-      if (!window.confirm('Your order is still being prepared. Leave this page anyway?')) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    document.addEventListener('click', onClickCapture, true);
-    return () => document.removeEventListener('click', onClickCapture, true);
-  }, [checkoutBusy]);
 
   // Stripe bounces back here with ?checkout=canceled on cancel_url -- no dedicated cancel
   // page, just surface it through the existing checkoutNotice mechanism.
