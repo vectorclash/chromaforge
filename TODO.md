@@ -207,10 +207,37 @@ tracks what's true now, not history.
          it. Fixed by hiding the elapsed counter specifically during `queued` (it still
          shows during rendering/creating/polling, where it's a single, meaningful
          timer).
-4. [ ] Swap Stripe test → live: `STRIPE_SECRET_KEY`, register a live-mode webhook endpoint,
-       set the new `STRIPE_WEBHOOK_SECRET`.
-5. [ ] Unset `PRINTFUL_SKIP_CONFIRM` — **the final switch**; after this, paid orders are
-       really produced and billed.
+4. [x] **Swapped Stripe test → live, 2026-07-17.** `STRIPE_SECRET_KEY` set to the live
+       secret key from the Stripe account's actual live dashboard (`acct_1To9hzRGdn8L7uMg`
+       — confirmed via a throwaway diagnostic edge function that called `GET /v1/account`
+       with the configured key and reported back `livemode`/account id, then was deleted;
+       this was needed because the account also has a second, unrelated sandbox called
+       "Chromaforge sandbox" with a different account id, and the two were easy to
+       confuse). A live-mode webhook endpoint was registered (Stripe's newer
+       Workbench/Event-destinations UI, not the old "Developers → Webhooks" path) pointed
+       at the same `stripe-webhook` URL, subscribed to just `checkout.session.completed`,
+       and its signing secret set as `STRIPE_WEBHOOK_SECRET`.
+       **Real incident during this step**: the live secret key got set (copied from
+       Stripe's own dashboard recommendations panel) before the matching live webhook
+       secret existed, while `STORE_ENABLED` was still `true` from the same-day testing
+       session — a real window where a genuine customer completing checkout would have
+       been actually charged via the live key, but the webhook's signature check would
+       have failed (still holding the old test secret), leaving the order stuck
+       `pending` with no Printful submission. Caught immediately via a routine
+       `whoami-stripe` account check; `STORE_ENABLED` was set back to `false` within the
+       same exchange, and the `orders` table was checked directly for the exposure
+       window — zero orders were created, so no customer was actually affected. Sequencing
+       lesson for next time: when swapping to a live key, pause `STORE_ENABLED` (or set
+       the webhook secret first) before setting the live secret key, never after.
+5. [x] **Unset `PRINTFUL_SKIP_CONFIRM`, 2026-07-17** — done together with re-enabling
+       `STORE_ENABLED`, once the live secret key and live webhook secret were confirmed
+       consistent. **Real first live order went through end to end the same session**:
+       order id starting `de012dba`, Stripe session `cs_live_a1R0DU...` (genuinely live,
+       paid via Apple Pay), `create-checkout-session`/`render-print-file` clean 200s,
+       `stripe-webhook` verified the live signature and flipped the order to `submitted`,
+       and `printful-webhook` delivered a follow-up status event for the same order —
+       confirming both the payment path and the Printful status-tracking integration work
+       against the real live account, not just in test mode. Chromaforge is live.
 
 ## Code — high value, near term
 

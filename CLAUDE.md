@@ -1029,12 +1029,17 @@ preview pipeline (Shop/ProductPage, `useMockup`) — confirm what's actually bee
 and pushed before assuming any specific recent change is live, this file tracks what's
 *built*, not what's deployed.
 
-The Stripe checkout → real Printful order pipeline (see "Merch pipeline" above) is
-**deployed to Supabase Edge Functions and live-verified** — a real Stripe test-mode
-purchase has gone through both functions end to end and produced a correct Printful draft
-order. `PRINTFUL_SKIP_CONFIRM` is still set (intentionally, for continued testing), so no
-order can be confirmed/billed/produced yet — check whether it's still set before assuming
-real customers can complete a purchase.
+**Chromaforge is live, 2026-07-17.** `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are the
+account's real live-mode values, `STORE_ENABLED=true`, and `PRINTFUL_SKIP_CONFIRM` is
+unset — real customers can complete a real purchase and it will actually be produced and
+billed. Verified with a real order the same day: a live Apple Pay checkout (session
+`cs_live_...`) → `stripe-webhook` verified the live signature and flipped the order to
+`submitted` → `printful-webhook` delivered a follow-up status event for the same order.
+See `TODO.md`'s go-live sequence (steps 4–5) for the full sequencing/incident notes —
+worth reading before ever rotating these secrets again, since a real exposure window
+happened once already when the live secret key was set before its matching webhook
+secret (caught immediately, zero orders affected, but avoid repeating the order of
+operations).
 
 Server-side print-resolution rendering is **built, deployed (Fly.io + a new
 render-print-file Edge Function), wired into checkout, and live-verified** (see
@@ -1059,10 +1064,8 @@ stable — the product/placement combination that used to fail every time on v2;
 label_inside bullet under "Server-side print rendering"). The other six `label_inside`
 products (hoodie, sweatshirt, mesh shorts, joggers, track jacket, crossbody bag) still
 want a zero-cost draft-order test each before launch, but the failure mechanism is fixed.
-`PRINTFUL_SKIP_CONFIRM` is still set (intentionally), so no order can be
-confirmed/billed/produced yet — check whether it's still set before assuming real
-customers can complete a purchase. `STORE_ENABLED` is also currently `false` (purchasing
-paused; flipped on only for e2e tests). Operational gotcha proven live 2026-07-15: the
+`PRINTFUL_SKIP_CONFIRM` is unset and `STORE_ENABLED` is `true` as of 2026-07-17 — see the
+"Chromaforge is live" note above. Operational gotcha proven live 2026-07-15: the
 Fly render-service ships a frozen bundle of `src/render` — **it must be redeployed
 (`flyctl deploy --config render-service/fly.toml` from the repo root) whenever
 `GENERATOR_VERSION` bumps**, or every Buy Now fails with "generatorVersion mismatch."
