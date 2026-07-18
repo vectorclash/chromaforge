@@ -231,6 +231,7 @@ export default class DisplayCanvas extends React.Component {
       gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
       this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
+      this.adoptDesignColors(this.props.initialDesign.colors);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
         this.props.width,
@@ -284,10 +285,11 @@ export default class DisplayCanvas extends React.Component {
               generateDisabled: true,
               animationProgress: 0
             });
-            // All frames of one animation share their generation settings (they're built
-            // in a single session with the sliders in one position), so the first frame's
-            // are the animation's.
+            // All frames of one animation share their generation settings and palette
+            // (they're built in a single session with the sliders/colors in one position),
+            // so the first frame's are the animation's.
             this.adoptDesignSettings(config.frames[0]?.settings);
+            this.adoptDesignColors(config.frames[0]?.colors);
             this.loadAnimationFromConfigs(config.frames);
           } else {
             this.loadImageFromUrl(config);
@@ -323,6 +325,7 @@ export default class DisplayCanvas extends React.Component {
       this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
       this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
+      this.adoptDesignColors(this.props.initialDesign.colors);
       const built = this.buildConfig(
         this.props.initialDesign.seed,
         this.props.width,
@@ -676,6 +679,7 @@ export default class DisplayCanvas extends React.Component {
     // form -- buildConfig regenerates the full composition (and sets this.mainConfig)
     // before we render it, same as the `initialDesign` continuity path in init().
     this.adoptDesignSettings(config.settings);
+    this.adoptDesignColors(config.colors);
     const built = this.buildConfig(
       config.seed,
       this.props.width,
@@ -693,6 +697,19 @@ export default class DisplayCanvas extends React.Component {
   // and therefore the next Generate, wherever they last were.
   adoptDesignSettings(settings) {
     this.setState({ geometrySettings: getGeometrySettings(settings) });
+  }
+
+  // Sync the color swatch panel to a loaded design's actual palette (or clear it, for an
+  // auto-palette design) -- the missing color counterpart to adoptDesignSettings above.
+  // Without this, buildConfig still renders the artwork with the right colors (it's given
+  // them explicitly), but state.colors -- what the swatch panel actually reads -- stays
+  // whatever this fresh mount's constructor defaulted it to ([]), so the panel looked
+  // "reset" on every load path (a share/gallery link, or navigating home and back to the
+  // Studio) even though the artwork itself never changed.
+  adoptDesignColors(colors) {
+    this.setState({
+      colors: (colors || []).map(value => ({ id: this.nextColorId++, value }))
+    });
   }
 
   setImage(blob) {
@@ -1294,6 +1311,56 @@ export default class DisplayCanvas extends React.Component {
     }, 350);
   }
 
+  // Queues a live 2D regenerate for a color-LIST edit that's already reflected in
+  // state.colors (add/remove/clear/rainbow/reorder all update state synchronously before
+  // calling this) -- same 350ms-debounced, shared-timer treatment onGeometrySettingChange
+  // gives the geometry sliders, so a burst of edits across colors and geometry within one
+  // window collapses into a single regenerate instead of racing. Previously colors had no
+  // live-2D counterpart to syncThreeDColors, so an edit only reached mainConfig/
+  // StudioContext on the next Generate click -- meaning navigating away from the Studio and
+  // back silently dropped an unsaved palette edit while a geometry-slider edit survived.
+  queueColorRegen() {
+    if (this.state.animationMode || this.state.isExporting) return;
+    const wasSaved = this.state.isSaved;
+    this.setState(s => ({
+      isSaved: false,
+      showBranchNotice: s.showBranchNotice || wasSaved
+    }));
+    clearTimeout(this.geometryRegenTimer);
+    this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
+  }
+
+  // Color-list edit (add/remove/clear/rainbow/reorder) -- syncs the 3D scene (unchanged)
+  // and queues the 2D live regenerate above.
+  onColorsChanged() {
+    this.syncThreeDColors();
+    this.queueColorRegen();
+  }
+
+  // A swatch's own VALUE changed (jscolor drag/typed edit, via ColorField's onEdit).
+  // jscolor edits live in the swatch's uncontrolled input (see updateColors), so
+  // state.colors lags the DOM until this runs -- read it only once, inside the debounced
+  // callback, the same way syncThreeDColors already does, so frequent input events during
+  // a drag don't each trigger a read/setState/regenerate.
+  onColorSwatchEdit() {
+    this.syncThreeDColors();
+    if (this.state.animationMode || this.state.isExporting) return;
+    const wasSaved = this.state.isSaved;
+    clearTimeout(this.geometryRegenTimer);
+    this.geometryRegenTimer = setTimeout(() => {
+      const colorFields = document.querySelectorAll('.color');
+      const colors = this.state.colors.map((colorObj, index) => ({
+        ...colorObj,
+        value: colorFields[index] ? colorFields[index].value : colorObj.value
+      }));
+      this.setState(s => ({
+        colors,
+        isSaved: false,
+        showBranchNotice: s.showBranchNotice || wasSaved
+      }), () => this.regenerateCurrentSeed());
+    }, 350);
+  }
+
   onDismissBranchNotice() {
     this.setState({ showBranchNotice: false });
   }
@@ -1307,14 +1374,16 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
     this.setState({ isLoading: true, generateDisabled: true, isSaved: false });
-    // Same seed + palette, new settings (buildConfig reads the live slider state) -- the
-    // "same" piece, reshaped. mainConfig.colors is the palette that was passed in (possibly
-    // empty for auto-palette designs), which regenerates deterministically either way.
+    // Same seed, live palette + settings (buildConfig reads the live slider state) -- the
+    // "same" piece, reshaped. Colors come from state.colors, not mainConfig.colors, so a
+    // pending color edit (see onColorsChanged/onColorSwatchEdit) is picked up here too,
+    // not just a pending geometry-slider edit -- the two previously had separate sources
+    // of truth and could regenerate against stale palettes.
     const config = this.buildConfig(
       this.mainConfig.seed,
       this.props.width,
       this.props.height,
-      this.mainConfig.colors
+      this.state.colors.map(c => c.value || c)
     );
     this.buildImage(config);
   }
@@ -1663,7 +1732,7 @@ export default class DisplayCanvas extends React.Component {
   }
 
   onClearColors() {
-    this.setState({ colors: [] }, () => this.syncThreeDColors());
+    this.setState({ colors: [] }, () => this.onColorsChanged());
     this.nextColorId = 0;
   }
 
@@ -1681,7 +1750,7 @@ export default class DisplayCanvas extends React.Component {
         { id: base + 3, value: '#00e5ff' },
         { id: base + 4, value: '#4c00ff' }
       ]
-    }, () => this.syncThreeDColors());
+    }, () => this.onColorsChanged());
     this.nextColorId = base + 5;
     gsap.delayedCall(0.05, () => this.animateColors());
   }
@@ -1692,7 +1761,7 @@ export default class DisplayCanvas extends React.Component {
       id: this.nextColorId++,
       value: new tinycolor.random().toHexString()
     });
-    this.setState({ colors: colors }, () => this.syncThreeDColors());
+    this.setState({ colors: colors }, () => this.onColorsChanged());
 
     gsap.delayedCall(0.05, () => {
       this.animateColors();
@@ -1710,7 +1779,7 @@ export default class DisplayCanvas extends React.Component {
     // Filter out the color to remove by ID
     colors = colors.filter(colorObj => colorObj.id !== colorId);
 
-    this.setState({ colors: colors }, () => this.syncThreeDColors());
+    this.setState({ colors: colors }, () => this.onColorsChanged());
   }
 
   onReorderColors(draggedColorId, targetColorId) {
@@ -1738,7 +1807,7 @@ export default class DisplayCanvas extends React.Component {
     // the displacement, so it could never be "replaced".
     [colors[draggedIndex], colors[targetIndex]] = [colors[targetIndex], colors[draggedIndex]];
 
-    this.setState({ colors: colors }, () => this.syncThreeDColors());
+    this.setState({ colors: colors }, () => this.onColorsChanged());
   }
 
   onKeyUp(e) {
@@ -2122,7 +2191,7 @@ export default class DisplayCanvas extends React.Component {
                       colorId={colorObj.id}
                       callback={this.onRemoveColorbuttonClick.bind(this)}
                       onReorder={this.onReorderColors.bind(this)}
-                      onEdit={() => this.syncThreeDColors()}
+                      onEdit={() => this.onColorSwatchEdit()}
                     />
                   ))}
                   {colors.length < 6 ? (

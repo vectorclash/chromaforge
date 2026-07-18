@@ -147,9 +147,19 @@ export function StudioProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDesign, queueReady, renderDesignBlob]);
 
-  // Fresh random design, auto-palette -- the same shape used for the provider's initial seed.
+  // Fresh seed, but keeps the CURRENT palette/geometry settings -- what "Generate" means
+  // everywhere else in the app (DisplayCanvas.onGenerateButtonClick's buildConfig() defaults
+  // to the live state.colors/geometrySettings the same way). This was the real bug behind
+  // "the mini generator resets everything": it used to always regenerate with an empty
+  // palette and default settings regardless of what was actually live, so clicking Generate
+  // on the ambient widget silently discarded any colors/geometry chosen in the Studio, while
+  // the Studio's own Generate button (a different code path) preserved them. Falls back to
+  // an auto-palette only for the provider's very first (pre-Studio-visit) design, same as
+  // before.
   const generateRandom = useCallback(() => {
-    setCurrentDesign(generateArtwork(randomSeed(), 1080, 1080, []));
+    setCurrentDesign(prev =>
+      generateArtwork(randomSeed(), 1080, 1080, prev.colors ?? [], prev.settings ?? null)
+    );
   }, []);
 
   // Persist a design to the signed-in user's gallery. Throws (rather than silently no-op'ing)
