@@ -1177,7 +1177,17 @@ export default class DisplayCanvas extends React.Component {
     // frames, which is what collapsed 24fps exports to ~13fps on Windows. With
     // no B-frames, decode order == presentation order and nothing is dropped.
     // High Profile is kept as a fallback (it works fine on macOS/VideoToolbox).
-    const bitrate = isMobile ? 15_000_000 : 40_000_000;
+    // 25Mbps mobile (was 15): the fast parts of the animation — the 3D flythrough,
+    // and especially the speed ramp's mid-cycle peak — starve the encoder at 15 and
+    // came out visibly blocky/pixelated on real phone exports.
+    const bitrate = isMobile ? 25_000_000 : 40_000_000;
+    // latencyMode: 'quality' gives the encoder real rate control and motion estimation
+    // headroom; 'realtime' (used previously) trades that away for encode speed, which is
+    // the other half of the fast-motion blockiness. The reordering concern that motivated
+    // 'realtime' doesn't apply to Constrained Baseline — that profile structurally cannot
+    // contain B-frames — so only the High Profile fallback (which CAN reorder) keeps the
+    // 'realtime' hint.
+    const latencyFor = codec => (codec.startsWith('avc1.42') ? 'quality' : 'realtime');
     const codecCandidates = [
       'avc1.42E034', // Constrained Baseline, Level 5.2 — no B-frames
       'avc1.42E028', // Constrained Baseline, Level 4.0 — no B-frames (lower-res fallback)
@@ -1185,7 +1195,7 @@ export default class DisplayCanvas extends React.Component {
     ];
     let videoCodec = null;
     for (const c of codecCandidates) {
-      const cfg = { codec: c, width, height, bitrate, framerate: FPS, latencyMode: 'realtime' };
+      const cfg = { codec: c, width, height, bitrate, framerate: FPS, latencyMode: latencyFor(c) };
       const ok = await VideoEncoder.isConfigSupported(cfg)
         .then(r => r.supported)
         .catch(() => false);
@@ -1210,10 +1220,7 @@ export default class DisplayCanvas extends React.Component {
         height,
         bitrate,
         framerate: FPS,
-        // 'realtime' asks the encoder to avoid frame reordering; the Baseline
-        // profile above is the structural guarantee, since some Windows
-        // encoders ignore this hint.
-        latencyMode: 'realtime'
+        latencyMode: latencyFor(videoCodec)
       });
     } catch (e) {
       console.error('VideoEncoder configure failed:', e);
@@ -1238,7 +1245,10 @@ export default class DisplayCanvas extends React.Component {
       drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0);
 
       const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });
-      encoder.encode(frame, { keyFrame: f % FPS === 0 });
+      // Keyframe every 2s (was every 1s): forced keyframes are the most expensive frames
+      // in the stream, and at fast-motion moments the bitrate they consume comes straight
+      // out of the inter frames' budget — visibly blocky at the speed ramp's peak.
+      encoder.encode(frame, { keyFrame: f % (FPS * 2) === 0 });
       frame.close();
 
       // Drain the encoder queue before it grows too large
