@@ -491,6 +491,16 @@ larger than the button column — it's the panel's visual anchor.
   designs saved before this existed. My Designs has a per-row Delete (wired to the
   existing `deleteDesign`); the Public tab pages 20 at a time via `listPublicDesigns`'s
   `before` cursor with a "Load More" button.
+  **Storage SELECT policies are owner-scoped as of 2026-07-17** (migration `0013`,
+  advisor-driven): anonymous/other-user clients can no longer LIST files in
+  `avatars`/`design-mockups`/`design-thumbnails` — public-URL serving (`getPublicUrl`
+  `<img>` loads) is unaffected (public buckets bypass RLS for `/object/public/`), and
+  owners still SELECT their own `${user_id}/...` paths (which the `upsert: true` upload
+  paths require). Gotcha for future features: a client-side `.list()` on these buckets
+  now silently returns `[]` for anything outside the signed-in user's own folder. Same
+  session: migration `0012` revoked anon/authenticated EXECUTE on all RPC-exposed
+  SECURITY DEFINER functions (the rate-limit pair was a real anon-key DoS vector on the
+  store-wide mockup budget; only Edge Functions call them, via service role).
 - **Real bug found and fixed, 2026-07-16: thumbnails/modal previews rendered sparse.**
   Direct small renders (320×320 thumbnails, the 1400×1400 gallery modal preview) hit
   `getCountScale`'s own area-based falloff — a 320×320 canvas is ~1.2% of the studio's
