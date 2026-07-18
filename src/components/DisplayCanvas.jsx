@@ -2027,16 +2027,20 @@ export default class DisplayCanvas extends React.Component {
             spacing={spacing}
             starFade={starFade}
             starSpacing={starSpacing}
-            paused={animationPaused}
+            paused={animationPaused || isExporting}
             speedRamp={speedRamp}
           />
         )}
+        {/* Both previews freeze while encoding (paused || isExporting) — a second live
+            scene (a whole WebGL scene in 3D mode) competing with the exporter for GPU/CPU
+            is wasted work; the user's own pause state is untouched and playback resumes
+            when the export ends. */}
         {animationMode && threeDMode && threeDDesign && (
           <Animation3DPreview
             design={threeDDesign}
             cycleDuration={cycleDuration}
             onClick={this.onCloseButtonClick.bind(this)}
-            paused={animationPaused}
+            paused={animationPaused || isExporting}
             speedRamp={speedRamp}
             onInitError={() => {
               alert('3D mode needs WebGL, which is unavailable in this browser. Switching back to 2D.');
