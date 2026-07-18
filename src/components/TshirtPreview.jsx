@@ -60,6 +60,34 @@ const SLEEVE_ISLANDS = [
   { x: 125, y: 30, w: 729, h: 385 },
   { x: 1196, y: 33, w: 729, h: 385 }
 ];
+// The 8 thin trim strips (flood-fill measured like the islands above; identities confirmed
+// on a headless harness render with each strip painted a distinct color): the two 918-wide
+// strips are the front/back hem trim, the two 725-wide are the sleeve cuffs, and the
+// remaining four are collar ribbing/interior facings (two of those never show on the
+// exterior at any angle -- interior facings; painting them the same way is harmless).
+// Each strip gets a thin edge-band slice of the composition it sits against on the worn
+// garment (hem = body bottom, cuff = sleeve bottom, collar = body top) so the trim reads
+// as the print continuing over the seam -- previously they sampled arbitrary rows of the
+// unrelated full-bleed base layer, which read as random off-design stripes (user-caught).
+// Each cuff strip winds around its cuff in the SAME horizontal direction as its sleeve
+// island's UVs, so a cuff band must mirror exactly when its sleeve's draw does: the
+// y1879 strip belongs to the second sleeve island (the one drawn flipX for worn
+// left/right symmetry) and takes the same `flip`; the y1919 strip belongs to the
+// unmirrored sleeve and draws as-is. Confirmed by live user feedback both ways —
+// flipping the y1919 band instead made BOTH cuffs read as mismatched ("wearer's left"
+// = viewer-right = the y1879/mirrored-sleeve cuff was the off one).
+const STRIP_ISLANDS = [
+  { x: 29, y: 1797, w: 918, h: 34, from: 'body', edge: 'bottom' }, // back hem
+  { x: 30, y: 1838, w: 917, h: 34, from: 'body', edge: 'bottom' }, // front hem
+  { x: 29, y: 1879, w: 725, h: 34, from: 'sleeve', edge: 'bottom', flip: true }, // cuff (mirrored sleeve)
+  { x: 29, y: 1919, w: 725, h: 34, from: 'sleeve', edge: 'bottom' }, // cuff
+  { x: 1219, y: 1811, w: 634, h: 26, from: 'body', edge: 'top' }, // facing (interior)
+  { x: 1209, y: 1848, w: 646, h: 26, from: 'body', edge: 'top' }, // facing (interior)
+  { x: 29, y: 1960, w: 494, h: 25, from: 'body', edge: 'top' }, // collar
+  { x: 30, y: 1993, w: 329, h: 26, from: 'body', edge: 'top' } // collar
+];
+// Fraction of the source composition's height a trim strip samples from its edge.
+const STRIP_BAND_FRAC = 0.06;
 const BODY_PRINTFILE = { width: 4200, height: 5400 }; // product 257, printfile 94 (front+back)
 const SLEEVE_PRINTFILE = { width: 3000, height: 1800 }; // product 257, printfile 95 (both sleeves)
 const bodyCap = capMockupRenderSize(BODY_PRINTFILE.width, BODY_PRINTFILE.height);
@@ -70,7 +98,13 @@ const SLEEVE_RENDER = { w: sleeveCap.width, h: sleeveCap.height };
 // Crops `img` to `dw`x`dh`'s aspect (centered) and draws it filling the dest rect exactly
 // -- no stretching. Needed now that each render's aspect intentionally matches the real
 // print file rather than the destination island's own shape.
-function drawCover(ctx, img, dx, dy, dw, dh) {
+//
+// Every island in this model's atlas is UV-mapped VERTICALLY FLIPPED on the garment
+// (confirmed on a headless harness render with orientation-marked test textures: a
+// top-of-rect marker lands at the hem, and labels read as vertical mirrors, not 180°
+// rotations) -- so all body/sleeve draws pass flipY to counter it, otherwise the design
+// appears upside down on the shirt relative to the hero background (user-caught).
+function drawCover(ctx, img, dx, dy, dw, dh, { flipX = false, flipY = false } = {}) {
   const srcAspect = img.width / img.height;
   const destAspect = dw / dh;
   let sx, sy, sw, sh;
@@ -85,7 +119,11 @@ function drawCover(ctx, img, dx, dy, dw, dh) {
     sx = 0;
     sy = (img.height - sh) / 2;
   }
-  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.save();
+  ctx.translate(dx + (flipX ? dw : 0), dy + (flipY ? dh : 0));
+  ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+  ctx.restore();
 }
 
 // Generate-transition pass: chromatic aberration + animated wavy distortion, both scaled
@@ -457,21 +495,36 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const ctx = canvas.getContext('2d');
         const sc = TEXTURE_SIZE / ATLAS;
         ctx.drawImage(base, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-        BODY_ISLANDS.forEach(r => drawCover(ctx, body, r.x * sc, r.y * sc, r.w * sc, r.h * sc));
+        // flipY on every island counters the atlas's flipped UV mapping (see drawCover).
+        BODY_ISLANDS.forEach(r =>
+          drawCover(ctx, body, r.x * sc, r.y * sc, r.w * sc, r.h * sc, { flipY: true })
+        );
         // The two sleeve islands map onto the garment in opposite orientations, so the
-        // second draw is horizontally mirrored -- identical draws made one worn sleeve
-        // read as flipped relative to the other (user-caught); mirroring restores
-        // left/right symmetry on the shirt.
-        SLEEVE_ISLANDS.forEach((r, i) => {
-          if (i === 0) {
-            drawCover(ctx, sleeve, r.x * sc, r.y * sc, r.w * sc, r.h * sc);
-          } else {
-            ctx.save();
-            ctx.translate((r.x + r.w) * sc, r.y * sc);
-            ctx.scale(-1, 1);
-            drawCover(ctx, sleeve, 0, 0, r.w * sc, r.h * sc);
-            ctx.restore();
-          }
+        // second draw is additionally horizontally mirrored -- identical draws made one
+        // worn sleeve read as flipped relative to the other (user-caught); mirroring
+        // restores left/right symmetry on the shirt.
+        SLEEVE_ISLANDS.forEach((r, i) =>
+          drawCover(ctx, sleeve, r.x * sc, r.y * sc, r.w * sc, r.h * sc, {
+            flipY: true,
+            flipX: i === 1
+          })
+        );
+        // Trim strips: a thin edge-band of the adjacent panel's composition, stretched to
+        // the strip (see STRIP_ISLANDS). Slight overdraw past the measured rect so the
+        // base layer can't peek through at the rounded strip ends.
+        STRIP_ISLANDS.forEach(s => {
+          const img = s.from === 'body' ? body : sleeve;
+          const bandH = img.height * STRIP_BAND_FRAC;
+          const srcY = s.edge === 'bottom' ? img.height - bandH : 0;
+          const dx = s.x * sc - 2;
+          const dy = s.y * sc - 2;
+          const dw = s.w * sc + 4;
+          const dh = s.h * sc + 4;
+          ctx.save();
+          ctx.translate(dx + (s.flip ? dw : 0), dy);
+          ctx.scale(s.flip ? -1 : 1, 1);
+          ctx.drawImage(img, 0, srcY, img.width, bandH, 0, 0, dw, dh);
+          ctx.restore();
         });
         [base, body, sleeve].forEach(b => b.close());
         stateRef.current.stagedSheet = canvas;

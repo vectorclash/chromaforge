@@ -397,7 +397,22 @@ is the original). Its baseColor atlas is a square sheet of flat cut-pattern UV i
 island family gets its own recompose-per-ratio render (body ≈0.69 portrait, sleeve ≈1.9
 landscape, via StudioContext.renderDesignBlob, gated on queueReady) composited into
 flood-fill-measured island rects (constants in TshirtPreview.jsx, measured off the model's
-own material_baseColor.jpeg); hem strips sample a full-bleed base layer underneath. Texture
+own material_baseColor.jpeg). **Every island in this atlas is UV-mapped vertically flipped
+on the garment** (2026-07-17, user-caught as "the shirt's design is upside down vs the
+background"; proven with a headless Playwright harness rendering orientation-marked test
+textures on the real model — top-of-rect markers land at the hem, labels read as vertical
+mirrors not 180° rotations), so every body/sleeve draw counter-flips via drawCover's
+flipY. The 8 thin trim strips (identities also confirmed via that harness: 2 hem, 2 cuff,
+rest collar/interior facings — see STRIP_ISLANDS) each get a thin edge-band slice of the
+adjacent panel's composition (hem = body bottom, cuff = sleeve bottom, collar = body top)
+so trims read as the print continuing over the seam; before that they sampled arbitrary
+rows of the unrelated full-bleed base layer (user-caught as "the little strips look off").
+Cuff bands wind the same horizontal direction as their sleeve's UVs, so the cuff strip
+belonging to the sleeve drawn flipX (for worn left/right symmetry) must be drawn flipX
+too (STRIP_ISLANDS' `flip`) — settled by live user feedback after a first attempt flipped
+the wrong cuff's band; note the user's "left cuff" meant the WEARER's left, i.e.
+viewer-right.
+The base layer still underlies everything as a fallback for unmeasured atlas pixels. Texture
 updates key off `currentDesign`; a pending-bitmap handoff covers whichever of
 scene-init/first-render finishes last. The scene fades in wearing the model's own white baseColor sheet the moment it loads
 (seeded onto the texture canvas from a stable copy — blending a canvas onto itself would
