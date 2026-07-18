@@ -91,9 +91,9 @@ tracks what's true now, not history.
       401ing with "invalid API key" right after the first live deploy. Fixed: Printful key
       rotated (old one revoked in Printful's dashboard), new key set as the `PRINTFUL_API_KEY`
       Supabase secret (verified live against `printful-catalog`) and in local `.env.local`,
-      `VITE_SUPABASE_ANON_KEY` GitHub secret corrected to the real publishable key. Needs one
-      more push/redeploy to actually ship the corrected bundle — the leaked key was still
-      being served as of the fix.
+      `VITE_SUPABASE_ANON_KEY` GitHub secret corrected to the real publishable key. The
+      corrected bundle has long since shipped (many deploys between 2026-07-05 and launch);
+      nothing outstanding.
 - [x] **Activate Stripe Tax** — done 2026-07-09. Stripe Tax → Locations shows California
       with 1 registration, status "Collecting tax," 0 "Needs attention." CA seller's permit
       came back from CDTFA and the registration was added — Stripe's flow didn't actually
@@ -273,11 +273,10 @@ tracks what's true now, not history.
       Stripe line-item image differs (falls back to the product's stock photo, same as
       `heroImage` already did whenever `!hasMockup`). Verified: `check_rate_limit_verbose`
       exercised directly against the live DB (allow → allow → deny-with-shrinking-retry,
-      matching a limit=2 window), edge function deployed clean, full app build passes. NOT
-      live-verified against a real Printful 429 (would need two rapid real mockup-task
-      submissions through a signed-in session, ~30-90s each, spending real quota) — the
-      logic is verified at the DB/contract level, not observed against a live 429 from
-      Printful itself. Worth a real smoke test once there's a browser session to drive it.
+      matching a limit=2 window), edge function deployed clean, full app build passes.
+      Live-verified against a real Printful 429 during the 2026-07-17 pre-launch pass
+      (see the go-live section's item 3): the 429 fired on a rapid second mockup request,
+      `queued` kicked in, and the retry countdown displayed correctly — fully closed.
       <details><summary>Original item (2026-07-12), for context</summary>
 - [previously open] **Printful catalog-drift check (scheduled), before full launch** (2026-07-12, Aaron
       — "add later, before we launch fully"). Context: pillow (83) mockups broke silently
@@ -343,10 +342,9 @@ tracks what's true now, not history.
       errors; real mobile viewport (375px) checked — which caught and fixed a real flex
       bug (the grid wrapper squeezed under the 92vh panel cap instead of the panel
       scrolling, footer painting on top of cards; fixed with `shrink-0` on the panel's
-      sections, same as GalleryModal). **Not yet exercised: the signed-in My Designs tab
-      and the picked-design → mockup/checkout flow** (no test-account credentials in
-      session) — same code path as Public apart from the fetcher, but worth a manual
-      click-through before trusting it.
+      sections, same as GalleryModal). The signed-in My Designs tab and the
+      picked-design → mockup/checkout flow were manually verified by Aaron (confirmed
+      2026-07-15) — nothing outstanding here.
 
 - [x] **Snappy entrance animations for "new content just appears" moments** (2026-07-02) —
       Aaron's ask, plus a real bug found while doing it: `DisplayCanvas.jsx`'s "Copied to

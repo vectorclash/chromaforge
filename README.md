@@ -1,127 +1,107 @@
 # Chromaforge
 
-A generative art application that creates space-themed gradient imagery and animations using HTML5 Canvas and procedural generation.
+**Live at [chromaforge.app](https://chromaforge.app).**
 
-## What is Chromaforge?
-
-Chromaforge generates abstract, cosmic images and looping animations by layering procedurally built elements — gradients, star fields, radial overlays, and geometric shapes — composited with randomised blend modes. Every output is unique.
+A generative art studio that turns procedural, space-themed compositions into
+shareable designs, looping animations, and real printed merch. Generate a piece,
+save it to your gallery, preview it on a product, and buy it — the print file that
+goes to production is the same deterministic artwork you approved on screen.
 
 ## Features
 
-### Image Mode
-- **One-click generation** — press Enter or click Generate
-- **Custom color palettes** — add, remove, drag to reorder, or restore the default palette with 🌈
-- **Randomised compositions** — blend modes, layer presence, gradient directions, and star distributions are all randomised per generation
-- **Save & share** — configurations are encoded into a shareable URL; anyone with the link can recreate the exact image
-- **Download as JPG** — 4K (3840×2160) JPEG export
+### Studio
+- **One-click generation** — layered gradients, star fields, radial fields, and
+  geometric structures composited with randomized blend modes; every output is unique
+- **Custom color palettes** — add, remove, reorder, or restore defaults
+- **Geometry controls** — sliders for shape chance, point count, coherence (chaos →
+  ordered chord-web lattice), and size
+- **Share links** — a design is a tiny JSON config; anyone with the link re-renders
+  the exact same artwork
+- **4K JPEG download**
 
-### Animation Mode
-- **Multi-frame generation** — builds a configurable number of gradient frames, each unique
-- **Star overlay layer** — a separate set of transparent PNG star frames cross-fades over the gradient frames using GSAP
-- **Seamless looping** — frame count, cycle duration, and star frame count are all configurable; timing constants are derived to keep the loop gapless
-- **Play / pause** — floating button in the top-left with an SVG morph transition
-- **Export as MP4** — H.264 High Profile encoded via WebCodecs + mp4-muxer at 40 Mbps (desktop) / 15 Mbps (mobile), 24fps
+### Animation
+- **2D mode** — multi-frame gradient crossfades with a star overlay, seamless loops
+- **3D mode** — a real-time three.js flight through a geometric star tunnel built
+  from the same design seed and palette
+- **MP4 export** — fully client-side via WebCodecs + mp4-muxer (no server involved)
 
-### UI
-- Animated hexagon loader during generation
-- GSAP-powered SVG morph buttons (open/close, play/pause)
-- Controls panel with blur/scale transition
-- Mobile-aware: square canvas and reduced export resolution on iOS/Android
+### Accounts & gallery
+- Email/password and Google sign-in (Supabase Auth)
+- Save designs, browse the public gallery, like designs, reload any saved design
+  into the studio
 
-## Getting Started
+### Merch
+- Product mockups rendered from your actual design via Printful's mockup API
+- Per-order options (geometry placement per print area, layout for two-leg garments)
+- Stripe Checkout (cards, Apple Pay / Google Pay), automatic tax, region-based shipping
+- Fulfillment through Printful, with order history and status tracking in your account
 
-### Prerequisites
-- Node.js v14+
-- npm
+## How it works
 
-### Installation
+The renderer is a pure deterministic function of `(seed, colors, settings, width,
+height)`. A design is just `{ generatorVersion, seed, colors, settings }` — a few
+hundred bytes — and every surface re-renders it fresh at its own resolution and
+aspect ratio: studio canvas, gallery thumbnail, product mockup, and the actual
+print file are sibling compositions from the same seed, not scaled copies of one
+bitmap.
+
+| Piece | What it does |
+|---|---|
+| `src/render/` | Seeded PRNG + pure generation/compositing (React-free) |
+| `src/components/Canvas/` | Per-layer generators and renderers |
+| `src/pages/`, `src/components/` | Vite + React 19 app, Tailwind v4 + GSAP UI |
+| `src/animation3d/` | three.js tunnel scene (lazy-loaded chunk) |
+| `supabase/` | Postgres schema/migrations, Auth config, Edge Functions (checkout, webhooks, mockups, rate limiting) |
+| `render-service/` | Node + `@napi-rs/canvas` service on Fly.io that runs the *same* renderer bundle at print resolution (mobile browsers can't allocate print-size canvases) |
+| `scripts/` | Printful catalog-drift check (daily GitHub Actions cron) |
+
+Payments are Stripe Checkout; orders are submitted to Printful by a
+signature-verified Stripe webhook. Deploys are GitHub Actions → rsync over SSH on
+every push to `master`.
+
+For the full architecture decisions and their reasoning, see [CLAUDE.md](CLAUDE.md)
+(kept current as the project's living handoff doc). Operational/launch notes live
+in [TODO.md](TODO.md).
+
+## Getting started
 
 ```bash
-git clone https://github.com/yourusername/chromaforge.git
+git clone https://github.com/vectorclash/chromaforge.git
 cd chromaforge
 npm install
-npm start
 ```
 
-Opens at [http://localhost:3000](http://localhost:3000).
+Create `.env.local` with the Supabase project credentials (ask the maintainer —
+these aren't derivable from the repo):
+
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
+
+Then `npm start` — opens at [http://localhost:5173](http://localhost:5173).
+The studio and generation work without Supabase configured; accounts, gallery,
+and shop need the env vars.
 
 ## Scripts
 
 | Command | Description |
 |---|---|
-| `npm start` | Development server with hot reload |
+| `npm start` | Vite dev server (port 5173) |
 | `npm run build` | Production build |
-| `npm test` | Run tests |
+| `npm run preview` | Preview the production build locally |
 | `npm run format` | Prettier format |
 
-## How It Works
+## Browser support
 
-### Generation Pipeline
+MP4 export requires the **WebCodecs API** (Chrome/Edge 94+, Safari 16.4+; not
+Firefox). The 3D animation mode requires WebGL and falls back to 2D where
+unavailable. Everything else works in all modern browsers.
 
-1. **Color palette** — user-defined or random; drives all layer color generation
-2. **Config building** — random parameters per layer:
-   - Linear gradient background (always)
-   - Large radial field overlay (60% chance)
-   - Star field with gradient mask (always)
-   - Geometric shapes (40% chance)
-   - Gradient overlay (30% chance)
-3. **Canvas rendering** — each layer is drawn to its own off-screen canvas then composited with a randomised blend mode
-4. **Export** — composited canvas is converted to a JPEG blob and displayed (image mode) or stored as a blob URL (animation mode)
+## Attribution
 
-### Animation Timing
-
-All timing is derived from two values — `frameCount` and `cycleDuration` — so the loop is always gapless regardless of settings:
-
-```
-spacing     = cycleDuration / frameCount
-fade        = spacing × (5 / 3.5)
-starCount   = configurable (default: frameCount / 2)
-starSpacing = cycleDuration / starCount
-starFade    = starSpacing × (8 / 7)
-```
-
-### URL Sharing
-
-Configurations are serialised to JSON, base64-encoded, and embedded in the URL (`?config=...`). Large configs fall back to localStorage with a short ID (`?id=...`).
-
-## Tech Stack
-
-| Layer | Libraries |
-|---|---|
-| UI | React 18, GSAP 3.15 (MorphSVGPlugin, DrawSVGPlugin) |
-| Rendering | HTML5 Canvas, CreateJS (preload + shape drawing) |
-| MP4 export | WebCodecs API, mp4-muxer |
-| Color | TinyColor2, jscolor |
-| Styling | Sass (sass-embedded) |
-| Utilities | FileSaver.js |
-
-## Project Structure
-
-```
-src/
-├── assets/images/         # Star sprite PNGs
-├── components/
-│   ├── Canvas/            # Layer renderers + config generators
-│   │   ├── LinearGradient.js
-│   │   ├── LargeRadialField.js
-│   │   ├── StarField.js
-│   │   ├── GeometricShape.js
-│   │   └── Generate*.js
-│   ├── buttons/           # CloseButton, PlayPauseButton, SettingsButton…
-│   ├── AnimationPreview.js
-│   ├── DisplayCanvas.js   # Main orchestrator
-│   ├── HexagonLoader.js
-│   └── ColorField.js
-└── utils/
-    └── urlConfig.js
-```
-
-## Browser Support
-
-MP4 export requires the **WebCodecs API** — available in Chrome/Edge 94+ and Safari 16.4+. Not supported in Firefox or iOS browsers below Safari 16.4.
-
-Everything else works in all modern browsers.
-
-## License
-
-MIT
+The homepage's 3D t-shirt preview uses the
+["Tshirt" model](https://sketchfab.com/3d-models/tshirt-a88d6e25d67c4b0c91b9ea013e679870)
+by [khalilchahi99](https://sketchfab.com/khalilchahi99), licensed
+[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)
+(`public/models/tshirt/license.txt`).
