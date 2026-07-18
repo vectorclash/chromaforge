@@ -289,8 +289,30 @@ FFmpeg design was fully removed; don't reintroduce it from old assumptions. Pref
 Constrained Baseline (`avc1.42E034`) specifically to avoid B-frame reordering, which
 silently halved framerate on Windows hardware encoders. This is a *different* concern
 from print rendering above (video vs. still images) — don't conflate the two.
+**Export/animation loose ends closed 2026-07-18** (Aaron's purpose for exports: advertising
+videos for the app — quality bar is commercial): a "Speed Ramp" Video-tab toggle warps
+playback time with a per-cycle sine ease-in-out (`src/utils/speedRamp.js` — the single
+source of the warp; the 2D preview drives its GSAP timeline through it via a gsap.ticker,
+the 3D preview/exporter pass warped time + a 0..1 `rush` factor into `setTime`, so preview
+and export stay motion-identical and loops stay seamless — velocity is symmetrically zero
+at the seam). iOS music export was silently broken: WebKit's AudioEncoder omits the AAC
+`decoderConfig.description`, so mp4-muxer wrote an unplayable audio track with no error —
+`encodeAudioTrack` now synthesizes the AudioSpecificConfig bytes when missing
+(phone-verified fix), and a requested-but-skipped music track alerts instead of failing
+silently. Fast-motion blockiness fixed: `latencyMode: 'quality'` on Constrained Baseline
+(structurally can't B-frame; only the High Profile fallback keeps 'realtime'), mobile
+bitrate 15→25Mbps, keyframes every 2s. Previews (both modes) freeze during export so a
+live scene never competes with the encoder.
 
 ### 3D animation mode (three.js star tunnel), 2026-07-11
+**Flight speed is duration-independent as of 2026-07-18** (Aaron's original intent — the
+old one-fixed-tunnel-per-cycle rule made longer durations just slower): the scene builds
+`FLIGHT_SPEED (240 u/s) × duration` of unique content, capped at `MAX_CONTENT_LENGTH`
+(2400), past which the camera does an exact integer number of laps per cycle (seam-safe;
+laps read color-shifted since all color evolves over the full cycle). Content counts scale
+linearly with length (sqrt for draw-call-bound sprites), spatial frequencies by the rounded
+factor (still integers → still loop-safe). The speed-ramp `rush` factor (see MP4 export
+section) widens FOV (+14° peak) and pulls the warp-onset uniform closer (−55) mid-cycle.
 A "3D" toggle in the studio's Video settings tab switches animation mode from the 2D
 frame-crossfade flow to a real-time three.js scene: a camera flying through a long tunnel
 of noise-clustered stars (value-noise rejection sampling adapted from
