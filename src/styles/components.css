@@ -180,7 +180,7 @@
   padding: 0;
 }
 .cf-toggle.on {
-  background: linear-gradient(90deg, #4c00ff, var(--color-accent));
+  background: linear-gradient(90deg, #4c00ff, #e6008c);
 }
 .cf-toggle-thumb {
   position: absolute;
@@ -991,7 +991,7 @@
 }
 .display-canvas .controls-inner .animation-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--color-accent), var(--color-interactive));
+  background: linear-gradient(90deg, #4c00ff, #e6008c);
   border-radius: 2px;
   transition: width 0.4s ease;
 }
@@ -1103,8 +1103,8 @@
   pointer-events: none;
 }
 .display-canvas .controls-inner .settings-toggle.on {
-  background: linear-gradient(90deg, #4c00ff, var(--color-accent));
-  box-shadow: 0 0 10px rgba(166, 224, 0, 0.35);
+  background: linear-gradient(90deg, #4c00ff, #e6008c);
+  box-shadow: 0 0 10px rgba(230, 0, 140, 0.35);
 }
 .display-canvas .controls-inner .settings-toggle.on .settings-toggle-thumb {
   left: 24px;
@@ -1167,13 +1167,12 @@
 
 /* Geometry sliders. Single sliders (.settings-range) paint their own progress fill via
    --range-fill (set inline from React, since native ranges can't style "the part left of
-   the thumb" cross-browser); the fill gradient matches .animation-progress-bar (accent ->
-   interactive) rather than .settings-toggle.on's purple->accent -- that toggle's gradient
-   spans nearly the whole hue wheel, fine for a small 46px pill that's only ever fully on or
-   off, but reads as a jarring, disconnected jump stretched across a wide, always-partially-
-   filled slider (Aaron's call, 2026-07-03: "the color in the slider bars feels a bit
-   awkward"). Accent->interactive is an adjacent-hue pair already established for exactly
-   this kind of bar in this same panel. The dual slider is two stacked native ranges over
+   the thumb" cross-browser); toggles, slider fills, and .animation-progress-bar all share
+   one purple->magenta gradient (#4c00ff -> #e6008c, Aaron's pick 2026-07-18 from a Claude
+   design mock, replacing the old purple->lime toggle and lime->cyan bars) -- an
+   adjacent-hue pair, so it reads smoothly even stretched across a wide, always-partially-
+   filled slider (the old wide-hue-span toggle gradient didn't, Aaron 2026-07-03: "the
+   color in the slider bars feels a bit awkward"). The dual slider is two stacked native ranges over
    one shared visual track: the inputs themselves ignore pointer events and only the thumbs
    take them, so each thumb drags independently. --range-min/--range-max (inline, from
    React) place the filled span between the thumbs. Thumb styling is duplicated across
@@ -1208,7 +1207,7 @@
      the actual thin track. A two-stop gradient of the same solid color is still an image,
      so it can be sized/centered exactly like the fill layer already is. */
   background:
-    linear-gradient(90deg, var(--color-accent), var(--color-interactive)) left center /
+    linear-gradient(90deg, #4c00ff, #e6008c) left center /
       var(--range-fill, 50%) var(--slider-track-height) no-repeat,
     linear-gradient(rgba(250, 250, 250, 0.15), rgba(250, 250, 250, 0.15)) left center /
       100% var(--slider-track-height) no-repeat;
@@ -1267,7 +1266,7 @@
   border-radius: 2px;
   left: var(--range-min, 0%);
   width: calc(var(--range-max, 100%) - var(--range-min, 0%));
-  background: linear-gradient(90deg, var(--color-accent), var(--color-interactive));
+  background: linear-gradient(90deg, #4c00ff, #e6008c);
 }
 .display-canvas .controls-inner .settings-range-dual input[type='range'] {
   position: absolute;
