@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_SLOW } from '../utils/motionTokens';
+import { rampTime, rampRush } from '../utils/speedRamp';
 
 // 3D animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
 // (src/animation3d/tunnelScene.js) with a single looping GSAP timeline, mirroring
@@ -11,7 +12,7 @@ import { DURATION_SLOW } from '../utils/motionTokens';
 // The timeline tweens a plain proxy time value and setTime(t) does all the work — the
 // scene has no internal clock, so pausing, scrubbing, and the exporter's fixed-step
 // rendering all agree on what any given t looks like.
-export default function Animation3DPreview({ design, cycleDuration, paused = false, onClick, onInitError }) {
+export default function Animation3DPreview({ design, cycleDuration, paused = false, speedRamp = false, onClick, onInitError }) {
   const containerRef = useRef(null);
   const tlRef = useRef(null);
   const pausedRef = useRef(paused);
@@ -65,7 +66,13 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         duration: cycleDuration,
         ease: 'none',
         onUpdate: () => {
-          world.setTime(proxy.t);
+          // The tween stays linear; the speed ramp is applied as a time WARP into
+          // setTime -- the same rampTime the exporter uses, so preview and MP4 match.
+          // rush drives the FOV/vanishing-point speed enhancement, from the same clock.
+          world.setTime(
+            speedRamp ? rampTime(proxy.t, cycleDuration) : proxy.t,
+            speedRamp ? rampRush(proxy.t, cycleDuration) : 0
+          );
           renderer.render(world.scene, world.camera);
         }
       });
@@ -113,7 +120,7 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         renderer.domElement.remove();
       }
     };
-  }, [design, cycleDuration]);
+  }, [design, cycleDuration, speedRamp]);
 
   useLayoutEffect(() => {
     if (paused) {

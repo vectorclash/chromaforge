@@ -16,18 +16,30 @@ import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
 // clock anywhere — so preview stepping and frame-exact MP4 export share one code path.
 //
 // Seamless loop: star placement, lattice stations, and camera travel are all periodic in
-// TUNNEL_LENGTH (camera z wraps modulo it, content repeats modulo it), and every
-// time-varying term is built from sin/cos of (2π · t/duration · integer), so
+// the scene's content length L (camera z wraps modulo it, content repeats modulo it),
+// and every time-varying term is built from sin/cos of (2π · t/duration · integer), so
 // setTime(0) and setTime(duration) produce identical frames.
+//
+// Flight speed is CONSTANT regardless of duration (Aaron's original intent — a longer
+// duration means MORE tunnel to fly through at the same pace, not the same tunnel
+// slower): the factory builds L = FLIGHT_SPEED · duration world units of unique content,
+// capped at MAX_CONTENT_LENGTH; past the cap the camera does an exact integer number of
+// laps of the content per cycle (still seamless — content is periodic in L and colors
+// evolve over the FULL cycle, so repeat laps read color-shifted, not identical).
 
-const TUNNEL_LENGTH = 400; // world units the camera travels per cycle
+const FLIGHT_SPEED = 240; // world units/sec — constant across durations (ramp peak ≈ ×1.57)
+const MAX_CONTENT_LENGTH = 2400; // unique-content cap; longer cycles lap it (integer times)
+const REFERENCE_LENGTH = 400; // density reference: all per-length counts were tuned at this
 const TUNNEL_RADIUS = 46; // outer radius of the star tube
 const TUNNEL_CORE = 5; // stars keep clear of this radius so the camera path stays open
+// Counts are per REFERENCE_LENGTH of tunnel; the factory scales them by L/REFERENCE_LENGTH
+// (linearly for shared-buffer stars, by sqrt for individually-drawn sprites, which are
+// draw-call-bound rather than vertex-bound).
 const SMALL_STAR_COUNT = 5000;
 const FAR_STAR_COUNT = 7000; // second shell beyond the tunnel wall — deep-space backdrop
 const FAR_STAR_RADIUS = 140;
 const LARGE_STAR_COUNT = 90;
-const NEBULA_COUNT = 24; // palette-colored glow clouds per tunnel cycle
+const NEBULA_COUNT = 24; // palette-colored glow clouds per reference length
 // Lowered from 0.016 when geometry started living far off the camera path — FogExp2 at
 // 0.016 made anything past ~100 units effectively invisible; 0.009 keeps distant giants
 // readable while still fading things in as the camera approaches.
@@ -45,31 +57,44 @@ const TWO_PI = Math.PI * 2;
 // extreme distance / relativistic rushing-in rather than pop-in.
 const WARP_START = 100; // no distortion inside this view distance
 const WARP_END = 395; // fully collapsed to the axis beyond this (inside the 400 coverage)
+// Speed-ramp rush enhancement (setTime's `rush` arg, 0..1): at full rush the warp's
+// onset distance is pulled this much closer to the camera (content stays funneled
+// toward the vanishing point far longer — the tunnel visibly stretches ahead) and the
+// FOV widens by RUSH_FOV_BOOST degrees. Both scale linearly with rush, which is 0 at
+// the loop seam, so the resting look and loop-seamlessness are untouched.
+const RUSH_WARP_PULL = 55;
+const RUSH_FOV_BOOST = 14;
+const BASE_FOV = 70;
 
 // Mirror of the shader smoothstep for JS-driven sprites (large stars, nebulae).
-function warpFactor(d) {
-  if (d <= WARP_START) return 1;
+// `start` is the current (possibly rush-pulled) warp onset distance.
+function warpFactor(d, start = WARP_START) {
+  if (d <= start) return 1;
   if (d >= WARP_END) return 0;
-  const t = (d - WARP_START) / (WARP_END - WARP_START);
+  const t = (d - start) / (WARP_END - start);
   return 1 - t * t * (3 - 2 * t);
 }
 
 // Injects the warp into any chunk-based three.js material (Points/Line/Mesh basic
-// materials all share the project_vertex chunk). Pure function of view-space position —
-// deterministic, loop-safe, identical in preview and export.
-function applyWarpShader(mat) {
+// materials all share the project_vertex chunk). Pure function of view-space position
+// and the scene's shared uWarpStart uniform — deterministic, loop-safe, identical in
+// preview and export (the uniform is only ever set from setTime's rush arg).
+function applyWarpShader(mat, uWarpStart) {
   mat.onBeforeCompile = shader => {
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <project_vertex>',
-      `
+    shader.uniforms.uWarpStart = uWarpStart;
+    shader.vertexShader =
+      'uniform float uWarpStart;\n' +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `
       vec4 mvPosition = vec4( transformed, 1.0 );
       mvPosition = modelViewMatrix * mvPosition;
       float warpD = -mvPosition.z;
-      float warpT = smoothstep(${WARP_START.toFixed(1)}, ${WARP_END.toFixed(1)}, warpD);
+      float warpT = smoothstep(uWarpStart, ${WARP_END.toFixed(1)}, warpD);
       mvPosition.xy *= (1.0 - warpT);
       gl_Position = projectionMatrix * mvPosition;
       `
-    );
+      );
   };
   return mat;
 }
@@ -117,11 +142,11 @@ const CLUSTER = {
   fill: 3.5
 };
 // Sampled on tube coordinates wrapped onto a torus in z so density (and therefore star
-// clustering) is itself periodic in TUNNEL_LENGTH — clusters at z=0 continue seamlessly
-// from z=TUNNEL_LENGTH.
-function clusterDensity(x, y, z) {
-  const zAng = (z / TUNNEL_LENGTH) * TWO_PI;
-  const R = TUNNEL_LENGTH / TWO_PI;
+// clustering) is itself periodic in the content length L — clusters at z=0 continue
+// seamlessly from z=L.
+function clusterDensity(x, y, z, L) {
+  const zAng = (z / L) * TWO_PI;
+  const R = L / TWO_PI;
   const tx = Math.cos(zAng) * R;
   const tz = Math.sin(zAng) * R;
   const n = (fx, fy, fz, freq) => valueNoise(fx * freq, fy * freq, fz * freq);
@@ -187,7 +212,7 @@ function starPersonality(rng) {
 // Noise-clustered rejection sampling in a tube: pick (angle, radius, z), keep with
 // probability from clusterDensity — same organic clumping as the 2D-app-adjacent example,
 // bent into a tunnel.
-function makeStarField(rng, count, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS) {
+function makeStarField(rng, count, L, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS) {
   const pos = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const fixed = new Uint8Array(count);
@@ -204,10 +229,10 @@ function makeStarField(rng, count, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS) {
     const ang = rng() * TWO_PI;
     // sqrt for uniform area density before the noise re-clumps it
     const r = rMin + Math.sqrt(rng()) * (rMax - rMin);
-    const z = rng() * TUNNEL_LENGTH;
+    const z = rng() * L;
     const x = Math.cos(ang) * r;
     const y = Math.sin(ang) * r;
-    const d = clusterDensity(x, y, z);
+    const d = clusterDensity(x, y, z, L);
     if (rng() > Math.pow(d, CLUSTER.contrast) * CLUSTER.fill) continue;
 
     pos[placed * 3] = x;
@@ -219,7 +244,7 @@ function makeStarField(rng, count, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS) {
     hue[placed] = p.hue;
     sat[placed] = p.sat;
     lit[placed] = p.lit;
-    cyclePhase[placed] = z / TUNNEL_LENGTH;
+    cyclePhase[placed] = z / L;
     placed++;
   }
 
@@ -306,12 +331,18 @@ const BG_FRAG = /* glsl */ `
 // counter-twisted web sits outside the bore for parallax. Ring spacing clusters and gaps
 // instead of being metronomic; panels come in three styles (facet / dimmed full-quad
 // sail / bright accent). Everything stays a pure function of the seed, and everything is
-// periodic in TUNNEL_LENGTH: ring N wraps to ring 0 via +L offsets with nearest-angle
+// periodic in the content length L: ring N wraps to ring 0 via +L offsets with nearest-angle
 // index mapping (which also bridges rings of different side counts at zone boundaries),
 // and all motion/profiles use integer cycle frequencies — so exports still loop
 // seamlessly.
-function buildGeometricTunnel(rng, geometry) {
+function buildGeometricTunnel(rng, geometry, uWarpStart, L) {
   const clampNum = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+  // Length scaling: counts stretch linearly with content length so structure density
+  // per unit distance stays what it was tuned at (REFERENCE_LENGTH); integer spatial
+  // frequencies (which live in wrap-safe zFrac space) scale by the rounded factor so
+  // bends/waves-per-distance stay constant too — still integers, so still loop-safe.
+  const lenScale = L / REFERENCE_LENGTH;
+  const fScale = Math.max(1, Math.round(lenScale));
   // coherence 0 (the default) = ragged, hand-bent scaffold; 1 = clean geometric bore
   const jitterBase = 0.45 * (1 - geometry.coherence);
   // `size` scales the whole structure (bore + outer web); `chance` scales structural
@@ -322,15 +353,15 @@ function buildGeometricTunnel(rng, geometry) {
   const radiusBase = (15 + rng() * 9) * sizeScale; // camera flies inside
 
   // Long-wavelength breathing + complexity waves (integer frequencies → loop-safe)
-  const radFreq1 = 1 + Math.floor(rng() * 2);
-  const radFreq2 = 2 + Math.floor(rng() * 3);
+  const radFreq1 = (1 + Math.floor(rng() * 2)) * fScale;
+  const radFreq2 = (2 + Math.floor(rng() * 3)) * fScale;
   const radPhase1 = rng() * TWO_PI;
   const radPhase2 = rng() * TWO_PI;
   const radiusWaveAt = (zFrac) =>
     1 +
     0.35 * Math.sin(zFrac * TWO_PI * radFreq1 + radPhase1) +
     0.18 * Math.sin(zFrac * TWO_PI * radFreq2 + radPhase2);
-  const cxFreq = 1 + Math.floor(rng() * 3);
+  const cxFreq = (1 + Math.floor(rng() * 3)) * fScale;
   const cxPhase = rng() * TWO_PI;
   const complexityAt = (zFrac) =>
     0.575 + 0.425 * Math.sin(zFrac * TWO_PI * cxFreq + cxPhase);
@@ -341,7 +372,7 @@ function buildGeometricTunnel(rng, geometry) {
   // vertex jitter. All of it is a no-op at coherence 0.
   const coh = geometry.coherence;
   const globalTwist = (0.05 + rng() * 0.15) * (rng() < 0.5 ? -1 : 1);
-  const zoneCount = 3 + Math.floor(rng() * 3);
+  const zoneCount = Math.max(2, Math.round((3 + Math.floor(rng() * 3)) * lenScale));
   const zones = [];
   {
     const weights = [];
@@ -395,10 +426,10 @@ function buildGeometricTunnel(rng, geometry) {
 
   // Curved centerline: the bore drifts laterally around the straight camera path.
   // Amplitude scales with (radius - 8) so the camera is always comfortably inside.
-  const pfx1 = 1 + Math.floor(rng() * 2);
-  const pfx2 = 2 + Math.floor(rng() * 2);
-  const pfy1 = 1 + Math.floor(rng() * 2);
-  const pfy2 = 2 + Math.floor(rng() * 2);
+  const pfx1 = (1 + Math.floor(rng() * 2)) * fScale;
+  const pfx2 = (2 + Math.floor(rng() * 2)) * fScale;
+  const pfy1 = (1 + Math.floor(rng() * 2)) * fScale;
+  const pfy2 = (2 + Math.floor(rng() * 2)) * fScale;
   const ppx1 = rng() * TWO_PI;
   const ppx2 = rng() * TWO_PI;
   const ppy1 = rng() * TWO_PI;
@@ -418,7 +449,7 @@ function buildGeometricTunnel(rng, geometry) {
   // vector-equilibrium look as a flythrough set-piece.
   const rings = []; // { z, sides, step, ang0, r, zone, gate, outer, start }
   {
-    const baseCount = 30 + Math.floor(rng() * 10);
+    const baseCount = Math.round((30 + Math.floor(rng() * 10)) * lenScale);
     const ws = [];
     let sum = 0;
     for (let i = 0; i < baseCount; i++) {
@@ -430,28 +461,28 @@ function buildGeometricTunnel(rng, geometry) {
     let z = 0;
     for (let i = 0; i < baseCount; i++) {
       rings.push({ z, gate: false, outer: false });
-      z += (ws[i] / sum) * TUNNEL_LENGTH;
+      z += (ws[i] / sum) * L;
     }
   }
-  const gateCount = 1 + Math.floor(rng() * 2);
+  const gateCount = Math.max(1, Math.round((1 + Math.floor(rng() * 2)) * lenScale));
   for (let g = 0; g < gateCount; g++) {
-    const zc = rng() * TUNNEL_LENGTH;
+    const zc = rng() * L;
     const n = 3 + Math.floor(rng() * 2);
     for (let k = 0; k < n; k++) {
-      rings.push({ z: (zc + k * 2.2) % TUNNEL_LENGTH, gate: true, outer: false });
+      rings.push({ z: (zc + k * 2.2) % L, gate: true, outer: false });
     }
   }
   rings.sort((a, b) => a.z - b.z);
   {
     let ang0 = rng() * TWO_PI;
     for (const ring of rings) {
-      const zn = zoneAt(ring.z / TUNNEL_LENGTH);
+      const zn = zoneAt(ring.z / L);
       ang0 += zn.twistRate;
       ring.zone = zn;
       ring.sides = zn.sides;
       ring.step = TWO_PI / zn.sides;
       ring.ang0 = ang0;
-      ring.r = boreRadiusAt(ring.z / TUNNEL_LENGTH) * (ring.gate ? 1.15 : 1); // gates flare
+      ring.r = boreRadiusAt(ring.z / L) * (ring.gate ? 1.15 : 1); // gates flare
     }
   }
 
@@ -460,14 +491,14 @@ function buildGeometricTunnel(rng, geometry) {
   const outerRings = [];
   {
     const oSides = 5 + Math.floor(rng() * 4);
-    const oCount = 10 + Math.floor(rng() * 5);
+    const oCount = Math.round((10 + Math.floor(rng() * 5)) * lenScale);
     const oRadius = (38 + rng() * 5) * sizeScale;
     const oTwist = (0.1 + rng() * 0.2) * (rng() < 0.5 ? -1 : 1);
     let oa = rng() * TWO_PI;
     for (let i = 0; i < oCount; i++) {
       oa += oTwist;
       outerRings.push({
-        z: ((i + rng() * 0.4) / oCount) * TUNNEL_LENGTH,
+        z: ((i + rng() * 0.4) / oCount) * L,
         sides: oSides,
         step: TWO_PI / oSides,
         ang0: oa,
@@ -496,7 +527,7 @@ function buildGeometricTunnel(rng, geometry) {
   const colorJitter = new Float32Array(vertCount); // per-vertex palette phase offset
   const dim = new Float32Array(vertCount); // outer web renders fainter
   for (const ring of allRings) {
-    const zFrac = ring.z / TUNNEL_LENGTH;
+    const zFrac = ring.z / L;
     // Gates read as machined, not hand-bent — much less jitter than their zone
     const jitter = jitterBase * (ring.gate ? 0.3 : 1) * (ring.outer ? 0.6 : 1);
     const [cx, cy] = pathAt(zFrac, boreRadiusAt(zFrac));
@@ -522,7 +553,7 @@ function buildGeometricTunnel(rng, geometry) {
   }
 
   // Elements reference vertex indices; zOff carries seam-crossing endpoints one period
-  // forward so the last ring connects to (ring 0 + TUNNEL_LENGTH). Rings with different
+  // forward so the last ring connects to (ring 0 + L). Rings with different
   // side counts (zone boundaries, the wrap) are bridged by nearest-ideal-angle mapping.
   const vidx = (ring, j) => ring.start + (((j % ring.sides) + ring.sides) % ring.sides);
   const mapJ = (ringA, j, ringB) =>
@@ -533,8 +564,8 @@ function buildGeometricTunnel(rng, geometry) {
     for (let i = 0; i < chain.length; i++) {
       const A = chain[i];
       const B = chain[(i + 1) % chain.length];
-      const off = i + 1 === chain.length ? TUNNEL_LENGTH : 0;
-      const zFrac = A.z / TUNNEL_LENGTH;
+      const off = i + 1 === chain.length ? L : 0;
+      const zFrac = A.z / L;
       const densityMul = (A.zone ? 0.35 + A.zone.density : 1) * densityScale;
       const zoneWireMul = A.zone ? A.zone.wireMul : 1;
       const zonePanelMul = A.zone ? A.zone.panelMul : 1;
@@ -616,7 +647,7 @@ function buildGeometricTunnel(rng, geometry) {
     opacity: 0.55,
     blending: THREE.AdditiveBlending,
     depthWrite: false
-  }));
+  }), uWarpStart);
   const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
   edgeLines.frustumCulled = false; // vertices animate every frame
   group.add(edgeLines);
@@ -633,7 +664,7 @@ function buildGeometricTunnel(rng, geometry) {
     transparent: true,
     opacity: 0.85,
     depthWrite: false
-  }));
+  }), uWarpStart);
   const panelMesh = new THREE.Mesh(panelGeo, panelMat);
   panelMesh.frustumCulled = false;
   group.add(panelMesh);
@@ -651,19 +682,21 @@ function buildGeometricTunnel(rng, geometry) {
   // slight angular shimmer) and its color (the palette cycling along the tunnel's length
   // AND through time, so a wave of the design's colors flows toward the camera), then
   // scatters both into the edge/panel buffers.
-  function update(progress, paletteHsl) {
+  // camZ comes from the caller (setTime) since the camera may lap the content multiple
+  // times per cycle — this function only needs the wrapped position for depth sorting.
+  function update(progress, paletteHsl, camZ) {
     const a = progress * TWO_PI;
     for (let v = 0; v < vertCount; v++) {
-      const zFrac = baseZ[v] / TUNNEL_LENGTH;
+      const zFrac = baseZ[v] / L;
       const ripple =
-        1 + rippleAmp[v] * Math.sin(a * rippleFreq[v] + ripplePhase[v] + zFrac * TWO_PI * 2);
+        1 + rippleAmp[v] * Math.sin(a * rippleFreq[v] + ripplePhase[v] + zFrac * TWO_PI * 2 * fScale);
       const ang = baseAng[v] + shimmerAmp * Math.sin(a + ripplePhase[v]);
       const r = baseR[v] * ripple;
       vertPos[v * 3] = Math.cos(ang) * r + centerX[v];
       vertPos[v * 3 + 1] = Math.sin(ang) * r + centerY[v];
       vertPos[v * 3 + 2] = baseZ[v];
 
-      const p = paletteAtHsl(paletteHsl, zFrac * 2 + progress + colorJitter[v]);
+      const p = paletteAtHsl(paletteHsl, zFrac * 2 * fScale + progress + colorJitter[v]);
       _c.setHSL(p.h, Math.min(1, p.s + 0.2), Math.min(0.68, p.l + 0.12));
       vertCol[v * 3] = _c.r * dim[v];
       vertCol[v * 3 + 1] = _c.g * dim[v];
@@ -688,11 +721,10 @@ function buildGeometricTunnel(rng, geometry) {
       edgePositions[o + 5] += bOff;
     }
     // Back-to-front panel sort: distance ahead of the camera, wrapped into one period
-    // (the ±TUNNEL_LENGTH copies share buffer slots, so ordering by the wrapped distance
-    // keeps every visible copy consistent).
-    const camZ = progress * TUNNEL_LENGTH;
+    // (the ±L copies share buffer slots, so ordering by the wrapped distance keeps
+    // every visible copy consistent).
     for (let i = 0; i < panels.length; i++) {
-      panelDepth[i] = ((panelZ[i] - camZ) % TUNNEL_LENGTH + TUNNEL_LENGTH) % TUNNEL_LENGTH;
+      panelDepth[i] = ((panelZ[i] - camZ) % L + L) % L;
     }
     panelOrder.sort((i, j) => panelDepth[j] - panelDepth[i]);
     for (let slot = 0; slot < panelOrder.length; slot++) {
@@ -782,7 +814,24 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // far=450: the biggest structures can sit ~250 units off-axis; fog fades them long
   // before the clip plane, but a hard geometry clip mid-panel is still visible without
   // the headroom.
-  const camera = new THREE.PerspectiveCamera(70, (width || 1) / (height || 1), 0.1, 450);
+  const camera = new THREE.PerspectiveCamera(BASE_FOV, (width || 1) / (height || 1), 0.1, 450);
+
+  // Shared warp-onset uniform for every warped material in THIS scene (per-scene, not
+  // module-level, so a live preview and a concurrent export can't leak rush state into
+  // each other). setTime's rush arg pulls it closer; warpStartNow is the JS mirror for
+  // the sprite-scale warp math.
+  const uWarpStart = { value: WARP_START };
+  let warpStartNow = WARP_START;
+
+  // Constant flight speed: total travel per cycle scales with duration. Unique content
+  // is capped at MAX_CONTENT_LENGTH; beyond it the camera laps the content an exact
+  // integer number of times per cycle (L divides the travel evenly, so the loop seam
+  // still lands on identical geometry). lenScale/spriteScale keep density constant.
+  const travel = FLIGHT_SPEED * duration;
+  const laps = Math.max(1, Math.ceil(travel / MAX_CONTENT_LENGTH));
+  const L = travel / laps;
+  const lenScale = L / REFERENCE_LENGTH;
+  const spriteScale = Math.sqrt(lenScale); // draw-call-bound sprites scale gently
 
   const disposables = [];
 
@@ -865,7 +914,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
 
   // Small stars (Points). Drawn 3 times at z offsets -L, 0, +L so the wrap-around camera
   // always sees a continuous field ahead and behind without duplicating buffers.
-  const field = makeStarField(rng, SMALL_STAR_COUNT);
+  const field = makeStarField(rng, Math.round(SMALL_STAR_COUNT * lenScale), L);
   const starGeo = new THREE.BufferGeometry();
   starGeo.setAttribute('position', new THREE.BufferAttribute(field.pos, 3));
   starGeo.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
@@ -879,11 +928,11 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     sizeAttenuation: true,
     alphaTest: 0.01,
     fog: false
-  }));
+  }), uWarpStart);
   smallMats.push(starMat);
   disposables.push(starGeo, starMat);
   const starCopies = [];
-  for (const zOff of [-TUNNEL_LENGTH, 0, TUNNEL_LENGTH]) {
+  for (const zOff of [-L, 0, L]) {
     const pts = new THREE.Points(starGeo, starMat);
     pts.position.z = zOff;
     scene.add(pts);
@@ -893,7 +942,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // Far star shell — a second, denser layer beyond the tunnel wall so deep space stays
   // populated out to where the largest geometry now lives, instead of stars ending
   // abruptly at the tunnel radius.
-  const farField = makeStarField(rng, FAR_STAR_COUNT, TUNNEL_RADIUS, FAR_STAR_RADIUS);
+  const farField = makeStarField(rng, Math.round(FAR_STAR_COUNT * lenScale), L, TUNNEL_RADIUS, FAR_STAR_RADIUS);
   const farGeo = new THREE.BufferGeometry();
   farGeo.setAttribute('position', new THREE.BufferAttribute(farField.pos, 3));
   farGeo.setAttribute('color', new THREE.BufferAttribute(farField.colors, 3));
@@ -907,17 +956,17 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     sizeAttenuation: true,
     alphaTest: 0.01,
     fog: false
-  }));
+  }), uWarpStart);
   smallMats.push(farMat);
   disposables.push(farGeo, farMat);
-  for (const zOff of [-TUNNEL_LENGTH, 0, TUNNEL_LENGTH]) {
+  for (const zOff of [-L, 0, L]) {
     const pts = new THREE.Points(farGeo, farMat);
     pts.position.z = zOff;
     scene.add(pts);
   }
 
   // Large stars — sprites with individual materials for per-star color/scale
-  const largeField = makeStarField(rng, LARGE_STAR_COUNT);
+  const largeField = makeStarField(rng, Math.round(LARGE_STAR_COUNT * spriteScale), L);
   const largeSprites = [];
   for (let i = 0; i < largeField.count; i++) {
     const mat = new THREE.SpriteMaterial({
@@ -930,7 +979,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     largeMats.push(mat);
     disposables.push(mat);
     const baseScale = 1.2 + rng() * 4.2;
-    for (const zOff of [-TUNNEL_LENGTH, 0, TUNNEL_LENGTH]) {
+    for (const zOff of [-L, 0, L]) {
       const sprite = new THREE.Sprite(mat);
       sprite.scale.setScalar(baseScale);
       sprite.position.set(
@@ -949,10 +998,11 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   const nebulaTex = makeNebulaTexture();
   disposables.push(nebulaTex);
   const nebulae = [];
-  for (let i = 0; i < NEBULA_COUNT; i++) {
+  const nebulaCount = Math.round(NEBULA_COUNT * spriteScale);
+  for (let i = 0; i < nebulaCount; i++) {
     const ang = rng() * TWO_PI;
     const r = rng() * TUNNEL_RADIUS * 0.9;
-    const z = rng() * TUNNEL_LENGTH;
+    const z = rng() * L;
     const mat = new THREE.SpriteMaterial({
       map: nebulaTex,
       transparent: true,
@@ -968,7 +1018,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const phase = rng();
     const satBoost = 0.85 + rng() * 0.15;
     const sprites = [];
-    for (const zOff of [-TUNNEL_LENGTH, 0, TUNNEL_LENGTH]) {
+    for (const zOff of [-L, 0, L]) {
       const sprite = new THREE.Sprite(mat);
       sprite.scale.set(scale, scale * aspect, 1);
       sprite.position.set(Math.cos(ang) * r, Math.sin(ang) * r, z + zOff);
@@ -979,14 +1029,14 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   }
 
   // The geometric tunnel — one continuous lattice bore the camera flies through (see
-  // buildGeometricTunnel). Cloned at ±TUNNEL_LENGTH like everything else; clones share
+  // buildGeometricTunnel). Cloned at ±L like everything else; clones share
   // the buffer geometry, so the single per-frame update animates all copies.
-  const tunnel = buildGeometricTunnel(rng, geometry);
+  const tunnel = buildGeometricTunnel(rng, geometry, uWarpStart, L);
   tunnel.group.traverse(obj => {
     if (obj.geometry) disposables.push(obj.geometry);
     if (obj.material) disposables.push(obj.material);
   });
-  for (const zOff of [-TUNNEL_LENGTH, 0, TUNNEL_LENGTH]) {
+  for (const zOff of [-L, 0, L]) {
     const wrap = zOff === 0 ? tunnel.group : tunnel.group.clone();
     wrap.position.z = zOff;
     scene.add(wrap);
@@ -1026,19 +1076,31 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       sprite.material.color.copy(_col);
       // JS mirror of the shader warp (sprites aren't chunk-based): shrink toward
       // nothing at extreme distance so they're born as points, not popped in.
-      sprite.scale.setScalar(baseScale * warpFactor(sprite.position.z - camZ));
+      sprite.scale.setScalar(baseScale * warpFactor(sprite.position.z - camZ, warpStartNow));
     }
   }
 
-  function setTime(seconds) {
+  // rush (0..1, default 0): speed-ramp enhancement — see rampRush in utils/speedRamp.
+  // Widens the FOV and pulls the vanishing-point warp closer so the fast middle of a
+  // ramped cycle FEELS faster. Callers derive it from the same linear clock as the
+  // warped `seconds`, so it's as deterministic as everything else here; rush is 0 at
+  // the loop seam, so setTime(0) and setTime(duration) still produce identical frames.
+  function setTime(seconds, rush = 0) {
     const progress = ((seconds / duration) % 1 + 1) % 1;
     const a = progress * TWO_PI;
 
-    // Camera: constant flight speed, one tunnel length per cycle, wrapped. Straight
-    // down the axis, no positional sway — earlier versions tried both look-target
-    // orbiting and gentle positional drift, and both read as aimless/wobbly rather
-    // than hand-flown (Aaron's call, twice).
-    const camZ = progress * TUNNEL_LENGTH;
+    camera.fov = BASE_FOV + RUSH_FOV_BOOST * rush;
+    camera.updateProjectionMatrix();
+    warpStartNow = WARP_START - RUSH_WARP_PULL * rush;
+    uWarpStart.value = warpStartNow;
+
+    // Camera: constant flight speed (FLIGHT_SPEED, duration-independent), `laps`
+    // content lengths per cycle, position wrapped into [0, L) — the content is
+    // periodic in L so the wrap is invisible. Straight down the axis, no positional
+    // sway — earlier versions tried both look-target orbiting and gentle positional
+    // drift, and both read as aimless/wobbly rather than hand-flown (Aaron's call,
+    // twice).
+    const camZ = (((progress * laps) % 1) + 1) % 1 * L;
     camera.position.set(0, 0, camZ);
     camera.lookAt(0, 0, camZ + 20);
 
@@ -1050,7 +1112,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     scene.fog.color.copy(fogBase).lerp(_col, 0.9);
 
     updateStarColors(progress, camZ);
-    tunnel.update(progress, geoPaletteHsl);
+    tunnel.update(progress, geoPaletteHsl, camZ);
 
     // Nebula clouds drift through the palette, phase-offset per cloud; scale-warped at
     // extreme distance like the large stars
@@ -1059,7 +1121,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       _col.setHSL(p.h, Math.min(1, p.s * n.satBoost + 0.1), Math.min(0.62, p.l + 0.08));
       n.mat.color.copy(_col);
       for (const sprite of n.sprites) {
-        const w = warpFactor(sprite.position.z - camZ);
+        const w = warpFactor(sprite.position.z - camZ, warpStartNow);
         sprite.scale.set(n.scale * w, n.scale * n.aspect * w, 1);
       }
     }

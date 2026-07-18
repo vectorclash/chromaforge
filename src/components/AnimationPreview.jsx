@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_SLOW } from '../utils/motionTokens';
+import { rampTime } from '../utils/speedRamp';
 
 const SCALE_END        = 1.45;
 const STAR_SCALE_END   = 1.15;
@@ -28,12 +29,14 @@ export default function AnimationPreview({
   spacing     = DEFAULT_SPACING,
   starFade    = DEFAULT_STAR_FADE,
   starSpacing = DEFAULT_STAR_SPACING,
-  paused      = false
+  paused      = false,
+  speedRamp   = false
 }) {
   const containerRef = useRef(null);
   const imgRefs   = useRef([]);
   const starRefs  = useRef([]);
   const tlRef     = useRef(null);
+  const tickerRef = useRef(null);
   const killRef   = useRef(false);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
@@ -59,7 +62,10 @@ export default function AnimationPreview({
       // Single timeline for both layers so pause/play is always atomic —
       // two separate timelines record different resume timestamps and can
       // briefly diverge on the first rAF tick after play() is called.
-      const tl = gsap.timeline({ paused: pausedRef.current });
+      // With speedRamp on, the timeline never self-plays: a gsap.ticker driver
+      // below scrubs tl.time() through the same rampTime warp the exporter uses,
+      // so the eased preview and the eased MP4 stay motion-identical.
+      const tl = gsap.timeline({ paused: speedRamp || pausedRef.current });
       tlRef.current = tl;
 
       // ── Main frames ──────────────────────────────────────────────────────────
@@ -108,6 +114,24 @@ export default function AnimationPreview({
 
         showStar(0, true);
       }
+
+      if (speedRamp) {
+        // Ticker driver: accumulate linear wall-clock time while playing, then set
+        // the timeline's playhead to its warped position. rampTime is monotonic and
+        // continuous across cycles, so tl only ever moves forward and the lazily
+        // self-appending tl.call frames still fire in order. The cycle period is the
+        // full loop length (frames * spacing == starFrames * starSpacing), matching
+        // the exporter's PERIOD.
+        const period = frames.length * spacing;
+        let clock = 0;
+        const tick = (time, deltaTime) => {
+          if (killRef.current || pausedRef.current) return;
+          clock += deltaTime / 1000;
+          tl.time(rampTime(clock, period), false);
+        };
+        tickerRef.current = tick;
+        gsap.ticker.add(tick);
+      }
     };
 
     // Wait for all image bitmaps to be decoded before starting the animation.
@@ -122,12 +146,19 @@ export default function AnimationPreview({
     return () => {
       cancelled = true;
       killRef.current = true;
+      if (tickerRef.current) {
+        gsap.ticker.remove(tickerRef.current);
+        tickerRef.current = null;
+      }
       tlRef.current?.kill();
       tlRef.current = null;
     };
-  }, [frames, starFrames, fade, spacing, starFade, starSpacing]);
+  }, [frames, starFrames, fade, spacing, starFade, starSpacing, speedRamp]);
 
   useLayoutEffect(() => {
+    // With speedRamp on, the ticker driver owns the playhead (the timeline itself
+    // stays paused) -- pausing is just the driver skipping ticks, so never play() it.
+    if (tickerRef.current) return;
     if (paused) {
       tlRef.current?.pause();
     } else {

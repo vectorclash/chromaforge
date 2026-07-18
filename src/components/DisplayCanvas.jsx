@@ -13,6 +13,7 @@ import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
 import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
+import { rampTime, rampRush } from '../utils/speedRamp';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -36,11 +37,29 @@ import { StudioWordmark } from './ui/Wordmark';
 
 gsap.registerPlugin(TextPlugin);
 
+// AAC-LC AudioSpecificConfig (the esds "description" bytes): 5 bits object type (2 =
+// AAC-LC), 4 bits sampling-frequency index, 4 bits channel config. mp4-muxer requires
+// this to write a playable AAC track. Chrome's AudioEncoder always supplies it in the
+// output meta; WebKit's (iOS/macOS Safari) has been observed to omit it — mp4-muxer then
+// produces a file whose audio track is broken/ignored by players with NO error thrown
+// (export "succeeds", music is silently missing — the iOS symptom). Synthesizing it
+// ourselves is byte-identical to what Chrome sends, so it's safe to apply everywhere.
+const AAC_SAMPLE_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+function aacAudioSpecificConfig(sampleRate, numberOfChannels) {
+  const freqIndex = AAC_SAMPLE_RATES.indexOf(sampleRate);
+  if (freqIndex === -1) return null;
+  return new Uint8Array([
+    (2 << 3) | (freqIndex >> 1),
+    ((freqIndex & 1) << 7) | (numberOfChannels << 3),
+  ]);
+}
+
 async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
   const left        = audioBuffer.getChannelData(0);
   const right       = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
   const sampleRate  = audioBuffer.sampleRate;
   const totalFrames = audioBuffer.length;
+  const isAac       = audioCodec !== 'opus';
   const CHUNK_FRAMES = 4096;
   // Estimate output chunks: AAC uses 1024-sample frames, Opus uses 960 or 480.
   const frameSize = audioCodec === 'opus' ? 960 : 1024;
@@ -50,6 +69,24 @@ async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
   await new Promise((resolve, reject) => {
     const encoder = new AudioEncoder({
       output: (chunk, meta) => {
+        // Backfill the AAC decoderConfig description if the encoder omitted it (WebKit —
+        // see aacAudioSpecificConfig above). Without it the muxed audio track is silently
+        // unplayable; with a synthesized one it's exactly what Chrome would have sent.
+        if (isAac && !meta?.decoderConfig?.description) {
+          const description = aacAudioSpecificConfig(sampleRate, 2);
+          if (description) {
+            meta = {
+              ...meta,
+              decoderConfig: {
+                codec: audioCodec,
+                sampleRate,
+                numberOfChannels: 2,
+                ...meta?.decoderConfig,
+                description,
+              },
+            };
+          }
+        }
         muxer.addAudioChunk(chunk, meta);
         outputCount++;
         onProgress?.(Math.min(outputCount / totalOutputChunks, 1));
@@ -121,6 +158,11 @@ export default class DisplayCanvas extends React.Component {
       frameCount: 20,
       cycleDuration: 10,
       starFrameCount: 10,
+      // Speed ramp: playback-time warp (sine ease-in-out per cycle) -- each loop
+      // starts slow, speeds up, and slows back down symmetrically, still looping
+      // seamlessly. Pure playback timing (frame content is untouched), so it
+      // applies live in both 2D and 3D with no frame rebuild / settingsDirty.
+      speedRamp: false,
       // 3D animation mode: instead of crossfading pre-rendered 2D frames, fly a camera
       // through a real-time three.js star tunnel (src/animation3d/tunnelScene.js).
       // threeDDesign is the compact { seed, colors, settings } identity of the current 3D
@@ -926,7 +968,7 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
-    const { animationFrames, animationStarFrames, threeDMode, threeDDesign } = this.state;
+    const { animationFrames, animationStarFrames, threeDMode, threeDDesign, speedRamp } = this.state;
     const is3D = threeDMode && !!threeDDesign;
     this.setState({ isExporting: true, exportProgress: 0 });
 
@@ -977,6 +1019,11 @@ export default class DisplayCanvas extends React.Component {
     // Opus is a universal fallback supported by all WebCodecs implementations.
     let audioCodec = null;
     let audioSampleRate = 44100;
+    // Why music was dropped, if it was. Both drop paths below used to be console-only —
+    // on iOS (no visible console) that read as "picked music, export worked, file is
+    // silent, no explanation", so a requested-but-missing track is now alerted after the
+    // export finishes (the video itself is still worth keeping).
+    let audioSkipReason = null;
     if (musicEnabled && typeof AudioEncoder !== 'undefined' && typeof AudioData !== 'undefined') {
       const candidates = [
         { encoderCodec: 'mp4a.40.2', muxerCodec: 'aac',  sampleRate: 44100 },
@@ -992,11 +1039,13 @@ export default class DisplayCanvas extends React.Component {
           break;
         }
       }
+      if (!audioCodec) audioSkipReason = 'no supported audio codec (AAC/Opus) in this browser';
     }
 
     if (audioCodec) {
       audioBuffer = await generateAudioBuffer(totalDurationSec, audioSampleRate).catch(e => {
         console.warn('[Chromaforge audio] generateAudioBuffer failed:', e);
+        audioSkipReason = 'music generation failed';
         return null;
       });
     }
@@ -1034,8 +1083,8 @@ export default class DisplayCanvas extends React.Component {
       await world.ready;
       // setTime is periodic in CYCLE_DURATION, and the VideoFrame is constructed in the
       // same task as the render (no await in between), so no preserveDrawingBuffer needed.
-      drawAt = elapsed => {
-        world.setTime(elapsed);
+      drawAt = (elapsed, rush = 0) => {
+        world.setTime(elapsed, rush);
         renderer.render(world.scene, world.camera);
       };
       cleanup3D = () => {
@@ -1178,8 +1227,15 @@ export default class DisplayCanvas extends React.Component {
     // Back-pressure: if the encoder queue grows too deep, yield until it drains —
     // this prevents unbounded memory buildup that kills iOS tabs.
     for (let f = 0; f < TOTAL_FRAMES; f++) {
-      const elapsed = OFFSET + f / FPS;
-      drawAt(elapsed);
+      // Speed ramp: warp the linear frame time through the same rampTime the live
+      // previews use, so the exported motion matches them exactly. rampTime maps
+      // [0, PERIOD] onto itself monotonically with symmetric velocity at both
+      // ends, so the export still covers exactly one seamless loop.
+      const linear = f / FPS;
+      const elapsed = OFFSET + (speedRamp ? rampTime(linear, PERIOD) : linear);
+      // rush only means anything to the 3D drawAt (FOV/warp speed enhancement); the 2D
+      // compositor ignores it.
+      drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0);
 
       const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });
       encoder.encode(frame, { keyFrame: f % FPS === 0 });
@@ -1235,6 +1291,9 @@ export default class DisplayCanvas extends React.Component {
       this.setState({ exportProgress: 100 });
       const blob = new Blob([target.buffer], { type: 'video/mp4' });
       saveAs(blob, `${FileName()}.mp4`);
+      if (musicEnabled && !includeAudio && audioSkipReason) {
+        alert(`Note: the video was exported WITHOUT music (${audioSkipReason}).`);
+      }
     } catch (e) {
       console.error('[Chromaforge] Export finalize failed:', e);
       alert('Export failed. Please try again.');
@@ -1908,6 +1967,7 @@ export default class DisplayCanvas extends React.Component {
       threeDDesign,
       musicEnabled,
       audioExportSupported,
+      speedRamp,
       settingsTab,
       animTiming,
       settingsDirty,
@@ -1958,6 +2018,7 @@ export default class DisplayCanvas extends React.Component {
             starFade={starFade}
             starSpacing={starSpacing}
             paused={animationPaused}
+            speedRamp={speedRamp}
           />
         )}
         {animationMode && threeDMode && threeDDesign && (
@@ -1966,6 +2027,7 @@ export default class DisplayCanvas extends React.Component {
             cycleDuration={cycleDuration}
             onClick={this.onCloseButtonClick.bind(this)}
             paused={animationPaused}
+            speedRamp={speedRamp}
             onInitError={() => {
               alert('3D mode needs WebGL, which is unavailable in this browser. Switching back to 2D.');
               this.onThreeDToggle();
@@ -2403,6 +2465,22 @@ export default class DisplayCanvas extends React.Component {
                     </div>
                   </>
                 )}
+                {/* Playback-time warp only (see the speedRamp state comment) -- frame
+                    content is untouched, so this applies live in both modes with no
+                    "regenerate to apply" notice. */}
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Speed Ramp
+                    <span className="settings-label-note"> ease in and out each loop</span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (speedRamp ? ' on' : '')}
+                    onClick={() => this.setState({ speedRamp: !speedRamp })}
+                    aria-label={speedRamp ? 'Speed ramp on' : 'Speed ramp off'}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
                 <div className="settings-field">
                   <span className="settings-label">Duration</span>
                   <div className="settings-stepper">
