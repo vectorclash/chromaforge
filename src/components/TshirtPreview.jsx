@@ -363,8 +363,8 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
 
         // No idle spin -- the shirt faces forward and turns slowly toward the mouse
         // (desktop) or with the phone's left/right tilt (touch devices, deviceorientation
-        // gamma), capped at ±15° of yaw either way. Static under prefers-reduced-motion.
-        const MAX_YAW = (15 * Math.PI) / 180;
+        // gamma), capped at ±25° of yaw either way. Static under prefers-reduced-motion.
+        const MAX_YAW = (25 * Math.PI) / 180;
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const isTouch = window.matchMedia('(pointer: coarse)').matches;
         let targetYaw = 0;
@@ -396,32 +396,30 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           inputCleanups.push(() => window.removeEventListener('deviceorientation', onOrientation));
         };
 
-        // Touch devices can also DRAG the shirt to spin it freely (a full look-around,
-        // not the ±15° ambient yaw -- dragYaw is unclamped and the tilt/mouse target
-        // rides on top of it). The shirt is still a shop link: a press only becomes a
-        // drag past a horizontal 8px threshold (and only when horizontal movement
-        // dominates -- vertical swipes stay with the page scroll via touch-action:
-        // pan-y on the button, which fires pointercancel once the browser takes the
-        // gesture), and a real drag suppresses the click that fires on release.
-        // Allowed under prefers-reduced-motion (direct manipulation, not ambient
-        // animation); only the release flick inertia is skipped there.
+        // Touch devices can also DRAG the shirt to rotate it -- clamped to ±40°
+        // (wider than the ±25° ambient yaw, but not a free spin), returning to
+        // forward-facing once the finger lifts. The shirt is still a shop link: a
+        // press only becomes a drag past a horizontal 8px threshold (and only when
+        // horizontal movement dominates -- vertical swipes stay with the page scroll
+        // via touch-action: pan-y on the button, which fires pointercancel once the
+        // browser takes the gesture), and a real drag suppresses the click that
+        // fires on release. Allowed under prefers-reduced-motion (direct
+        // manipulation, not ambient animation); the eased return is skipped there
+        // in favor of an immediate reset.
         let dragYaw = 0;
-        let dragVel = 0;
         let dragging = false;
         if (isTouch) {
           const DRAG_THRESHOLD = 8;
+          const DRAG_MAX_YAW = (40 * Math.PI) / 180;
           let pressed = false;
           let startX = 0;
           let startY = 0;
           let lastX = 0;
-          let lastT = 0;
           const onPointerDown = e => {
             pressed = true;
             dragging = false;
-            dragVel = 0;
             startX = lastX = e.clientX;
             startY = e.clientY;
-            lastT = e.timeStamp;
           };
           const onPointerMove = e => {
             if (!pressed) return;
@@ -436,21 +434,17 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
               dragSuppressClickRef.current = true;
               mount.setPointerCapture?.(e.pointerId);
               lastX = e.clientX;
-              lastT = e.timeStamp;
               return;
             }
             const dx = e.clientX - lastX;
             const dYaw = dx * 0.012; // ~0.7° of spin per pixel
-            dragYaw += dYaw;
-            // Per-frame-normalized velocity for the release flick.
-            dragVel = dYaw * (16 / Math.max(e.timeStamp - lastT, 1));
+            dragYaw = Math.max(-DRAG_MAX_YAW, Math.min(DRAG_MAX_YAW, dragYaw + dYaw));
             lastX = e.clientX;
-            lastT = e.timeStamp;
           };
           const onPointerEnd = () => {
             pressed = false;
             dragging = false;
-            if (reducedMotion) dragVel = 0;
+            if (reducedMotion) dragYaw = 0;
           };
           mount.addEventListener('pointerdown', onPointerDown);
           mount.addEventListener('pointermove', onPointerMove);
@@ -501,10 +495,10 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
 
         let raf = 0;
         const animate = now => {
-          // Release flick: decay the last drag velocity into dragYaw.
-          if (!dragging && Math.abs(dragVel) > 0.0001) {
-            dragYaw += dragVel;
-            dragVel *= 0.95;
+          // After release, ease the drag rotation back to forward-facing.
+          if (!dragging && dragYaw !== 0) {
+            dragYaw *= 0.92;
+            if (Math.abs(dragYaw) < 0.001) dragYaw = 0;
           }
           // Direct manipulation tracks the finger tightly; ambient follow stays lazy.
           const followRate = dragging ? 0.35 : 0.04;
