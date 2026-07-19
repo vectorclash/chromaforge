@@ -509,8 +509,10 @@
    around the UI itself, then fall off to nothing over the outer ~90px band. z-index -1
    keeps it behind the shirt/buttons but above the artwork (controls-inner's own z-index
    makes it a stacking context, so -1 can't escape below the canvas). */
-.display-canvas .controls-inner.controls-compact .hero-dot-grid {
-  /* Single source of truth for the dot grid's look -- edit these, nothing else.
+.display-canvas .controls-inner.controls-compact {
+  /* Single source of truth for the dot grid's look -- edit these, nothing else. Declared
+     on the panel (not .hero-dot-grid) so the loading ripple layers, which must align
+     dot-for-dot with the grid, inherit the same values.
      --dot-bleed-*  = total distance the layer extends past the panel (outer edge).
      --dot-fade-*   = width of the gradient itself, measured in from that outer edge --
                       independent of bleed, so the flat "fully opaque" zone in the middle
@@ -525,7 +527,9 @@
   --dot-bleed-y: 80px;
   --dot-fade-x: 120px;
   --dot-fade-y: 120px;
+}
 
+.display-canvas .controls-inner.controls-compact .hero-dot-grid {
   position: absolute;
   inset: calc(-1 * var(--dot-bleed-y)) calc(-1 * var(--dot-bleed-x));
   z-index: -1;
@@ -542,6 +546,48 @@
   -webkit-mask-composite: source-in;
   mask-composite: intersect;
   mix-blend-mode: color-burn;
+}
+
+/* Loading ripple (HeroDotRipple.jsx): the hero's loader while a new artwork generates.
+   Same footprint as .hero-dot-grid; each layer is an expanding ring gradient (radius
+   driven per-frame by GSAP via --ripple-r, colors via --ripple-c1/c2) masked by the SAME
+   dot pattern + edge fades as the grid, so color only ever shows through the dots.
+   Dot mask is slightly larger than the grid's dots (falloff, not --dot-size) so the
+   colored dots read over the fainter white ones underneath. */
+.display-canvas .controls-inner.controls-compact .hero-dot-ripple-mount {
+  position: absolute;
+  inset: calc(-1 * var(--dot-bleed-y)) calc(-1 * var(--dot-bleed-x));
+  z-index: -1;
+  pointer-events: none;
+}
+.display-canvas .controls-inner.controls-compact .hero-dot-ripple {
+  --ripple-r: 0px;
+  --ripple-c1: #ccff00;
+  --ripple-c2: #00ccff;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background-image: radial-gradient(
+    circle at center,
+    transparent calc(var(--ripple-r) - 90px),
+    var(--ripple-c1) calc(var(--ripple-r) - 40px),
+    var(--ripple-c2) var(--ripple-r),
+    transparent calc(var(--ripple-r) + 35px)
+  );
+  -webkit-mask-image:
+    radial-gradient(circle, black var(--dot-falloff), transparent calc(var(--dot-falloff) + 0.7px)),
+    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
+    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
+  mask-image:
+    radial-gradient(circle, black var(--dot-falloff), transparent calc(var(--dot-falloff) + 0.7px)),
+    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
+    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
+  -webkit-mask-size: var(--dot-spacing) var(--dot-spacing), 100% 100%, 100% 100%;
+  mask-size: var(--dot-spacing) var(--dot-spacing), 100% 100%, 100% 100%;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
 }
 
 /* Hover hint on the shirt-model shop link: a small "Shop →" pill in the shirt's

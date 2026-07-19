@@ -17,6 +17,7 @@ import { rampTime, rampRush } from '../utils/speedRamp';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
+import HeroDotRipple from './HeroDotRipple';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
@@ -2005,7 +2006,10 @@ export default class DisplayCanvas extends React.Component {
           this.mount = mount;
         }}
       >
-        {isLoading ? <HexagonLoader /> : ''}
+        {/* Compact (homepage hero) swaps the centered hexagon for the dot-grid ripple
+            (mounted inside the panel below) -- on mobile the stacked shirt+buttons panel
+            covered most of the hexagon. */}
+        {isLoading && !compact ? <HexagonLoader /> : ''}
         {!compact && (
           <div
             className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
@@ -2081,6 +2085,7 @@ export default class DisplayCanvas extends React.Component {
               }
             >
               <div className="hero-dot-grid" aria-hidden />
+              {isLoading && <HeroDotRipple />}
               <div className="hero-compact-row flex flex-row items-center gap-4">
                 <TshirtPreview
                   size={190}

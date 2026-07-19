@@ -193,6 +193,9 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
   // `hasTexture` gates the one-time entrance fade; `waiting` mirrors the prop for the
   // async paths.
   const stateRef = useRef({ api: null, stagedSheet: null, hasTexture: false, waiting });
+  // Set by the touch-drag rotation the moment a press turns into a drag, so the click
+  // that fires on release doesn't ALSO navigate to the shop (see the button's onClick).
+  const dragSuppressClickRef = useRef(false);
   const [failed, setFailed] = useState(false);
   const { currentDesign, renderDesignBlob, queueReady } = useStudio();
 
@@ -393,6 +396,74 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           inputCleanups.push(() => window.removeEventListener('deviceorientation', onOrientation));
         };
 
+        // Touch devices can also DRAG the shirt to spin it freely (a full look-around,
+        // not the ±15° ambient yaw -- dragYaw is unclamped and the tilt/mouse target
+        // rides on top of it). The shirt is still a shop link: a press only becomes a
+        // drag past a horizontal 8px threshold (and only when horizontal movement
+        // dominates -- vertical swipes stay with the page scroll via touch-action:
+        // pan-y on the button, which fires pointercancel once the browser takes the
+        // gesture), and a real drag suppresses the click that fires on release.
+        // Allowed under prefers-reduced-motion (direct manipulation, not ambient
+        // animation); only the release flick inertia is skipped there.
+        let dragYaw = 0;
+        let dragVel = 0;
+        let dragging = false;
+        if (isTouch) {
+          const DRAG_THRESHOLD = 8;
+          let pressed = false;
+          let startX = 0;
+          let startY = 0;
+          let lastX = 0;
+          let lastT = 0;
+          const onPointerDown = e => {
+            pressed = true;
+            dragging = false;
+            dragVel = 0;
+            startX = lastX = e.clientX;
+            startY = e.clientY;
+            lastT = e.timeStamp;
+          };
+          const onPointerMove = e => {
+            if (!pressed) return;
+            if (!dragging) {
+              const dxTotal = e.clientX - startX;
+              if (
+                Math.abs(dxTotal) < DRAG_THRESHOLD ||
+                Math.abs(dxTotal) < Math.abs(e.clientY - startY)
+              )
+                return;
+              dragging = true;
+              dragSuppressClickRef.current = true;
+              mount.setPointerCapture?.(e.pointerId);
+              lastX = e.clientX;
+              lastT = e.timeStamp;
+              return;
+            }
+            const dx = e.clientX - lastX;
+            const dYaw = dx * 0.012; // ~0.7° of spin per pixel
+            dragYaw += dYaw;
+            // Per-frame-normalized velocity for the release flick.
+            dragVel = dYaw * (16 / Math.max(e.timeStamp - lastT, 1));
+            lastX = e.clientX;
+            lastT = e.timeStamp;
+          };
+          const onPointerEnd = () => {
+            pressed = false;
+            dragging = false;
+            if (reducedMotion) dragVel = 0;
+          };
+          mount.addEventListener('pointerdown', onPointerDown);
+          mount.addEventListener('pointermove', onPointerMove);
+          mount.addEventListener('pointerup', onPointerEnd);
+          mount.addEventListener('pointercancel', onPointerEnd);
+          inputCleanups.push(() => {
+            mount.removeEventListener('pointerdown', onPointerDown);
+            mount.removeEventListener('pointermove', onPointerMove);
+            mount.removeEventListener('pointerup', onPointerEnd);
+            mount.removeEventListener('pointercancel', onPointerEnd);
+          });
+        }
+
         if (!reducedMotion) {
           if (isTouch && typeof DeviceOrientationEvent !== 'undefined') {
             // Only where orientation works WITHOUT a permission prompt (Android). iOS 13+
@@ -430,7 +501,14 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
 
         let raf = 0;
         const animate = now => {
-          pivot.rotation.y += (targetYaw - pivot.rotation.y) * 0.04;
+          // Release flick: decay the last drag velocity into dragYaw.
+          if (!dragging && Math.abs(dragVel) > 0.0001) {
+            dragYaw += dragVel;
+            dragVel *= 0.95;
+          }
+          // Direct manipulation tracks the finger tightly; ambient follow stays lazy.
+          const followRate = dragging ? 0.35 : 0.04;
+          pivot.rotation.y += (dragYaw + targetYaw - pivot.rotation.y) * followRate;
           aberrationPass.uniforms.uTime.value = now * 0.001;
           composer.render();
           raf = requestAnimationFrame(animate);
@@ -549,10 +627,18 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
   return (
     <button
       type="button"
-      onClick={onShopClick}
+      onClick={() => {
+        // A touch-drag spin ends in a click on release -- that's rotation, not a
+        // navigation intent; only a clean tap/click goes to the shop.
+        if (dragSuppressClickRef.current) {
+          dragSuppressClickRef.current = false;
+          return;
+        }
+        onShopClick?.();
+      }}
       aria-label="Shop this design on merch"
       className="tshirt-preview-btn group relative shrink-0 cursor-pointer border-0 bg-transparent p-0 transition-transform duration-300 hover:scale-[1.04]"
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, touchAction: 'pan-y' }}
     >
       <div
         ref={mountRef}

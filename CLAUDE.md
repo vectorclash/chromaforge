@@ -409,7 +409,16 @@ angle so a changed grip re-centers) — capped at ±15° yaw either way, static 
 prefers-reduced-motion. Tilt runs ONLY where no permission prompt is needed (Android);
 iOS 13+'s `requestPermission()`-on-first-tap flow was tried and user-rejected live (the
 natural first tap is the shirt itself, so the prompt fired after navigating to the shop) —
-iOS deliberately gets a static shirt, don't reintroduce the prompt. Below 480px the shirt+buttons row stacks
+iOS deliberately gets a static shirt, don't reintroduce the prompt.
+**Touch devices can also drag the shirt to spin it freely** (2026-07-18, Aaron's ask):
+pointer-drag on the mount adds an unclamped `dragYaw` under the ±15° ambient target
+(tilt/mouse rides on top), with a decaying release flick (skipped under
+prefers-reduced-motion; the drag itself is allowed — direct manipulation, not ambient).
+The shop link survives via tap-vs-drag disambiguation: a press only becomes a drag past
+8px of horizontally-dominant movement (vertical swipes scroll the page — `touch-action:
+pan-y` on the button), and a real drag sets `dragSuppressClickRef` so the release click
+doesn't navigate; a clean tap still goes to /shop. Verified via headless touch-emulation
+(drag → ~90° spin, URL stays; tap → /shop). Below 480px the shirt+buttons row stacks
 vertically (`.hero-compact-row` media query — side-by-side overflows a phone viewport). The model (Sketchfab "Tshirt" by khalilchahi99, CC-BY-4.0 —
 attribution in its license.txt) lives in `public/models/tshirt/` (GLTFLoader fetches
 scene.bin/textures by URL; Vite can't resolve those from src/assets — the src/assets copy
@@ -471,6 +480,15 @@ alpha-only GSAP tweens on `.image-container` don't conflict; skipped under
 prefers-reduced-motion. An ambient `.hero-dot-grid` layer (masked dot pattern, `components.css`) sits behind the
 compact UI, extending ~110px past it and dissipating with distance via intersecting X/Y
 gradient masks (`mask-composite: intersect` — rectangular falloff, not radial).
+**The hero's loading indicator is a color ripple through that dot grid** (2026-07-18,
+Aaron's idea after the mobile stacked shirt+buttons panel covered the centered
+HexagonLoader): `HeroDotRipple.jsx` mounts two `.hero-dot-ripple` layers while
+`isLoading` — each is an expanding ring gradient (GSAP drives `--ripple-r`; random
+tinycolor hue spins each cycle, same trick as HexagonLoader) masked by the same dot
+pattern + edge fades as the grid, half a cycle apart so waves read continuous. The dot
+look vars were hoisted from `.hero-dot-grid` to `.controls-compact` so grid and ripple
+share one source of truth. The hexagon loader is now non-compact-only (full studio);
+verified via headless mobile-viewport screenshots mid-generate.
 Compact buttons are smaller than the studio's (56/50px vs 80/60) and sit in a tight stack
 with the "Go to studio" link directly beneath them (`.controls-compact .go-to-studio-btn`
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
