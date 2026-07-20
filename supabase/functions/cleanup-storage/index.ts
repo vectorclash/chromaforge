@@ -11,10 +11,12 @@
 //    24h matches the stale-pending-order expiry (0010_..._cron.sql).
 //
 //  - Mockup source images (content-hashed via uploadMockupSourceImage, ~100-300KB):
-//    shared cache entries for mockup previews. Deleting one just costs a re-render on the
-//    next cache miss, so anything older than MOCKUP_MAX_AGE_DAYS goes -- EXCEPT files in
-//    the keep-list, because label placements' marks are uploaded through the same
-//    content-hashed path and DO end up in real orders' print_file_urls.
+//    shared cache entries for mockup previews. Nothing outside this function's own Printful
+//    mockup-task fetch (completes within ~3 min of upload) ever reads one again -- deleting
+//    one just costs a re-render on the next cache miss -- so anything older than
+//    MOCKUP_MAX_AGE_DAYS goes -- EXCEPT files in the keep-list, because label placements'
+//    marks are uploaded through the same content-hashed path and DO end up in real orders'
+//    print_file_urls.
 //
 // This deliberately supersedes 0010's "Storage is left untouched" stance for print files:
 // that reasoning (files may be shared across orders) is true for content-hashed mockup
@@ -31,7 +33,7 @@
 
 const BUCKET = "design-mockups";
 const PRINT_MIN_AGE_HOURS = 24;
-const MOCKUP_MAX_AGE_DAYS = 14;
+const MOCKUP_MAX_AGE_DAYS = 3;
 const DELETE_BATCH = 100;
 
 Deno.serve(async req => {
