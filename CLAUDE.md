@@ -815,6 +815,27 @@ larger than the button column — it's the panel's visual anchor.
     product's geometry silently started rendering off-center-left. Fixed by gating on
     `hasTwoLegCanvas` once (`effectiveGeometryLayout`) and using that everywhere instead of
     the raw state.
+- **Storage growth in `design-mockups`: found and fixed 2026-07-19** (the bucket had
+  reached ~357MB — a third of the free-tier quota — 254MB of it print-resolution renders
+  from Aaron's own test checkouts, uploaded under timestamped names by `render-print-file`
+  on every Buy Now and never deleted; the other ~103MB is content-hashed mockup sources,
+  deduped but never expired). Two-part fix: (1) `render-print-file` now names print files
+  by a SHA-256 content hash (`print-<hash>-<printfileId>.png`) and skips the upload when
+  the object already exists — repeat checkouts of the same design stop duplicating, and
+  same-content-same-URL is the *correct* interaction with Printful's fetch-by-URL caching
+  (the 2026-07-15 dedup gotcha only bites when different bytes reuse a URL). (2) A new
+  `cleanup-storage` Edge Function (verify_jwt = false + `X-Cleanup-Key` shared secret,
+  `CLEANUP_STORAGE_KEY` — same pattern/caveats as `RENDER_SERVICE_KEY`) sweeps the bucket:
+  deletes print files older than 24h and mockup sources older than 14 days, ALWAYS keeping
+  anything referenced by a non-canceled order's `print_file_urls` (which includes label
+  marks — those go through the content-hashed mockup path but end up in real orders).
+  This deliberately supersedes migration 0010's "Storage is left untouched" stance — that
+  reasoning holds for shared content-hashed files, but per-checkout print renders were
+  never shared. Scheduled daily 4:41am via pg_cron + pg_net (migration
+  `0014_cleanup_storage_cron.sql`; the shared secret is embedded in the cron command —
+  rotate it in both places). Storage deletion must go through the Storage API (deleting
+  `storage.objects` rows directly orphans the underlying S3 objects), hence the
+  HTTP-call-an-Edge-Function shape instead of pure SQL like 0010.
 - `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2
   `mockup-tasks` via the `printful-mockup` edge function → poll → dedupe by camera angle →
   cache). Free, no money involved. One automatic retry on Printful's occasional transient

@@ -171,7 +171,26 @@ Deno.serve(async req => {
 
   const pngBuffer = await renderRes.arrayBuffer();
 
-  const path = `${userId}/print-${Date.now()}-${label ?? "file"}.png`;
+  // Content-hashed path, same idea as uploadMockupSourceImage's mockup sources: repeat
+  // Buy Nows on the same design/product re-derive the same bytes, so a timestamped name
+  // (the original scheme) just accumulated multi-MB duplicates forever -- found 2026-07-19
+  // as the main driver of Storage usage. Same content = same URL also plays correctly with
+  // Printful's fetch-by-URL caching (different content always gets a different URL). The
+  // upload below is skipped when the object already exists.
+  const digest = await crypto.subtle.digest("SHA-256", pngBuffer);
+  const hash = Array.from(new Uint8Array(digest).slice(0, 12))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+  const path = `${userId}/print-${hash}-${label ?? "file"}.png`;
+
+  const headRes = await fetch(`${supabaseUrl}/storage/v1/object/public/${MOCKUP_BUCKET}/${path}`, { method: "HEAD" });
+  if (headRes.ok) {
+    return Response.json(
+      { url: `${supabaseUrl}/storage/v1/object/public/${MOCKUP_BUCKET}/${path}` },
+      { headers: corsHeaders }
+    );
+  }
+
   const uploadRes = await fetch(
     `${supabaseUrl}/storage/v1/object/${MOCKUP_BUCKET}/${path}`,
     {

@@ -481,3 +481,11 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/printful-webhook/deno.json"
 entrypoint = "./functions/printful-webhook/index.ts"
+
+# Cron-initiated (pg_cron, migration 0014) -- the caller carries no user JWT, so auth is
+# the X-Cleanup-Key shared secret checked inside the function (CLEANUP_STORAGE_KEY secret),
+# same pattern as render-print-file's RENDER_SERVICE_KEY.
+[functions.cleanup-storage]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/cleanup-storage/index.ts"
