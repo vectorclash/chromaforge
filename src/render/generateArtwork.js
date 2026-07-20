@@ -52,7 +52,19 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // draws (the spread roll, the star hue-bias jitter) change output for every existing
 // `colors: []` design -- old v5 designs render with the previous always-wide, unbiased
 // logic until re-saved, same accepted-not-blocking treatment as prior bumps.
-export const GENERATOR_VERSION = 6;
+//
+// v6 -> v7 (2026-07-20): GenerateGeometricShape.js's chaotic-shape keepCount no longer
+// slices by getCountScale(width, height) -- found via a live customer order where the
+// mockup preview (rendered client-side, capped at RENDER_CAP=2000) showed visibly fewer
+// geometry shapes than the real print file at true printfile resolution, for the same
+// seed. No new rng() draws (this only changes how much of the already-generated,
+// size-independent shape list survives the slice), but it does change rendered PIXELS for
+// any canvas whose countScale was < 1 -- confirmed this affects real print resolutions too,
+// not just thumbnails/previews: the pillow (all sizes but 22x22), 257/261's sleeves, 274's
+// pocket, and 744's crossbody bag all have printfiles small enough to be affected. Old v6
+// designs keep rendering with the old sliced-down geometry until re-saved, same
+// accepted-not-blocking treatment as every prior bump.
+export const GENERATOR_VERSION = 7;
 
 const BLEND_MODES = [
   'screen',

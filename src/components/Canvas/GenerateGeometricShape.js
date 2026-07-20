@@ -1,6 +1,6 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
-import { getCountScale, getSizeScale, getElementSizeScale } from '../../render/scale';
+import { getSizeScale, getElementSizeScale } from '../../render/scale';
 import { getGeometrySettings } from '../../render/designSettings';
 
 export default class GenerateGeometricShape {
@@ -86,13 +86,27 @@ export default class GenerateGeometricShape {
 
     // shapeNum (from generateArtwork.js) is unscaled -- this loop always builds the full,
     // size-independent count (each buildShape() call's rng() consumption doesn't depend on
-    // width/height, only on this.colors.length, which is fixed per design) and only a
-    // size-scaled subset is kept, same fixed-generate-then-truncate reasoning as
-    // GenerateStarField/GenerateLargeRadialField -- see render/scale.js.
+    // width/height, only on this.colors.length, which is fixed per design).
     for (let i = 0; i < shapeNum; i++) {
       config.shapes.push(this.buildShape());
     }
-    let keepCount = Math.max(1, Math.round(shapeNum * getCountScale(width, height)));
+    // REAL bug, found via a live customer order (2026-07-20): this used to slice the kept
+    // count by getCountScale(width, height), same as GenerateStarField/
+    // GenerateLargeRadialField -- but for geometry specifically that meant a mockup preview
+    // (rendered client-side capped at RENDER_CAP=2000, see lib/printful.js) could keep a
+    // visibly smaller SUBSET of these shapes than the real, uncapped print render at true
+    // printfile resolution -- not a smaller picture of the same composition, a genuinely
+    // different one (confirmed live: the same seed rendered at a mockup's capped size vs.
+    // its print's real size was missing entire shapes, including one that dominated the
+    // print's center). The coherent lattice-cell path below already exempts itself from
+    // getCountScale for exactly this reason ("a thumbnail must show the same complete shape
+    // as a print") -- this makes the chaotic-shape path match that same standard, since the
+    // business requirement is that geometry must render as identically as possible across
+    // resolutions, even though stars/gradients are allowed to vary. Safe to do without
+    // affecting the rng()-consumption invariant: buildShape() already runs shapeNum times
+    // unconditionally above regardless of size, so this only changes how much of that
+    // already-generated, size-independent result gets kept, not what gets drawn from rng().
+    let keepCount = shapeNum;
     // Coherence trades these chaotic random triangles away for ordered lattice cells
     // (below): at 1, none survive -- only the clean polygon remains.
     if (geometry.coherence > 0) {

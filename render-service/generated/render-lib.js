@@ -334,7 +334,7 @@ var GenerateGeometricShape = class {
     for (let i = 0; i < shapeNum; i++) {
       config.shapes.push(this.buildShape());
     }
-    let keepCount = Math.max(1, Math.round(shapeNum * getCountScale(width, height)));
+    let keepCount = shapeNum;
     if (geometry.coherence > 0) {
       keepCount = Math.min(keepCount, Math.round(shapeNum * (1 - geometry.coherence)));
     }
@@ -501,7 +501,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 6;
+var GENERATOR_VERSION = 7;
 var BLEND_MODES = [
   "screen",
   "overlay",

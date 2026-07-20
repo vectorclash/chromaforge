@@ -619,6 +619,19 @@ export default function ProductPage() {
   // instantly (e.g. every size of a t-shirt in the same color shares one print file, so
   // there's nothing new to render -- see useMockup's cache), otherwise drop back to idle so
   // the previous selection's mockup doesn't keep showing as if it were current.
+  //
+  // REAL BUG, found via a live test order (2026-07-20): `selectedDesign` tracks
+  // `currentDesign` live while selectedKey === 'current', but this effect never listed it
+  // (or anything that changes when it does) as a dependency -- only pickedChoice?.id was
+  // covered, for the 'picked' gallery tile. Regenerating the studio design without leaving
+  // this page (e.g. navigating back to the studio, generating again, then returning to an
+  // already-mounted ProductPage) left the on-screen mockup/heroImage frozen on the OLD
+  // design while onBuyNowClick/onGenerateClick both read selectedDesign fresh at click
+  // time -- so a customer could approve a mockup of one design and have the print files for
+  // a completely different one uploaded to the real order. selectedDesign is a stable object
+  // reference that only changes when the underlying design actually does (currentDesign is
+  // the same object DisplayCanvas keeps, not recreated every render -- see
+  // StudioContext.jsx), so adding it here is a correct, non-churning fix, not a workaround.
   const geometryPlacementsSignature = [...geometryPlacements].sort().join(',');
   useEffect(() => {
     if (!product || !variant || !printfileSpecs) return;
@@ -634,7 +647,7 @@ export default function ProductPage() {
     // pickedChoice?.id matters on its own: picking a second gallery design replaces the
     // 'picked' tile's contents without selectedKey ever changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, pickedChoice?.id, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
 
   // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
   // top down with the thumbnail strip below it) from "the customer clicked a different
