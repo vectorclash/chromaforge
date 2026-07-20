@@ -1,4 +1,4 @@
-import React, { lazy, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { gsap } from 'gsap';
 
@@ -8,6 +8,7 @@ import ErrorBoundary from './components/ui/ErrorBoundary';
 import SiteLayout from './components/ui/SiteLayout';
 import HomePage from './pages/HomePage';
 import StudioPage from './pages/StudioPage';
+import lazyWithReload from './utils/lazyWithReload';
 
 // Lazy: none of these are needed for the initial "/" or "/studio" load, and each pulls in
 // its own real weight (Printful catalog/mockup code, Supabase designs/checkout/profiles
@@ -16,14 +17,20 @@ import StudioPage from './pages/StudioPage';
 // StudioPage (it *is* the compact studio), so splitting that pair apart would just
 // duplicate the same DisplayCanvas/GSAP/createjs code across two chunks instead of
 // removing it from either.
-const ShopPage = lazy(() => import('./pages/ShopPage'));
-const ProductPage = lazy(() => import('./pages/ProductPage'));
-const GalleryPage = lazy(() => import('./pages/GalleryPage'));
-const AccountPage = lazy(() => import('./pages/AccountPage'));
-const CheckoutSuccessPage = lazy(() => import('./pages/CheckoutSuccessPage'));
-const TermsPage = lazy(() => import('./pages/TermsPage'));
-const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
-const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
+//
+// lazyWithReload (not React.lazy directly): a stale chunk reference from before a deploy
+// otherwise 404s straight into the top-level ErrorBoundary -- see that util's header.
+const ShopPage = lazyWithReload(() => import('./pages/ShopPage'), 'ShopPage');
+const ProductPage = lazyWithReload(() => import('./pages/ProductPage'), 'ProductPage');
+const GalleryPage = lazyWithReload(() => import('./pages/GalleryPage'), 'GalleryPage');
+const AccountPage = lazyWithReload(() => import('./pages/AccountPage'), 'AccountPage');
+const CheckoutSuccessPage = lazyWithReload(
+  () => import('./pages/CheckoutSuccessPage'),
+  'CheckoutSuccessPage'
+);
+const TermsPage = lazyWithReload(() => import('./pages/TermsPage'), 'TermsPage');
+const PrivacyPage = lazyWithReload(() => import('./pages/PrivacyPage'), 'PrivacyPage');
+const NotFoundPage = lazyWithReload(() => import('./pages/NotFoundPage'), 'NotFoundPage');
 
 // "/" is the multi-module homepage (hero: a simplified Generate/Save view of the studio,
 // with a "Go to studio" link; about; gallery/shop previews; footer). "/studio" is the full
