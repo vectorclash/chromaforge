@@ -26,7 +26,7 @@ import { isSameDesign } from '../render/designSettings';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import ArtworkPickerModal from '../components/ui/ArtworkPickerModal';
-import ConfirmDialog from '../components/ui/ConfirmDialog';
+import BuyNowModal from '../components/ui/BuyNowModal';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useJsonLd } from '../hooks/useJsonLd';
 
@@ -310,8 +310,10 @@ export default function ProductPage() {
   const [qty, setQty] = useState(1);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [checkoutNotice, setCheckoutNotice] = useState(null);
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
-  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  // null | 'confirm' | 'preparing' | 'error' -- drives BuyNowModal, which now owns the
+  // entire Buy Now flow (see that component's header comment for why).
+  const [buyModalStage, setBuyModalStage] = useState(null);
+  const checkoutBusy = buyModalStage === 'preparing';
 
   // Which placements include the geometry layer -- a per-order choice (see
   // getGeometryPlacementOptions), not part of the saved design, so the same artwork can
@@ -450,15 +452,30 @@ export default function ProductPage() {
   // abandoned pending order is harmless (auto-canceled after 24h -- see
   // 0010_cancel_stale_pending_orders_cron.sql) and Buy Now is always re-clickable.
   const isMountedRef = useRef(true);
-  useEffect(() => () => {
-    isMountedRef.current = false;
+  useEffect(() => {
+    // Real bug, caught live 2026-07-21 while dev-server-testing BuyNowModal (dev-only --
+    // StrictMode never runs in production, which is why this never surfaced against the
+    // deployed site): a cleanup-only effect (`useEffect(() => () => {...}, [])`) never
+    // resets isMountedRef back to true on setup, only ever flips it false on cleanup. Under
+    // StrictMode's dev-mode mount->cleanup->remount double-invoke, that cleanup fires once
+    // immediately after the first simulated mount -- permanently pinning this to `false` for
+    // the rest of the component's real lifetime, silently no-oping the `if
+    // (!isMountedRef.current) return;` guards below forever after, even though the page
+    // never actually navigated away. Real checkout logs confirmed the render/upload and
+    // Stripe session creation completed successfully server-side; the client just silently
+    // dropped the redirect. Setting it true here too closes the gap.
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   // Stripe bounces back here with ?checkout=canceled on cancel_url -- no dedicated cancel
-  // page, just surface it through the existing checkoutNotice mechanism.
+  // page, just surface it through BuyNowModal's error stage.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('checkout') === 'canceled') {
       setCheckoutNotice('Checkout canceled -- your card was not charged.');
+      setBuyModalStage('error');
       // Strip the param once consumed so a refresh/bookmark doesn't re-show the notice.
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -731,23 +748,22 @@ export default function ProductPage() {
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
-  // for why), then hand off to Stripe's hosted Checkout page. The main Buy Now button stays
-  // gated behind a real mockup existing (disabled below) -- buying before seeing what you're
-  // printing shouldn't be the default path. There's also a "Buy without a preview" escape
-  // hatch (behind ConfirmDialog, see showSkipConfirm below) for when Printful's mockup
-  // service is slow/at capacity/erroring: it calls this exact same function, just without
-  // requiring hasMockup first -- the real print files render independently of whether a
-  // mockup was ever generated, so heroImage (which already falls back to the product's stock
-  // photo when !hasMockup) is the only thing that differs. geometryPlacements/geometryLayout
-  // ride along so the print files match exactly what any approved mockup showed -- the
-  // customer could otherwise toggle a checkbox or the layout after generating a mockup and
-  // buy something they never previewed.
+  // for why), then hand off to Stripe's hosted Checkout page. Buy Now is no longer gated
+  // behind a real mockup existing -- BuyNowModal's own `confirm` stage is the "you haven't
+  // previewed this yet" check now (see onBuyNowButtonClick below), replacing the old
+  // ConfirmDialog-based "Buy without a preview" escape hatch. This function itself is
+  // unchanged either way: the real print files render independently of whether a mockup was
+  // ever generated, so heroImage (which already falls back to the product's stock photo when
+  // !hasMockup) is the only thing that differs. geometryPlacements/geometryLayout ride along
+  // so the print files match exactly what any approved mockup showed -- the customer could
+  // otherwise toggle a checkbox or the layout after generating a mockup and buy something
+  // they never previewed.
   const onBuyNowClick = async () => {
     // Re-arm the leave guard: after a Stripe redirect the ref stays true, and coming BACK
     // from Stripe can restore this page from the bfcache with all its state intact -- a
     // second Buy Now run would otherwise be unguarded.
     checkoutLeaveOkRef.current = false;
-    setCheckoutBusy(true);
+    setBuyModalStage('preparing');
     setCheckoutNotice(null);
     setCheckoutProgress(null);
     try {
@@ -775,9 +791,9 @@ export default function ProductPage() {
         design: selectedDesign,
         printFileUrls,
         productOptions: stitchColorProductOptions || cfg.productOptions,
-        // Buy Now is gated behind hasMockup (disabled below), so heroImage is always a real
-        // Printful mockup URL here -- shows the actual approved garment mockup on Stripe's
-        // checkout page instead of a bare text line item.
+        // heroImage falls back to the product's stock photo when !hasMockup (see its own
+        // definition) -- shows the actual approved garment mockup on Stripe's checkout page
+        // when one exists, instead of a bare text line item.
         mockupImageUrl: heroImage,
         guessedRegion: guessShippingRegion()
       });
@@ -795,8 +811,18 @@ export default function ProductPage() {
     } catch (err) {
       if (!isMountedRef.current) return;
       setCheckoutNotice(err.message);
-      setCheckoutBusy(false);
+      setBuyModalStage('error');
     }
+  };
+
+  // Buy Now itself is never disabled behind hasMockup anymore -- one click straight into
+  // the modal's `preparing` stage when a mockup already exists, or a `confirm` stage first
+  // ("you haven't previewed this yet") when it doesn't. BuyNowModal's `onContinue` prop
+  // (used by both the confirm stage's Continue and the error stage's Try again) is this
+  // exact same onBuyNowClick.
+  const onBuyNowButtonClick = () => {
+    if (hasMockup) onBuyNowClick();
+    else setBuyModalStage('confirm');
   };
 
   return (
@@ -1072,52 +1098,18 @@ export default function ProductPage() {
                         {elapsedSeconds}s elapsed
                       </p>
                     )}
-                    {storeEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => setShowSkipConfirm(true)}
-                        disabled={checkoutBusy}
-                        className="animate-reveal-quick cursor-pointer text-xs text-text-muted underline decoration-dotted transition hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{ animationDelay: '240ms' }}
-                      >
-                        Don't want to wait? Buy without a preview
-                      </button>
-                    )}
                   </div>
                 ) : status === 'failed' ? (
                   <div className="flex animate-pop-in flex-col items-center gap-3 text-center">
                     <p className="max-w-xs text-sm text-accent">{mockupError}</p>
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <Button onClick={onGenerateClick} disabled={!selectedDesign}>
-                        Try again
-                      </Button>
-                      {storeEnabled && (
-                        <Button
-                          variant="secondary"
-                          onClick={() => setShowSkipConfirm(true)}
-                          disabled={checkoutBusy}
-                        >
-                          Buy without a preview
-                        </Button>
-                      )}
-                    </div>
+                    <Button onClick={onGenerateClick} disabled={!selectedDesign}>
+                      Try again
+                    </Button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-3">
-                    <Button onClick={onGenerateClick} disabled={!selectedDesign}>
-                      Generate mockup
-                    </Button>
-                    {storeEnabled && (
-                      <button
-                        type="button"
-                        onClick={() => setShowSkipConfirm(true)}
-                        disabled={checkoutBusy}
-                        className="cursor-pointer text-xs text-text-muted underline decoration-dotted transition hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Buy without a preview
-                      </button>
-                    )}
-                  </div>
+                  <Button onClick={onGenerateClick} disabled={!selectedDesign}>
+                    Generate mockup
+                  </Button>
                 )}
               </div>
             )}
@@ -1231,49 +1223,18 @@ export default function ProductPage() {
             ) : (
               <Button
                 className="mt-4 w-full"
-                disabled={!storeEnabled || !hasMockup || checkoutBusy}
+                disabled={!storeEnabled || checkoutBusy}
                 aria-busy={checkoutBusy}
-                onClick={onBuyNowClick}
+                onClick={onBuyNowButtonClick}
               >
-                {checkoutBusy ? 'Preparing checkout…' : 'Buy now'}
+                Buy now
               </Button>
-            )}
-            {checkoutBusy && (
-              <div className="mt-3 flex flex-col items-center gap-1 text-center" aria-live="polite">
-                <ScrambleText
-                  text={statusNarration(checkoutElapsed, checkoutNarrationPicksRef.current, CHECKOUT_TIMELINE)}
-                  className="max-w-xs text-xs text-text-secondary"
-                />
-                <p className="font-mono text-[11px] text-text-muted">
-                  {checkoutProgress && checkoutProgress.total > 0
-                    ? `print file ${Math.min(checkoutProgress.done + 1, checkoutProgress.total)} of ${checkoutProgress.total} · `
-                    : ''}
-                  {checkoutElapsed}s elapsed
-                </p>
-              </div>
             )}
             <div className="mt-4 space-y-1.5">
               {user && !storeEnabled && (
                 <p className="text-xs leading-tight text-accent">
                   Store purchasing is temporarily offline. Please check back soon.
                 </p>
-              )}
-              {user && storeEnabled && !hasMockup && (
-                <p className="text-xs leading-tight text-text-muted">
-                  Generate a mockup above before you check out, or{' '}
-                  <button
-                    type="button"
-                    onClick={() => setShowSkipConfirm(true)}
-                    disabled={checkoutBusy}
-                    className="cursor-pointer underline decoration-dotted hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    buy without a preview
-                  </button>
-                  .
-                </p>
-              )}
-              {checkoutNotice && (
-                <p className="animate-pop-in text-xs leading-tight text-accent">{checkoutNotice}</p>
               )}
               <p className="text-xs leading-tight text-text-muted">
                 Printed on demand and shipped by Printful. No returns on custom prints.
@@ -1289,17 +1250,22 @@ export default function ProductPage() {
         onSelect={onPickDesign}
       />
 
-      <ConfirmDialog
-        open={showSkipConfirm}
-        title="Skip the preview?"
-        message="You haven't seen a mockup of this design on the garment yet. Your artwork still prints exactly as designed -- you'll just check out without a preview photo of it on the product first."
-        confirmLabel="Buy without preview"
-        cancelLabel="Keep waiting"
-        onConfirm={() => {
-          setShowSkipConfirm(false);
-          onBuyNowClick();
+      <BuyNowModal
+        stage={buyModalStage}
+        onContinue={onBuyNowClick}
+        onCancel={() => {
+          setBuyModalStage(null);
+          setCheckoutNotice(null);
         }}
-        onCancel={() => setShowSkipConfirm(false)}
+        errorMessage={checkoutNotice}
+        narration={
+          <ScrambleText
+            text={statusNarration(checkoutElapsed, checkoutNarrationPicksRef.current, CHECKOUT_TIMELINE)}
+            className="text-xs text-text-secondary"
+          />
+        }
+        progress={checkoutProgress}
+        elapsedSeconds={checkoutElapsed}
       />
     </PageContainer>
   );
