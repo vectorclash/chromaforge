@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import tinycolor from 'tinycolor2';
 import { gsap } from 'gsap/all';
+import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
 
 // Colored rings rippling outward through a dot-grid mask (each .dot-ripple layer is a
 // dot pattern used as a MASK over an expanding ring gradient -- see components.css). Any
@@ -12,7 +13,18 @@ import { gsap } from 'gsap/all';
 // during its blank hold instead of a static grid sitting there permanently. Callers
 // mount/unmount this on their own loading flag; it doesn't track one itself, and leaves
 // no trace once unmounted (no persistent dot grid of its own).
-const RIPPLE_CYCLE = 1.6;
+//
+// MobileNav/SiteFooter's crossfade hold (useCrossfadeImage) lasts exactly
+// DURATION_FAST (fade the old image out) + DURATION_HOLD (blank pause) before the new
+// one starts revealing -- tying the cycle to those same tokens, rather than an
+// independent guess, is what makes the ripple's timing land inside that window instead
+// of the previous fixed 1.6s (which didn't even complete one cycle). Note this is the
+// per-LAYER cycle, not the visible pulse rate: with two layers offset half a cycle apart,
+// a new ring starts every RIPPLE_CYCLE/2, so the hold window sees exactly two visible
+// pulses when RIPPLE_CYCLE itself equals the full window (confirmed live -- setting this
+// to HOLD_WINDOW/2 instead read as four pulses, not two, for exactly that reason).
+const HOLD_WINDOW = DURATION_FAST + DURATION_HOLD;
+const RIPPLE_CYCLE = HOLD_WINDOW;
 
 const spun = () =>
   tinycolor('#CCFF00')
