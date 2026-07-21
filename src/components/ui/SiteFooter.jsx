@@ -4,7 +4,6 @@ import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import MiniGenerator from './MiniGenerator';
 import Wordmark from './Wordmark';
-import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
 
 const RENDER_WIDTH = 1600;
 const RENDER_HEIGHT = 500;
@@ -31,23 +30,21 @@ export default function SiteFooter() {
     };
   }, [currentDesign, queueReady, renderDesignBlob]);
 
-  const { shown, incoming, fadingIn } = useCrossfadeImage(bgUrl, CROSSFADE_MS);
+  const { shown, incoming, shownRef, incomingRef } = useCrossfadeImage(bgUrl);
 
   return (
     <footer className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
       {/* Active artwork as the footer's background at 50% opacity */}
       {shown && (
         <div className="absolute inset-0 opacity-75 z-0 pointer-events-none">
-          <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
+              ref={incomingRef}
               src={incoming}
               alt=""
-              className={
-                'absolute inset-0 h-full w-full object-cover transition-opacity ' +
-                (fadingIn ? 'opacity-100' : 'opacity-0')
-              }
-              style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+              className="absolute inset-0 h-full w-full object-cover"
+              style={{ opacity: 0 }}
             />
           )}
           {/* Subtle dark gradient overlay to ensure text contrast */}

@@ -5,7 +5,7 @@ import { useStudio } from '../../context/StudioContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
-import { DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
+import GenerateGlow from './GenerateGlow';
 
 // No more hover rotation -- it read as unrelated to anything since it fired on mouse
 // position, not on actual work being done. `spinning` (MiniGenerator's `pending`, true from
@@ -73,7 +73,7 @@ export default function MiniGenerator({ inline = false }) {
   const location = useLocation();
   const visible = useWidgetVisibility();
 
-  const { shown, incoming, fadingIn } = useCrossfadeImage(previewUrl, CROSSFADE_MS);
+  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(previewUrl);
 
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | error
   // Real work happens between clicking Generate and the new preview actually landing:
@@ -200,18 +200,17 @@ export default function MiniGenerator({ inline = false }) {
           aria-label="Open this design in the studio"
           className="group relative block aspect-square w-[108px] h-[108px] shrink-0 cursor-pointer overflow-hidden rounded-xl bg-ink-950 border border-white/10 transition-all duration-300 hover:scale-[1.03] hover:border-accent/40 hover:shadow-[0_0_15px_rgba(166,224,0,0.2)]"
         >
-          {shown && <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+          {shown && <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
           {incoming && (
             <img
+              ref={incomingRef}
               src={incoming}
               alt=""
-              className={
-                'absolute inset-0 h-full w-full object-cover transition-opacity ' +
-                (fadingIn ? 'opacity-100' : 'opacity-0')
-              }
-              style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+              className="absolute inset-0 h-full w-full object-cover"
+              style={{ opacity: 0 }}
             />
           )}
+          <GenerateGlow active={holding} blurClass="blur-xl" />
           {/* Hover overlay */}
           <div className="absolute inset-0 bg-interactive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
         </button>
@@ -233,22 +232,21 @@ export default function MiniGenerator({ inline = false }) {
         aria-label="Open this design in the studio"
         className="group relative block aspect-square w-full cursor-pointer overflow-hidden rounded-lg bg-ink-950 border border-white/10 transition-all duration-300 hover:scale-[1.03] hover:border-interactive/40"
       >
-        {shown && <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+        {shown && <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />}
         {incoming && (
           <img
+            ref={incomingRef}
             src={incoming}
             alt=""
-            className={
-              'absolute inset-0 h-full w-full object-cover transition-opacity ' +
-              (fadingIn ? 'opacity-100' : 'opacity-0')
-            }
-            style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ opacity: 0 }}
           />
         )}
+        <GenerateGlow active={holding} blurClass="blur-xl" />
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-interactive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
       </button>
-      
+
       <div className="mt-2.5 flex gap-2">
         <button
           type="button"

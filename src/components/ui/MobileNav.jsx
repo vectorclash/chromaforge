@@ -8,8 +8,9 @@ import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
 import FadeImage from './FadeImage';
+import GenerateGlow from './GenerateGlow';
 import MiniGenerator from './MiniGenerator';
-import { DURATION_BASE, DURATION_FAST, DURATION_SLOW_MS as CROSSFADE_MS } from '../../utils/motionTokens';
+import { DURATION_BASE, DURATION_FAST } from '../../utils/motionTokens';
 
 // Portrait-ish crop -- this panel fills a phone screen, unlike SiteFooter's wide banner
 // strip, so the render is requested closer to a phone's own aspect ratio rather than
@@ -78,7 +79,7 @@ export default function MobileNav({ open, onClose }) {
     };
   }, [mounted, currentDesign, queueReady, renderDesignBlob]);
 
-  const { shown, incoming, fadingIn } = useCrossfadeImage(bgUrl, CROSSFADE_MS);
+  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
 
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
@@ -136,18 +137,17 @@ export default function MobileNav({ open, onClose }) {
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
       {shown && (
         <div className="pointer-events-none absolute inset-0 z-0 opacity-75">
-          <img src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
+              ref={incomingRef}
               src={incoming}
               alt=""
-              className={
-                'absolute inset-0 h-full w-full object-cover transition-opacity ' +
-                (fadingIn ? 'opacity-100' : 'opacity-0')
-              }
-              style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+              className="absolute inset-0 h-full w-full object-cover"
+              style={{ opacity: 0 }}
             />
           )}
+          <GenerateGlow active={holding} blurClass="blur-3xl" />
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40" />
         </div>
       )}

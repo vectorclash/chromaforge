@@ -12,7 +12,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
 import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
-import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
+import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
 import { rampTime, rampRush } from '../utils/speedRamp';
 
 import Copyright from './Copyright';
@@ -763,7 +763,7 @@ export default class DisplayCanvas extends React.Component {
     imageLoader.src = url;
 
     imageLoader.addEventListener('load', () => {
-      gsap.delayedCall(1, () => {
+      gsap.delayedCall(DURATION_HOLD, () => {
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
         // route has changed away from whatever page mounted this DisplayCanvas (e.g. a

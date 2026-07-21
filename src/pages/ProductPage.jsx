@@ -4,9 +4,9 @@ import { gsap, TextPlugin } from 'gsap/all';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import FadeImage from '../components/ui/FadeImage';
+import GenerateGlow from '../components/ui/GenerateGlow';
 import HexagonLoader from '../components/HexagonLoader';
 import { useCrossfadeImage } from '../hooks/useCrossfadeImage';
-import { DURATION_SLOW_MS as CROSSFADE_MS } from '../utils/motionTokens';
 import {
   getCatalogProduct,
   getPrintfileSpecs,
@@ -291,7 +291,7 @@ export default function ProductPage() {
   // Crossfades the "Current studio design" tile between successive MiniGenerator
   // regenerations instead of popping straight to the new render -- same hook/timing
   // MiniGenerator and SiteFooter already use off this same previewUrl.
-  const currentTileCrossfade = useCrossfadeImage(studioPreviewUrl, CROSSFADE_MS);
+  const currentTileCrossfade = useCrossfadeImage(studioPreviewUrl);
   const {
     status,
     error: mockupError,
@@ -847,6 +847,7 @@ export default function ProductPage() {
                     <>
                       {currentTileCrossfade.shown && (
                         <img
+                          ref={currentTileCrossfade.shownRef}
                           src={currentTileCrossfade.shown}
                           alt={c.label}
                           className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.15]"
@@ -854,15 +855,14 @@ export default function ProductPage() {
                       )}
                       {currentTileCrossfade.incoming && (
                         <img
+                          ref={currentTileCrossfade.incomingRef}
                           src={currentTileCrossfade.incoming}
                           alt={c.label}
-                          className={
-                            'absolute inset-0 h-full w-full object-cover transition-opacity ease-out ' +
-                            (currentTileCrossfade.fadingIn ? 'opacity-100' : 'opacity-0')
-                          }
-                          style={{ transitionDuration: `${CROSSFADE_MS}ms` }}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          style={{ opacity: 0 }}
                         />
                       )}
+                      <GenerateGlow active={currentTileCrossfade.holding} blurClass="blur-xl" />
                     </>
                   ) : (
                     c.thumb && (
