@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
+import DotRipple from '../DotRipple';
 import MiniGenerator from './MiniGenerator';
 import Wordmark from './Wordmark';
 
@@ -30,13 +31,13 @@ export default function SiteFooter() {
     };
   }, [currentDesign, queueReady, renderDesignBlob]);
 
-  const { shown, incoming, shownRef, incomingRef } = useCrossfadeImage(bgUrl);
+  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
 
   return (
     <footer className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
       {/* Active artwork as the footer's background at 50% opacity */}
       {shown && (
-        <div className="absolute inset-0 opacity-75 z-0 pointer-events-none">
+        <div className="site-footer-bg absolute inset-0 opacity-75 z-0 pointer-events-none">
           <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
@@ -47,6 +48,7 @@ export default function SiteFooter() {
               style={{ opacity: 0 }}
             />
           )}
+          {holding && <DotRipple />}
           {/* Subtle dark gradient overlay to ensure text contrast */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40"></div>
         </div>

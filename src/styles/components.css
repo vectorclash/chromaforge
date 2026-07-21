@@ -508,10 +508,13 @@
    with distance: the intersecting X/Y gradient masks hold the dots at full strength
    around the UI itself, then fall off to nothing over the outer ~90px band. z-index -1
    keeps it behind the shirt/buttons but above the artwork (controls-inner's own z-index
-   makes it a stacking context, so -1 can't escape below the canvas). */
+   makes it a stacking context, so -1 can't escape below the canvas). This static grid is
+   a hero-only decoration -- MobileNav/SiteFooter below share the ripple language but
+   deliberately don't mount `.dot-grid` itself, since there it's only meant to appear
+   while loading, not sit there permanently. */
 .display-canvas .controls-inner.controls-compact {
   /* Single source of truth for the dot grid's look -- edit these, nothing else. Declared
-     on the panel (not .hero-dot-grid) so the loading ripple layers, which must align
+     on the panel (not .dot-grid) so the loading ripple layers, which must align
      dot-for-dot with the grid, inherit the same values.
      --dot-bleed-*  = total distance the layer extends past the panel (outer edge).
      --dot-fade-*   = width of the gradient itself, measured in from that outer edge --
@@ -529,7 +532,32 @@
   --dot-fade-y: 120px;
 }
 
-.display-canvas .controls-inner.controls-compact .hero-dot-grid {
+/* MobileNav's and SiteFooter's own dot-ripple hosts (DotRipple.jsx) -- same --dot-*
+   contract as the hero panel above, but these backgrounds already fill their entire
+   container (no small panel to bleed a grid out around), so bleed is 0: the ripple's
+   mount sits at `inset: 0`, exactly matching the crossfading image layer underneath, and
+   the fade vars just soften its own edges instead of projecting past them. */
+.mobile-nav-bg,
+.site-footer-bg {
+  --dot-size: 1.2px;
+  --dot-falloff: 1.9px;
+  --dot-spacing: 20px;
+  --dot-bleed-x: 0px;
+  --dot-bleed-y: 0px;
+  --dot-fade-x: 90px;
+  --dot-fade-y: 90px;
+}
+/* Both hosts paint a dark contrast gradient over their crossfade for text legibility --
+   unlike the hero, which has nothing on top of `.dot-ripple-mount`'s default z-index -1.
+   Without this override the ripple painted BEHIND that gradient (confirmed live: at
+   -1 it was nearly invisible) -- bump it above both the images and the gradient, same
+   positive-stacking treatment the old GenerateGlow overlay used here. */
+.mobile-nav-bg .dot-ripple-mount,
+.site-footer-bg .dot-ripple-mount {
+  z-index: 1;
+}
+
+.display-canvas .controls-inner.controls-compact .dot-grid {
   position: absolute;
   inset: calc(-1 * var(--dot-bleed-y)) calc(-1 * var(--dot-bleed-x));
   z-index: -1;
@@ -548,19 +576,23 @@
   mix-blend-mode: color-burn;
 }
 
-/* Loading ripple (HeroDotRipple.jsx): the hero's loader while a new artwork generates.
-   Same footprint as .hero-dot-grid; each layer is an expanding ring gradient (radius
-   driven per-frame by GSAP via --ripple-r, colors via --ripple-c1/c2) masked by the SAME
-   dot pattern + edge fades as the grid, so color only ever shows through the dots.
-   Dot mask is slightly larger than the grid's dots (falloff, not --dot-size) so the
-   colored dots read over the fainter white ones underneath. */
-.display-canvas .controls-inner.controls-compact .hero-dot-ripple-mount {
+/* Loading ripple (DotRipple.jsx): pulses colored rings through a dot mask while a new
+   background/artwork is generating -- the hero's own loader, and also MobileNav's/
+   SiteFooter's stand-in for a blank crossfade hold. Same footprint as `.dot-grid` where
+   that's mounted (the hero); a plain `inset: 0` fill where it isn't (MobileNav/
+   SiteFooter, via their 0 bleed above). Each layer is an expanding ring gradient (radius
+   driven per-frame by GSAP via --ripple-r, colors via --ripple-c1/c2) masked by the same
+   dot pattern + edge fades as the grid, so color only ever shows through the dots. Dot
+   mask is slightly larger than the grid's dots (falloff, not --dot-size) so the colored
+   dots read over the fainter white ones underneath. Not scoped to any one host --
+   whichever ancestor sets --dot-* wins, so this reuses cleanly across contexts. */
+.dot-ripple-mount {
   position: absolute;
   inset: calc(-1 * var(--dot-bleed-y)) calc(-1 * var(--dot-bleed-x));
   z-index: -1;
   pointer-events: none;
 }
-.display-canvas .controls-inner.controls-compact .hero-dot-ripple {
+.dot-ripple {
   --ripple-r: 0px;
   --ripple-c1: #ccff00;
   --ripple-c2: #00ccff;

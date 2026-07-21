@@ -17,7 +17,7 @@ import { rampTime, rampRush } from '../utils/speedRamp';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
-import HeroDotRipple from './HeroDotRipple';
+import DotRipple from './DotRipple';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
@@ -2084,8 +2084,8 @@ export default class DisplayCanvas extends React.Component {
                 (controlsBlurred ? ' controls-blurred' : '')
               }
             >
-              <div className="hero-dot-grid" aria-hidden />
-              {isLoading && <HeroDotRipple />}
+              <div className="dot-grid" aria-hidden />
+              {isLoading && <DotRipple />}
               <div className="hero-compact-row flex flex-row items-center gap-4">
                 <TshirtPreview
                   size={190}

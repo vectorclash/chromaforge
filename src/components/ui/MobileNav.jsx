@@ -7,8 +7,8 @@ import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
+import DotRipple from '../DotRipple';
 import FadeImage from './FadeImage';
-import GenerateGlow from './GenerateGlow';
 import MiniGenerator from './MiniGenerator';
 import { DURATION_BASE, DURATION_FAST } from '../../utils/motionTokens';
 
@@ -136,7 +136,7 @@ export default function MobileNav({ open, onClose }) {
       {/* Active artwork as the panel's background, same treatment as SiteFooter -- 75%
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
       {shown && (
-        <div className="pointer-events-none absolute inset-0 z-0 opacity-75">
+        <div className="mobile-nav-bg pointer-events-none absolute inset-0 z-0 opacity-75">
           <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
@@ -147,7 +147,7 @@ export default function MobileNav({ open, onClose }) {
               style={{ opacity: 0 }}
             />
           )}
-          <GenerateGlow active={holding} blurClass="blur-3xl" />
+          {holding && <DotRipple />}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40" />
         </div>
       )}
