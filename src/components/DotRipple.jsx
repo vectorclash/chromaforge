@@ -38,6 +38,14 @@ function DotRipple() {
     const layers = mount.current.querySelectorAll('.dot-ripple');
     // Out to the layer's half-diagonal so the ring fully clears the corners before reset.
     const maxR = Math.hypot(mount.current.offsetWidth, mount.current.offsetHeight) / 2;
+    // Fraction of that travel where the color intensity starts dimming toward 0 -- reads
+    // from the host (--ripple-falloff-start, see components.css) instead of a fixed 0.5 so
+    // MobileNav/SiteFooter's narrower, already-faint-under-a-dark-overlay ripple can start
+    // dimming sooner/harder than the hero's without a second code path. getPropertyValue
+    // returns '' when unset (CSS var() fallbacks don't apply to JS reads), hence the
+    // explicit default here.
+    const falloffStartRaw = getComputedStyle(mount.current).getPropertyValue('--ripple-falloff-start').trim();
+    const falloffStart = falloffStartRaw ? parseFloat(falloffStartRaw) : 0.5;
     const tweens = [];
 
     layers.forEach((layer, i) => {
@@ -54,7 +62,15 @@ function DotRipple() {
           delay: (i * RIPPLE_CYCLE) / layers.length,
           repeat: -1,
           ease: 'none',
-          onUpdate: () => layer.style.setProperty('--ripple-r', proxy.r + 'px'),
+          onUpdate: () => {
+            layer.style.setProperty('--ripple-r', proxy.r + 'px');
+            // Full color through the first falloffStart fraction of the travel, then
+            // linearly dims to nothing by the time the ring reaches the corners -- keeps
+            // the pulse from reading as uniformly intense corner-to-corner.
+            const t = proxy.r / maxR;
+            const intensity = t <= falloffStart ? 1 : Math.max(0, 1 - (t - falloffStart) / (1 - falloffStart));
+            layer.style.setProperty('--ripple-intensity', intensity);
+          },
           onRepeat: recolor,
         }),
         gsap.fromTo(layer, { opacity: 0 }, { opacity: 1, duration: 0.4 })

@@ -516,18 +516,35 @@
   /* Single source of truth for the dot grid's look -- edit these, nothing else. Declared
      on the panel (not .dot-grid) so the loading ripple layers, which must align
      dot-for-dot with the grid, inherit the same values.
-     --dot-bleed-*  = total distance the layer extends past the panel (outer edge).
-     --dot-fade-*   = width of the gradient itself, measured in from that outer edge --
-                      independent of bleed, so the flat "fully opaque" zone in the middle
-                      can be made bigger or smaller without changing how far the dots reach,
-                      and vice versa. Fade width can't exceed bleed (nothing left to fade
-                      into) -- keep dot-fade-* <= dot-bleed-*. */
+     --dot-bleed-*      = total distance the layer extends past the panel (outer edge).
+     --dot-fade-*       = width of the gradient itself, measured in from that outer edge --
+                          independent of bleed, so the flat "fully opaque" zone in the middle
+                          can be made bigger or smaller without changing how far the dots reach,
+                          and vice versa. Fade width can't exceed bleed (nothing left to fade
+                          into) -- keep dot-fade-* <= dot-bleed-*.
+     --dot-fade-hard-*  = a flat fully-transparent band at the very outer edge, inside the
+                          fade width above (must stay < dot-fade-*). Without this the fade is
+                          a pure linear ramp from the outer edge, which is asymptotic -- it
+                          never actually reaches zero except at a single infinitesimal point,
+                          so real dots near the edge always render at some faint-but-nonzero
+                          opacity (confirmed live: this read as "the grid doesn't fade, it's
+                          just always a bit visible"). This clips only the first
+                          dot-fade-hard-* px of that same ramp down to true zero -- verified
+                          via a pixel-sampled headless render (both Chromium and Firefox,
+                          byte-identical) that this does NOT raise brightness anywhere else
+                          along the curve versus leaving it unset (a first attempt that also
+                          shrunk dot-fade-* to compress the ramp did -- it made the near-panel
+                          portion of the bleed reach full brightness sooner than before, which
+                          read as "more of the grid visible," the opposite of the ask -- so
+                          dot-fade-* itself should stay as wide/gentle as it already is here). */
   --dot-size: 1.2px;
   --dot-falloff: 1.9px;
   --dot-opacity: 0.35;
   --dot-spacing: 20px;
   --dot-bleed-x: 80px;
   --dot-bleed-y: 80px;
+  --dot-fade-hard-x: 20px;
+  --dot-fade-hard-y: 20px;
   --dot-fade-x: 120px;
   --dot-fade-y: 120px;
 }
@@ -546,6 +563,13 @@
   --dot-bleed-y: 0px;
   --dot-fade-x: 90px;
   --dot-fade-y: 90px;
+  /* DotRipple.jsx reads this to decide how much of the ring's travel stays full-color
+     before dimming out (hero default is 0.5, see that file). Confirmed live: at 0.5 here
+     the falloff was imperceptible -- these panels are narrow/tall (maxR is dominated by
+     the long axis) and already sit under the dark contrast gradient below, so full
+     intensity already reads faint; starting the dim-out much sooner makes it a visibly
+     shrinking pulse instead of a same-brightness blob for most of its travel. */
+  --ripple-falloff-start: 0.2;
 }
 /* Both hosts paint a dark contrast gradient over their crossfade for text legibility --
    unlike the hero, which has nothing on top of `.dot-ripple-mount`'s default z-index -1.
@@ -566,11 +590,11 @@
   background-size: var(--dot-spacing) var(--dot-spacing);
   background-position: center;
   -webkit-mask-image:
-    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
-    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
+    linear-gradient(to right, transparent, transparent var(--dot-fade-hard-x, 0px), black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent calc(100% - var(--dot-fade-hard-x, 0px)), transparent),
+    linear-gradient(to bottom, transparent, transparent var(--dot-fade-hard-y, 0px), black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent calc(100% - var(--dot-fade-hard-y, 0px)), transparent);
   mask-image:
-    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
-    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
+    linear-gradient(to right, transparent, transparent var(--dot-fade-hard-x, 0px), black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent calc(100% - var(--dot-fade-hard-x, 0px)), transparent),
+    linear-gradient(to bottom, transparent, transparent var(--dot-fade-hard-y, 0px), black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent calc(100% - var(--dot-fade-hard-y, 0px)), transparent);
   -webkit-mask-composite: source-in;
   mask-composite: intersect;
   mix-blend-mode: color-burn;
@@ -596,9 +620,15 @@
   --ripple-r: 0px;
   --ripple-c1: #ccff00;
   --ripple-c2: #00ccff;
+  --ripple-intensity: 1;
   position: absolute;
   inset: 0;
   opacity: 0;
+  /* Multiplies against the `opacity` above (that one's just the mount/repeat fade-in) --
+     DotRipple.jsx drives this every frame from how far the ring has traveled, so the
+     color is full-strength through the first half of its journey and dims out by the
+     time it reaches the corners, instead of staying uniformly intense the whole way. */
+  filter: opacity(var(--ripple-intensity));
   background-image: radial-gradient(
     circle at center,
     transparent calc(var(--ripple-r) - 90px),
@@ -608,12 +638,12 @@
   );
   -webkit-mask-image:
     radial-gradient(circle, black var(--dot-falloff), transparent calc(var(--dot-falloff) + 0.7px)),
-    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
-    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
+    linear-gradient(to right, transparent, transparent var(--dot-fade-hard-x, 0px), black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent calc(100% - var(--dot-fade-hard-x, 0px)), transparent),
+    linear-gradient(to bottom, transparent, transparent var(--dot-fade-hard-y, 0px), black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent calc(100% - var(--dot-fade-hard-y, 0px)), transparent);
   mask-image:
     radial-gradient(circle, black var(--dot-falloff), transparent calc(var(--dot-falloff) + 0.7px)),
-    linear-gradient(to right, transparent, black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent),
-    linear-gradient(to bottom, transparent, black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent);
+    linear-gradient(to right, transparent, transparent var(--dot-fade-hard-x, 0px), black var(--dot-fade-x), black calc(100% - var(--dot-fade-x)), transparent calc(100% - var(--dot-fade-hard-x, 0px)), transparent),
+    linear-gradient(to bottom, transparent, transparent var(--dot-fade-hard-y, 0px), black var(--dot-fade-y), black calc(100% - var(--dot-fade-y)), transparent calc(100% - var(--dot-fade-hard-y, 0px)), transparent);
   -webkit-mask-size: var(--dot-spacing) var(--dot-spacing), 100% 100%, 100% 100%;
   mask-size: var(--dot-spacing) var(--dot-spacing), 100% 100%, 100% 100%;
   -webkit-mask-position: center;
