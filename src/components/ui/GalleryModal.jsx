@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
 import FadeImage from './FadeImage';
@@ -54,36 +54,55 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
   const { renderDesignBlob, queueReady } = useStudio();
   const [fullSrc, setFullSrc] = useState(null);
   const [fullLoaded, setFullLoaded] = useState(false);
+  // This component stays mounted (GalleryPage always renders it; `design` just flips
+  // between an object and null), so `fullSrc`/`fullLoaded` persist across closes. Track
+  // which design they actually belong to so reopening the SAME design shows the already-
+  // rendered image instantly instead of resetting to blank and re-fetching/re-fading in a
+  // fresh render of identical content -- the same bug class as MobileNav's DotRipple
+  // replaying on every reopen (see MobileNav.jsx).
+  const renderedIdRef = useRef(null);
+  const fullSrcRef = useRef(null);
+  fullSrcRef.current = fullSrc;
 
-  // Reset immediately on design change so the previous design's full-res image can't
-  // linger visible (at full opacity) underneath the next design's still-loading one.
+  // Reset only when the design genuinely changes (not close->reopen of the same one) so
+  // the previous design's full-res image can't linger visible under the next design's
+  // still-loading one.
   useEffect(() => {
+    if (!design || design.id === renderedIdRef.current) return;
     setFullSrc(null);
     setFullLoaded(false);
+    if (fullSrcRef.current) URL.revokeObjectURL(fullSrcRef.current);
   }, [design?.id]);
 
   useEffect(() => {
     // Animations don't have a single { seed, colors } config to recompose from (their
     // `data` is { animation: true, frames: [...] }) -- the thumbnail is all there is.
     if (!design || design.kind === 'animation' || !queueReady) return;
+    if (design.id === renderedIdRef.current) return;
     let cancelled = false;
-    let url;
     renderDesignBlob(design.data, MODAL_RENDER_SIZE, MODAL_RENDER_SIZE, { highDensity: true })
       .then(blob => {
         if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setFullSrc(url);
+        renderedIdRef.current = design.id;
+        setFullSrc(URL.createObjectURL(blob));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
-      if (url) URL.revokeObjectURL(url);
     };
     // design is keyed by id below -- re-running this for every new object reference the
     // same design gets (e.g. a like-count bump) would refetch and re-flash the image for
     // no reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [design?.id, queueReady, renderDesignBlob]);
+
+  // Blob URLs are otherwise kept alive across close/reopen (see above) -- only unmounting
+  // the whole modal actually discards one.
+  useEffect(() => {
+    return () => {
+      if (fullSrcRef.current) URL.revokeObjectURL(fullSrcRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!design) return;
