@@ -10,6 +10,7 @@ import HexagonIcon from '../buttons/HexagonIcon';
 import DotRipple from '../DotRipple';
 import FadeImage from './FadeImage';
 import MiniGenerator from './MiniGenerator';
+import { isSameDesign } from '../../render/designSettings';
 import { DURATION_BASE, DURATION_FAST } from '../../utils/motionTokens';
 
 // Portrait-ish crop -- this panel fills a phone screen, unlike SiteFooter's wide banner
@@ -53,6 +54,7 @@ export default function MobileNav({ open, onClose }) {
   const [mounted, setMounted] = useState(open);
   const [bgUrl, setBgUrl] = useState(null);
   const panelRef = useRef(null);
+  const renderedDesignRef = useRef(null);
 
   useEffect(() => {
     if (open) setMounted(true);
@@ -61,8 +63,16 @@ export default function MobileNav({ open, onClose }) {
   // Same live-artwork-as-background treatment as SiteFooter -- re-renders the current
   // design from its own seed/colors (not a screenshot) whenever it changes, so the panel
   // reads as part of the same generative-art site instead of a plain settings sheet.
+  //
+  // Skips re-rendering (and thus the crossfade/DotRipple pulse below) if `currentDesign`
+  // is the same one already shown -- `mounted` flips true on every open, and without this
+  // check that alone re-triggered a full render + crossfade against an unchanged design
+  // every time the nav was reopened (user-reported: the loading pulse played even when
+  // nothing was generating).
   useEffect(() => {
     if (!mounted || !queueReady) return;
+    if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
+    renderedDesignRef.current = currentDesign;
     let cancelled = false;
     renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
       .then(blob => {
