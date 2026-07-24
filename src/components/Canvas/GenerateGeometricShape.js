@@ -106,9 +106,18 @@ export default class GenerateGeometricShape {
     // affecting the rng()-consumption invariant: buildShape() already runs shapeNum times
     // unconditionally above regardless of size, so this only changes how much of that
     // already-generated, size-independent result gets kept, not what gets drawn from rng().
-    let keepCount = shapeNum;
+    //
+    // `density` (see designSettings.js) is the deliberate, studio-controlled version of the
+    // slice this bug fix removed. Critically it is NOT a function of width/height, so it
+    // can't reintroduce the mockup/print divergence above -- every placement of a given
+    // design keeps the same shapes regardless of its printfile size. Default 1 keeps all of
+    // them, exactly as this line did before the setting existed.
+    let keepCount = Math.max(1, Math.round(shapeNum * geometry.density));
     // Coherence trades these chaotic random triangles away for ordered lattice cells
-    // (below): at 1, none survive -- only the clean polygon remains.
+    // (below): at 1, none survive -- only the clean polygon remains. Applied as a min()
+    // against whatever density already allowed, so the two compose rather than override:
+    // high coherence still wins (it must reach 0 survivors at 1) and low density can only
+    // ever remove more, never add back.
     if (geometry.coherence > 0) {
       keepCount = Math.min(keepCount, Math.round(shapeNum * (1 - geometry.coherence)));
     }

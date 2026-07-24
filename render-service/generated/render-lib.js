@@ -289,7 +289,28 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // same line -- the high end was later extended further, size=1 now reaching 1.8, but
   // 0.5 stays the fixed boundary between the two so this default is untouched), reproducing
   // the original fixed 0.375 "12.5% margin, fits exactly" full-coherence look byte-for-byte.
-  size: 0.5
+  size: 0.5,
+  // What fraction of the generated chaotic shapes actually get drawn: 1 = all of them
+  // (today's behaviour), lower = a sparser, brighter composition. Only affects the chaotic
+  // triangles, not the coherent lattice cells (those are a complete figure -- slicing them
+  // would leave a broken polygon; see the lattice path in GenerateGeometricShape).
+  //
+  // Added 2026-07-24 at Aaron's request, and it exists because of a genuinely useful
+  // accident: before v7, keepCount was sliced by getCountScale(width, height), so SMALL
+  // placements (a 3000x1800 t-shirt sleeve, countScale 0.807) silently dropped ~19% of the
+  // shapes -- and that sparser version read dramatically brighter and more vivid than the
+  // full-density front panel, because the shapes dropped are large translucent ones that
+  // blend everything beneath them darker. v7 correctly removed that (density must not vary
+  // by resolution, or a mockup lies about the print), which also removed the only way to
+  // GET that look. This setting brings it back as a deliberate, size-INDEPENDENT choice:
+  // every placement on a garment gets the same density, which is exactly what the v7 fix
+  // guarantees and what the accident never could.
+  //
+  // Default 1 keeps output byte-identical to pre-density designs -- buildShape() already
+  // runs shapeNum times unconditionally regardless of this value, so rng() consumption is
+  // untouched and no GENERATOR_VERSION bump is needed (same reasoning as the original
+  // settings block; verified by PNG hash across several seeds and sizes).
+  density: 1
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.
@@ -334,7 +355,7 @@ var GenerateGeometricShape = class {
     for (let i = 0; i < shapeNum; i++) {
       config.shapes.push(this.buildShape());
     }
-    let keepCount = shapeNum;
+    let keepCount = Math.max(1, Math.round(shapeNum * geometry.density));
     if (geometry.coherence > 0) {
       keepCount = Math.min(keepCount, Math.round(shapeNum * (1 - geometry.coherence)));
     }

@@ -2429,6 +2429,33 @@ export default class DisplayCanvas extends React.Component {
                     }
                   />
                 </div>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Density
+                    <span className="settings-label-note">
+                      {' '}
+                      {/* Mirror of Size's "—" treatment, opposite condition: Size only bites
+                          at coherence > 0, Density only bites while chaotic shapes still
+                          survive -- at full coherence none do, so the slider genuinely does
+                          nothing and shouldn't imply otherwise. */}
+                      {geometrySettings.coherence >= 1
+                        ? '—'
+                        : `${Math.round(geometrySettings.density * 100)}%`}
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    className="settings-range"
+                    min="10"
+                    max="100"
+                    value={Math.round(geometrySettings.density * 100)}
+                    style={{ '--range-fill': `${Math.round(((geometrySettings.density * 100 - 10) / 90) * 100)}%` }}
+                    aria-label="Geometry density"
+                    onChange={e =>
+                      this.onGeometrySettingChange({ density: Number(e.target.value) / 100 })
+                    }
+                  />
+                </div>
               </>
             )}
 

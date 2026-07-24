@@ -142,6 +142,30 @@ the actual print, generated the same deterministic way.
   asked for, with zero new branching. Default 0.5 reproduces the prior fixed-0.375 factor
   exactly, so absent-`size` designs (everything saved before this) are byte-identical
   (re-verified: same 3-seed PNG hashes as the lattice-rework verification above).
+  **`density` setting added (2026-07-24, Aaron's request)**: `geometry.density` (0–1, default
+  1, slider min 0.1) is what fraction of the generated chaotic triangles actually get drawn.
+  It exists because of a useful accident: pre-v7, `keepCount` was sliced by
+  `getCountScale(width, height)`, so small placements (a 3000×1800 t-shirt sleeve,
+  countScale 0.807) silently dropped ~19% of the shapes — and that sparser version reads
+  dramatically brighter and more vivid, because the dropped shapes are large translucent
+  ones that blend everything beneath them darker. The v7 fix correctly removed that
+  (density must never vary by resolution or a mockup lies about the print) and in doing so
+  removed the only way to get the look. This setting brings it back as a deliberate,
+  **size-independent** choice, so it cannot reintroduce the v7 divergence — verified
+  structurally (not just visually) by inspecting `geometryConfig.shapes.length` directly:
+  identical counts at 320×320 / 3000×1800 / 4200×5400 / 6000×6000 for every density tried.
+  Density 0.8 keeps 25 of seed `1vsx8atp`'s 31 shapes — exactly what the old sleeve slice
+  kept (`round(31 × 0.807)`), i.e. it reproduces that look on every panel. Composes with
+  coherence via `min()` (coherence still wins, reaching 0 survivors at 1; density can only
+  ever remove more, never add back). **No `GENERATOR_VERSION` bump**: `buildShape()` already
+  runs `shapeNum` times unconditionally, so rng() consumption is untouched and default 1 is
+  byte-identical — verified 25/25 PNG-hash matches against the pre-change bundle across 5
+  real saved designs (chaotic/auto-palette, mid-coherence hexagon lattices, custom palettes,
+  a reduced-`chance` case) × 5 sizes. **Deploy order matters**: render-service must ship
+  BEFORE the frontend. It ignores an unknown setting and renders at full density, so a
+  frontend that can send `density` while Fly still runs the old bundle means the mockup
+  shows sparse and the print comes back dense — the exact mockup/print divergence v7 fixed,
+  and with no `generatorVersion` change there is no mismatch check to catch it.
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
