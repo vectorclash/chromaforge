@@ -38,7 +38,21 @@ the actual print, generated the same deterministic way.
 - `src/render/generateArtwork.js` / `src/render/renderArtwork.js` — pure, React-free
   generation/compositing, so the same code can eventually run server-side (Node/headless)
   for print resolution. `GENERATOR_VERSION` bumps when the algorithm changes in a way that
-  alters output for a given seed.
+  alters output for a given seed. **It is currently 7** (per-bump history lives in the
+  comment block directly above the constant in `generateArtwork.js` — read that, not this
+  file, for what each bump changed).
+- **What `generatorVersion` does and does NOT do** (clarified 2026-07-24 after a live bug —
+  this was previously stated wrong in both this file and the code): `generateArtwork` takes
+  no version parameter and **never branches on one**. No code path anywhere renders a
+  previous generator version. A stored design is only `{ seed, colors, settings }`, always
+  regenerated with whatever code is in the bundle. So a bump changes how *every existing
+  design* renders, immediately — a stored `generatorVersion` records what a design was
+  SAVED under, it is not a rendering instruction, and phrases like "old designs keep
+  rendering the old way until re-saved" (which appear in older notes below) are false.
+  Its one real consumer is render-service's mismatch check, whose actual job is catching a
+  **stale render-service deploy**. Consequently any stored row adopted back into the live
+  pipeline must be re-stamped via `compactDesign.js`'s `withCurrentGeneratorVersion` — see
+  the merch-pipeline section for the checkout bug that rule fixed.
 - **Print rendering must be server-side**, not client-side: iOS Safari caps canvas area
   around 16.7 Mpx, and 150 DPI print (4200×5400 = 22.7 Mpx) exceeds that. Desktop Chrome
   handles it fine (proven up to 300 DPI), but mobile can't — this is why a render service
@@ -54,7 +68,8 @@ the actual print, generated the same deterministic way.
   **defaults are byte-identical to the pre-settings generator** (chance 0.4 ≡ the old
   `rng() >= 0.6`; points 3–12 ≡ the old `3 + round(rng()*9)`; coherence 0 skips every new
   code path — verified against a bundle of the pre-change committed code, 900 config
-  comparisons), which is why `GENERATOR_VERSION` stayed at 3 and old designs are untouched;
+  comparisons), which is why `GENERATOR_VERSION` did not bump for this change (it was 3 at
+  the time — it is 7 now) and old designs were untouched;
   `settings` is only persisted when non-default (`compactSettings`); settings are part of a
   design's *identity* like seed/colors (`isSameDesign` compares them — a slider tweak on a
   saved design correctly reads as unsaved); and settings-dependent rng() consumption is
@@ -127,7 +142,8 @@ the actual print, generated the same deterministic way.
   asked for, with zero new branching. Default 0.5 reproduces the prior fixed-0.375 factor
   exactly, so absent-`size` designs (everything saved before this) are byte-identical
   (re-verified: same 3-seed PNG hashes as the lattice-rework verification above).
-- **Generators are now ratio-aware** (`GENERATOR_VERSION = 3`, `src/render/scale.js`):
+- **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
+  constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
   sizing stars off its narrow axis only), and element counts scale off canvas area relative
   to the studio's actual default resolution (3840×2160) instead of fixed constants (a
@@ -560,6 +576,21 @@ larger than the button column — it's the panel's visual anchor.
   backfilled in place via `render-service/backfill-thumbnails.mjs` (one-off, re-runnable,
   read-only on the `designs` table — only overwrites the derived thumbnail JPEG at its
   existing Storage path); kept in the repo as a reference/re-run tool, not deleted after use.
+- **Operational rule: a `GENERATOR_VERSION` bump invalidates every older design's stored
+  thumbnail** (2026-07-24). Because nothing ever renders a previous generator version (see
+  the renderer section), a bump silently leaves older cards showing a JPEG baked under the
+  *previous* algorithm while clicking through renders the new one. Not hypothetical for
+  v6→v7: that bump changed `GenerateGeometricShape`'s `keepCount` slicing for any canvas
+  with `countScale < 1`, and thumbnails generate at a 2000px density floor
+  (√(4Mpx/8.29Mpx) ≈ 0.69 < 1), so all 13 v6 cards genuinely mismatched their artwork.
+  `backfill-thumbnails.mjs` now takes `--generator-version=N` to re-render exactly the set a
+  bump invalidated instead of the whole table:
+  `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node backfill-thumbnails.mjs --generator-version=6 --dry-run`
+  (drop `--dry-run` to apply). The filter reads the version off the same `source` the render
+  uses (an animation's FIRST FRAME — an animation row's top-level data has no
+  `generatorVersion` of its own). A filter matching zero rows exits 1 rather than looking
+  like a clean run. **Add this to the checklist whenever `GENERATOR_VERSION` bumps**,
+  alongside the existing "redeploy render-service" step.
 - **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
   egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
   `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every
@@ -826,7 +857,8 @@ larger than the button column — it's the panel's visual anchor.
   (the 2026-07-15 dedup gotcha only bites when different bytes reuse a URL). (2) A new
   `cleanup-storage` Edge Function (verify_jwt = false + `X-Cleanup-Key` shared secret,
   `CLEANUP_STORAGE_KEY` — same pattern/caveats as `RENDER_SERVICE_KEY`) sweeps the bucket:
-  deletes print files older than 24h and mockup sources older than 14 days, ALWAYS keeping
+  deletes print files older than 24h and mockup sources older than `MOCKUP_MAX_AGE_DAYS`
+  (14 days originally; shortened to **3** on 2026-07-21), ALWAYS keeping
   anything referenced by a non-canceled order's `print_file_urls` (which includes label
   marks — those go through the content-hashed mockup path but end up in real orders).
   This deliberately supersedes migration 0010's "Storage is left untouched" stance — that
@@ -1072,6 +1104,25 @@ larger than the button column — it's the panel's visual anchor.
   - Print files now ship at true print resolution via the Fly.io render-service (see
     "Server-side print rendering" below) — the earlier capped-browser-render gap here is
     closed, live-verified end to end (2026-07-01).
+  - **Stored designs must be re-stamped with the current generator version before checkout
+    (`withCurrentGeneratorVersion`, 2026-07-24).** Real live bug, found by audit: the
+    artwork picker's Gallery tile and the Gallery's "Print this" hand-off passed a `designs`
+    row's `data` through **verbatim** — stale `generatorVersion` included — while the mockup
+    preview path (client-side `generateArtwork`) ignores that field entirely and renders with
+    current code. So an older design previewed as a perfectly good mockup, then failed at Buy
+    Now with render-service's 422 `generatorVersion mismatch`, *after* the customer sat
+    through the 30–90s mockup round trip. At the time this was found, 13 of the 38 public
+    gallery designs (every one saved before the v6→v7 bump) were mockup-able but unbuyable.
+    Fixed by stamping the bundle's own `GENERATOR_VERSION` onto a stored row at the point of
+    adoption (`ProductPage.jsx`'s `choices`), so the mockup, the print file, and
+    `order_items.design_data` all agree. **This does not weaken the version check**: that
+    check's real purpose is catching a render-service running older code than the browser
+    bundle, so comparing client-code-version to service-code-version is exactly right —
+    comparing a stored row's *age* never tested that at all. A genuinely stale service still
+    fails loudly. Verified against the two real v6 rows: stamps to 7, preserves
+    seed/colors/settings byte-for-byte, does not mutate the source row (it's React state).
+    General rule: **any path that adopts a stored design back into the live render pipeline
+    needs this** — see the `generatorVersion` clarification in the renderer section.
 
 ### Styling: Tailwind v4, fully migrated (not partial)
 The whole app was migrated from SCSS to Tailwind v4 + a small custom-CSS layer — this was

@@ -24,6 +24,22 @@
 //   cd render-service
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node backfill-thumbnails.mjs --dry-run
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node backfill-thumbnails.mjs
+//   ... node backfill-thumbnails.mjs --generator-version=6 --dry-run
+//
+// --generator-version=N restricts the run to designs SAVED under generator version N.
+// Added 2026-07-24 for the v6->v7 case: because generateArtwork never branches on a stored
+// version (see its own comment above GENERATOR_VERSION -- every design always renders with
+// current bundle code), a version bump silently makes every OLDER design's stored thumbnail
+// wrong, since that JPEG was baked under the previous algorithm. v6->v7 changed
+// GenerateGeometricShape's keepCount slicing for any canvas with countScale < 1, and
+// thumbnails generate at a 2000px density floor (sqrt(4Mpx/8.29Mpx) ~= 0.69 < 1), so the 13
+// v6 cards genuinely no longer matched the artwork you get when clicking through. This flag
+// makes "re-render exactly the designs a bump invalidated" a one-liner instead of
+// re-rendering the whole table.
+//
+// Note this filter reads the version off the same `source` the render does (an animation's
+// FIRST FRAME, not the row's top-level data, which for an animation is just
+// { animation, frames } and carries no generatorVersion of its own).
 //
 // Needs the project's SERVICE ROLE key (Dashboard -> Project Settings -> API), not the
 // anon key -- this reads every user's designs and writes into their thumbnail path
@@ -38,6 +54,22 @@ import { densityFloorSize } from '../src/render/scale.js';
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DRY_RUN = process.argv.includes('--dry-run');
+
+// --generator-version=N (optional). Parsed strictly: a malformed value is a hard exit
+// rather than a silent no-match, because "0 designs found" reads exactly like a successful
+// run against an already-clean table -- a typo here would otherwise look like success and
+// leave the stale thumbnails in place.
+const ONLY_GENERATOR_VERSION = (() => {
+  const arg = process.argv.find(a => a.startsWith('--generator-version'));
+  if (!arg) return null;
+  const raw = arg.split('=')[1];
+  const parsed = Number(raw);
+  if (raw === undefined || raw === '' || !Number.isInteger(parsed)) {
+    console.error(`Invalid --generator-version value: ${JSON.stringify(raw)}. Expected an integer, e.g. --generator-version=6`);
+    process.exit(2);
+  }
+  return parsed;
+})();
 
 // Must match StudioContext.jsx's THUMBNAIL_SIZE exactly -- this backfill is only
 // reproducing what that code already does for a fresh save, not choosing its own size.
@@ -75,12 +107,17 @@ async function main() {
   if (error) throw error;
 
   console.log(
-    `${rows.length} design(s) found. Generating at ${GEN_WIDTH}x${GEN_HEIGHT}, downsampled to ` +
+    `${rows.length} design(s) found` +
+      (ONLY_GENERATOR_VERSION === null
+        ? ''
+        : `, filtering to those saved under generator version ${ONLY_GENERATOR_VERSION}`) +
+      `. Generating at ${GEN_WIDTH}x${GEN_HEIGHT}, downsampled to ` +
       `${THUMBNAIL_SIZE}x${THUMBNAIL_SIZE}.${DRY_RUN ? ' (dry run -- nothing will be uploaded)' : ''}`
   );
 
   let ok = 0;
   let skipped = 0;
+  let filteredOut = 0;
   let failed = 0;
   for (const row of rows) {
     // Mirrors StudioContext.jsx's saveCurrentDesign: an animation's thumbnail is
@@ -90,6 +127,13 @@ async function main() {
     if (!source?.seed) {
       console.log(`SKIP  ${row.id}  "${row.title}"  -- no seed to recompose from`);
       skipped++;
+      continue;
+    }
+    // Read off `source`, not row.data -- see the --generator-version note in the header.
+    // Counted separately from `skipped` so the summary distinguishes "not selected by the
+    // filter" (expected, uninteresting) from "selected but unusable" (worth looking at).
+    if (ONLY_GENERATOR_VERSION !== null && source.generatorVersion !== ONLY_GENERATOR_VERSION) {
+      filteredOut++;
       continue;
     }
     if (DRY_RUN) {
@@ -112,8 +156,27 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. ${ok} ok, ${skipped} skipped, ${failed} failed.`);
+  console.log(
+    `\nDone. ${ok} ok, ${skipped} skipped, ${failed} failed` +
+      (ONLY_GENERATOR_VERSION === null ? '' : `, ${filteredOut} not matching the version filter`) +
+      '.'
+  );
+  // A version filter that selected nothing almost always means a wrong --generator-version
+  // (the whole point of the flag is targeting rows you know exist), so don't let it exit 0
+  // looking like a clean run.
+  if (ONLY_GENERATOR_VERSION !== null && ok === 0 && failed === 0) {
+    console.error(
+      `No designs matched --generator-version=${ONLY_GENERATOR_VERSION}. Nothing was rendered.`
+    );
+    process.exit(1);
+  }
   if (failed) process.exit(1);
+  // Explicit exit: supabase-js's client holds the Node event loop open, so without this the
+  // process just sits there after printing "Done." (observed 2026-07-24 -- a completed run
+  // is indistinguishable from a stuck one, and the natural reaction is to Ctrl-C, which on a
+  // real run looks like you interrupted an upload). The failure paths above already exit
+  // explicitly; this makes the success path behave the same way.
+  process.exit(0);
 }
 
 main().catch(err => {

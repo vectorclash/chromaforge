@@ -61,9 +61,19 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // size-independent shape list survives the slice), but it does change rendered PIXELS for
 // any canvas whose countScale was < 1 -- confirmed this affects real print resolutions too,
 // not just thumbnails/previews: the pillow (all sizes but 22x22), 257/261's sleeves, 274's
-// pocket, and 744's crossbody bag all have printfiles small enough to be affected. Old v6
-// designs keep rendering with the old sliced-down geometry until re-saved, same
-// accepted-not-blocking treatment as every prior bump.
+// pocket, and 744's crossbody bag all have printfiles small enough to be affected.
+//
+// IMPORTANT, and corrected 2026-07-24 (this comment previously claimed old designs "keep
+// rendering with the old sliced-down geometry until re-saved" -- that is NOT true and never
+// was): generateArtwork takes no version parameter and never branches on one. There is no
+// code path anywhere that renders a previous generator version. A stored design is only
+// { seed, colors, settings }; it is ALWAYS regenerated with whatever code is in the bundle,
+// and this constant is stamped onto the result. So a bump changes how every existing design
+// renders, immediately -- the stored generatorVersion is a record of what it was SAVED
+// under, not a rendering instruction. Its one real consumer is render-service's mismatch
+// check, which exists to catch a stale render-service DEPLOY (see
+// compactDesign.js's withCurrentGeneratorVersion for why stored rows must be re-stamped
+// before they reach it, and the live bug that rule fixed).
 export const GENERATOR_VERSION = 7;
 
 const BLEND_MODES = [
@@ -87,8 +97,9 @@ function randomBlendMode(rng) {
 // (width, height). `settings` (see render/designSettings.js) is part of a design's identity
 // the same way seed/colors are -- the same seed with different settings is a different
 // design. At the default settings, output is byte-identical to the pre-settings generator
-// (same rng() draws throughout), so absent-settings designs are unaffected and
-// GENERATOR_VERSION stays at 3. Settings values must never vary rng() consumption BY SIZE
+// (same rng() draws throughout), so absent-settings designs were unaffected and
+// GENERATOR_VERSION did not bump for that change (it was 3 at the time; it is 7 now -- see
+// the version history above the constant). Settings values must never vary rng() consumption BY SIZE
 // (they're size-independent inputs, so they can't) -- see render/scale.js for why that
 // matters. `renderContext` is deliberately NOT part of a design's identity/persistence --
 // it's caller-supplied context about *this particular render*: includeGeometry, whether

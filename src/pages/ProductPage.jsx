@@ -23,6 +23,7 @@ import { createCheckoutSession } from '../lib/checkout';
 import { guessShippingRegion } from '../lib/regionGuess';
 import { useStudio } from '../context/StudioContext';
 import { isSameDesign } from '../render/designSettings';
+import { withCurrentGeneratorVersion } from '../render/compactDesign';
 import { useAuth } from '../context/AuthContext';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import ArtworkPickerModal from '../components/ui/ArtworkPickerModal';
@@ -572,7 +573,12 @@ export default function ProductPage() {
             label: queuedChoice.title || 'Untitled',
             badge: 'Queued',
             thumb: getThumbnailUrl(queuedChoice.user_id, queuedChoice.id),
-            data: queuedChoice.data
+            // Stored rows carry the generatorVersion they were SAVED under, which the client
+            // renderer ignores (it always regenerates with the current bundle's code) but
+            // render-service hard-fails on -- see withCurrentGeneratorVersion. Stamped here,
+            // at the point of adoption, so the mockup, the print file, and order_items'
+            // design_data audit copy all agree on one version.
+            data: withCurrentGeneratorVersion(queuedChoice.data)
           }
         ]
       : []),
@@ -583,7 +589,8 @@ export default function ProductPage() {
             label: pickedChoice.title || 'Untitled',
             badge: 'Gallery',
             thumb: getThumbnailUrl(pickedChoice.user_id, pickedChoice.id),
-            data: pickedChoice.data
+            // Same re-stamp as the queued tile above.
+            data: withCurrentGeneratorVersion(pickedChoice.data)
           }
         ]
       : [])
