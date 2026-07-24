@@ -263,12 +263,21 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
-/* Avoids orphans (a single word wrapping alone onto the last line) in body copy -- flagged
-   on the confirmation email (fixed there with &nbsp;, since email clients can't be trusted
-   to support this CSS), applied here site-wide since it's a layout-dependent problem that
-   can surface in any paragraph at any viewport width, not something worth hand-patching
-   line by line. Browsers without `text-wrap: pretty` support just keep today's default
-   wrapping -- a harmless no-op, not a broken state. */
-p {
+/* Avoids orphans (a single word wrapping alone onto the last line) in body copy and
+   headings -- flagged on the confirmation email (fixed there with &nbsp;, since email
+   clients can't be trusted to support this CSS), applied here site-wide since it's a
+   layout-dependent problem that can surface in any paragraph or heading at any viewport
+   width, not something worth hand-patching line by line. Originally scoped to `p` only,
+   which missed exactly this case: AboutSection's `<h2>` ("Art, computed from a single
+   seed") wrapping with "seed" orphaned alone on its own line. Browsers without
+   `text-wrap: pretty` support just keep today's default wrapping -- a harmless no-op, not
+   a broken state. */
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   text-wrap: pretty;
 }
