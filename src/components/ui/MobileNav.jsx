@@ -72,11 +72,18 @@ export default function MobileNav({ open, onClose }) {
   useEffect(() => {
     if (!mounted || !queueReady) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
-    renderedDesignRef.current = currentDesign;
     let cancelled = false;
     renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
       .then(blob => {
         if (cancelled) return;
+        // Only mark the design "rendered" once the blob actually lands -- marking it
+        // eagerly (before this resolves) raced with a same-deps effect replay (confirmed
+        // live: React StrictMode's mount-effect-cleanup-effect replay, which reruns this
+        // exact effect against an unchanged currentDesign): the replay's cleanup cancelled
+        // the in-flight render, but since the ref already matched the design, the replay's
+        // own isSameDesign check skipped starting a new one -- no render ever completed
+        // and the background silently stopped updating on generate.
+        renderedDesignRef.current = currentDesign;
         const url = URL.createObjectURL(blob);
         setBgUrl(prev => {
           if (prev) URL.revokeObjectURL(prev);
