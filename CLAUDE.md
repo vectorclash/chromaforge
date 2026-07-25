@@ -972,12 +972,21 @@ larger than the button column — it's the panel's visual anchor.
     and silently uses `PRODUCT_MOCKUP_CONFIG`'s configured default — a clean degradation to
     exactly the pre-picker behavior, not a break. `check-printful-catalog.mjs`'s option
     check now falls back to v2's `product_options` before failing, so this doesn't read as
-    drift on every scheduled run. **The likely reason for the omission**: the windbreaker is
-    the only garment in the catalogue with more than one variant COLOUR (Black/White), so
-    Printful expresses its colourway through the variant dimension rather than through a
-    `stitch_color` option — on an all-over-print garment, where the body is fully printed,
-    that colourway is effectively the trim and stitching. Every other garment has a single
-    "White" variant colour and carries the option instead.
+    drift on every scheduled run. **The reason for the omission**, confirmed against
+    Printful's own per-variant photos: the windbreaker's two variant COLOURS (Black/White)
+    are not two jackets. Both are the *identical white jacket*; the only difference is the
+    zipper tape and the seam stitching. So this product already expresses the stitch-colour
+    choice through its variant dimension, which is why it carries no `stitch_color` option —
+    and it's the only garment in the catalogue with more than one variant colour. Every other
+    garment has a single "White" variant colour and carries the option instead. Net effect:
+    the customer gets exactly one stitching control either way, by two different routes.
+    Because the fabric is white regardless (and fully covered by the artwork), "Color" is an
+    actively misleading label here — someone picking "Black" would reasonably expect a black
+    jacket. `PRODUCT_MOCKUP_CONFIG` gains `colorLabel`/`colorHint` for exactly this case
+    (windbreaker only: "Stitching", plus a line saying both options are the same white
+    jacket). The tote keeps the default "Color", because its Black/Red/Yellow really are
+    three differently coloured bags. The label also qualifies the order line, so it reads
+    "L / Black stitching" rather than "L / Black".
     That also drove a UI fix: the size picker listed every size-colour COMBINATION, so the
     windbreaker showed 7 sizes x 2 colours = 14 buttons with each size appearing twice
     ("S / Black", "S / White"), reading as though colour were baked into the size. Colour and

@@ -38,6 +38,10 @@
 // they're not visible in any Front/Back photo. A real print order still needs every
 // placement filled in regardless of what's visible in a preview photo -- that's a separate,
 // not-yet-built concern (no checkout exists yet) from generating a mockup.
+// `colorLabel` / `colorHint` -- override for products where Printful's variant "color" does
+// not mean the colour of the garment. Only the windbreaker (615) needs it so far; the tote's
+// Black/Red/Yellow really are three differently coloured bags, so it keeps the default
+// "Color" and no hint.
 // `mirrorPlacements` -- placements rendered horizontally flipped so the pattern continues
 // across a garment's visible side seams instead of restarting at each. Set on every product
 // with a distinct back panel; see the bucket hat (654) below for the geometry of WHY
@@ -217,6 +221,14 @@ export const PRODUCT_MOCKUP_CONFIG = {
   }, // crossbody bag
   615: {
     technique: 'cut-sew',
+    // This product's two variant COLOURS (Black/White) are not two jackets. Verified against
+    // Printful's own per-variant photos: both are the identical white jacket, and the only
+    // difference is the zipper tape and seam stitching. That is why v1 omits the
+    // stitch_color option here (below) -- the choice already exists in the variant
+    // dimension -- and it makes "Color" an actively misleading label, since the fabric is
+    // white either way and fully covered by the customer's artwork regardless.
+    colorLabel: 'Stitching',
+    colorHint: 'Both options are the same white jacket — this picks the zipper and seam stitching color.',
     // v1 GET /products/615 does NOT list stitch_color in result.product.options at all --
     // but v2 mockup-tasks rejects the task outright without it ("The required product
     // option: `stitch_color` is missing"), and v2 GET /catalog-products/615 DOES list it

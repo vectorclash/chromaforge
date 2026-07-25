@@ -856,6 +856,11 @@ export default function ProductPage() {
     );
   }
 
+  // Printful's variant "color" doesn't always mean the colour of the garment -- on the
+  // windbreaker both options are the same white jacket and only the zipper/stitching differ,
+  // so that product overrides the label and adds a hint (see PRODUCT_MOCKUP_CONFIG).
+  const colorLabel = getMockupConfigForProduct(product.id).colorLabel || 'Color';
+  const colorHint = getMockupConfigForProduct(product.id).colorHint || null;
   const colorOptions = [...new Set(variants.map(v => v.color).filter(Boolean))];
   const hasMultipleColors = colorOptions.length > 1;
   // Sizes offered for the colour currently selected. Falls back to every variant when the
@@ -920,7 +925,13 @@ export default function ProductPage() {
         productId: product.id,
         productTitle: product.title,
         variantId: variant.id,
-        variantLabel: `${variant.size}${hasMultipleColors && variant.color ? ` / ${variant.color}` : ''}`,
+        // Qualified with the product's own colour label so an order line reads "L / Black
+        // stitching" rather than "L / Black", which would imply a black jacket.
+        variantLabel: `${variant.size}${
+          hasMultipleColors && variant.color
+            ? ` / ${variant.color}${colorLabel === 'Color' ? '' : ` ${colorLabel.toLowerCase()}`}`
+            : ''
+        }`,
         quantity: qty,
         design: selectedDesign,
         // Recorded alongside the primary in order_items.design_data -- that column is the
@@ -1457,7 +1468,7 @@ export default function ProductPage() {
         <div>
           <div className="flex items-baseline justify-between">
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              2. Size{hasMultipleColors ? ' & color' : ''}
+              2. Size{hasMultipleColors ? ` & ${colorLabel.toLowerCase()}` : ''}
             </h2>
             <span className="font-quicksand text-sm font-bold text-text">${variant.price}</span>
           </div>
@@ -1484,7 +1495,7 @@ export default function ProductPage() {
           {hasMultipleColors && (
             <div className="mt-3">
               <p className="font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
-                Color
+                {colorLabel}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {colorOptions.map(color => {
@@ -1511,6 +1522,7 @@ export default function ProductPage() {
                   );
                 })}
               </div>
+              {colorHint && <p className="mt-2 max-w-prose text-xs text-text-muted">{colorHint}</p>}
             </div>
           )}
           {hasMultipleColors && (
