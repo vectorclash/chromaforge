@@ -677,32 +677,6 @@ export default function ProductPage() {
     setPrintOptionsOpen(false);
   }, [detail?.product?.id]);
 
-  // Which refinement sections this product actually has. Gated so a product with none of
-  // them (nothing currently, but the config is per-product and this shouldn't assume)
-  // doesn't render an empty disclosure.
-  const hasPrintOptions =
-    !!secondaryDesignConfig || geometryOptions.length > 1 || showsTwoLegLayout || !!productMirrorPlacements || !!stitchColorOption;
-
-  // The collapsed state's summary. Reads as a sentence of current choices so nothing set
-  // here is invisible while the panel is shut -- see the disclosure's own comment for why
-  // that matters. Order matches the sections inside.
-  const printOptionsSummary = [
-    secondaryDesignConfig && (secondaryChoice ? `Inside: ${secondaryChoice.title || 'Untitled'}` : 'Same design both faces'),
-    geometryOptions.length > 1 &&
-      (geometryPlacements.size === 0
-        ? 'No geometry'
-        : geometryPlacements.size === geometryOptions.length
-          ? 'Geometry on all panels'
-          : `Geometry on ${geometryOptions
-              .filter(o => geometryPlacements.has(o.key))
-              .map(o => o.label.toLowerCase())
-              .join(', ')}`),
-    showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
-    productMirrorPlacements && (mirrorSeams ? 'Continuous seams' : 'Independent seams'),
-    stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`
-  ]
-    .filter(Boolean)
-    .join(' · ');
   // Reset when the product changes, same as every other per-order choice on this page.
   useEffect(() => {
     setSecondaryChoice(null);
@@ -866,6 +840,92 @@ export default function ProductPage() {
   // Sizes offered for the colour currently selected. Falls back to every variant when the
   // product has no colour dimension at all (the pillow reports color: null).
   const sizeVariants = hasMultipleColors ? variants.filter(v => v.color === variant.color) : variants;
+
+  // Where the colour picker belongs depends on what the colour MEANS. A product that
+  // overrides colorLabel is declaring its variant colour is a finish detail rather than the
+  // colour of the thing you're buying (the windbreaker: both variants are the same white
+  // jacket, only the zipper and stitching differ) -- that's the same decision every other
+  // product makes via its stitch_color option, which lives in Print options, so it belongs
+  // there too. Without the override the colour is real and is part of what you're choosing
+  // (the tote's Black/Red/Yellow are three different bags), so it stays beside size.
+  // Safe to bury for the windbreaker specifically, and checked rather than assumed: its two
+  // colours are the same price at every size (price varies by size only) and both are in
+  // stock, so nothing behind the disclosure can change the price or availability.
+  const colorIsFinish = hasMultipleColors && colorLabel !== 'Color';
+  const showColorWithSize = hasMultipleColors && !colorIsFinish;
+
+  const colorPicker = hasMultipleColors ? (
+    <div className={showColorWithSize ? 'mt-3' : ''}>
+      <p className="font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
+        {colorLabel}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {colorOptions.map(color => {
+          const selected = color === variant.color;
+          return (
+            <button
+              key={color}
+              type="button"
+              onClick={() => {
+                // Keep the size when the incoming colour stocks it; otherwise fall back to
+                // that colour's first variant so a switch can never land on nothing.
+                const sameSize = variants.find(v => v.color === color && v.size === variant.size);
+                const fallback = variants.find(v => v.color === color);
+                setSelectedVariantId((sameSize || fallback)?.id ?? null);
+              }}
+              aria-pressed={selected}
+              className={
+                'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                (selected ? 'border-accent bg-accent text-white' : 'border-hairline text-text-secondary hover:border-text')
+              }
+            >
+              {color}
+            </button>
+          );
+        })}
+      </div>
+      {colorHint && <p className="mt-2 max-w-prose text-xs text-text-muted">{colorHint}</p>}
+    </div>
+  ) : null;
+
+  // Declared HERE, after the variant/colour derivations, not up with the other UI state:
+  // both read colorIsFinish, and a `const` referenced before its declaration is a temporal
+  // dead zone ReferenceError -- which the build does not catch and which would blank the
+  // page on every render.
+  // Which refinement sections this product actually has. Gated so a product with none of
+  // them (nothing currently, but the config is per-product and this shouldn't assume)
+  // doesn't render an empty disclosure.
+  const hasPrintOptions =
+    !!secondaryDesignConfig ||
+    geometryOptions.length > 1 ||
+    showsTwoLegLayout ||
+    !!productMirrorPlacements ||
+    !!stitchColorOption ||
+    colorIsFinish;
+
+  // The collapsed state's summary. Reads as a sentence of current choices so nothing set
+  // here is invisible while the panel is shut -- see the disclosure's own comment for why
+  // that matters. Order matches the sections inside.
+  const printOptionsSummary = [
+    // Reads "Black stitching" -- the label matters, since "Black" alone would imply a black
+    // garment, which is exactly the misreading this product's override exists to prevent.
+    colorIsFinish && variant?.color && `${variant.color} ${colorLabel.toLowerCase()}`,
+    secondaryDesignConfig && (secondaryChoice ? `Inside: ${secondaryChoice.title || 'Untitled'}` : 'Same design both faces'),
+    geometryOptions.length > 1 &&
+      (geometryPlacements.size === 0
+        ? 'No geometry'
+        : geometryPlacements.size === geometryOptions.length
+          ? 'Geometry on all panels'
+          : `Geometry on ${geometryOptions
+              .filter(o => geometryPlacements.has(o.key))
+              .map(o => o.label.toLowerCase())
+              .join(', ')}`),
+    showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
+    productMirrorPlacements && (mirrorSeams ? 'Continuous seams' : 'Independent seams'),
+    stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const busy = BUSY_STATUSES.includes(status);
 
   const onGenerateClick = () =>
@@ -1137,6 +1197,10 @@ export default function ProductPage() {
           </button>
           {printOptionsOpen && (
             <div id="print-options-panel" className="mt-5 space-y-6 animate-fade-slide-up">
+              {/* A finish-only colour dimension (see colorIsFinish) -- the windbreaker's
+                  stitching. Shown here rather than beside size because it's the same choice
+                  every other product makes through its stitch_color option below. */}
+              {colorIsFinish && colorPicker}
         {/* Reversible products only (bucket hat): an optional SECOND design for the inside
             face. Defaults to none, which prints the chosen artwork on both faces exactly as
             every other product does. The note is load-bearing, not decoration -- no Printful
@@ -1468,7 +1532,7 @@ export default function ProductPage() {
         <div>
           <div className="flex items-baseline justify-between">
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              2. Size{hasMultipleColors ? ` & ${colorLabel.toLowerCase()}` : ''}
+              2. Size{showColorWithSize ? ` & ${colorLabel.toLowerCase()}` : ''}
             </h2>
             <span className="font-quicksand text-sm font-bold text-text">${variant.price}</span>
           </div>
@@ -1482,55 +1546,13 @@ export default function ProductPage() {
           >
             Size guide
           </button>
-          {/* Colour and size are picked SEPARATELY, not as a flat list of every combination.
-              Printful models a garment's colourway as a variant colour, so the windbreaker
-              (the one product with two) produced 7 sizes x 2 colours = 14 buttons with every
-              size appearing twice ("S / Black", "S / White"), which reads as the colour being
-              baked into the size rather than as two independent choices. Sizes below are
-              filtered to the chosen colour; changing colour keeps the current size when that
-              colour stocks it. selectedColor is DERIVED from the selected variant rather than
-              being its own state -- one source of truth, so the two rows can never disagree.
-              Products with a single colour (all but the windbreaker and the tote) render
-              exactly as before: no colour row, no labels. */}
-          {hasMultipleColors && (
-            <div className="mt-3">
-              <p className="font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
-                {colorLabel}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {colorOptions.map(color => {
-                  const selected = color === variant.color;
-                  return (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => {
-                        const sameSize = variants.find(v => v.color === color && v.size === variant.size);
-                        const fallback = variants.find(v => v.color === color);
-                        setSelectedVariantId((sameSize || fallback)?.id ?? null);
-                      }}
-                      aria-pressed={selected}
-                      className={
-                        'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                        (selected
-                          ? 'border-accent bg-accent text-white'
-                          : 'border-hairline text-text-secondary hover:border-text')
-                      }
-                    >
-                      {color}
-                    </button>
-                  );
-                })}
-              </div>
-              {colorHint && <p className="mt-2 max-w-prose text-xs text-text-muted">{colorHint}</p>}
-            </div>
-          )}
-          {hasMultipleColors && (
+          {showColorWithSize && colorPicker}
+          {showColorWithSize && (
             <p className="mt-4 font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
               Size
             </p>
           )}
-          <div className={(hasMultipleColors ? 'mt-2' : 'mt-3') + ' flex flex-wrap gap-2'}>
+          <div className={(showColorWithSize ? 'mt-2' : 'mt-3') + ' flex flex-wrap gap-2'}>
             {sizeVariants.map(v => {
               const selected = v.id === variant.id;
               return (

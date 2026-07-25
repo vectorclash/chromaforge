@@ -985,7 +985,14 @@ larger than the button column — it's the panel's visual anchor.
     jacket. `PRODUCT_MOCKUP_CONFIG` gains `colorLabel`/`colorHint` for exactly this case
     (windbreaker only: "Stitching", plus a line saying both options are the same white
     jacket). The tote keeps the default "Color", because its Black/Red/Yellow really are
-    three differently coloured bags. The label also qualifies the order line, so it reads
+    three differently coloured bags. **That override also decides WHERE the picker lives**: a
+    product declaring its variant colour is a finish detail gets it inside the collapsed Print
+    options panel, next to where every other product's `stitch_color` sits, because it's the
+    same decision; without the override the colour is part of what you're buying and stays
+    beside size. Safe to collapse for the windbreaker specifically, and checked rather than
+    assumed — its two colours are the same price at every size (price varies by size only)
+    and both are in stock, so nothing behind the disclosure can change price or availability.
+    The collapsed summary shows "Black stitching", never a bare "Black". The label also qualifies the order line, so it reads
     "L / Black stitching" rather than "L / Black".
     That also drove a UI fix: the size picker listed every size-colour COMBINATION, so the
     windbreaker showed 7 sizes x 2 colours = 14 buttons with each size appearing twice
