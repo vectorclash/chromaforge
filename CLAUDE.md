@@ -972,7 +972,18 @@ larger than the button column — it's the panel's visual anchor.
     and silently uses `PRODUCT_MOCKUP_CONFIG`'s configured default — a clean degradation to
     exactly the pre-picker behavior, not a break. `check-printful-catalog.mjs`'s option
     check now falls back to v2's `product_options` before failing, so this doesn't read as
-    drift on every scheduled run.
+    drift on every scheduled run. **The likely reason for the omission**: the windbreaker is
+    the only garment in the catalogue with more than one variant COLOUR (Black/White), so
+    Printful expresses its colourway through the variant dimension rather than through a
+    `stitch_color` option — on an all-over-print garment, where the body is fully printed,
+    that colourway is effectively the trim and stitching. Every other garment has a single
+    "White" variant colour and carries the option instead.
+    That also drove a UI fix: the size picker listed every size-colour COMBINATION, so the
+    windbreaker showed 7 sizes x 2 colours = 14 buttons with each size appearing twice
+    ("S / Black", "S / White"), reading as though colour were baked into the size. Colour and
+    size are now separate rows (14 buttons -> 9), with sizes filtered to the chosen colour and
+    the colour derived from the selected variant rather than held as its own state, so the two
+    rows can't disagree. Single-colour products render exactly as before.
     (2) **The bomber needs `details` in its mockup placements, and the track jacket's
     inability to include it is a real preview gap.** 801 fails the whole task when `details`
     is combined with the sleeves; 390 completes fine with the identical combination

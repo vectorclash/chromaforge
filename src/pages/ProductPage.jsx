@@ -856,7 +856,11 @@ export default function ProductPage() {
     );
   }
 
-  const hasMultipleColors = new Set(variants.map(v => v.color)).size > 1;
+  const colorOptions = [...new Set(variants.map(v => v.color).filter(Boolean))];
+  const hasMultipleColors = colorOptions.length > 1;
+  // Sizes offered for the colour currently selected. Falls back to every variant when the
+  // product has no colour dimension at all (the pillow reports color: null).
+  const sizeVariants = hasMultipleColors ? variants.filter(v => v.color === variant.color) : variants;
   const busy = BUSY_STATUSES.includes(status);
 
   const onGenerateClick = () =>
@@ -1467,8 +1471,55 @@ export default function ProductPage() {
           >
             Size guide
           </button>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {variants.map(v => {
+          {/* Colour and size are picked SEPARATELY, not as a flat list of every combination.
+              Printful models a garment's colourway as a variant colour, so the windbreaker
+              (the one product with two) produced 7 sizes x 2 colours = 14 buttons with every
+              size appearing twice ("S / Black", "S / White"), which reads as the colour being
+              baked into the size rather than as two independent choices. Sizes below are
+              filtered to the chosen colour; changing colour keeps the current size when that
+              colour stocks it. selectedColor is DERIVED from the selected variant rather than
+              being its own state -- one source of truth, so the two rows can never disagree.
+              Products with a single colour (all but the windbreaker and the tote) render
+              exactly as before: no colour row, no labels. */}
+          {hasMultipleColors && (
+            <div className="mt-3">
+              <p className="font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
+                Color
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {colorOptions.map(color => {
+                  const selected = color === variant.color;
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => {
+                        const sameSize = variants.find(v => v.color === color && v.size === variant.size);
+                        const fallback = variants.find(v => v.color === color);
+                        setSelectedVariantId((sameSize || fallback)?.id ?? null);
+                      }}
+                      aria-pressed={selected}
+                      className={
+                        'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                        (selected
+                          ? 'border-accent bg-accent text-white'
+                          : 'border-hairline text-text-secondary hover:border-text')
+                      }
+                    >
+                      {color}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {hasMultipleColors && (
+            <p className="mt-4 font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
+              Size
+            </p>
+          )}
+          <div className={(hasMultipleColors ? 'mt-2' : 'mt-3') + ' flex flex-wrap gap-2'}>
+            {sizeVariants.map(v => {
               const selected = v.id === variant.id;
               return (
                 <button
@@ -1484,7 +1535,6 @@ export default function ProductPage() {
                   }
                 >
                   {v.size}
-                  {hasMultipleColors && v.color ? ` / ${v.color}` : ''}
                 </button>
               );
             })}
