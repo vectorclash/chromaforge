@@ -22,13 +22,13 @@ import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
 // over this array rather than the catalog response's order.
 export const STARTER_PRODUCT_IDS = [
   257, // All-Over Print Men's Crew Neck T-Shirt
-  388, // All-Over Print Recycled Unisex Hoodie
-  320, // All-Over Print Recycled Unisex Sweatshirt
   261, // All-Over Print Women's Crew Neck T-Shirt
-  693, // All-Over Print Recycled Unisex Mesh Shorts
+  320, // All-Over Print Recycled Unisex Sweatshirt
+  388, // All-Over Print Recycled Unisex Hoodie
   717, // All-Over Print Recycled Unisex Zip Hoodie
-  784, // All-Over Print Unisex Wide-Leg Joggers
   801, // All-Over Print Recycled Unisex Track Jacket
+  693, // All-Over Print Recycled Unisex Mesh Shorts
+  784, // All-Over Print Unisex Wide-Leg Joggers
   274, // All-Over Print Large Tote Bag w/ Pocket
   744, // All-Over Print Utility Crossbody Bag
   83, // All-Over Print Basic Pillow
