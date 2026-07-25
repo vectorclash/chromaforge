@@ -250,7 +250,14 @@ export default function ShopCarousel() {
                       alt={product.title}
                       className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                     />
-                    <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.55)_30%,rgba(0,0,0,0.18)_55%,transparent_75%)]" />
+                    {/* -inset-px, not inset-0: the overlay and the image are the same computed box, but
+                        an aspect-square card resolves to a FRACTIONAL height at most widths, and on a
+                        high-DPR screen the two can rasterise to different device-pixel extents --
+                        leaving a hairline of undarkened image along the bottom edge, intermittently,
+                        depending on how each card's width happens to round. Bleeding the overlay a
+                        pixel past its box costs nothing (the card's own overflow-hidden clips it) and
+                        removes the whole class of mismatch rather than the bottom edge alone. */}
+                    <div className="pointer-events-none absolute -inset-px bg-[linear-gradient(to_top,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.55)_30%,rgba(0,0,0,0.18)_55%,transparent_75%)]" />
                     <div className="absolute inset-x-0 bottom-0 p-4">
                       {/* Hidden-until-hover only on devices with a hover-capable pointer --
                           on touch there's no real `:hover` to reveal this, so without the
