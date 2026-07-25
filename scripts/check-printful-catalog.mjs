@@ -10,7 +10,8 @@
 //
 // Checks per product:
 //  1. Product exists and is not discontinued (v1 GET /products/{id}).
-//  2. Configured productOptions (stitch_color) names/values are still valid.
+//  2. Configured productOptions (stitch_color) names/values are still valid, falling back
+//     to v2's product_options for products v1 doesn't list the option on at all.
 //  3. Every configured mockup placement still exists in the printfile catalog.
 //  4. Printfile dimensions match scripts/printful-catalog-baseline.json -- dimension
 //     changes invalidate pocketCrop math and print-render sizing, so they must be
@@ -81,14 +82,29 @@ for (const [idStr, cfg] of Object.entries(PRODUCT_MOCKUP_CONFIG)) {
   const { result: productResult } = await pf(`/products/${id}`);
   const product = productResult.product;
   if (product.is_discontinued) fail(`product ${id}: is_discontinued is true`);
+  // v1 and v2 disagree about which options a product has: the windbreaker (615) omits
+  // stitch_color from v1's list entirely while v2 requires it on every mockup task (see
+  // that product's PRODUCT_MOCKUP_CONFIG entry). So a v1 miss falls back to v2's own
+  // product_options rather than failing -- an option genuinely disappearing still fails,
+  // it just has to be absent from BOTH. v2 states values as either an object keyed by
+  // value or a plain array of values, so normalize before checking membership.
+  let v2Options = null;
   for (const opt of cfg.productOptions ?? []) {
-    const catalogOpt = (product.options ?? []).find(o => o.id === opt.name);
+    let catalogOpt = (product.options ?? []).find(o => o.id === opt.name);
     if (!catalogOpt) {
-      fail(`product ${id}: option '${opt.name}' no longer exists`);
-    } else if (catalogOpt.values && !(opt.value in catalogOpt.values)) {
+      v2Options ??= (await pf(`/v2/catalog-products/${id}`)).data?.product_options ?? [];
+      const v2Opt = v2Options.find(o => o.name === opt.name);
+      if (!v2Opt) {
+        fail(`product ${id}: option '${opt.name}' no longer exists (checked v1 and v2)`);
+        continue;
+      }
+      catalogOpt = { values: v2Opt.values };
+    }
+    const valid = Array.isArray(catalogOpt.values) ? catalogOpt.values : Object.keys(catalogOpt.values ?? {});
+    if (valid.length && !valid.includes(opt.value)) {
       fail(
         `product ${id}: option '${opt.name}' value '${opt.value}' no longer valid ` +
-          `(valid: ${Object.keys(catalogOpt.values).join(', ')})`
+          `(valid: ${valid.join(', ')})`
       );
     }
   }

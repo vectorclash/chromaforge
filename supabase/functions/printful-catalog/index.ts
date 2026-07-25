@@ -46,16 +46,25 @@ Deno.serve(async req => {
   //   placements share one photo on cut-sew products, so this is the geometry that relates
   //   one panel's physical location to another's, e.g. where the hoodie pocket sits
   //   relative to the front panel for lib/printful.js's pocketCrop continuity math)
+  // /printful-catalog?id=123&sizes=1         -> GET /products/123/sizes
+  //   (the published size guide: body measurements per size, flat garment measurements,
+  //   and Printful's own measuring diagrams -- see components/ui/SizeGuideModal.jsx)
   const productId = url.searchParams.get("id");
   const categoryId = url.searchParams.get("category_id");
   const wantsPrintfiles = url.searchParams.get("printfiles") === "1";
   const wantsTemplates = url.searchParams.get("templates") === "1";
+  const wantsSizes = url.searchParams.get("sizes") === "1";
 
   let printfulUrl;
   if (productId && wantsPrintfiles) {
     printfulUrl = new URL(`${PRINTFUL_API_BASE}/mockup-generator/printfiles/${productId}`);
   } else if (productId && wantsTemplates) {
     printfulUrl = new URL(`${PRINTFUL_API_BASE}/mockup-generator/templates/${productId}`);
+  } else if (productId && wantsSizes) {
+    // unit is fixed to inches; the modal converts to cm client-side rather than spending a
+    // second upstream request (and a second cache entry) on the same numbers.
+    printfulUrl = new URL(`${PRINTFUL_API_BASE}/products/${productId}/sizes`);
+    printfulUrl.searchParams.set("unit", "inches");
   } else {
     printfulUrl = new URL(`${PRINTFUL_API_BASE}/products${productId ? `/${productId}` : ""}`);
     if (categoryId) printfulUrl.searchParams.set("category_id", categoryId);
@@ -70,7 +79,7 @@ Deno.serve(async req => {
   // Single-product responses carry each variant's cost price -- mark it up here so the
   // price the customer sees on the product page matches what create-checkout-session
   // actually charges (same applyMarkup, same PRICE_MARKUP_PERCENT secret).
-  if (productId && !wantsPrintfiles) {
+  if (productId && !wantsPrintfiles && !wantsSizes) {
     if (Array.isArray(data.result?.variants)) {
       for (const variant of data.result.variants) {
         if (typeof variant.price === "string") {

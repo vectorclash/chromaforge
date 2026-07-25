@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { cachedFetch } from './catalogCache';
+import { isSameDesign } from '../render/designSettings';
 import { generateLabelMark } from '../render/generateLabelMark';
 import renderLabelMark from '../render/renderLabelMark';
 import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
@@ -27,8 +28,11 @@ export const STARTER_PRODUCT_IDS = [
   388, // All-Over Print Recycled Unisex Hoodie
   717, // All-Over Print Recycled Unisex Zip Hoodie
   801, // All-Over Print Recycled Unisex Track Jacket
+  615, // All-Over Print Men's Windbreaker
+  390, // All-Over Print Unisex Bomber Jacket
   693, // All-Over Print Recycled Unisex Mesh Shorts
   784, // All-Over Print Unisex Wide-Leg Joggers
+  654, // All-Over Print Reversible Bucket Hat
   274, // All-Over Print Large Tote Bag w/ Pocket
   744, // All-Over Print Utility Crossbody Bag
   83, // All-Over Print Basic Pillow
@@ -86,6 +90,7 @@ export async function getCatalogProduct(productId) {
 // interleaving across colors.
 const SIZE_ORDER = ['2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL'];
 
+
 function sizeRank(size) {
   const idx = SIZE_ORDER.indexOf(String(size).toUpperCase().trim());
   if (idx !== -1) return idx;
@@ -119,6 +124,38 @@ export async function getPrintfileSpecs(productId) {
   });
 }
 
+// Printful's published size guide for a product: body measurements per size
+// ('measure_yourself'), flat garment measurements ('product_measure'), and the diagrams that
+// give those measurements meaning. Fetched LAZILY -- only when the customer opens the size
+// guide -- rather than alongside the product, since most visits never open it; cachedFetch
+// then makes reopening it free. Always requested in inches (the Edge Function fixes the
+// unit); SizeGuideModal converts to cm client-side rather than spending a second upstream
+// request and a second cache entry on the same numbers.
+export async function getSizeGuide(productId) {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  const path = `printful-catalog?id=${productId}&sizes=1`;
+  return cachedFetch(path, async () => {
+    const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
+    if (error) throw error;
+    // Shape-check before returning, for a specific and very reachable failure: a
+    // printful-catalog deploy that predates the `sizes=1` param ignores it and falls through
+    // to the ordinary product response, which has variants but no size_tables. Without this
+    // the modal would confidently report "no size guide is published" for a product that has
+    // one -- and, worse, cachedFetch would store that wrong payload for its full 30-minute
+    // TTL, so the mistake would outlive the fix. Throwing here means nothing is cached
+    // (cachedFetch only writes on success) and the modal shows an honest failure instead.
+    if (!Array.isArray(data?.result?.size_tables)) {
+      console.warn(
+        `[Chromaforge] printful-catalog returned no size_tables for product ${productId}. ` +
+          'The deployed function probably predates the `sizes=1` parameter -- redeploy it ' +
+          'with: npx supabase functions deploy printful-catalog'
+      );
+      throw new Error('The size guide could not be loaded right now.');
+    }
+    return data.result;
+  });
+}
+
 const MOCKUP_BUCKET = 'design-mockups';
 
 export function getMockupConfigForProduct(productId) {
@@ -134,10 +171,12 @@ export function resolveMockupStyleIds(cfg, variantId) {
 // Printful's real per-product valid values for the stitch_color option (GET /products/:id
 // -> result.product.options, already reaching the browser unfiltered via getCatalogProduct's
 // `...data.result` spread -- see printful-catalog/index.ts's pass-through). Confirmed live for
-// every current starter product: all 11 have exactly a 2-value stitch_color radio (white/black
-// for most, black/clear for the tote/crossbody bags), so this is always a meaningful choice,
-// not just PRODUCT_MOCKUP_CONFIG's single hand-picked default. Returns null if the product has
-// no such option (defensive -- every catalog product checked so far has one).
+// every current starter product: 12 of the 14 expose a stitch_color radio here (white/black for
+// most, black/clear for the tote/crossbody bags, white/black/clear for the bucket hat), so where
+// it's present this is a real choice, not just PRODUCT_MOCKUP_CONFIG's single hand-picked
+// default. Returns null when the product has none, which is NOT purely defensive: v1 omits the
+// option entirely for the windbreaker (615) even though Printful requires it -- that product
+// just gets no picker and keeps its configured default. See 615's config entry.
 export function getStitchColorOption(product) {
   const opt = product?.options?.find(o => o.id === 'stitch_color');
   if (!opt || !opt.values || Object.keys(opt.values).length < 2) return null;
@@ -158,14 +197,43 @@ const GEOMETRY_PLACEMENT_LABELS = [
   { key: 'back', label: 'Back' },
   { key: 'sleeve_left', label: 'Left sleeve' },
   { key: 'sleeve_right', label: 'Right sleeve' },
-  { key: 'hood', label: 'Hood' }
+  { key: 'hood', label: 'Hood' },
+  // Reversible bucket hat (654) only -- both faces are worn, so all four are real choices.
+  { key: 'outside_front', label: 'Outside front' },
+  { key: 'outside_back', label: 'Outside back' },
+  { key: 'inside_front', label: 'Inside front' },
+  { key: 'inside_back', label: 'Inside back' }
 ];
 
+// Which placements this list is derived from defaults to cfg.placements -- the mockup set --
+// because for every product up to the bucket hat (654) "printed panel the customer sees" and
+// "panel visible in a Flat Front/Back photo" were the same set. They aren't on a reversible
+// garment: the hat's inside panels are really printed and really worn, but no mockup style
+// photographs them (see 654's config comment), so deriving from cfg.placements would leave
+// them with no checkbox -- and a placement with no checkbox is never in ProductPage's
+// selection Set, which includesGeometry reads as "geometry off", silently and unfixably.
+// cfg.geometryPlacementKeys is the explicit override for that case.
 export function getGeometryPlacementOptions(cfg) {
-  const placements = cfg?.placements || [];
+  const placements = cfg?.geometryPlacementKeys || cfg?.placements || [];
   return GEOMETRY_PLACEMENT_LABELS.filter(
     ({ key }) => placements.includes(key) || (key === 'front' && placements.includes('default'))
   );
+}
+
+// Placements whose render is horizontally mirrored so a garment's back half continues its
+// front's pattern across the visible side seams rather than restarting at each -- today only
+// the reversible bucket hat (654), see its config entry for the geometry and why mirroring
+// closes both seams. Returns null for every other product, which is what keeps the toggle
+// (and the flip) invisible everywhere else.
+export function getMirrorPlacements(cfg) {
+  return cfg?.mirrorPlacements || null;
+}
+
+// Products where a second design can be printed on a physically separate face of the same
+// garment -- today only the reversible bucket hat (654), see its config entry. Returns null
+// for everything else, which is what keeps this feature invisible on every other product.
+export function getSecondaryDesignConfig(cfg) {
+  return cfg?.secondaryDesign || null;
 }
 
 // Whether this product's front/back printfile is one flat canvas physically cut into two
@@ -331,6 +399,18 @@ export async function renderAndUploadPrintFiles(
     pocketCrop = null,
     geometryPlacements = null,
     geometryLayout = null,
+    // A second design printed on a physically separate face of the same garment (the
+    // reversible bucket hat's inside -- see getSecondaryDesignConfig). Null, or equal to
+    // `design`, means every placement renders from `design` exactly as before.
+    // `secondaryPlacements` comes from the product's own config, never from the caller's
+    // imagination, so an unknown placement key can't silently divert a render.
+    secondaryDesign = null,
+    secondaryPlacements = null,
+    // Placements whose render is horizontally mirrored so the pattern continues across a
+    // garment's visible side seams instead of restarting at each -- see mirrorPlacements in
+    // PRODUCT_MOCKUP_CONFIG, and renderArtwork.js for where the flip actually happens. Null
+    // (every product that doesn't declare it, or the customer opting out) mirrors nothing.
+    mirrorPlacements = null,
     // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
@@ -353,6 +433,11 @@ export async function renderAndUploadPrintFiles(
   // could land on the SAME warm machine and hold both sets of buffers in memory at once,
   // which is worse than the sequential OOM this app already hit once today, not better.
   const rendered = {};
+  // A secondary design that's actually the SAME design is treated as no secondary at all --
+  // both faces then share one render (and one uploaded file) instead of paying twice for
+  // identical output. isSameDesign, not ===: ProductPage builds these objects separately
+  // (withCurrentGeneratorVersion returns a fresh object), so reference equality would miss.
+  const hasSecondary = !!secondaryDesign && !isSameDesign(design, secondaryDesign);
   const frontKey = frontPlacementKey(entries);
   const frontSpec =
     frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === entries.find(([k]) => k === frontKey)[1]);
@@ -376,11 +461,31 @@ export async function renderAndUploadPrintFiles(
       placementKey === 'pocket' && pocketCrop && frontSpec
         ? { regions: pocketCrop.regions, sourceSpec: frontSpec }
         : null;
-    const cacheKey = `${printfileId}:${includeGeometry}:${geometryLayout || 'center'}${regionsConfig ? ':pocket-regions' : ''}`;
+    const useSecondary = hasSecondary && !!secondaryPlacements?.includes(placementKey);
+    const mirrorX = !!mirrorPlacements?.includes(placementKey);
+    // The design is part of the cache key, not just the printfile/geometry/layout: on the
+    // bucket hat all four face placements share ONE printfile id, so without this the inside
+    // would collide with the outside's entry and silently be served the outside's render --
+    // the exact bug this feature is here to avoid. ':b' only ever appears when a genuinely
+    // different second design is in play, so every other product's keys are unchanged.
+    // mirrorX belongs in the key for the same reason the design discriminator does: a
+    // mirrored back panel shares its front's printfile id, so without it the back would be
+    // served the front's unmirrored render and the seam fix would silently do nothing.
+    const cacheKey =
+      `${printfileId}:${includeGeometry}:${geometryLayout || 'center'}` +
+      `${regionsConfig ? ':pocket-regions' : ''}${useSecondary ? ':b' : ''}${mirrorX ? ':mirror' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       rendered[cacheKey] = spec
-        ? renderOne(design, spec, printfileId, includeGeometry, regionsConfig, geometryLayout)
+        ? renderOne(
+            useSecondary ? secondaryDesign : design,
+            spec,
+            printfileId,
+            includeGeometry,
+            regionsConfig,
+            geometryLayout,
+            mirrorX
+          )
         : Promise.resolve(null);
     }
     return [placementKey, rendered[cacheKey]];
@@ -549,10 +654,18 @@ async function makeCalibrationGridBlob(width, height) {
 // Mockups: cheap, capped, client-side, free -- well below Printful's real printfile dims,
 // same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
 export function capRenderStrategy(renderDesignBlob) {
-  return async (design, spec, printfileId, includeGeometry, regionsConfig = null, geometryLayout = null) => {
+  return async (
+    design,
+    spec,
+    printfileId,
+    includeGeometry,
+    regionsConfig = null,
+    geometryLayout = null,
+    mirrorX = false
+  ) => {
     const { width, height } = capMockupRenderSize(spec.width, spec.height);
     if (!regionsConfig) {
-      const blob = await renderDesignBlob(design, width, height, { includeGeometry, geometryLayout });
+      const blob = await renderDesignBlob(design, width, height, { includeGeometry, geometryLayout, mirrorX });
       return uploadMockupSourceImage(blob, printfileId);
     }
     if (POCKET_CALIBRATION_GRID) {
@@ -569,7 +682,11 @@ export function capRenderStrategy(renderDesignBlob) {
     // geometry included or not, rather than assuming the front always has geometry on.
     const { regions, sourceSpec } = regionsConfig;
     const { width: srcW, height: srcH } = capMockupRenderSize(sourceSpec.width, sourceSpec.height);
-    const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry, geometryLayout });
+    // mirrorX rides along here too, so a mirrored placement's pocket crop would be taken
+    // from the same mirrored composition its own panel shows. No current product combines
+    // the two (the one product with mirrorPlacements has no pocket), so this is consistency
+    // for a future one, not behavior anything exercises today.
+    const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry, geometryLayout, mirrorX });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
     return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
   };
@@ -587,7 +704,8 @@ export async function renderPrintFileStrategy(
   printfileId,
   includeGeometry,
   regionsConfig = null,
-  geometryLayout = null
+  geometryLayout = null,
+  mirrorX = false
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -602,7 +720,8 @@ export async function renderPrintFileStrategy(
     height: spec.height,
     label: regionsConfig ? `${printfileId}-pocket` : printfileId,
     includeGeometry,
-    geometryLayout
+    geometryLayout,
+    mirrorX
   };
   if (regionsConfig) {
     body.regions = regionsConfig.regions;

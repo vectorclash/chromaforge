@@ -5,6 +5,7 @@ import SolidPanel from './SolidPanel';
 import Button from './Button';
 import { listMyDesigns, listPublicDesigns, countDesigns, getThumbnailUrl } from '../../lib/designs';
 import { useAuth } from '../../context/AuthContext';
+import { authorName } from './AuthorBadge';
 
 // Fixed page size for the carousel-style pager below. 8 = a clean 4x2 grid on desktop and
 // 2x4 on mobile -- deliberately a fixed-size page ("carousel": prev/next + dots + "n / m"),
@@ -367,9 +368,13 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
               {/* Byline hidden on phones: at 4 columns a ~70px cell can't show a useful
                   amount of it, and dropping the line is what keeps the 2-row page short
                   enough to never scroll. */}
+              {/* Name only, no avatar, unlike the gallery surfaces: these tiles are ~70px
+                  and this line is already hidden on phones, so a circle would crowd out the
+                  name it's meant to caption. Shares authorName so the fallback chain stays
+                  in one place. */}
               {tab === 'public' && d.profiles && (
                 <span className="hidden truncate text-[11px] text-text-secondary sm:block">
-                  by {d.profiles.display_name || d.profiles.username || 'someone'}
+                  by {authorName(d.profiles)}
                 </span>
               )}
             </div>

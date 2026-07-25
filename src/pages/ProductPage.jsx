@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { gsap, TextPlugin } from 'gsap/all';
 import PageContainer from '../components/ui/PageContainer';
@@ -11,6 +11,8 @@ import {
   getCatalogProduct,
   getPrintfileSpecs,
   getMockupConfigForProduct,
+  getSecondaryDesignConfig,
+  getMirrorPlacements,
   getGeometryPlacementOptions,
   getStitchColorOption,
   hasTwoLegCanvas,
@@ -30,6 +32,7 @@ import ArtworkPickerModal from '../components/ui/ArtworkPickerModal';
 import BuyNowModal from '../components/ui/BuyNowModal';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useJsonLd } from '../hooks/useJsonLd';
+import SizeGuideModal from '../components/ui/SizeGuideModal';
 
 gsap.registerPlugin(TextPlugin);
 
@@ -348,9 +351,11 @@ export default function ProductPage() {
   // geometry shape exactly on that cut line by default, the one spot guaranteed to end up
   // hidden in the inseam. 'single' confines it to one leg (matches how every other product
   // already looks); 'mirror' centers it on the seam and repeats it, flipped, on the other
-  // leg. Same per-order, not-part-of-the-design treatment as geometryPlacements above --
-  // defaults to 'single' as the safer/closer-to-everything-else-looks-like choice.
-  const [geometryLayout, setGeometryLayout] = useState('single');
+  // leg. Same per-order, not-part-of-the-design treatment as geometryPlacements above.
+  // Defaults to 'mirror' (Aaron's call, 2026-07-25) -- it was 'single' originally, chosen as
+  // the closer-to-how-everything-else-looks option, but a shape spanning both legs is the
+  // better default look and matches the seam-mirroring default below.
+  const [geometryLayout, setGeometryLayout] = useState('mirror');
   const showsTwoLegLayout = detail?.product
     ? hasTwoLegCanvas(getMockupConfigForProduct(detail.product.id))
     : false;
@@ -364,7 +369,24 @@ export default function ProductPage() {
   // meant for.
   const effectiveGeometryLayout = showsTwoLegLayout ? geometryLayout : null;
   useEffect(() => {
-    setGeometryLayout('single');
+    setGeometryLayout('mirror');
+  }, [detail?.product?.id]);
+
+  // Whether this product's back half prints mirrored so the pattern continues across its
+  // visible side seams (bucket hat only -- see PRODUCT_MOCKUP_CONFIG's mirrorPlacements for
+  // the geometry and why mirroring closes both seams at once). Per-order, not saved with the
+  // design, same as every other choice on this page. Defaults ON: the unmirrored version
+  // visibly restarts the composition at each seam, which reads as a defect rather than a
+  // style, so continuous is the better default and opting out is the deliberate act.
+  const [mirrorSeams, setMirrorSeams] = useState(true);
+  const productMirrorPlacements = detail?.product
+    ? getMirrorPlacements(getMockupConfigForProduct(detail.product.id))
+    : null;
+  // Same gating discipline as effectiveGeometryLayout above -- resolve once, use everywhere,
+  // so the flag can never reach a product that doesn't declare mirrorable placements.
+  const effectiveMirrorPlacements = mirrorSeams ? productMirrorPlacements : null;
+  useEffect(() => {
+    setMirrorSeams(true);
   }, [detail?.product?.id]);
 
   // Stitch color: Printful requires this product option on every current cut-sew starter
@@ -491,13 +513,25 @@ export default function ProductPage() {
   const [queuedChoice, setQueuedChoice] = useState(null);
   const [pickedChoice, setPickedChoice] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState('current');
   const consumedQueueRef = useRef(false);
+
+  // Which artwork slot the gallery modal is currently filling. 'primary' is every product's
+  // only slot; 'secondary' is the reversible bucket hat's inside face (see
+  // getSecondaryDesignConfig). One modal, one target ref -- opening it from either place
+  // reuses the same component and the same paginated fetch.
+  const [pickerTarget, setPickerTarget] = useState('primary');
+  const [secondaryChoice, setSecondaryChoice] = useState(null);
 
   // A pick from the modal that's actually one of the pinned tiles (the live studio design
   // again, or the queued hand-off) selects that tile instead of duplicating it as a third.
   const onPickDesign = design => {
     setPickerOpen(false);
+    if (pickerTarget === 'secondary') {
+      setSecondaryChoice(design);
+      return;
+    }
     if (isSameDesign(currentDesign, design.data)) {
       setSelectedKey('current');
     } else if (queuedChoice && design.id === queuedChoice.id) {
@@ -506,6 +540,11 @@ export default function ProductPage() {
       setPickedChoice(design);
       setSelectedKey('picked');
     }
+  };
+
+  const openPicker = target => {
+    setPickerTarget(target);
+    setPickerOpen(true);
   };
 
   // Fetch product detail + printfile specs.
@@ -556,6 +595,24 @@ export default function ProductPage() {
     setActiveImageIndex(0);
   }, [images]);
 
+  // Stamped ONCE per source design, not per render. withCurrentGeneratorVersion returns a
+  // new object every call ({ ...design, generatorVersion }), and selectedDesign -- which is
+  // whichever of these tiles is selected -- is a dependency of the mockup sync effect below.
+  // Calling it inline in `choices` therefore handed that effect a brand-new object identity
+  // on every render whenever a queued or gallery-picked design was selected, so the effect
+  // re-ran, set state, re-rendered, and looped until React bailed out with "Maximum update
+  // depth exceeded". Only the 'current' tile escaped it, because that one passes
+  // StudioContext's stable currentDesign straight through -- which is why the page looked
+  // fine until an artwork was actually picked from the gallery.
+  const queuedDesignData = useMemo(
+    () => (queuedChoice ? withCurrentGeneratorVersion(queuedChoice.data) : null),
+    [queuedChoice]
+  );
+  const pickedDesignData = useMemo(
+    () => (pickedChoice ? withCurrentGeneratorVersion(pickedChoice.data) : null),
+    [pickedChoice]
+  );
+
   const choices = [
     {
       key: 'current',
@@ -578,7 +635,7 @@ export default function ProductPage() {
             // render-service hard-fails on -- see withCurrentGeneratorVersion. Stamped here,
             // at the point of adoption, so the mockup, the print file, and order_items'
             // design_data audit copy all agree on one version.
-            data: withCurrentGeneratorVersion(queuedChoice.data)
+            data: queuedDesignData
           }
         ]
       : []),
@@ -590,13 +647,67 @@ export default function ProductPage() {
             badge: 'Gallery',
             thumb: getThumbnailUrl(pickedChoice.user_id, pickedChoice.id),
             // Same re-stamp as the queued tile above.
-            data: withCurrentGeneratorVersion(pickedChoice.data)
+            data: pickedDesignData
           }
         ]
       : [])
   ];
   const selectedChoice = choices.find(c => c.key === selectedKey) || choices[0];
   const selectedDesign = selectedChoice.data;
+
+  // Optional second design for a physically separate face of the same garment (bucket hat's
+  // inside). Same re-stamp as the gallery tiles above -- a stored row's generatorVersion is
+  // what it was SAVED under, and render-service hard-fails on a stale one.
+  const secondaryDesignConfig = detail?.product
+    ? getSecondaryDesignConfig(getMockupConfigForProduct(detail.product.id))
+    : null;
+  // Memoised for the same reason as the tiles above -- this one is only read from event
+  // handlers today so it can't loop, but leaving an unstable identity around for the next
+  // person to drop into a dependency array is how that bug happens twice.
+  const secondaryDesign = useMemo(
+    () => (secondaryChoice ? withCurrentGeneratorVersion(secondaryChoice.data) : null),
+    [secondaryChoice]
+  );
+
+  // Collapsed by default: these all have good defaults, so the common purchase never needs
+  // to open this at all. Not persisted -- a customer who opens it on one product shouldn't
+  // find it open on the next, since which options even exist differs per product.
+  const [printOptionsOpen, setPrintOptionsOpen] = useState(false);
+  useEffect(() => {
+    setPrintOptionsOpen(false);
+  }, [detail?.product?.id]);
+
+  // Which refinement sections this product actually has. Gated so a product with none of
+  // them (nothing currently, but the config is per-product and this shouldn't assume)
+  // doesn't render an empty disclosure.
+  const hasPrintOptions =
+    !!secondaryDesignConfig || geometryOptions.length > 1 || showsTwoLegLayout || !!productMirrorPlacements || !!stitchColorOption;
+
+  // The collapsed state's summary. Reads as a sentence of current choices so nothing set
+  // here is invisible while the panel is shut -- see the disclosure's own comment for why
+  // that matters. Order matches the sections inside.
+  const printOptionsSummary = [
+    secondaryDesignConfig && (secondaryChoice ? `Inside: ${secondaryChoice.title || 'Untitled'}` : 'Same design both faces'),
+    geometryOptions.length > 1 &&
+      (geometryPlacements.size === 0
+        ? 'No geometry'
+        : geometryPlacements.size === geometryOptions.length
+          ? 'Geometry on all panels'
+          : `Geometry on ${geometryOptions
+              .filter(o => geometryPlacements.has(o.key))
+              .map(o => o.label.toLowerCase())
+              .join(', ')}`),
+    showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
+    productMirrorPlacements && (mirrorSeams ? 'Continuous seams' : 'Independent seams'),
+    stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  // Reset when the product changes, same as every other per-order choice on this page.
+  useEffect(() => {
+    setSecondaryChoice(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.product?.id]);
 
   const product = detail?.product;
   const variants = detail?.variants;
@@ -666,12 +777,18 @@ export default function ProductPage() {
       design: selectedDesign,
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
+      mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
     // pickedChoice?.id matters on its own: picking a second gallery design replaces the
     // 'picked' tile's contents without selectedKey ever changing.
+    // secondaryDesign is deliberately NOT a dependency, and is not passed to syncMockup at
+    // all: the mockup only ever requests cfg.placements, which on the one product with a
+    // secondary design excludes both inside placements (no camera angle shows them). Adding
+    // it would throw away a still-accurate mockup and make the customer sit through another
+    // 30-90s Printful round trip that renders a pixel-identical photo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, stitchColor]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, mirrorSeams, stitchColor]);
 
   // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
   // top down with the thumbnail strip below it) from "the customer clicked a different
@@ -750,6 +867,7 @@ export default function ProductPage() {
       design: selectedDesign,
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
+      mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
 
@@ -784,6 +902,11 @@ export default function ProductPage() {
         pocketCrop: cfg.pocketCrop || null,
         geometryPlacements,
         geometryLayout: effectiveGeometryLayout,
+        // Null on every product but the reversible hat, and null there too unless the
+        // customer actually picked a second design -- see getSecondaryDesignConfig.
+        secondaryDesign,
+        secondaryPlacements: secondaryDesignConfig?.placements || null,
+        mirrorPlacements: effectiveMirrorPlacements,
         onProgress: (done, total) => setCheckoutProgress({ done, total })
       });
       // Renders finished; the remaining wait is session creation -- null the counts so the
@@ -796,6 +919,10 @@ export default function ProductPage() {
         variantLabel: `${variant.size}${hasMultipleColors && variant.color ? ` / ${variant.color}` : ''}`,
         quantity: qty,
         design: selectedDesign,
+        // Recorded alongside the primary in order_items.design_data -- that column is the
+        // order's only record of what was actually printed, and on a two-face order the
+        // primary alone doesn't describe half the garment.
+        secondaryDesign,
         printFileUrls,
         productOptions: stitchColorProductOptions || cfg.productOptions,
         // heroImage falls back to the product's stock photo when !hasMockup (see its own
@@ -926,7 +1053,7 @@ export default function ProductPage() {
           })}
           <button
             type="button"
-            onClick={() => setPickerOpen(true)}
+            onClick={() => openPicker('primary')}
             className="flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-hairline text-text-secondary transition animate-fade-slide-up hover:border-accent hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
             style={{ animationDelay: `${choices.length * 50}ms` }}
           >
@@ -943,122 +1070,288 @@ export default function ProductPage() {
         </div>
       </div>
 
-      {/* Step: which panels show the geometry layer -- a per-order choice (not saved to the
-          design), so the same artwork can be printed differently on different orders. Only
-          shown when the product actually has more than one selectable panel (see
-          getGeometryPlacementOptions) -- a single-panel product like mesh shorts has nothing
-          meaningful to toggle. Changing a checkbox invalidates the current mockup (see the
-          sync effect's geometryPlacementsSignature dependency) since it changes what would
-          actually render. */}
-      {geometryOptions.length > 1 && (
+      {/* Everything between "Choose artwork" and "Size" is a REFINEMENT, not a required
+          step: each has a sensible default, each is per-order rather than saved to the
+          design, and -- the property that actually groups them -- each one invalidates the
+          current mockup. Four to five of them stacked open pushed the two things a customer
+          must actually do (pick artwork, pick a size) far apart, so they collapse into a
+          single disclosure rather than one accordion per section (five collapsed sections
+          would be no less cluttered than five open ones, just with more clicks).
+          The summary line is load-bearing, not decoration: because these settings invalidate
+          the preview, hiding them bare would let someone change one, forget, and buy under
+          settings they can no longer see. It also keeps the geometry-placement feature --
+          the one thing no other print-on-demand store offers -- visible while collapsed.
+          This is also what fixes the old numbering gap: "1. Choose artwork" and "2. Size"
+          used to have four unnumbered sections wedged between them. One clearly-optional
+          disclosure between two numbered required steps reads correctly, so the numbers stay
+          on the required steps only rather than pretending this is step 2 of a sequence. */}
+      {hasPrintOptions && (
         <div className="mb-8">
-          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-            Geometry placement
-          </h2>
-          <p className="mt-1 text-xs text-text-muted">
-            Choose which panels show the design's geometry layer, if it has one.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {geometryOptions.map(({ key, label }) => {
-              const checked = geometryPlacements.has(key);
-              return (
+          <button
+            type="button"
+            onClick={() => setPrintOptionsOpen(open => !open)}
+            aria-expanded={printOptionsOpen}
+            aria-controls="print-options-panel"
+            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-hairline px-4 py-3 text-left transition hover:border-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
+          >
+            <span className="min-w-0">
+              <span className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+                Print options
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-text-muted">
+                {printOptionsSummary}
+              </span>
+            </span>
+            <svg
+              viewBox="0 0 24 24"
+              width={18}
+              height={18}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className={
+                'shrink-0 text-text-muted transition-transform duration-200 ' +
+                (printOptionsOpen ? 'rotate-180' : '')
+              }
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {printOptionsOpen && (
+            <div id="print-options-panel" className="mt-5 space-y-6 animate-fade-slide-up">
+        {/* Reversible products only (bucket hat): an optional SECOND design for the inside
+            face. Defaults to none, which prints the chosen artwork on both faces exactly as
+            every other product does. The note is load-bearing, not decoration -- no Printful
+            mockup style photographs this face, so nothing above will ever show this choice and
+            the customer needs to know that BEFORE buying, not after. */}
+        {secondaryDesignConfig && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              {secondaryDesignConfig.label} artwork
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              It&rsquo;s reversible — print a different design on the {secondaryDesignConfig.label.toLowerCase()}, or
+              leave this and both faces use the same artwork.
+            </p>
+            <div className="mt-3 flex flex-wrap items-start gap-3">
+              {secondaryChoice ? (
+                <div className="flex w-24 flex-col gap-1.5">
+                  <div className="relative h-24 w-24 overflow-hidden rounded-xl border-2 border-accent bg-ink-900">
+                    <FadeImage
+                      src={getThumbnailUrl(secondaryChoice.user_id, secondaryChoice.id)}
+                      alt={secondaryChoice.title || 'Untitled'}
+                      className="h-full w-full object-cover"
+                    />
+                    <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
+                      {secondaryDesignConfig.label}
+                    </span>
+                  </div>
+                  <p className="line-clamp-2 min-h-[2.5em] text-center text-[11px] font-bold leading-tight text-text">
+                    {secondaryChoice.title || 'Untitled'}
+                  </p>
+                </div>
+              ) : (
                 <button
-                  key={key}
                   type="button"
-                  onClick={() => toggleGeometryPlacement(key)}
-                  aria-pressed={checked}
-                  className={
-                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                    (checked
-                      ? 'border-accent bg-accent text-white'
-                      : 'border-hairline text-text-secondary hover:border-text')
-                  }
+                  onClick={() => openPicker('secondary')}
+                  className="flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-hairline text-text-secondary transition hover:border-accent hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
                 >
-                  {label}
+                  <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                  </svg>
+                  <span className="px-1 text-center text-[11px] font-bold leading-tight">
+                    Pick a design
+                  </span>
                 </button>
-              );
-            })}
+              )}
+              {secondaryChoice && (
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => openPicker('secondary')}
+                    className="cursor-pointer text-left text-xs font-bold text-interactive underline-offset-2 hover:underline"
+                  >
+                    Choose a different one
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSecondaryChoice(null)}
+                    className="cursor-pointer text-left text-xs font-bold text-text-muted underline-offset-2 hover:text-text hover:underline"
+                  >
+                    Use the same design on both faces
+                  </button>
+                </div>
+              )}
+            </div>
+            <p className="mt-3 max-w-prose text-xs text-text-muted">{secondaryDesignConfig.note}</p>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Step: for products whose front/back printfile is one flat canvas cut into two
-          garment legs when sewn (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's
-          twoLegCanvas), the geometry shape's default centering lands it exactly on that
-          seam -- the one spot guaranteed to end up hidden in the inseam. This lets the
-          customer pick single-leg (matches how every other product looks) or mirrored
-          (centered on the seam, repeated on both legs) instead. Changing it invalidates
-          the current mockup (see the sync effect's geometryLayout dependency) since it
-          changes what would actually render. */}
-      {showsTwoLegLayout && (
-        <div className="mb-8">
-          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-            Geometry layout
-          </h2>
-          <p className="mt-1 text-xs text-text-muted">
-            This product's front is one canvas split into two legs when sewn — choose how
-            the geometry shape sits across that seam.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {[
-              { key: 'single', label: 'Single leg', hint: 'Confined to one panel' },
-              { key: 'mirror', label: 'Mirrored', hint: 'Repeated on both' }
-            ].map(({ key, label, hint }) => {
-              const checked = geometryLayout === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setGeometryLayout(key)}
-                  aria-pressed={checked}
-                  className={
-                    'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                    (checked
-                      ? 'border-accent bg-accent text-white'
-                      : 'border-hairline text-text-secondary hover:border-text')
-                  }
-                >
-                  <span className="text-sm font-bold">{label}</span>
-                  <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
-                </button>
-              );
-            })}
+        {/* Step: which panels show the geometry layer -- a per-order choice (not saved to the
+            design), so the same artwork can be printed differently on different orders. Only
+            shown when the product actually has more than one selectable panel (see
+            getGeometryPlacementOptions) -- a single-panel product like mesh shorts has nothing
+            meaningful to toggle. Changing a checkbox invalidates the current mockup (see the
+            sync effect's geometryPlacementsSignature dependency) since it changes what would
+            actually render. */}
+        {geometryOptions.length > 1 && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Geometry placement
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              Choose which panels show the design's geometry layer, if it has one.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {geometryOptions.map(({ key, label }) => {
+                const checked = geometryPlacements.has(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggleGeometryPlacement(key)}
+                    aria-pressed={checked}
+                    className={
+                      'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Step: stitch color -- Printful requires this option on every current cut-sew
-          product; the two valid values (from Printful's own catalog, see
-          getStitchColorOption) are surfaced here instead of silently picking one for the
-          customer. Changing it invalidates the current mockup (its stitching visibly
-          changes color in the returned photo, see useMockup's cacheKey) since it changes
-          what would actually be shown/produced. */}
-      {stitchColorOption && (
-        <div className="mb-8">
-          <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-            {stitchColorOption.title}
-          </h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {Object.entries(stitchColorOption.values).map(([value, label]) => {
-              const checked = stitchColor === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setStitchColor(value)}
-                  aria-pressed={checked}
-                  className={
-                    'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                    (checked
-                      ? 'border-accent bg-accent text-white'
-                      : 'border-hairline text-text-secondary hover:border-text')
-                  }
-                >
-                  {label}
-                </button>
-              );
-            })}
+        {/* Step: for products whose front/back printfile is one flat canvas cut into two
+            garment legs when sewn (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's
+            twoLegCanvas), the geometry shape's default centering lands it exactly on that
+            seam -- the one spot guaranteed to end up hidden in the inseam. This lets the
+            customer pick single-leg (matches how every other product looks) or mirrored
+            (centered on the seam, repeated on both legs) instead. Changing it invalidates
+            the current mockup (see the sync effect's geometryLayout dependency) since it
+            changes what would actually render. */}
+        {showsTwoLegLayout && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Geometry layout
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              This product's front is one canvas split into two legs when sewn — choose how
+              the geometry shape sits across that seam.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { key: 'single', label: 'Single leg', hint: 'Confined to one panel' },
+                { key: 'mirror', label: 'Mirrored', hint: 'Repeated on both' }
+              ].map(({ key, label, hint }) => {
+                const checked = geometryLayout === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setGeometryLayout(key)}
+                    aria-pressed={checked}
+                    className={
+                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    <span className="text-sm font-bold">{label}</span>
+                    <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {/* Step: seam continuity -- shown on every product with a distinct back panel (see
+            PRODUCT_MOCKUP_CONFIG's mirrorPlacements for which, and which three are excluded).
+            Same two-button shape as the geometry layout toggle above, and like it, changing
+            this invalidates the current mockup: unlike the inside-face design choice, this one
+            genuinely changes the returned photo, so it IS part of useMockup's cacheKey. */}
+        {productMirrorPlacements && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Side seams
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              The front and back panels meet at the side seams — choose whether the pattern
+              carries across them or each side stands alone.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { on: true, label: 'Continuous', hint: 'Pattern flows across both seams' },
+                { on: false, label: 'Independent', hint: 'Each half its own composition' }
+              ].map(({ on, label, hint }) => {
+                const checked = mirrorSeams === on;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setMirrorSeams(on)}
+                    aria-pressed={checked}
+                    className={
+                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    <span className="text-sm font-bold">{label}</span>
+                    <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Step: stitch color -- Printful requires this option on every current cut-sew
+            product; the two valid values (from Printful's own catalog, see
+            getStitchColorOption) are surfaced here instead of silently picking one for the
+            customer. Changing it invalidates the current mockup (its stitching visibly
+            changes color in the returned photo, see useMockup's cacheKey) since it changes
+            what would actually be shown/produced. */}
+        {stitchColorOption && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              {stitchColorOption.title}
+            </h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Object.entries(stitchColorOption.values).map(([value, label]) => {
+                const checked = stitchColor === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setStitchColor(value)}
+                    aria-pressed={checked}
+                    className={
+                      'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1164,6 +1457,16 @@ export default function ProductPage() {
             </h2>
             <span className="font-quicksand text-sm font-bold text-text">${variant.price}</span>
           </div>
+          {/* Sits with the size picker rather than in Print options: this answers "which
+              size am I", which is a required decision, not a refinement. Its data is fetched
+              only when opened (see getSizeGuide) so the link costs nothing until used. */}
+          <button
+            type="button"
+            onClick={() => setSizeGuideOpen(true)}
+            className="mt-1 cursor-pointer font-quicksand text-xs font-bold text-interactive underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
+          >
+            Size guide
+          </button>
           <div className="mt-3 flex flex-wrap gap-2">
             {variants.map(v => {
               const selected = v.id === variant.id;
@@ -1250,6 +1553,13 @@ export default function ProductPage() {
           </div>
         </div>
       </div>
+
+      <SizeGuideModal
+        open={sizeGuideOpen}
+        productId={product.id}
+        productTitle={product.title}
+        onClose={() => setSizeGuideOpen(false)}
+      />
 
       <ArtworkPickerModal
         open={pickerOpen}

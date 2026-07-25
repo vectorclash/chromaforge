@@ -9,7 +9,7 @@ import GenerateLinearGradient from '../components/Canvas/GenerateLinearGradient'
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
-import { makeRng, randomSeed } from './prng';
+import { makeRng, randomSeed, expandMonochromePalette} from './prng';
 import { getGeometrySettings, compactSettings } from './designSettings';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
@@ -109,24 +109,48 @@ function randomBlendMode(rng) {
 // per-placement checkboxes; and geometryLayout ('single' | 'mirror', optional), the
 // customer's choice for products whose front/back printfile is one flat canvas that gets
 // physically cut into two garment legs (mesh shorts, joggers -- see
-// GeometricShape.js/PRODUCT_MOCKUP_CONFIG's twoLegCanvas). Both default to leaving
-// existing behavior untouched so every other caller (studio canvas, thumbnails, share
-// links) is unaffected.
+// GeometricShape.js/PRODUCT_MOCKUP_CONFIG's twoLegCanvas); and mirrorX (optional), which
+// horizontally flips the finished raster so a garment's back panel continues its front's
+// pattern across the side seams (see printful.js's mirrorPlacements). All three default to
+// leaving existing behavior untouched so every other caller (studio canvas, thumbnails,
+// share links) is unaffected.
 export function generateArtwork(
   seed = randomSeed(),
   width,
   height,
   colorValues = [],
   settings = null,
-  { includeGeometry = true, geometryLayout = null } = {}
+  { includeGeometry = true, geometryLayout = null, mirrorX = false } = {}
 ) {
   const rng = makeRng(seed);
+
+  // A one-colour palette used to be special-cased inside three separate generators, each
+  // improvising a random greyscale companion (see expandMonochromePalette for why that was
+  // both wrong-looking and a hard crash on the print renderer). It's expanded ONCE here
+  // instead, so every layer draws from the same derived set and the piece reads as one
+  // coherent near-monochrome composition rather than each layer inventing its own companion.
+  // Seeded off its OWN rng stream (`${seed}-palette`), not the main one, so this consumes
+  // exactly zero draws from the sequence every other layer shares -- a multi-colour design
+  // is byte-identical to before, and even a single-colour one keeps the same composition
+  // structure it would have had, only recoloured. Same separate-stream discipline as
+  // generateLabelMark.js.
+  // NOTE the stored design keeps the customer's single colour (config.colors below) -- the
+  // expansion is derived at render time, so it is not part of a design's identity and a
+  // saved one-colour design stays a one-colour design.
+  const paletteColors =
+    colorValues.length === 1
+      ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`))
+      : colorValues;
 
   const config = {
     generatorVersion: GENERATOR_VERSION,
     seed,
     width,
     height,
+    // Pure render-time flag, consumed by renderArtwork -- see its comment. Consumes no
+    // rng() and touches no layer generation, so a mirrored render is byte-for-byte the
+    // same composition as its unmirrored twin, just flipped.
+    mirrorX,
     colors: colorValues.slice()
   };
 
@@ -137,7 +161,7 @@ export function generateArtwork(
     width,
     height,
     1,
-    colorValues.slice(),
+    paletteColors.slice(),
     rng
   );
 
@@ -148,7 +172,7 @@ export function generateArtwork(
     config.radialFieldConfig = new GenerateLargeRadialField(
       width,
       height,
-      colorValues.slice(),
+      paletteColors.slice(),
       rng
     );
   }
@@ -160,13 +184,13 @@ export function generateArtwork(
   // GenerateStarField's own comment on why); a real user palette leaves this null and the
   // star field's internal gradient uses colorValues directly instead, unaffected.
   const backgroundHue =
-    colorValues.length === 0
+    paletteColors.length === 0
       ? tinycolor(config.gradientBackgroundConfig.colors[0]).toHsl().h
       : null;
   config.starFieldConfig = new GenerateStarField(
     width,
     height,
-    colorValues.slice(),
+    paletteColors.slice(),
     rng,
     backgroundHue
   );
@@ -194,7 +218,7 @@ export function generateArtwork(
       width,
       height,
       shapeNum,
-      colorValues.slice(),
+      paletteColors.slice(),
       rng,
       settings,
       geometryLayout
@@ -206,14 +230,14 @@ export function generateArtwork(
 
   let overlayChance = rng();
 
-  if (overlayChance >= 0.7 && colorValues.length > 0) {
+  if (overlayChance >= 0.7 && paletteColors.length > 0) {
     config.overlayBlend = randomBlendMode(rng);
     config.overlayAlpha = rng().toFixed(2);
     config.overlayConfig = new GenerateLinearGradient(
       width,
       height,
       Math.round(rng() * 2),
-      colorValues.slice(),
+      paletteColors.slice(),
       rng
     );
   }

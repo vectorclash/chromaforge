@@ -1,8 +1,5 @@
 // ../src/render/generateArtwork.js
-import tinycolor5 from "tinycolor2";
-
-// ../src/components/Canvas/GenerateLinearGradient.js
-import tinycolor2 from "tinycolor2";
+import tinycolor3 from "tinycolor2";
 
 // ../src/render/prng.js
 import tinycolor from "tinycolor2";
@@ -45,6 +42,24 @@ function randomColorHex(rng) {
   const hex = (n) => n.toString(16).padStart(2, "0");
   return `#${hex(c())}${hex(c())}${hex(c())}`;
 }
+function clamp(n, min, max) {
+  return Math.min(max, Math.max(min, n));
+}
+function expandMonochromePalette(baseColor, rng, count = 3) {
+  const base = tinycolor(baseColor);
+  const { h, s, l } = base.toHsl();
+  const isGrey = s === 0;
+  const colors = [base.toHexString()];
+  for (let i = 1; i < count; i++) {
+    const dir = i % 2 === 1 ? 1 : -1;
+    const step = Math.ceil(i / 2);
+    const hue = isGrey ? h : (h + dir * (8 + rng() * 14) * step + 360) % 360;
+    const lightness = clamp(l * 100 + dir * (10 + rng() * 14) * step, 12, 88);
+    const saturation = isGrey ? 0 : clamp(s * 100 + (rng() - 0.5) * 20, 20, 95);
+    colors.push(tinycolor({ h: hue, s: saturation, l: lightness }).toHexString());
+  }
+  return colors;
+}
 function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = null } = {}) {
   const spread = minSpread + rng() * (maxSpread - minSpread);
   const hueStart = baseHue === null ? rng() * 360 : baseHue;
@@ -84,34 +99,7 @@ var GenerateLinearGradient = class {
     }
     config.colors = [];
     if (colors.length > 0) {
-      if (colors.length === 1) {
-        let colorChance = rng();
-        if (colorChance > 0.5) {
-          let ranGrayScale = Math.round(rng() * 255);
-          let newColor = tinycolor2({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
-          let colorOrderChance = rng();
-          if (colorOrderChance > 0.5) {
-            config.colors.push(colors[0]);
-            config.colors.push(newColor);
-          } else {
-            config.colors.push(newColor);
-            config.colors.push(colors[0]);
-          }
-        } else {
-          let ranSpin = -20 + rng() * 40;
-          let newColor = tinycolor2(colors[0]).spin(ranSpin).toHexString();
-          let colorOrderChance = rng();
-          if (colorOrderChance > 0.5) {
-            config.colors.push(colors[0]);
-            config.colors.push(newColor);
-          } else {
-            config.colors.push(newColor);
-            config.colors.push(colors[0]);
-          }
-        }
-      } else {
-        config.colors = colors;
-      }
+      config.colors = colors;
     } else {
       let colorAmount = 2 + complexity;
       config.colors = randomPalette(
@@ -123,9 +111,6 @@ var GenerateLinearGradient = class {
     return config;
   }
 };
-
-// ../src/components/Canvas/GenerateLargeRadialField.js
-import tinycolor3 from "tinycolor2";
 
 // ../src/render/scale.js
 var REFERENCE_WIDTH = 3840;
@@ -162,23 +147,7 @@ var GenerateLargeRadialField = class {
       radGrad.colors = [];
       let colorAmount = 2 + Math.round(rng() * 3);
       if (colors.length > 0) {
-        if (colors.length === 1) {
-          let colorChance = rng();
-          if (colorChance > 0.5) {
-            let ranGrayScale = Math.round(rng() * 255);
-            let newColor = tinycolor3({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
-            let colorOrderChance = rng();
-            if (colorOrderChance > 0.5) {
-              radGrad.colors.push(colors[0]);
-              radGrad.colors.push(newColor);
-            } else {
-              radGrad.colors.push(newColor);
-              radGrad.colors.push(colors[0]);
-            }
-          }
-        } else {
-          radGrad.colors = colors.slice();
-        }
+        radGrad.colors = colors.slice();
       } else {
         radGrad.colors = randomPalette(rng, colorAmount);
       }
@@ -265,7 +234,7 @@ var GenerateStarField = class {
 };
 
 // ../src/components/Canvas/GenerateGeometricShape.js
-import tinycolor4 from "tinycolor2";
+import tinycolor2 from "tinycolor2";
 
 // ../src/render/designSettings.js
 var DEFAULT_GEOMETRY_SETTINGS = {
@@ -462,18 +431,11 @@ var GenerateGeometricShape = class {
     }
     if (this.colors.length > 0) {
       const spun = this.shuffleColors(this.colors);
-      if (spun.length === 1) {
-        let ranGrayScale = Math.round(this.rng() * 255);
-        shape.colors.push(
-          spun[0],
-          tinycolor4({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale }),
-          tinycolor4(spun[0]).spin(-40 + this.rng() * 80).toHexString()
-        );
-      } else if (spun.length === 2) {
+      if (spun.length === 2) {
         shape.colors.push(
           spun[0],
           spun[1],
-          tinycolor4(spun[0]).spin(-20 + this.rng() * 40).toHexString()
+          tinycolor2(spun[0]).spin(-20 + this.rng() * 40).toHexString()
         );
       } else {
         shape.colors = spun;
@@ -493,7 +455,7 @@ var GenerateGeometricShape = class {
   // version caused a cumulative hue drift across shapes). Same number of rng() draws
   // either way (one per element), so this doesn't change rng() consumption/determinism.
   shuffleColors(array) {
-    return array.map((c) => tinycolor4(c).spin(-10 + this.rng() * 20).toHexString());
+    return array.map((c) => tinycolor2(c).spin(-10 + this.rng() * 20).toHexString());
   }
   shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
@@ -536,13 +498,18 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null } = {}) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false } = {}) {
   const rng = makeRng(seed);
+  const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
   const config = {
     generatorVersion: GENERATOR_VERSION,
     seed,
     width,
     height,
+    // Pure render-time flag, consumed by renderArtwork -- see its comment. Consumes no
+    // rng() and touches no layer generation, so a mirrored render is byte-for-byte the
+    // same composition as its unmirrored twin, just flipped.
+    mirrorX,
     colors: colorValues.slice()
   };
   const compactedSettings = compactSettings(settings);
@@ -551,7 +518,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     width,
     height,
     1,
-    colorValues.slice(),
+    paletteColors.slice(),
     rng
   );
   let radialChance = rng();
@@ -560,16 +527,16 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     config.radialFieldConfig = new GenerateLargeRadialField(
       width,
       height,
-      colorValues.slice(),
+      paletteColors.slice(),
       rng
     );
   }
   config.secondBlend = randomBlendMode(rng);
-  const backgroundHue = colorValues.length === 0 ? tinycolor5(config.gradientBackgroundConfig.colors[0]).toHsl().h : null;
+  const backgroundHue = paletteColors.length === 0 ? tinycolor3(config.gradientBackgroundConfig.colors[0]).toHsl().h : null;
   config.starFieldConfig = new GenerateStarField(
     width,
     height,
-    colorValues.slice(),
+    paletteColors.slice(),
     rng,
     backgroundHue
   );
@@ -582,7 +549,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       width,
       height,
       shapeNum,
-      colorValues.slice(),
+      paletteColors.slice(),
       rng,
       settings,
       geometryLayout
@@ -592,14 +559,14 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     }
   }
   let overlayChance = rng();
-  if (overlayChance >= 0.7 && colorValues.length > 0) {
+  if (overlayChance >= 0.7 && paletteColors.length > 0) {
     config.overlayBlend = randomBlendMode(rng);
     config.overlayAlpha = rng().toFixed(2);
     config.overlayConfig = new GenerateLinearGradient(
       width,
       height,
       Math.round(rng() * 2),
-      colorValues.slice(),
+      paletteColors.slice(),
       rng
     );
   }
@@ -788,6 +755,10 @@ function renderArtwork(config, images) {
   const ctx = canvas.getContext("2d");
   canvas.width = config.width;
   canvas.height = config.height;
+  if (config.mirrorX) {
+    ctx.translate(config.width, 0);
+    ctx.scale(-1, 1);
+  }
   const gradientBackground = LinearGradient(config.gradientBackgroundConfig);
   ctx.drawImage(gradientBackground, 0, 0);
   clearElement(gradientBackground);

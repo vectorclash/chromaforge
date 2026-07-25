@@ -121,6 +121,7 @@ Deno.serve(async req => {
     variantLabel,
     quantity,
     design,
+    secondaryDesign,
     printFileUrls,
     productOptions,
     mockupImageUrl,
@@ -210,7 +211,15 @@ Deno.serve(async req => {
     variant_label: variantLabel,
     quantity: qty,
     unit_price_cents: unitPriceCents,
-    design_data: toCompactDesign(design),
+    // Audit copy of what was actually printed. On a reversible product the customer can
+    // choose a second design for the inside face (see lib/printful.js's
+    // getSecondaryDesignConfig), and the primary alone wouldn't describe half the garment --
+    // so it rides in the same write-only jsonb rather than a new column. Absent (the normal
+    // case, and every other product) leaves the shape byte-identical to before.
+    design_data: {
+      ...toCompactDesign(design),
+      ...(secondaryDesign ? { secondaryDesign: toCompactDesign(secondaryDesign) } : {})
+    },
     print_file_urls: printFileUrls,
     product_options: productOptions ?? null
   });

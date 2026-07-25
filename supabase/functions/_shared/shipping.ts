@@ -19,11 +19,11 @@ type WeightClass = "light" | "heavy";
 
 // Verified against Printful's AOP ("all-over print" -- the only print type this store uses,
 // see printful.js's header comment) shipping-rate tables, 2026-07-02: T-shirts/shorts/
-// leggings ("light") vs. hoodies/sweatshirts/jackets/joggers ("heavy"). The 3 non-clothing
-// starter products (tote bag, crossbody bag, pillow) aren't covered by either clothing
-// table -- Printful prices bags/home-goods on a separate table that hasn't been looked up
-// yet. Defaulted to "light" as the closer approximation (smaller/lighter than a garment) --
-// revisit if actual bag/pillow rates turn out to differ meaningfully once checked.
+// leggings ("light") vs. hoodies/sweatshirts/jackets/joggers ("heavy"). The 4 non-garment
+// starter products (tote bag, crossbody bag, pillow, bucket hat) aren't covered by either
+// clothing table -- Printful prices bags/home-goods/accessories on a separate table that
+// hasn't been looked up yet. Defaulted to "light" as the closer approximation (smaller and
+// lighter than a garment) -- revisit if the real rates turn out to differ meaningfully.
 const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   257: "light", // All-Over Print Men's Crew Neck T-Shirt
   261: "light", // All-Over Print Women's Crew Neck T-Shirt
@@ -33,6 +33,9 @@ const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   717: "heavy", // All-Over Print Recycled Unisex Zip Hoodie
   784: "heavy", // All-Over Print Unisex Wide-Leg Joggers
   801: "heavy", // All-Over Print Recycled Unisex Track Jacket
+  615: "heavy", // All-Over Print Men's Windbreaker
+  390: "heavy", // All-Over Print Unisex Bomber Jacket
+  654: "light", // All-Over Print Reversible Bucket Hat -- approximated, see comment above
   274: "light", // All-Over Print Large Tote Bag w/ Pocket -- approximated, see comment above
   744: "light", // All-Over Print Utility Crossbody Bag -- approximated, see comment above
   83: "light", // All-Over Print Basic Pillow -- approximated, see comment above
@@ -65,7 +68,7 @@ const RATE_CENTS: Record<WeightClass, Record<Region, number>> = {
 const DEFAULT_REGION: Region = "US";
 
 function weightClassFor(productId: number): WeightClass {
-  // Unknown product (shouldn't happen for the 11 starter products, but a new product added
+  // Unknown product (shouldn't happen for the products we sell, but a new product added
   // to the catalog without updating this map first would hit this): assume the pricier
   // tier rather than silently undercharge shipping.
   return WEIGHT_CLASS_BY_PRODUCT_ID[productId] ?? "heavy";

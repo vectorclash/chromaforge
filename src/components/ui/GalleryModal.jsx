@@ -8,6 +8,7 @@ import ArrowIcon from '../buttons/ArrowIcon';
 import AnimationIcon from '../buttons/AnimationIcon';
 import { getThumbnailUrl } from '../../lib/designs';
 import { useStudio } from '../../context/StudioContext';
+import AuthorBadge from './AuthorBadge';
 
 // Rendered bigger than the 320x320 gallery thumbnail so the artwork actually looks crisp
 // full-screen-ish, but well short of print resolution -- this is a preview, not a print
@@ -143,11 +144,7 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           <h2 id="gallery-modal-title" className="truncate font-quicksand text-lg font-bold text-text">
             {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
           </h2>
-          {design.profiles && (
-            <p className="truncate text-sm text-text-secondary">
-              by {design.profiles.display_name || design.profiles.username || 'someone'}
-            </p>
-          )}
+          <AuthorBadge profile={design.profiles} size="md" className="mt-1" />
         </div>
 
         <div className="relative mt-4 aspect-square w-full shrink-0 overflow-hidden rounded-xl bg-ink-900">

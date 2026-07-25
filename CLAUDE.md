@@ -671,6 +671,66 @@ larger than the button column — it's the panel's visual anchor.
   snapshot of the current design correctly matches itself (`true`), and a stale snapshot
   from *before* clicking Generate correctly stops matching once a genuinely new design is
   generated (`false`).
+- **Order history lists PAID orders only** (2026-07-25). `listMyOrderHistory` filters on
+  `stripe_payment_intent_id is not null`, because `canceled` covers two unrelated things: a
+  real order Printful later canceled (`printful-webhook`'s `order_canceled`), which the
+  customer paid for and belongs in history — and a checkout that was started then abandoned,
+  which `create-checkout-session` and the stale-pending cron (`0010`) also mark `canceled`
+  and which never charged anyone. The second kind dominates the list (every closed Stripe tab
+  leaves one) and listing it as "order history" is simply wrong: nothing was ordered. Live
+  numbers when this was found: 22 rows in history, only 13 of them paid. The payment intent
+  is the clean discriminator — `stripe-webhook` sets it only once payment completes, and an
+  order whose webhook never ran stays `pending`, which the status filter already excludes.
+  The list also scrolls inside its card above `lg` (`lg:max-h-[32rem]`), since at desktop
+  width it sits beside a short side column and an unbounded list strands the profile/stats
+  cards against a wall of orders; below `lg` it's one column and the page's own scroll is
+  the natural one.
+- **Size guide on the product page** (2026-07-25): Printful publishes a per-product size
+  guide (`GET /products/{id}/sizes`), surfaced via a "Size guide" link beside the size picker
+  → `components/ui/SizeGuideModal.jsx`. Reached the codebase as the honest answer to "which
+  size am I" after saved default sizes were built and reverted the same day — sizing differs
+  per garment, which is exactly what a per-product table addresses and a remembered
+  preference cannot (see IDEAS.md).
+  Things worth knowing:
+  - **The two table types are not interchangeable.** `measure_yourself` is BODY measurements
+    (Chest/Waist/Hips) per size — self-explanatory, and the one that actually answers the
+    question; present on 10 of 14 products. `product_measure` is the garment laid flat with
+    measurements labelled **A, B, C…**, which are keyed to letters on Printful's diagram —
+    **the numbers are meaningless without the image**, so the diagram renders inside the
+    table's section rather than as decoration, with `image_description` (which explains each
+    letter) beneath it. Body measurements are sorted first.
+  - **Descriptions are third-party HTML and are rendered as TEXT**, never via
+    `dangerouslySetInnerHTML` — this is markup from another company on a page that also takes
+    payment. `htmlToText` strips tags and decodes entities; verified across all 14 products'
+    real payloads that nothing survives the strip.
+  - Sizes are ROWS, measurements COLUMNS: a product carries up to 11 sizes (hoodie 2XS–6XL)
+    but at most 5 measurements, and 11 columns is unreadable on a phone.
+  - Fetched **lazily on open** through `printful-catalog?id=N&sizes=1` (new param, same
+    pattern as `printfiles=1`/`templates=1`), then cached — most product views never open it.
+    Unit is fixed to inches upstream; cm is converted client-side rather than spending a
+    second request and cache entry on the same numbers.
+  - The diagram is a Printful CDN image. That's **not** new third-party exposure — the page
+    already loads product photos and mockups from that same host, unlike the gallery avatar
+    case where rendering a provider URL would have introduced a brand-new one.
+  - **`printful-catalog` must be redeployed** for this to work.
+- **Avatars are always Chromaforge-generated, never a provider's** (2026-07-25, Aaron's
+  call). `handle_new_user()` used to copy `raw_user_meta_data->>'avatar_url'` into
+  `profiles.avatar_url`, so every Google sign-up arrived carrying an
+  `lh3.googleusercontent.com` URL. Migration `0015_never_adopt_provider_avatars.sql` stops
+  that and nulls the ones already stored; `display_name` is still taken from OAuth metadata
+  (a string we store, not a third-party asset every visitor's browser must fetch).
+  AccountPage already generates and uploads an avatar for any profile with none, so null is
+  the route INTO the generated-avatar path, not a gap. **`AuthorBadge.jsx` keeps its own
+  self-hosted-origin check on top of this by design** — `avatar_url` is a free-text column
+  and RLS lets a user update their own profile row, so the client must never assume the
+  value came from the trigger. That check matches the project's own Storage origin with
+  `startsWith`, NOT a `/avatars/` substring: a substring test would let any user point
+  `avatar_url` at their own server with that path and get a tracking pixel loaded from every
+  gallery visitor's browser (found by testing the predicate against a deliberate lookalike).
+  Author bylines across the gallery, homepage gallery section and design modal share
+  `AuthorBadge`; the artwork picker uses its `authorName` helper but deliberately shows no
+  avatar (its tiles are ~70px and the byline is already hidden on phones). No new queries —
+  `listPublicDesigns` already embedded `avatar_url`.
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable
@@ -728,7 +788,7 @@ larger than the button column — it's the panel's visual anchor.
 - `src/lib/printful.js` — catalog browsing (`listCatalogProducts`/`getCatalogProduct`/
   `getPrintfileSpecs`) via the `printful-catalog` edge function (read-only, Printful's v1
   API), plus `PRODUCT_MOCKUP_CONFIG` — a hand-verified, per-product map of
-  placements/technique/required options for all 11 starter products (every entry confirmed
+  placements/technique/required options for all 14 configured products (every entry confirmed
   against a real mockup task; see the file's header comments for product-specific quirks
   like the track jacket's `details`+sleeves combo failing outright). `resolvePlacementEntries`
   + `renderAndUploadPrintFiles` are shared between mockup previews and real checkout: mockup
@@ -870,6 +930,168 @@ larger than the button column — it's the panel's visual anchor.
     product's geometry silently started rendering off-center-left. Fixed by gating on
     `hasTwoLegCanvas` once (`effectiveGeometryLayout`) and using that everywhere instead of
     the raw state.
+  - **Single-colour palettes, fixed 2026-07-25** (Aaron's call on the behaviour: derive
+    similar colours so it still reads monochromatic). Removing colours down to one is
+    something the studio genuinely allows — nothing in the colour list stops you — and three
+    generators each special-cased `colors.length === 1` by improvising their own companion,
+    usually a **random greyscale value**. Three distinct problems came out of that:
+    (1) **It crashed the print pipeline.** Those branches pushed raw *tinycolor objects* into
+    a colour list that ends up at `addColorStop`. Browsers accept that (they stringify via
+    `toString()`, and tinycolor's returns the colour); `@napi-rs/canvas` rejects it outright
+    with `Failed to convert JavaScript value ... into rust type String`. So a single-colour
+    design looked fine on screen and failed at checkout — **the same browsers-are-lenient
+    trap as `GenerateLargeRadialField`'s alpha-as-a-string bug**, found the same way.
+    (2) `GenerateLargeRadialField`'s branch pushed nothing at all on the `else` path, leaving
+    `radGrad.colors` empty — roughly **half of a single-colour design's blobs rendered
+    invisible**.
+    (3) A random grey is neither similar to the chosen colour nor monochromatic, and each
+    layer picked its own, so the piece didn't hold together.
+    Replaced by `expandMonochromePalette` (`render/prng.js`), applied **once centrally** in
+    `generateArtwork` so every layer shares one derived set: the base kept exactly, plus
+    companions bracketing it lighter and darker inside a narrow analogous hue window. A
+    greyscale base deliberately stays greyscale. The three special-case branches are gone.
+    Seeded off its **own rng stream** (`${seed}-palette`), so it consumes zero draws from the
+    sequence every other layer shares — which is why this needed **no `GENERATOR_VERSION`
+    bump**: multi-colour and auto-palette output is byte-identical (verified, 12 PNG hashes
+    across 4 designs × 3 sizes incl. print), and a single-colour design keeps the same
+    composition structure it would have had, only recoloured. The stored design also keeps
+    the customer's single colour — the expansion is derived at render time, so a saved
+    one-colour design stays a one-colour design.
+    Checked against the live DB before deciding: **zero saved designs have exactly one
+    colour** (30 use the auto-palette/empty array, the rest 3/5/6), so nothing existing
+    changed appearance and no thumbnail backfill was needed.
+  - **Three products added 2026-07-25** (windbreaker 615, bomber jacket 390, reversible
+    bucket hat 654 — starter set is now 14), each spec-verified the usual way with a real
+    completed v2 mockup task before its config was written. Each turned up something the
+    existing 11 hadn't:
+    (1) **v1's `product.options` is not a reliable "is this option required" list.** The
+    windbreaker omits `stitch_color` entirely from v1 `GET /products/615`, while v2
+    `mockup-tasks` hard-rejects any task without it and v2 `GET /catalog-products/615`
+    does list it. Consequence: `getStitchColorOption` (which reads the v1 list, via
+    `printful-catalog`) returns null for this product, so it shows no stitch-color picker
+    and silently uses `PRODUCT_MOCKUP_CONFIG`'s configured default — a clean degradation to
+    exactly the pre-picker behavior, not a break. `check-printful-catalog.mjs`'s option
+    check now falls back to v2's `product_options` before failing, so this doesn't read as
+    drift on every scheduled run.
+    (2) **The bomber needs `details` in its mockup placements, and the track jacket's
+    inability to include it is a real preview gap.** 801 fails the whole task when `details`
+    is combined with the sleeves; 390 completes fine with the identical combination
+    (verified live). It also *matters*: a front/back/sleeves-only bomber mockup renders the
+    ribbed waistband and both pocket welts as blank white, a wide unprinted band across the
+    bottom of the jacket (compared byte-for-byte against the with-details render of the same
+    variant). The real garment is unaffected either way — checkout submits every placement
+    unfiltered — but 801's *preview* has been showing that same blank hem all along and
+    can't stop until Printful accepts the combination there.
+    (3) **A reversible product breaks the "mockup placements == placements the customer
+    sees" assumption.** The hat's inside panels are really printed and really worn, but no
+    mockup style photographs them: its catalog's "Front Inside"/"Back Inside" styles
+    (4900/4865) return **byte-identical** images to their Outside counterparts (verified by
+    md5), and submitting only the outside placements yields byte-identical photos to
+    submitting all four. So `placements` is the two outside ones, and a new optional
+    `geometryPlacementKeys` config field supplies the geometry checkboxes instead —
+    `getGeometryPlacementOptions` derived them from `placements`, which would have left the
+    inside panels with no checkbox, and a placement absent from ProductPage's selection Set
+    is read by `includesGeometry` as *geometry off*, silently and with no UI to fix it.
+  - **Seam mirroring, 2026-07-25** (`mirrorPlacements` in `PRODUCT_MOCKUP_CONFIG`, bucket
+    hat only so far). Each of that product's faces carries TWO cut pieces — half the crown
+    side-wall and half the brim — so front and back meet at the two seams Printful's own
+    template labels "Visible seams", and since both halves share printfile 410 they rendered
+    the identical image and the composition visibly restarted at each seam (confirmed on a
+    real side-view mockup, style 4899). **Mirroring the back half closes BOTH seams from one
+    render**, which is the non-obvious part worth not re-deriving: going round the crown the
+    front's right edge meets the back's left edge, and a mirrored back's left edge *is* the
+    front's right edge; continuing round, the mirrored back's right edge is the front's left
+    edge, exactly what the other seam leads into.
+    Three things to know:
+    (1) **The flip lives in `renderArtwork.js` — one implementation, not two.** An earlier
+    estimate in this project said it would need mirroring into `render-service/render.js`
+    like `drawRegion` does; that was wrong. `drawRegion` is duplicated only because it sits
+    *outside* the shared renderer. `renderArtwork` IS the shared compositor (render-service
+    bundles and runs it verbatim), every layer there is a `drawImage(el, 0, 0)`, and nothing
+    resets the transform — so one `translate`/`scale(-1, 1)` at the top covers all of them,
+    in the browser and on Fly, identically. It rides the same end-to-end channel
+    `geometryLayout` already uses (ProductPage → `renderAndUploadPrintFiles` →
+    `render-print-file` → render-service → `generateArtwork`), and consumes no `rng()`.
+    (2) **`mirrorX` is in the render cache key**, for the same reason the secondary-design
+    discriminator is: a mirrored back shares its front's printfile id, so without it the back
+    would be served the front's unmirrored render and the fix would silently do nothing. It's
+    also in `useMockup`'s `cacheKey` — unlike the inside-face design choice, this one *does*
+    change the returned photo.
+    (3) **Deploy render-service BEFORE the frontend.** It ignores an unknown field and would
+    render unmirrored while the mockup shows mirrored — the exact density-slider hazard, and
+    with no `GENERATOR_VERSION` change there's no mismatch check to catch it.
+    Verified: a mirrored render is a pixel-exact horizontal flip of its unmirrored twin (max
+    delta 0 across 25.5M subpixels, at real print resolution and an off-square size, on both
+    a chaotic seed and a full-coherence lattice), and the default path is untouched (12 PNG
+    hashes across 4 designs × 3 sizes identical before vs. after). Exposed as a per-order
+    customer toggle (Side seams: Continuous / Independent, **default Continuous**) rather
+    than decided globally, because the result is bilaterally symmetric — a taste call.
+    Endless wrap is not reachable; it needs a horizontally tileable composition this
+    generator can't produce.
+    **Extended to every product with a distinct back panel, same session** (Aaron's ask), so
+    this is not a bucket-hat feature — 11 of the 14 products carry `mirrorPlacements:
+    ['back']`. Two facts were checked rather than assumed before extending: every one of
+    those products' back print area is centered in its template to within 2px of 3000
+    (0.07%), and garment front/back panels are themselves symmetric about their own vertical
+    centerline, so a full-canvas mirror maps the panel onto itself instead of shifting
+    artwork relative to fabric. **Three products are deliberately excluded**: the tote (274,
+    no distinct back — one canvas wraps the bag), and the mesh shorts (693) and joggers
+    (784), which DO have a back placement but are `twoLegCanvas` — their canvas is cut in
+    half into two legs, so front and back never meet as one cylinder at two side seams and
+    the argument that justifies mirroring everywhere else doesn't hold. Enabling those needs
+    its own seam analysis first.
+    Costs one extra print render per checkout on a mirrored product (the back is genuinely a
+    different image now). Verified per product that turning the toggle on changes exactly the
+    intended placement and nothing else, and that the toggle-OFF path is identical to
+    pre-change code across all 11 pre-existing products × 3 geometry layouts.
+    **Same session, `geometryLayout`'s default flipped `'single'` → `'mirror'`** (Aaron's
+    call) for the two-leg-canvas products (mesh shorts, joggers). It was `'single'` only as
+    the closer-to-everything-else option; a shape spanning both legs is the better default
+    and matches the seam default above.
+  - **ProductPage's options collapsed into one "Print options" disclosure, 2026-07-25**
+    (Aaron: the page felt cluttered — fairly, since two of the sections had landed that same
+    day). Five refinement sections (inside artwork, geometry placement, geometry layout, side
+    seams, stitch color) sat stacked open between the two things a customer must actually do,
+    pick artwork and pick a size. They share a defining property — each has a sensible
+    default, each is per-order rather than saved, and each invalidates the current mockup —
+    which is what makes them one group rather than five. Deliberately ONE disclosure, not one
+    accordion per section: five collapsed sections would be no less cluttered than five open
+    ones, just with more clicks.
+    **The collapsed summary line is load-bearing, not decoration** ("Geometry on all panels ·
+    Continuous seams · White stitching"): because these settings invalidate the preview,
+    hiding them bare would let someone change one, forget, and buy under settings they can no
+    longer see. It also keeps geometry placement — the one option no other print-on-demand
+    store offers — advertised while shut, which is the main cost of collapsing it.
+    This also resolved a real numbering inconsistency: "1. Choose artwork" and "2. Size" had
+    four unnumbered sections wedged between them. The numbers stay on the required steps
+    only, since numbering a clearly-optional disclosure as "step 2" would imply a sequence
+    that isn't one.
+  - **Two designs on one reversible garment, 2026-07-25** (Aaron's idea, raised while the
+    hat above was being added — both faces printing the same artwork wastes the format).
+    `PRODUCT_MOCKUP_CONFIG`'s new `secondaryDesign` block (bucket hat only) declares which
+    placements a second design covers; `ProductPage.jsx` renders an optional second artwork
+    slot for it (same `ArtworkPickerModal`, now targeted via `pickerTarget`), and
+    `renderAndUploadPrintFiles` takes `secondaryDesign`/`secondaryPlacements`.
+    Three things worth knowing before touching it:
+    (1) **The render cache key had to gain a design discriminator.** All four hat face
+    placements share one printfile (410), and the key was
+    `printfileId:includeGeometry:layout` — so the inside would have collided with the
+    outside's entry and been served the outside's render. The `:b` suffix only ever appears
+    when a genuinely different second design is in play, so every other product's keys are
+    untouched (verified: render routing byte-identical across all 11 pre-existing products ×
+    3 geometry layouts, before vs. after).
+    (2) **A secondary equal to the primary is treated as no secondary** (`isSameDesign`, not
+    `===` — ProductPage builds the two objects separately). Both faces then share one render
+    rather than paying twice for identical output. Verified all three cases directly against
+    the real hat printfile spec: none → 1 render, same-design → 1 render, two designs → 2
+    renders with the inside placements correctly on the second.
+    (3) **It is deliberately absent from the mockup path and its cache key.** The mockup
+    only requests `cfg.placements`, which excludes both inside placements, so a second
+    design cannot change any preview pixel — listing it as a dependency would throw away an
+    accurate mockup and cost the customer another 30–90s Printful round trip for an
+    identical photo. The audit copy rides in `order_items.design_data` as a nested
+    `secondaryDesign` key (that column is write-only, so this needed no migration and leaves
+    every other product's row shape byte-identical).
 - **Storage growth in `design-mockups`: found and fixed 2026-07-19** (the bucket had
   reached ~357MB — a third of the free-tier quota — 254MB of it print-resolution renders
   from Aaron's own test checkouts, uploaded under timestamped names by `render-print-file`
@@ -1002,7 +1224,7 @@ larger than the button column — it's the panel's visual anchor.
     Stripe test keys + `PRINTFUL_SKIP_CONFIRM` set): shipping charged $5.99, exactly
     `RATE_CENTS.light.GB`; tax $0 (Stripe Tax isn't registered outside California, so
     international destinations correctly aren't taxed today — worth revisiting if
-    UK/EU VAT compliance ever becomes a real requirement). The 3 non-clothing starter products (tote bag, crossbody bag, pillow) aren't
+    UK/EU VAT compliance ever becomes a real requirement). The 4 non-garment starter products (tote bag, crossbody bag, pillow, bucket hat) aren't
     covered by Printful's clothing rate tables and are approximated as `"light"` pending a
     real look-up. `SHIPPING_FLAT_CENTS` still works as an emergency override to a single
     flat rate (or 0 to disable shipping entirely), same instant-toggle pattern as the

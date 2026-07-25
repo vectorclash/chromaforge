@@ -105,14 +105,18 @@ function describeFailure(reasons) {
 // IS submitted to Printful's mockup-tasks endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions) {
+function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
     .join(',');
   const geometrySignature = geometryPlacements ? [...geometryPlacements].sort().join(',') : 'all';
   const optionsSignature = productOptions ? JSON.stringify(productOptions) : 'default';
-  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${optionsSignature}:${JSON.stringify(design)}`;
+  // mirrorPlacements is part of the key because it genuinely changes the returned photo --
+  // unlike the secondary-design choice, which only affects placements no camera angle shows
+  // (see ProductPage's sync effect). A stale unmirrored preview would misrepresent the seam.
+  const mirrorSignature = mirrorPlacements ? [...mirrorPlacements].sort().join(',') : 'none';
+  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${JSON.stringify(design)}`;
 }
 
 export function useMockup() {
@@ -167,6 +171,7 @@ export function useMockup() {
       design,
       geometryPlacements = null,
       geometryLayout = null,
+      mirrorPlacements = null,
       productOptions = null
     }) => {
       if (!design) {
@@ -189,7 +194,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions);
+      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -224,7 +229,8 @@ export function useMockup() {
           renderOne: capRenderStrategy(renderDesignBlob),
           pocketCrop: cfg.pocketCrop || null,
           geometryPlacements,
-          geometryLayout
+          geometryLayout,
+          mirrorPlacements
         });
 
         const placements = entries.map(([placementKey]) => ({
@@ -317,6 +323,7 @@ export function useMockup() {
       design,
       geometryPlacements = null,
       geometryLayout = null,
+      mirrorPlacements = null,
       productOptions = null
     }) => {
       setError(null);
@@ -324,7 +331,7 @@ export function useMockup() {
       const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
       const key =
         entries
-          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, productOptions)
+          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

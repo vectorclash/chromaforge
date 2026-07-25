@@ -62,13 +62,14 @@ export async function renderDesign({
   settings = null,
   includeGeometry = true,
   geometryLayout = null,
+  mirrorX = false,
   regions = null,
   sourceWidth = null,
   sourceHeight = null
 }) {
   const images = await loadStarImages();
   if (!regions) {
-    const config = generateArtwork(seed, width, height, colors, settings, { includeGeometry, geometryLayout });
+    const config = generateArtwork(seed, width, height, colors, settings, { includeGeometry, geometryLayout, mirrorX });
     const canvas = renderArtwork(config, images);
     return canvas.toBuffer('image/png');
   }
@@ -77,7 +78,8 @@ export async function renderDesign({
   // for the source keeps the pocket a true continuation of whatever the front actually shows.
   const sourceConfig = generateArtwork(seed, sourceWidth, sourceHeight, colors, settings, {
     includeGeometry,
-    geometryLayout
+    geometryLayout,
+    mirrorX
   });
   const sourceCanvas = renderArtwork(sourceConfig, images);
   const output = createCanvas(width, height);

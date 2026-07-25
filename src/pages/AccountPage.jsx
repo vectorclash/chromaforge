@@ -288,153 +288,174 @@ export default function AccountPage() {
           <p className="text-text-secondary">Loading profile…</p>
         ) : (
           <>
-            <div className="mb-10 flex animate-fade-slide-up items-center gap-5">
-              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
-                {avatarUrl && (
-                  <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
-                )}
-              </div>
-              <div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={regenerateAvatar}
-                  disabled={avatarBusy}
-                  aria-busy={avatarBusy}
+            {/* Two columns, deliberately ASYMMETRIC rather than a uniform grid of equal
+                cards. These blocks aren't peers: stats is two numbers, the profile is a
+                short form, and orders is a long paginated list with its own tabs. Forcing
+                them into equal cells would crowd the list and leave the stats card mostly
+                whitespace. So the small, fixed-height things stack in a narrow side column
+                and the one thing that actually grows gets the width -- which is also the
+                width the page was wasting before, when every block was max-w-sm in a single
+                column. Collapses to one column below lg, which is what it already was.
+                Every block now shares the same card treatment; previously only stats had
+                one, so the page read as a single card plus some loose content. */}
+            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+              <div className="space-y-6">
+                <form
+                  onSubmit={onSaveProfile}
+                  className="animate-fade-slide-up space-y-5 rounded-xl border border-hairline bg-ink-800 p-5"
                 >
-                  {avatarBusy ? 'Generating…' : avatarUrl ? 'Regenerate avatar' : 'Generate avatar'}
-                </Button>
-                {avatarError && <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>}
-              </div>
-            </div>
-
-            {stats && (
-              <div
-                className="mb-10 max-w-sm animate-fade-slide-up rounded-xl border border-hairline bg-ink-800 p-5"
-                style={{ animationDelay: '60ms' }}
-              >
-                <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
-                  Your stats
-                </h2>
-                <div className="mt-3 flex gap-8 font-quicksand text-sm text-text-secondary">
-                  <span>
-                    <strong className="text-text">{stats.designCount}</strong>{' '}
-                    {stats.designCount === 1 ? 'design' : 'designs'} saved
-                  </span>
-                  <span>
-                    <strong className="text-text">{stats.totalLikes}</strong>{' '}
-                    {stats.totalLikes === 1 ? 'like' : 'likes'} received
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {(!activeOrdersLoading || activeOrders.length > 0) && (
-              <div className="mb-10 max-w-sm animate-fade-slide-up" style={{ animationDelay: '120ms' }}>
-                <div className="flex items-center gap-4 border-b border-hairline">
-                  <button
-                    className={orderTabClass(orderTab === 'active')}
-                    onClick={() => setOrderTab('active')}
-                  >
-                    Active orders
-                  </button>
-                  <button
-                    className={orderTabClass(orderTab === 'history')}
-                    onClick={() => setOrderTab('history')}
-                  >
-                    Order history
-                  </button>
-                </div>
-
-                {orderTab === 'active' && (
-                  <div className="mt-3 space-y-2">
-                    {activeOrdersLoading && <p className="text-sm text-text-secondary">Loading…</p>}
-                    {!activeOrdersLoading && activeOrders.length === 0 && (
-                      <p className="text-sm text-text-secondary">No orders in progress.</p>
-                    )}
-                    {activeOrders.map((order, i) => (
-                      <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
-                    ))}
-                  </div>
-                )}
-
-                {orderTab === 'history' && (
-                  <div className="mt-3 space-y-2">
-                    {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
-                    {historyError && <p className="text-sm text-accent">{historyError}</p>}
-                    {!historyLoading && historyLoaded && historyOrders.length === 0 && (
-                      <p className="text-sm text-text-secondary">No past orders.</p>
-                    )}
-                    {historyOrders.map((order, i) => (
-                      <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
-                    ))}
-                    {historyHasMore && (
+                  <div className="flex items-center gap-5">
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
+                      {avatarUrl && (
+                        <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                      )}
+                    </div>
+                    <div>
                       <Button
                         type="button"
                         variant="secondary"
                         size="sm"
-                        onClick={onLoadMoreHistory}
-                        disabled={historyLoadingMore}
-                        aria-busy={historyLoadingMore}
+                        onClick={regenerateAvatar}
+                        disabled={avatarBusy}
+                        aria-busy={avatarBusy}
                       >
-                        {historyLoadingMore ? 'Loading…' : 'Load more'}
+                        {avatarBusy ? 'Generating…' : avatarUrl ? 'Regenerate avatar' : 'Generate avatar'}
                       </Button>
-                    )}
+                      {avatarError && <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>}
+                    </div>
+                  </div>
+                  <Field label="Display name" htmlFor="display-name">
+                    <Input
+                      id="display-name"
+                      value={displayName}
+                      onChange={e => {
+                        setDisplayName(e.target.value);
+                        setProfileSaved(false);
+                      }}
+                      placeholder="How your name shows on the gallery"
+                    />
+                  </Field>
+                  <Field label="Username" htmlFor="username">
+                    <Input
+                      id="username"
+                      value={username}
+                      onChange={e => {
+                        setUsername(e.target.value);
+                        setProfileSaved(false);
+                      }}
+                      placeholder="yourname"
+                    />
+                  </Field>
+                  {profileError && <p className="animate-pop-in text-sm text-accent">{profileError}</p>}
+                  <div className="flex items-center gap-3 pt-1">
+                    <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
+                      {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await signOut();
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                      disabled={busy}
+                    >
+                      Sign out
+                    </Button>
+                  </div>
+                </form>
+
+                {stats && (
+                  <div
+                    className="animate-fade-slide-up rounded-xl border border-hairline bg-ink-800 p-5"
+                    style={{ animationDelay: '60ms' }}
+                  >
+                    <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
+                      Your stats
+                    </h2>
+                    <div className="mt-3 flex gap-8 font-quicksand text-sm text-text-secondary">
+                      <span>
+                        <strong className="text-text">{stats.designCount}</strong>{' '}
+                        {stats.designCount === 1 ? 'design' : 'designs'} saved
+                      </span>
+                      <span>
+                        <strong className="text-text">{stats.totalLikes}</strong>{' '}
+                        {stats.totalLikes === 1 ? 'like' : 'likes'} received
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
-            )}
 
-            <form
-              onSubmit={onSaveProfile}
-              className="max-w-sm animate-fade-slide-up space-y-5"
-              style={{ animationDelay: '240ms' }}
-            >
-              <Field label="Display name" htmlFor="display-name">
-                <Input
-                  id="display-name"
-                  value={displayName}
-                  onChange={e => {
-                    setDisplayName(e.target.value);
-                    setProfileSaved(false);
-                  }}
-                  placeholder="How your name shows on the gallery"
-                />
-              </Field>
-              <Field label="Username" htmlFor="username">
-                <Input
-                  id="username"
-                  value={username}
-                  onChange={e => {
-                    setUsername(e.target.value);
-                    setProfileSaved(false);
-                  }}
-                  placeholder="yourname"
-                />
-              </Field>
-              {profileError && <p className="animate-pop-in text-sm text-accent">{profileError}</p>}
-              <div className="flex items-center gap-3 pt-1">
-                <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
-                  {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await signOut();
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  disabled={busy}
+              {(!activeOrdersLoading || activeOrders.length > 0) && (
+                <div
+                  className="animate-fade-slide-up rounded-xl border border-hairline bg-ink-800 p-5"
+                  style={{ animationDelay: '120ms' }}
                 >
-                  Sign out
-                </Button>
-              </div>
-            </form>
+                  <div className="flex items-center gap-4 border-b border-hairline">
+                    <button
+                      className={orderTabClass(orderTab === 'active')}
+                      onClick={() => setOrderTab('active')}
+                    >
+                      Active orders
+                    </button>
+                    <button
+                      className={orderTabClass(orderTab === 'history')}
+                      onClick={() => setOrderTab('history')}
+                    >
+                      Order history
+                    </button>
+                  </div>
+
+                  {/* The list scrolls inside the card above lg, rather than growing the
+                      card without limit: at desktop width this sits beside a short side
+                      column, so an unbounded list leaves the profile/stats cards stranded
+                      against a wall of orders. Below lg it's a single column again and the
+                      page's own scroll is the natural one -- a nested scroller on a phone is
+                      worse than a long page. */}
+                  {orderTab === 'active' && (
+                    <div className="mt-3 space-y-2 lg:max-h-[32rem] lg:overflow-y-auto lg:pr-1">
+                      {activeOrdersLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                      {!activeOrdersLoading && activeOrders.length === 0 && (
+                        <p className="text-sm text-text-secondary">No orders in progress.</p>
+                      )}
+                      {activeOrders.map((order, i) => (
+                        <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
+                      ))}
+                    </div>
+                  )}
+
+                  {orderTab === 'history' && (
+                    <div className="mt-3 space-y-2 lg:max-h-[32rem] lg:overflow-y-auto lg:pr-1">
+                      {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                      {historyError && <p className="text-sm text-accent">{historyError}</p>}
+                      {!historyLoading && historyLoaded && historyOrders.length === 0 && (
+                        <p className="text-sm text-text-secondary">No past orders.</p>
+                      )}
+                      {historyOrders.map((order, i) => (
+                        <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
+                      ))}
+                      {historyHasMore && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={onLoadMoreHistory}
+                          disabled={historyLoadingMore}
+                          aria-busy={historyLoadingMore}
+                        >
+                          {historyLoadingMore ? 'Loading…' : 'Load more'}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
       </PageContainer>

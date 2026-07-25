@@ -9,6 +9,7 @@ import { listTopLikedDesigns, listMyLikedIds, toggleLike, getThumbnailUrl } from
 import { useAuth } from '../../context/AuthContext';
 import { useStudio } from '../../context/StudioContext';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
+import AuthorBadge from '../ui/AuthorBadge';
 
 // Homepage preview of the gallery -- the 8 most-liked public designs. Solid surface (no
 // live art behind the grid as a whole; the artworks themselves are the content). Thumbnails
@@ -181,12 +182,11 @@ export default function GallerySection() {
                         `:hover` to reveal this, so without the media-query gate the
                         caption/CTA would be permanently invisible on mobile instead of just
                         hover-deferred on desktop. */}
-                    <div className="[@media(hover:hover)]:translate-y-5 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
-                      {design.profiles && (
-                        <span className="block truncate text-xs text-text-secondary">
-                          by {design.profiles.display_name || design.profiles.username || 'someone'}
-                        </span>
-                      )}
+                    {/* space-y-1 rather than relying on line-height alone: the byline is a flex
+                        row containing a 16px avatar circle, so it is taller than the plain text
+                        lines it sits between and crowded them once the avatar landed there. */}
+                    <div className="space-y-1 [@media(hover:hover)]:translate-y-5 transition-transform duration-300 ease-out [@media(hover:hover)]:group-hover:translate-y-0 [@media(hover:hover)]:group-focus-within:translate-y-0">
+                      <AuthorBadge profile={design.profiles} />
                       {/* Was "Open in studio" -- clicking a card now opens the gallery
                           modal (with its own explicit "Open in studio" link) instead of
                           jumping straight into the Studio. */}

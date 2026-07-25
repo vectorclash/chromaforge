@@ -8,10 +8,12 @@
 // or panel (printed fabric pieces sewn together), not DTG-on-a-flat-placement, so they all
 // use the same Printful "technique" value, and all require a stitch_color product option --
 // Printful rejects the task without it even though it's not obviously implied by anything
-// in getPrintfileSpecs (GET /products/{id} -> result.product.options lists which products
-// need this and which values are valid -- e.g. the tote bag/crossbody bag only accept
-// black/clear, not white; there's no generic way to detect "required" from that response,
-// so this is a small hand-verified map rather than something derived).
+// in getPrintfileSpecs. GET /products/{id} -> result.product.options lists which values are
+// valid (e.g. the tote bag/crossbody bag only accept black/clear, not white), but it is NOT
+// a reliable list of which products REQUIRE the option: the windbreaker (615) omits
+// stitch_color from v1 entirely while v2 rejects any task without it (see 615's entry).
+// There's no generic way to detect "required" from either response, so this is a small
+// hand-verified map rather than something derived.
 //
 // `mockupStyleIds` picks which photographed camera angles come back (GET
 // /v2/catalog-products/{id}/mockup-styles lists the options -- each product has dozens:
@@ -36,18 +38,39 @@
 // they're not visible in any Front/Back photo. A real print order still needs every
 // placement filled in regardless of what's visible in a preview photo -- that's a separate,
 // not-yet-built concern (no checkout exists yet) from generating a mockup.
+// `mirrorPlacements` -- placements rendered horizontally flipped so the pattern continues
+// across a garment's visible side seams instead of restarting at each. Set on every product
+// with a distinct back panel; see the bucket hat (654) below for the geometry of WHY
+// mirroring the back closes BOTH seams rather than just one, and renderArtwork.js for where
+// the flip happens. Two facts make this safe across the range, both checked rather than
+// assumed (2026-07-25): every one of these products' back print area is centered in its
+// template to within 2px of 3000 (0.07%), and a garment's front/back panels are themselves
+// symmetric about their own vertical centerline, so a full-canvas mirror maps the panel onto
+// itself instead of shifting artwork relative to fabric.
+// Deliberately NOT set on three products:
+//   274 tote bag -- no distinct 'back' placement at all; one canvas wraps the whole bag.
+//   693 mesh shorts and 784 wide-leg joggers -- both DO have a back placement in their
+//     printfile mapping, but both are `twoLegCanvas` (see below): each canvas is physically
+//     CUT IN HALF into two legs, so front and back don't meet as one cylinder at two side
+//     seams. Each leg has its own outseam and inseam, and the simple
+//     front's-right-edge-meets-back's-left-edge argument that makes mirroring correct
+//     everywhere else does not hold. Would need its own seam analysis before being enabled.
+// It's exposed as a per-order customer toggle (ProductPage's "Side seams"), default on.
 export const PRODUCT_MOCKUP_CONFIG = {
   257: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['default', 'back', 'sleeve_left', 'sleeve_right'],
-    mockupStyleIds: [15714, 15715]
+    mockupStyleIds: [15714, 15715],
+    mirrorPlacements: ['back']
   }, // men's t-shirt
   388: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
     mockupStyleIds: [20169, 20170],
+    mirrorPlacements: ['back'],
+
     // The kangaroo pocket's physical region within the FRONT placement's own canvas, as a
     // src->dest region mapping (see renderAndUploadPrintFiles/pocketCrop below for the
     // general mechanism). Every placement on this product shares one 6000x6000 printfile
@@ -77,13 +100,15 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right'],
-    mockupStyleIds: [18428, 18429]
+    mockupStyleIds: [18428, 18429],
+    mirrorPlacements: ['back']
   }, // sweatshirt
   261: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['default', 'back', 'sleeve_left', 'sleeve_right'],
-    mockupStyleIds: [15777, 15778]
+    mockupStyleIds: [15777, 15778],
+    mirrorPlacements: ['back']
   }, // women's t-shirt
   274: {
     technique: 'cut-sew',
@@ -107,6 +132,7 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // GET /v2/catalog-products/83/mockup-styles. mockupStyleIds stays as the 18"x18"
     // fallback for any variant Printful adds later.
     mockupStyleIds: [12675, 12676],
+    mirrorPlacements: ['back'],
     mockupStyleIdsByVariant: {
       49853: [31042, 31050], // 14"x14"
       49854: [31049, 31051], // 16"x16"
@@ -132,6 +158,8 @@ export const PRODUCT_MOCKUP_CONFIG = {
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
     mockupStyleIds: [257, 265],
+    mirrorPlacements: ['back'],
+
     // This product's FRONT is two separate zip panels side by side in one canvas (split
     // by the center zipper), and 'pocket' is two separate welt pockets -- one per panel --
     // combined into ONE placement file, on its OWN printfile (507, 5250x3750 landscape),
@@ -172,7 +200,8 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // 'details' omitted -- confirmed live to fail the task when combined with the sleeve
     // placements (see comment above). This set already covers every visible panel.
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'pocket'],
-    mockupStyleIds: [23286, 23287]
+    mockupStyleIds: [23286, 23287],
+    mirrorPlacements: ['back']
     // No pocketCrop here, deliberately: checked this product's 'pocket' placement against
     // its mockup-generator templates (printful-catalog?id=801&templates=1, template
     // 494610) and it's the INSIDE pocket bag lining -- never visible on the worn or
@@ -183,7 +212,97 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'black' }],
     placements: ['front', 'back', 'pocket', 'details'],
-    mockupStyleIds: [21376, 21377]
-  } // crossbody bag
+    mockupStyleIds: [21376, 21377],
+    mirrorPlacements: ['back']
+  }, // crossbody bag
+  615: {
+    technique: 'cut-sew',
+    // v1 GET /products/615 does NOT list stitch_color in result.product.options at all --
+    // but v2 mockup-tasks rejects the task outright without it ("The required product
+    // option: `stitch_color` is missing"), and v2 GET /catalog-products/615 DOES list it
+    // (white/clear/black). Confirmed live both ways, 2026-07-25. Two consequences:
+    // getStitchColorOption reads the v1 list, so this product shows no stitch-color picker
+    // and silently uses the value below (the pre-picker behavior every product had, so it
+    // degrades cleanly rather than breaking); and check-printful-catalog.mjs has to fall
+    // back to the v2 option list for it -- see that script's option check.
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // hood_inner and facing are also real placements on this product, deliberately left out
+    // here: they're the hood lining and the inner zip placket, neither visible in a Flat
+    // Front/Back photo (same treatment as the sweatshirt's interior panels). A real order
+    // still fills them -- resolvePlacementEntries runs unfiltered at checkout.
+    placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood'],
+    mockupStyleIds: [3963, 3972],
+    mirrorPlacements: ['back']
+  }, // windbreaker
+  390: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // 'details' is INCLUDED here, unlike the track jacket (801) where combining it with the
+    // sleeve placements fails the whole task -- verified live on this product that the same
+    // combination completes fine (2026-07-25). It's also load-bearing rather than optional:
+    // a front/back/sleeves-only submission renders the ribbed waistband and both pocket
+    // welts as blank white fabric, a wide unprinted band across the bottom of an otherwise
+    // fully-printed jacket (compared byte-for-byte against the with-details mockup of the
+    // same variant). 801 has that same gap in its preview today and can't close it for as
+    // long as Printful rejects the combination there.
+    placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'details'],
+    mockupStyleIds: [3033, 3034],
+    mirrorPlacements: ['back']
+  }, // bomber jacket
+  654: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // Reversible: outside_front/outside_back and inside_front/inside_back are four
+    // separately printed panels, and the customer wears either face out. But NO mockup
+    // style photographs the inside -- this product's catalog lists "Front Inside"/"Back
+    // Inside" styles (4900/4865) that come back BYTE-IDENTICAL to their Outside
+    // counterparts (4863/4864), verified by md5 on a real 4-style task; and submitting only
+    // the outside placements produces byte-identical photos to submitting all four, so the
+    // inside placements contribute nothing to any preview. So the mockup set is the two
+    // outside placements only (including the inside ones would just burn renders, and the
+    // duplicate style ids would show the customer the same photo twice -- useMockup dedupes
+    // by style_id, which can't catch two ids serving one image). The inside panels are
+    // still really printed: checkout submits every placement unfiltered.
+    placements: ['outside_front', 'outside_back'],
+    mockupStyleIds: [4863, 4864],
+    // The printed-but-unphotographed inside panels above are exactly why this override
+    // exists -- see getGeometryPlacementOptions in printful.js.
+    geometryPlacementKeys: ['outside_front', 'outside_back', 'inside_front', 'inside_back'],
+    // Each face's printfile carries TWO cut pieces -- half the crown side-wall and half the
+    // brim -- so front and back meet at the two side seams Printful's own template labels
+    // "Visible seams". Both halves otherwise render the identical image (they share printfile
+    // 410, one cache entry), so the composition restarts at each seam; confirmed on a real
+    // side-view mockup (style 4899), where the pattern plainly breaks down the middle of the
+    // crown and again across the brim.
+    // Mirroring the BACK half closes BOTH seams from one render, which is the non-obvious
+    // part: going around the crown, the front's right edge meets the back's left edge, and a
+    // mirrored back's left edge IS the front's right edge -- then continuing round, the
+    // mirrored back's right edge is the front's left edge, exactly what the other seam leads
+    // into. The flip is safe against these cut pieces because both sit near-centered in the
+    // 3000x3000 template (crown x~137-600, brim x~70-655, center 364), so a full-canvas
+    // mirror maps each piece essentially onto itself, reversed.
+    // The result is bilaterally symmetric, NOT an endless wrap -- endless wrap would need a
+    // horizontally tileable composition, which this generator can't produce, so mirroring is
+    // the only fix available that closes both seams at once. That's a taste call, hence the
+    // customer-facing toggle in ProductPage (default on).
+    mirrorPlacements: ['outside_back', 'inside_back'],
+    // The garment is reversible, so printing one design on both faces wastes the format --
+    // ProductPage offers an optional SECOND design for the inside placements (see
+    // getSecondaryDesignConfig and renderAndUploadPrintFiles' secondaryDesign param).
+    // Optional by design: with none picked, both faces render from the one design exactly as
+    // every other product does, and the shared printfile (410) means it stays a single render.
+    // The label placements deliberately aren't listed -- the mark is branding, not artwork,
+    // and splitting it across two designs would add a render for something nobody reads as
+    // belonging to one face. Note the customer can never SEE this choice on the product: no
+    // mockup style photographs the inside (see the placements comment above), so the UI has
+    // to say so rather than implying the preview covers it.
+    secondaryDesign: {
+      placements: ['inside_front', 'inside_back'],
+      primaryLabel: 'Outside',
+      label: 'Inside',
+      // Rendered under the picker, verbatim.
+      note: "Printful can't photograph the inside of this hat, so a second design won't show up in the preview above — you'll first see it on the hat itself."
+    }
+  } // reversible bucket hat
 };
 

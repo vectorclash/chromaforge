@@ -1,4 +1,3 @@
-import tinycolor from 'tinycolor2';
 import { randomPalette } from '../../render/prng';
 import { getCountScale, getSizeScale } from '../../render/scale';
 
@@ -45,23 +44,13 @@ export default class GenerateLargeRadialField {
       let colorAmount = 2 + Math.round(rng() * 3);
 
       if (colors.length > 0) {
-        if (colors.length === 1) {
-          let colorChance = rng();
-          if (colorChance > 0.5) {
-            let ranGrayScale = Math.round(rng() * 255);
-            let newColor = tinycolor({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
-            let colorOrderChance = rng();
-            if (colorOrderChance > 0.5) {
-              radGrad.colors.push(colors[0]);
-              radGrad.colors.push(newColor);
-            } else {
-              radGrad.colors.push(newColor);
-              radGrad.colors.push(colors[0]);
-            }
-          }
-        } else {
-          radGrad.colors = colors.slice();
-        }
+        // No colors.length === 1 special case any more: generateArtwork expands a
+        // one-colour palette before any generator sees it (see expandMonochromePalette).
+        // What was here paired the colour with a RANDOM GREYSCALE value -- and only 50% of
+        // the time, since the `else` pushed nothing at all, leaving radGrad.colors empty and
+        // rendering roughly half of a single-colour design's blobs invisible. It also pushed
+        // a raw tinycolor object, which crashed the print renderer outright.
+        radGrad.colors = colors.slice();
       } else {
         radGrad.colors = randomPalette(rng, colorAmount);
       }

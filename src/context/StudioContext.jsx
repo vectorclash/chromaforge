@@ -95,14 +95,20 @@ export function StudioProvider({ children }) {
   // (the mini-generator/footer/mobile-nav previews) -- only callers that render once per
   // save or on-demand (thumbnails, the gallery modal) opt in.
   const renderDesignBlob = useCallback(
-    async (config, width, height, { includeGeometry = true, geometryLayout = null, highDensity = false } = {}) => {
+    async (
+      config,
+      width,
+      height,
+      { includeGeometry = true, geometryLayout = null, mirrorX = false, highDensity = false } = {}
+    ) => {
       if (!queueRef.current) throw new Error('Render assets are still loading.');
       const { width: genWidth, height: genHeight } = highDensity
         ? densityFloorSize(width, height)
         : { width, height };
       const built = generateArtwork(config.seed, genWidth, genHeight, config.colors, config.settings, {
         includeGeometry,
-        geometryLayout
+        geometryLayout,
+        mirrorX
       });
       const canvas = renderArtwork(built, queueRef.current);
       let outputCanvas = canvas;

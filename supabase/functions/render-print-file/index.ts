@@ -83,7 +83,8 @@ Deno.serve(async req => {
   }
 
   const body = await req.json();
-  const { design, width, height, label, includeGeometry, geometryLayout, regions, sourceWidth, sourceHeight } = body;
+  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, regions, sourceWidth, sourceHeight } =
+    body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
       { error: { message: "Missing required fields: design.seed, design.generatorVersion, width, height" } },
@@ -147,6 +148,7 @@ Deno.serve(async req => {
         // PRODUCT_MOCKUP_CONFIG's twoLegCanvas and GeometricShape.js). Absent/null for
         // every other product, which renders identically to before this existed.
         geometryLayout: geometryLayout ?? null,
+        mirrorX: mirrorX === true,
         // Optional region composite for placements that continue a larger panel's artwork
         // (hoodie/zip-hoodie pocket) -- validated by render-service itself, just
         // forwarded here. When set, sourceWidth/sourceHeight are the FRONT placement's own

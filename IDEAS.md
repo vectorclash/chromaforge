@@ -44,15 +44,28 @@ Two things that will bite if forgotten:
   first real question when picking this up is whether a pixel pass at print resolution
   blows the Fly machine — before choosing any effects.
 
-## Bucket hat
+## ~~Bucket hat~~ → shipped 2026-07-25
 
-Most Printful headwear is embroidery (snapbacks, dad hats, beanies), which needs stitch
-files with a limited thread-color count — the generative artwork fundamentally can't
-produce that. The **bucket hat** is the exception: Printful offers it as all-over-print
-cut-sew, so it should slot into the existing flow like any other product (verify
-placements against a real mockup task, add a `PRODUCT_MOCKUP_CONFIG` entry, done).
+The reversible bucket hat (654) is in the starter set now, along with the windbreaker
+(615) and bomber jacket (390). The reasoning that made it the right headwear pick still
+holds and is worth keeping: most Printful headwear is embroidery (snapbacks, dad hats,
+beanies), which needs stitch files with a limited thread-color count that the generative
+artwork fundamentally can't produce. The bucket hat is the exception — all-over-print
+cut-sew, so it slotted into the existing flow like any other product.
 
-If a hat happens, this is the one to check first.
+The optional second design for its inside face (Aaron's idea, raised the same day) was
+built immediately after — see CLAUDE.md's merch-pipeline section. The one thing to
+remember about it: **no mockup style photographs the inside**, so that choice can never
+appear in a preview, which is why the UI states it outright rather than implying otherwise.
+
+Its two side seams are handled too: the front and back halves each carry half the crown
+side-wall and half the brim, so an unmirrored back restarts the pattern at both seams
+(confirmed on a real side-view mockup, style 4899). Printing the back mirrored closes
+*both* — the front's right edge meets the mirrored back's left edge, which is the same
+pixels, and the same holds coming round the other side. Exposed as a customer toggle
+(Continuous / Independent, default Continuous) rather than decided globally, since the
+result is bilaterally symmetric, which is a matter of taste. Endless wrap isn't reachable:
+it would need a horizontally tileable composition the generator can't produce.
 
 ## Beanie with the vectorclash mark
 
@@ -67,6 +80,34 @@ not a generated piece.
 
 Open question if picked up: whether Printful's embroidery flow accepts what you'd hand
 them. That's the first thing to check, not the artwork.
+
+## Saved default sizes — built and reverted, 2026-07-25
+
+A `preferred_top_size` / `preferred_bottom_size` pair on `profiles`, pre-selecting the size
+on every clothing product. Fully built (migration, Account page UI, variant resolution,
+verified across all 14 products) and then reverted the same day on Aaron's call. Both the
+columns and the code are gone; migration `0016` was dropped by `revert_profile_default_sizes`.
+
+**The constraint that killed it:** Printful's sizing is not consistent across product lines.
+These are different blanks from different manufacturers — an all-over-print cut-sew tee's L
+and a windbreaker's L are not the same fit — so a saved size can only ever be a guess, while
+a *pre-selected* size carries the authority of a decision. The failure mode isn't the default
+being wrong, it's a customer skimming past a choice they didn't know had been made, and a
+wrong-size order the customer picked isn't covered by Printful's returns.
+
+Two lesser findings worth keeping if this is ever revisited:
+
+- **Never substitute a near size.** The first build fell back to the nearest available size
+  when a product didn't stock the saved one (5XL → a tee's 2XL). That silently puts a size in
+  the cart nobody chose, and it's strictly worse than not pre-selecting at all.
+- **Four products can't take a body size anyway** — the tote and crossbody have one variant,
+  the pillow is sized in inches, and the bucket hat sizes on head circumference (S/M, L/XL),
+  which has no relationship to a chest measurement.
+
+**The actually-useful version of this idea was built instead:** Printful's per-product size
+tables are now surfaced on the product page (a "Size guide" link beside the size picker, see
+CLAUDE.md). They answer "which size am I on THIS garment" — the real question — rather than
+guessing at it from a remembered preference.
 
 ## User poll for what product to add next
 

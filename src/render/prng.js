@@ -75,6 +75,45 @@ export function randomColorHex(rng) {
 // the palette to a specific hue instead of picking its own -- see GenerateStarField's use
 // of this to bias its own gradient toward the *complement* of the main background's hue,
 // so a muted background still gets a guaranteed contrasting accent elsewhere.
+// Expands a ONE-colour palette into a small set that still reads as that colour: the base
+// kept exactly, plus companions bracketing it lighter and darker within a narrow analogous
+// hue window. A single-colour design is a real thing a customer can make (nothing in the
+// studio's colour list stops you removing down to one), and before this the three
+// generators that special-cased it each improvised their own companion -- usually a RANDOM
+// GREYSCALE value, which is neither similar to the chosen colour nor monochromatic, and
+// which each layer picked differently so the piece didn't even hold together.
+// Companions alternate lighter/darker rather than all drifting one way, so the set brackets
+// the base instead of sliding away from it. A greyscale base deliberately stays greyscale
+// (spinning the hue of a zero-saturation colour does nothing anyway, and quietly injecting
+// saturation into someone's black-and-white choice is not "similar").
+// Returns hex STRINGS, like randomPalette -- not tinycolor objects. That distinction is not
+// cosmetic: the old greyscale branches pushed raw tinycolor objects, which browsers accept
+// because addColorStop stringifies them via toString(), but @napi-rs/canvas rejects outright
+// ("Failed to convert JavaScript value ... into rust type String"). So every single-colour
+// design rendered fine on screen and crashed the print pipeline -- the same browsers-are-
+// lenient trap as GenerateLargeRadialField's alpha-as-a-string bug.
+function clamp(n, min, max) {
+  return Math.min(max, Math.max(min, n));
+}
+
+export function expandMonochromePalette(baseColor, rng, count = 3) {
+  const base = tinycolor(baseColor);
+  const { h, s, l } = base.toHsl();
+  const isGrey = s === 0;
+  const colors = [base.toHexString()];
+  for (let i = 1; i < count; i++) {
+    const dir = i % 2 === 1 ? 1 : -1;
+    const step = Math.ceil(i / 2);
+    const hue = isGrey ? h : (h + dir * (8 + rng() * 14) * step + 360) % 360;
+    // Clamped away from pure black/white so a companion never collapses into an invisible
+    // or blown-out stop, however extreme the chosen base is.
+    const lightness = clamp(l * 100 + dir * (10 + rng() * 14) * step, 12, 88);
+    const saturation = isGrey ? 0 : clamp(s * 100 + (rng() - 0.5) * 20, 20, 95);
+    colors.push(tinycolor({ h: hue, s: saturation, l: lightness }).toHexString());
+  }
+  return colors;
+}
+
 export function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = null } = {}) {
   const spread = minSpread + rng() * (maxSpread - minSpread);
   const hueStart = baseHue === null ? rng() * 360 : baseHue;

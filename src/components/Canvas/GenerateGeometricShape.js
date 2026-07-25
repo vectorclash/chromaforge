@@ -290,16 +290,10 @@ export default class GenerateGeometricShape {
       // Spinning fresh from the untouched original every time bounds each shape to +-10
       // degrees of the TRUE base color, with no memory of prior calls to walk through.
       const spun = this.shuffleColors(this.colors);
-      if (spun.length === 1) {
-        let ranGrayScale = Math.round(this.rng() * 255);
-        shape.colors.push(
-          spun[0],
-          tinycolor({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale }),
-          tinycolor(spun[0])
-            .spin(-40 + this.rng() * 80)
-            .toHexString()
-        );
-      } else if (spun.length === 2) {
+      // No spun.length === 1 case: a one-colour palette is expanded centrally before any
+      // generator sees it (see expandMonochromePalette). What was here mixed in a random
+      // greyscale as a raw tinycolor object -- see GenerateLargeRadialField's note.
+      if (spun.length === 2) {
         shape.colors.push(
           spun[0],
           spun[1],

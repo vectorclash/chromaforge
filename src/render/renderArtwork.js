@@ -21,6 +21,23 @@ export default function renderArtwork(config, images) {
   canvas.width = config.width;
   canvas.height = config.height;
 
+  // config.mirrorX (set from generateArtwork's renderContext -- never part of a design's
+  // identity) horizontally flips the whole composition. Used for the back half of a garment
+  // whose front and back panels meet at visible side seams: printing the back mirrored makes
+  // the pattern continue across BOTH seams instead of restarting at each (see
+  // printful.js's mirrorPlacements). Deliberately a raster flip applied here, at the one
+  // point every layer is composited, rather than a transform pushed into each layer
+  // generator -- it's guaranteed to be a true mirror of exactly what would otherwise have
+  // been drawn, it can't perturb any rng() draw or layer geometry, and because this file is
+  // the SHARED compositor (render-service bundles and runs it verbatim) the browser mockup
+  // and the real print file mirror identically with one implementation, not two kept in
+  // sync. Every layer below is a drawImage(el, 0, 0), and nothing resets the transform, so
+  // setting it once here covers all of them.
+  if (config.mirrorX) {
+    ctx.translate(config.width, 0);
+    ctx.scale(-1, 1);
+  }
+
   const gradientBackground = LinearGradient(config.gradientBackgroundConfig);
   ctx.drawImage(gradientBackground, 0, 0);
   clearElement(gradientBackground);

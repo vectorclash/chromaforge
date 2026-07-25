@@ -1,4 +1,3 @@
-import tinycolor from 'tinycolor2';
 import { randomPalette } from '../../render/prng';
 
 export default class GenerateLinearGradient {
@@ -32,34 +31,10 @@ export default class GenerateLinearGradient {
     config.colors = [];
 
     if (colors.length > 0) {
-      if (colors.length === 1) {
-        let colorChance = rng();
-        if (colorChance > 0.5) {
-          let ranGrayScale = Math.round(rng() * 255);
-          let newColor = tinycolor({ r: ranGrayScale, g: ranGrayScale, b: ranGrayScale });
-          let colorOrderChance = rng();
-          if (colorOrderChance > 0.5) {
-            config.colors.push(colors[0]);
-            config.colors.push(newColor);
-          } else {
-            config.colors.push(newColor);
-            config.colors.push(colors[0]);
-          }
-        } else {
-          let ranSpin = -20 + rng() * 40;
-          let newColor = tinycolor(colors[0]).spin(ranSpin).toHexString();
-          let colorOrderChance = rng();
-          if (colorOrderChance > 0.5) {
-            config.colors.push(colors[0]);
-            config.colors.push(newColor);
-          } else {
-            config.colors.push(newColor);
-            config.colors.push(colors[0]);
-          }
-        }
-      } else {
-        config.colors = colors;
-      }
+      // See GenerateLargeRadialField for why the one-colour special case is gone: a
+      // one-colour palette is expanded centrally now (expandMonochromePalette), so this
+      // only ever receives two or more.
+      config.colors = colors;
     } else {
       let colorAmount = 2 + complexity;
       // When hue-biased (see GenerateStarField's use of this -- anchoring to the

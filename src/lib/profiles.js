@@ -2,8 +2,12 @@ import { supabase, isSupabaseConfigured } from './supabase';
 
 // Data-access layer for the signed-in user's own profile row. `profiles` is 1:1 with
 // auth.users (trigger-created on signup, see supabase/migrations/0001_initial_schema.sql);
-// username/display_name/avatar_url all start null and are populated from OAuth metadata
-// where available, or left for the user to set here.
+// username/display_name start null; display_name is populated from OAuth metadata where
+// available. avatar_url is deliberately NOT -- the trigger stopped adopting provider avatars
+// in 0015_never_adopt_provider_avatars.sql (Chromaforge avatars are generated art, and a
+// Google-hosted photo means every gallery visitor's browser fetches an image from Google).
+// It stays null until AccountPage generates one, which it does automatically for any profile
+// that has none.
 
 function client() {
   if (!isSupabaseConfigured) {

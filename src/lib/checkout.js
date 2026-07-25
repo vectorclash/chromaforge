@@ -24,6 +24,10 @@ export async function createCheckoutSession({
   variantLabel,
   quantity,
   design,
+  // Optional second design printed on a physically separate face of the same garment (the
+  // reversible bucket hat's inside -- see lib/printful.js's getSecondaryDesignConfig).
+  // Recorded in the order's audit copy; it never affects pricing.
+  secondaryDesign,
   printFileUrls,
   productOptions,
   mockupImageUrl,
@@ -38,6 +42,7 @@ export async function createCheckoutSession({
       variantLabel,
       quantity,
       design,
+      secondaryDesign,
       printFileUrls,
       productOptions,
       mockupImageUrl,
@@ -86,6 +91,17 @@ export async function listMyOrderHistory({ limit = 20, before = null } = {}) {
     .from('orders')
     .select('*, order_items(*)')
     .in('status', ['failed', 'canceled'])
+    // Only orders that were actually PAID for. 'canceled' covers two very different things:
+    // a real order Printful later canceled (printful-webhook's order_canceled), which the
+    // customer paid for and absolutely belongs here -- and a checkout that was started and
+    // abandoned, which create-checkout-session/the stale-pending cron mark canceled and
+    // which never charged anyone. Listing the second kind as "order history" is simply
+    // wrong: nothing was ordered. It also dominates the list, because abandoning a checkout
+    // is easy and common (every closed Stripe tab leaves one). The payment intent is the
+    // clean discriminator -- stripe-webhook sets it only once payment completes, and an
+    // order whose webhook never ran stays 'pending' and is excluded by the status filter
+    // above anyway.
+    .not('stripe_payment_intent_id', 'is', null)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('created_at', before);
