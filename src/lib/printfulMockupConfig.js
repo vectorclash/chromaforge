@@ -59,7 +59,7 @@
 //     seams. Each leg has its own outseam and inseam, and the simple
 //     front's-right-edge-meets-back's-left-edge argument that makes mirroring correct
 //     everywhere else does not hold. Would need its own seam analysis before being enabled.
-// It's exposed as a per-order customer toggle (ProductPage's "Side seams"), default on.
+// It's exposed as a per-order customer toggle (ProductPage's "Back panel"), default on.
 export const PRODUCT_MOCKUP_CONFIG = {
   257: {
     technique: 'cut-sew',

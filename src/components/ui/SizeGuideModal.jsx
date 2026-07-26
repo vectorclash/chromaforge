@@ -226,7 +226,7 @@ export default function SizeGuideModal({ open, productId, productTitle, onClose 
                 className={
                   'cursor-pointer rounded-lg border px-2.5 py-1 font-quicksand text-xs font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                   (unitKey === u.key
-                    ? 'border-accent bg-accent text-white'
+                    ? 'border-accent bg-accent text-ink-950'
                     : 'border-hairline text-text-secondary hover:border-text')
                 }
               >

@@ -35,7 +35,11 @@ function ChevronIcon({ dir = 1 }) {
 function CheckBadge() {
   return (
     <span className="absolute bottom-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-accent">
-      <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      {/* Dark ink, not white: the accent is a LIGHT colour (10.55:1 against the page), so a
+          white mark on it sits at 1.58:1 -- under WCAG 1.4.11's 3:1 for a graphic that
+          carries meaning, and visibly washed out. #1E1E1E is --color-ink-950, hardcoded here
+          only because this is an SVG stroke attribute. */}
+      <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="#1E1E1E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
         <path d="M5 13l4 4L19 7" />
       </svg>
     </span>

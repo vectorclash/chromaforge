@@ -35,7 +35,15 @@
   --color-ink-700: #2a2436;
   --color-ink-200: #F5F5F5;
 
-  /* accent (unified on studio green) */
+  /* accent (unified on studio green)
+     ANYTHING FILLED WITH --color-accent TAKES DARK TEXT, NOT WHITE. It's a light colour
+     (10.55:1 against the page bg, which is what makes it a good fill) -- so white on it is
+     1.58:1 and a white/80 hint line is 1.43:1, both far under WCAG AA's 4.5:1. `text-ink-950`
+     on it is 10.55:1 (AAA) and `text-ink-950/75` is 5.73:1 (AA) for secondary lines. Same
+     rule for icons/marks drawn on an accent fill (1.4.11 wants 3:1). Darkening the accent so
+     white passes is not an option: holding hue/saturation it takes until #5e8000 -- a mid
+     olive that is no longer the brand colour and loses its own contrast against the page.
+     --color-interactive is light for the same reason; treat it identically if it ever fills. */
   --color-accent: #a6e000; /* was #c4006e */
   --color-accent-strong: #7da800; /* darkened shade of the new accent -- see note above */
   --color-accent-soft: #cdf29c; /* FORGE wordmark, soft fills */

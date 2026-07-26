@@ -876,7 +876,7 @@ export default function ProductPage() {
               aria-pressed={selected}
               className={
                 'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                (selected ? 'border-accent bg-accent text-white' : 'border-hairline text-text-secondary hover:border-text')
+                (selected ? 'border-accent bg-accent text-ink-950' : 'border-hairline text-text-secondary hover:border-text')
               }
             >
               {color}
@@ -921,7 +921,9 @@ export default function ProductPage() {
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
     showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
-    productMirrorPlacements && (mirrorSeams ? 'Continuous seams' : 'Independent seams'),
+    // "Mirrored across legs" above can't collide with this: the two twoLegCanvas products
+    // are exactly the ones excluded from mirrorPlacements, so only one of the pair ever runs.
+    productMirrorPlacements && (mirrorSeams ? 'Back flipped' : 'Back same as front'),
     stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`
   ]
     .filter(Boolean)
@@ -1296,7 +1298,7 @@ export default function ProductPage() {
                     className={
                       'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                       (checked
-                        ? 'border-accent bg-accent text-white'
+                        ? 'border-accent bg-accent text-ink-950'
                         : 'border-hairline text-text-secondary hover:border-text')
                     }
                   >
@@ -1340,12 +1342,12 @@ export default function ProductPage() {
                     className={
                       'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                       (checked
-                        ? 'border-accent bg-accent text-white'
+                        ? 'border-accent bg-accent text-ink-950'
                         : 'border-hairline text-text-secondary hover:border-text')
                     }
                   >
                     <span className="text-sm font-bold">{label}</span>
-                    <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
+                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
                   </button>
                 );
               })}
@@ -1357,20 +1359,26 @@ export default function ProductPage() {
             PRODUCT_MOCKUP_CONFIG's mirrorPlacements for which, and which three are excluded).
             Same two-button shape as the geometry layout toggle above, and like it, changing
             this invalidates the current mockup: unlike the inside-face design choice, this one
-            genuinely changes the returned photo, so it IS part of useMockup's cacheKey. */}
+            genuinely changes the returned photo, so it IS part of useMockup's cacheKey.
+            The copy names the MECHANISM (the back is flipped, or it isn't) rather than the
+            effect, because the effect alone was misleading: an earlier "Independent / each
+            half its own composition" implied the off state renders the back separately, when
+            in fact front and back share one render on every product here (same printfile
+            dimensions -> byte-identical output), so the only thing this changes is the flip.
+            The hint lines carry the reason anyone would want it. */}
         {productMirrorPlacements && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              Side seams
+              Back panel
             </h2>
             <p className="mt-1 text-xs text-text-muted">
-              The front and back panels meet at the side seams — choose whether the pattern
-              carries across them or each side stands alone.
+              The back prints the same artwork as the front. Flipping it lines the pattern up
+              where the two meet at the side seams.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
-                { on: true, label: 'Continuous', hint: 'Pattern flows across both seams' },
-                { on: false, label: 'Independent', hint: 'Each half its own composition' }
+                { on: true, label: 'Flipped', hint: 'Pattern continues around the sides' },
+                { on: false, label: 'Same as front', hint: 'Pattern restarts at each seam' }
               ].map(({ on, label, hint }) => {
                 const checked = mirrorSeams === on;
                 return (
@@ -1382,12 +1390,12 @@ export default function ProductPage() {
                     className={
                       'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                       (checked
-                        ? 'border-accent bg-accent text-white'
+                        ? 'border-accent bg-accent text-ink-950'
                         : 'border-hairline text-text-secondary hover:border-text')
                     }
                   >
                     <span className="text-sm font-bold">{label}</span>
-                    <span className={'text-xs ' + (checked ? 'text-white/80' : 'text-text-muted')}>{hint}</span>
+                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
                   </button>
                 );
               })}
@@ -1418,7 +1426,7 @@ export default function ProductPage() {
                     className={
                       'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                       (checked
-                        ? 'border-accent bg-accent text-white'
+                        ? 'border-accent bg-accent text-ink-950'
                         : 'border-hairline text-text-secondary hover:border-text')
                     }
                   >
@@ -1564,7 +1572,7 @@ export default function ProductPage() {
                   className={
                     'cursor-pointer rounded-lg border px-3 py-2 font-quicksand text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                     (selected
-                      ? 'border-accent bg-accent text-white'
+                      ? 'border-accent bg-accent text-ink-950'
                       : 'border-hairline text-text-secondary hover:border-text')
                   }
                 >

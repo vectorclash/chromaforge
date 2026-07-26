@@ -1051,8 +1051,14 @@ larger than the button column — it's the panel's visual anchor.
     delta 0 across 25.5M subpixels, at real print resolution and an off-square size, on both
     a chaotic seed and a full-coherence lattice), and the default path is untouched (12 PNG
     hashes across 4 designs × 3 sizes identical before vs. after). Exposed as a per-order
-    customer toggle (Side seams: Continuous / Independent, **default Continuous**) rather
+    customer toggle (Back panel: Flipped / Same as front, **default Flipped**) rather
     than decided globally, because the result is bilaterally symmetric — a taste call.
+    That copy was rewritten 2026-07-25 from an earlier "Side seams: Continuous / Independent":
+    the labels now name the MECHANISM, because the old off-state hint ("each half its own
+    composition") was simply false — front and back resolve to printfiles of identical
+    dimensions on every mirrored product, and the renderer is deterministic on
+    (seed, colors, settings, w, h), so unmirrored the back is byte-identical to the front and
+    both come from ONE cached render. The only thing this toggle changes is the flip.
     Endless wrap is not reachable; it needs a horizontally tileable composition this
     generator can't produce.
     **Extended to every product with a distinct back panel, same session** (Aaron's ask), so
