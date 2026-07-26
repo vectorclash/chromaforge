@@ -960,10 +960,28 @@ larger than the button column — it's the panel's visual anchor.
     Checked against the live DB before deciding: **zero saved designs have exactly one
     colour** (30 use the auto-palette/empty array, the rest 3/5/6), so nothing existing
     changed appearance and no thumbnail backfill was needed.
+  - **A new product needs a DRAFT-ORDER check before it can be bought, not just a working
+    mockup** (`scripts/check-printful-draft-orders.mjs`, added 2026-07-25). A mockup
+    exercises Printful's mockup generator; the failures that have actually bitten this
+    project happen at ORDER time and are invisible to it — the zip hoodie 400ing without an
+    explicit `stitch_color`, the track jacket rejecting `details` alongside the sleeves, and
+    every `label_inside` order silently failing on v2. The script creates an UNCONFIRMED
+    draft per product (never charged, never produced — it never calls `/confirm`), waits out
+    Printful's async file processing, asserts every placement came back `ok`, then deletes
+    the drafts; exit 1 on any failure. It needs only `PRINTFUL_API_KEY` — **no Stripe, no
+    `STORE_ENABLED` flip, and no `PRINTFUL_SKIP_CONFIRM` toggle**, which is the point: the
+    obvious alternative (a real checkout with `PRINTFUL_SKIP_CONFIRM` set) costs a live
+    Stripe charge and puts a launch-critical secret in a state someone has to remember to
+    undo. It imports `PRODUCT_MOCKUP_CONFIG` directly so its options can't drift from the
+    app's. Run: `PRINTFUL_API_KEY=... node scripts/check-printful-draft-orders.mjs
+    --products 390,615,654`.
   - **Three products added 2026-07-25** (windbreaker 615, bomber jacket 390, reversible
     bucket hat 654 — starter set is now 14), each spec-verified the usual way with a real
-    completed v2 mockup task before its config was written. Each turned up something the
-    existing 11 hadn't:
+    completed v2 mockup task before its config was written, and **all three draft-order
+    validated the same day** (every placement `ok`, incl. `label_inside` on all three and
+    `label_outside` on the hat; the windbreaker confirmed to order cleanly with no options
+    at all, settling the v1/v2 `stitch_color` discrepancy in (1) below). Each turned up
+    something the existing 11 hadn't:
     (1) **v1's `product.options` is not a reliable "is this option required" list.** The
     windbreaker omits `stitch_color` entirely from v1 `GET /products/615`, while v2
     `mockup-tasks` hard-rejects any task without it and v2 `GET /catalog-products/615`
