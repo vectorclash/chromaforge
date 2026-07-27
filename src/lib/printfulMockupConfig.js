@@ -51,8 +51,10 @@
 // template to within 2px of 3000 (0.07%), and a garment's front/back panels are themselves
 // symmetric about their own vertical centerline, so a full-canvas mirror maps the panel onto
 // itself instead of shifting artwork relative to fabric.
-// Deliberately NOT set on three products:
+// Deliberately NOT set on four products:
 //   274 tote bag -- no distinct 'back' placement at all; one canvas wraps the whole bag.
+//   630 bandana -- likewise no 'back' placement: it's a single hemmed square with no seam
+//     for a pattern to restart at.
 //   693 mesh shorts and 784 wide-leg joggers -- both DO have a back placement in their
 //     printfile mapping, but both are `twoLegCanvas` (see below): each canvas is physically
 //     CUT IN HALF into two legs, so front and back don't meet as one cylinder at two side
@@ -315,6 +317,39 @@ export const PRODUCT_MOCKUP_CONFIG = {
       // Rendered under the picker, verbatim.
       note: "Printful can't photograph the inside of this hat, so a second design won't show up in the preview above — you'll first see it on the hat itself."
     }
-  } // reversible bucket hat
+  }, // reversible bucket hat
+  630: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // A bandana is one hemmed square, so 'front' (printfile 380, 4125x4125) IS the whole
+    // product -- there is no back, no lining, no second panel.
+    // 'label_inside' is the only other placement the catalog lists, and leaving it out here
+    // is not the usual "not visible in a Flat photo" call every other product's label gets:
+    // this product REJECTS it outright at mockup-task creation, http 400 "Invalid
+    // variant_id: 16031 and placement: label_inside combination" (confirmed live
+    // 2026-07-27), even though GET /v2/catalog-products/630/mockup-styles advertises
+    // label_inside under both styles below. Including it would fail every preview on this
+    // product. A real order still prints it -- resolvePlacementEntries runs unfiltered at
+    // checkout, which is also why the draft-order check (scripts/check-printful-draft-orders.mjs,
+    // run 2026-07-27) matters more here than the passing mockup does.
+    placements: ['front'],
+    // No "Flat Back" style exists, so this is the only product whose second view isn't the
+    // Flat Front/Back pair: it's the catalog's "Product details" macro shot, a real close-up
+    // of the customer's own artwork on the fabric with the hemmed edge. The three Lifestyle
+    // styles are deliberately skipped -- they photograph the bandana knotted in hair or on a
+    // bag handle, which shows a twisted sliver of the design rather than the design.
+    // Every style on this product is restricted_to_variants a SINGLE size, so one shared pair
+    // would fail for two of the three sizes -- the pillow's (83) failure mode, handled the
+    // same way. mockupStyleIds is the S fallback for any variant Printful adds later;
+    // check-printful-catalog.mjs fails loudly if it ever actually resolves for one.
+    mockupStyleIds: [4350, 4356],
+    mockupStyleIdsByVariant: {
+      16031: [4350, 4356], // S
+      16032: [4353, 4357], // M
+      16033: [4355, 4358] // L
+    }
+    // No mirrorPlacements: there's no 'back' placement to mirror (same as the tote, 274).
+    // The single square has no seam for a pattern to restart at.
+  } // bandana
 };
 

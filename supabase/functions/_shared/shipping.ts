@@ -19,9 +19,9 @@ type WeightClass = "light" | "heavy";
 
 // Verified against Printful's AOP ("all-over print" -- the only print type this store uses,
 // see printful.js's header comment) shipping-rate tables, 2026-07-02: T-shirts/shorts/
-// leggings ("light") vs. hoodies/sweatshirts/jackets/joggers ("heavy"). The 4 non-garment
-// starter products (tote bag, crossbody bag, pillow, bucket hat) aren't covered by either
-// clothing table -- Printful prices bags/home-goods/accessories on a separate table that
+// leggings ("light") vs. hoodies/sweatshirts/jackets/joggers ("heavy"). The 5 non-garment
+// starter products (tote bag, crossbody bag, pillow, bucket hat, bandana) aren't covered by
+// either clothing table -- Printful prices bags/home-goods/accessories on a separate table that
 // hasn't been looked up yet. Defaulted to "light" as the closer approximation (smaller and
 // lighter than a garment) -- revisit if the real rates turn out to differ meaningfully.
 const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
@@ -36,6 +36,7 @@ const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   615: "heavy", // All-Over Print Men's Windbreaker
   390: "heavy", // All-Over Print Unisex Bomber Jacket
   654: "light", // All-Over Print Reversible Bucket Hat -- approximated, see comment above
+  630: "light", // All-Over Print Bandana -- approximated, see comment above
   274: "light", // All-Over Print Large Tote Bag w/ Pocket -- approximated, see comment above
   744: "light", // All-Over Print Utility Crossbody Bag -- approximated, see comment above
   83: "light", // All-Over Print Basic Pillow -- approximated, see comment above

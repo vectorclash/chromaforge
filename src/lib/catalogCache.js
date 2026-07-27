@@ -1,5 +1,5 @@
 // Client-side cache for Printful catalog responses (lib/printful.js's listCatalogProducts /
-// getCatalogProduct / getPrintfileSpecs). The catalog is near-static -- 11 hand-picked
+// getCatalogProduct / getPrintfileSpecs). The catalog is near-static -- a hand-picked set of
 // products whose specs change on Printful's timescale, not ours -- but every Shop/Product
 // page mount was re-fetching hundreds of kB of variant JSON through the printful-catalog
 // Edge Function, twice per mount under dev StrictMode. Confirmed via the function's live

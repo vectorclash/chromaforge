@@ -33,6 +33,7 @@ export const STARTER_PRODUCT_IDS = [
   693, // All-Over Print Recycled Unisex Mesh Shorts
   784, // All-Over Print Unisex Wide-Leg Joggers
   654, // All-Over Print Reversible Bucket Hat
+  630, // All-Over Print Bandana
   274, // All-Over Print Large Tote Bag w/ Pocket
   744, // All-Over Print Utility Crossbody Bag
   83, // All-Over Print Basic Pillow
@@ -171,10 +172,11 @@ export function resolveMockupStyleIds(cfg, variantId) {
 // Printful's real per-product valid values for the stitch_color option (GET /products/:id
 // -> result.product.options, already reaching the browser unfiltered via getCatalogProduct's
 // `...data.result` spread -- see printful-catalog/index.ts's pass-through). Confirmed live for
-// every current starter product: 12 of the 14 expose a stitch_color radio here (white/black for
-// most, black/clear for the tote/crossbody bags, white/black/clear for the bucket hat), so where
-// it's present this is a real choice, not just PRODUCT_MOCKUP_CONFIG's single hand-picked
-// default. Returns null when the product has none, which is NOT purely defensive: v1 omits the
+// every current starter product: 14 of the 15 expose a stitch_color radio here (white/black for
+// most, black/clear for the tote/crossbody bags, white/black/clear for the bucket hat and
+// bandana), so where it's present this is a real choice, not just PRODUCT_MOCKUP_CONFIG's
+// single hand-picked default. Returns null when the product has none, which is NOT purely
+// defensive: v1 omits the
 // option entirely for the windbreaker (615) even though Printful requires it -- that product
 // just gets no picker and keeps its configured default. See 615's config entry.
 export function getStitchColorOption(product) {

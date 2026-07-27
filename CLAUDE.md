@@ -694,15 +694,22 @@ larger than the button column — it's the panel's visual anchor.
   Things worth knowing:
   - **The two table types are not interchangeable.** `measure_yourself` is BODY measurements
     (Chest/Waist/Hips) per size — self-explanatory, and the one that actually answers the
-    question; present on 10 of 14 products. `product_measure` is the garment laid flat with
+    question; present on 10 of 15 products. `product_measure` is the garment laid flat with
     measurements labelled **A, B, C…**, which are keyed to letters on Printful's diagram —
     **the numbers are meaningless without the image**, so the diagram renders inside the
     table's section rather than as decoration, with `image_description` (which explains each
     letter) beneath it. Body measurements are sorted first.
   - **Descriptions are third-party HTML and are rendered as TEXT**, never via
     `dangerouslySetInnerHTML` — this is markup from another company on a page that also takes
-    payment. `htmlToText` strips tags and decodes entities; verified across all 14 products'
-    real payloads that nothing survives the strip.
+    payment. `htmlToText` strips tags and decodes entities; verified across all 15 products'
+    real payloads (48 description fields) that no tag or entity survives the strip.
+    That claim used to be made about tags only, and the entity half of it was false —
+    `&rsquo;` and `&Prime;` weren't in the decode allowlist and rendered literally
+    ("they&rsquo;re") on most products' size guides, found and fixed 2026-07-27 while adding
+    the bandana. Decoding is deliberately a string allowlist + numeric escapes, NOT the usual
+    innerHTML/textContent trick, which decodes everything but reintroduces exactly the
+    injection surface this avoids; `&amp;` is decoded last so a literal `&amp;rsquo;` doesn't
+    double-decode.
   - Sizes are ROWS, measurements COLUMNS: a product carries up to 11 sizes (hoodie 2XS–6XL)
     but at most 5 measurements, and 11 columns is unreadable on a phone.
   - Fetched **lazily on open** through `printful-catalog?id=N&sizes=1` (new param, same
@@ -788,7 +795,7 @@ larger than the button column — it's the panel's visual anchor.
 - `src/lib/printful.js` — catalog browsing (`listCatalogProducts`/`getCatalogProduct`/
   `getPrintfileSpecs`) via the `printful-catalog` edge function (read-only, Printful's v1
   API), plus `PRODUCT_MOCKUP_CONFIG` — a hand-verified, per-product map of
-  placements/technique/required options for all 14 configured products (every entry confirmed
+  placements/technique/required options for all 15 configured products (every entry confirmed
   against a real mockup task; see the file's header comments for product-specific quirks
   like the track jacket's `details`+sleeves combo failing outright). `resolvePlacementEntries`
   + `renderAndUploadPrintFiles` are shared between mockup previews and real checkout: mockup
@@ -1037,6 +1044,31 @@ larger than the button column — it's the panel's visual anchor.
     `getGeometryPlacementOptions` derived them from `placements`, which would have left the
     inside panels with no checkbox, and a placement absent from ProductPage's selection Set
     is read by `includesGeometry` as *geometry off*, silently and with no UI to fix it.
+  - **Bandana (630) added 2026-07-27** — starter set is now 15. Simplest product in the
+    catalogue (one hemmed square: a single `front` placement, printfile 380 at 4125×4125,
+    three sizes S/M/L, one colour), so it needs no `mirrorPlacements` (no back panel to
+    mirror, same as the tote), no pocket crop, no two-leg canvas, and its geometry section is
+    a single Front checkbox. Two things it turned up that are worth not re-deriving:
+    (1) **The first product where a mockup placement is rejected outright rather than merely
+    invisible.** `label_inside` is the only other placement it has, and submitting it in a
+    mockup task returns http 400 `Invalid variant_id: 16031 and placement: label_inside
+    combination` — even though `GET /v2/catalog-products/630/mockup-styles` *advertises*
+    `label_inside` under both configured styles. Every other product's label placements are
+    left out of `placements` because they aren't visible in a Flat photo; here including it
+    would fail every preview on the product. The real order is unaffected —
+    `resolvePlacementEntries` runs unfiltered at checkout, and the draft-order check confirmed
+    both `default` and `label_inside` come back `ok` (order 168890021, deleted). A cleaner
+    demonstration of the draft-check's whole premise than the products it was written for: the
+    mockup and the order genuinely disagree about the same placement, in the direction that
+    only the order test can see.
+    (2) **No "Flat Back" style exists, so this is the only product whose second preview isn't
+    the Flat Front/Back pair.** The second view is the catalog's "Product details" macro shot
+    — a real close-up of the customer's own artwork on the fabric with the hemmed edge, which
+    still shows the design. The three Lifestyle styles were rejected for the opposite reason:
+    they photograph the bandana knotted in hair or on a bag handle, i.e. a twisted sliver of
+    the artwork. Every style on this product is `restricted_to_variants` a **single size**, so
+    a shared pair would fail for two of the three sizes — the pillow's (83) failure mode,
+    handled the same way with `mockupStyleIdsByVariant`.
   - **Seam mirroring, 2026-07-25** (`mirrorPlacements` in `PRODUCT_MOCKUP_CONFIG`, bucket
     hat only so far). Each of that product's faces carries TWO cut pieces — half the crown
     side-wall and half the brim — so front and back meet at the two seams Printful's own
@@ -1080,7 +1112,7 @@ larger than the button column — it's the panel's visual anchor.
     Endless wrap is not reachable; it needs a horizontally tileable composition this
     generator can't produce.
     **Extended to every product with a distinct back panel, same session** (Aaron's ask), so
-    this is not a bucket-hat feature — 11 of the 14 products carry `mirrorPlacements:
+    this is not a bucket-hat feature — 11 of the 15 products carry `mirrorPlacements:
     ['back']`. Two facts were checked rather than assumed before extending: every one of
     those products' back print area is centered in its template to within 2px of 3000
     (0.07%), and garment front/back panels are themselves symmetric about their own vertical
