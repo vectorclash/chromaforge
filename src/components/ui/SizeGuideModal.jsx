@@ -12,11 +12,11 @@ import { getSizeGuide } from '../../lib/printful';
 // Two table types come back and they are NOT interchangeable:
 //   'measure_yourself'  -- body measurements (Chest/Waist/Hips) per size. Self-explanatory,
 //                          actionable on its own, and the one that answers the question.
-//                          Present on 10 of the 14 products.
+//                          Present on 10 of the 15 products.
 //   'product_measure'   -- the garment laid flat, with measurements labelled A, B, C...
 //                          Those labels are keyed to letters on Printful's diagram, so the
 //                          numbers are MEANINGLESS without the image beside them. Present on
-//                          all 14. Hence the diagram is rendered as part of the table rather
+//                          all 15. Hence the diagram is rendered as part of the table rather
 //                          than as decoration, and a table with no usable image still shows
 //                          its letters alongside imageDescription, which explains them.
 //
@@ -34,6 +34,32 @@ const UNITS = [
 // markup on a page that also takes payment, and nothing in these strings needs formatting
 // badly enough to justify an injection surface. Block tags become line breaks so the
 // original paragraph structure survives as plain text.
+//
+// Entity decoding is a string-only allowlist plus numeric escapes -- deliberately NOT the
+// usual "assign innerHTML to a detached element and read textContent" trick, which decodes
+// everything but is exactly the injection surface this function exists to avoid.
+// Scanning all 15 products' real size payloads (2026-07-27) turns up only three named
+// entities: &nbsp;, &rsquo; (14 sites, including the men's tee) and &Prime; (the crossbody
+// bag). The latter two were previously missed and rendered literally as "they&rsquo;re" on
+// most products' size guides -- found while adding the bandana. The rest of the typographic
+// set below is Printful's own WYSIWYG vocabulary, decoded pre-emptively so a copy edit
+// upstream can't reintroduce the same visible defect.
+// &amp; is decoded LAST: doing it first (as this used to) turns a literal "&amp;rsquo;" into
+// "&rsquo;" and then into an apostrophe, double-decoding text Printful meant literally.
+
+// String.fromCodePoint throws a RangeError on anything outside 0..0x10FFFF (and on
+// surrogates via fromCodePoint's own rules), which would take the whole modal down mid-render
+// over a malformed third-party string. An out-of-range escape is left exactly as written
+// instead -- ugly, but it's what Printful sent.
+function codePoint(value, original) {
+  if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return original;
+  try {
+    return String.fromCodePoint(value);
+  } catch {
+    return original;
+  }
+}
+
 function htmlToText(html) {
   if (typeof html !== 'string') return '';
   return html
@@ -41,11 +67,22 @@ function htmlToText(html) {
     .replace(/<\/\s*(p|div|li|h[1-6])\s*>/gi, '\n')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/&rsquo;/g, '’')
+    .replace(/&lsquo;/g, '‘')
+    .replace(/&rdquo;/g, '”')
+    .replace(/&ldquo;/g, '“')
+    .replace(/&Prime;/g, '″')
+    .replace(/&prime;/g, '′')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
+    .replace(/&hellip;/g, '…')
+    .replace(/&deg;/g, '°')
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, hex) => codePoint(parseInt(hex, 16), m))
+    .replace(/&#(\d+);/g, (m, dec) => codePoint(Number(dec), m))
+    .replace(/&amp;/g, '&')
     .replace(/\n{2,}/g, '\n')
     .split('\n')
     .map(line => line.trim())
