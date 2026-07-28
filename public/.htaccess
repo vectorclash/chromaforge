@@ -4,15 +4,77 @@
 # the server looks for literal files/dirs by those names. This rewrites any request
 # that isn't a real file or directory to index.html, letting React Router resolve it.
 #
-# Vite copies everything in public/ into dist/, and the FTP deploy syncs dist/ to the
+# Vite copies everything in public/ into dist/, and the rsync deploy syncs dist/ to the
 # web root, so this lands at the site root automatically. Real assets (JS/CSS/images,
 # and the existing /createjs.min.js, /jscolor.js globals) are served directly because
 # of the RewriteCond file/dir checks below.
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
+
   RewriteRule ^index\.html$ - [L]
+
+  # Tag anything under /assets/ (everything Vite emits there is content-hashed) so the
+  # cache block below can tell hashed build output from the fixed-name files in public/.
+  # No substitution and no [L] -- this only sets the variable and lets matching continue.
+  RewriteRule ^assets/ - [E=HASHED_ASSET:1]
+
+  # A MISSING file under /assets/ is a stale-bundle reference, never a client route --
+  # deploys rsync with --delete, so an old chunk really is gone from the server. Without
+  # this it fell through to the SPA fallback and returned index.html as "200 text/html"
+  # where the browser expected JS, surfacing as a blank page or an opaque "failed to
+  # fetch dynamically imported module". A real 404 makes that failure legible instead.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^assets/ - [R=404,L]
+
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
+</IfModule>
+
+# Cache policy. Hostinger's own default gave static files "public, max-age=604800" and
+# gave index.html NOTHING at all -- and no Cache-Control means browsers fall back to
+# HEURISTIC freshness (RFC 9111 4.2.2), commonly 10% of the time since Last-Modified.
+# So the longer a deploy sat live, the longer a returning phone would serve the cached
+# HTML without even revalidating. index.html is what names the hashed bundles, so stale
+# HTML pins the whole app to an old version. Setting these explicitly also stops the
+# policy depending on an undocumented host default that can change under us.
+#
+# The three rules below are deliberately MUTUALLY EXCLUSIVE (.html / hashed / everything
+# else), because Apache merges <FilesMatch> sections after main-scope directives no
+# matter where they appear in the file -- so a <FilesMatch> and a bare Header competing
+# for the same file can't be resolved by ordering them. <FilesMatch> also matches on
+# BASENAME only, which is why /assets/ is distinguished by the rewrite env var above
+# rather than by a path pattern here.
+<IfModule mod_headers.c>
+  # index.html (and every client route, since the fallback above serves this file for
+  # them) must revalidate every time. Cheap: the ETag turns the check into a ~4KB 304.
+  # Expires is unset because a date-based freshness header left alongside this would
+  # reintroduce exactly what is being removed.
+  <FilesMatch "\.html$">
+    Header always set Cache-Control "no-cache, must-revalidate"
+    Header always unset Expires
+  </FilesMatch>
+
+  # Content-hashed build output: the filename changes whenever the bytes do, so it can
+  # never go stale and never needs revalidating.
+  #
+  # "set" and NOT "always" here, deliberately -- "always" would put a year of immutable
+  # caching on the 404 above too (verified: it did). rsync is not atomic, so a client can
+  # load freshly-synced HTML and request a chunk that has not landed yet; caching THAT
+  # 404 for a year would break that exact hashed URL permanently for that browser. "set"
+  # only writes the header on 2xx, and a bare Apache 404 carries neither Cache-Control
+  # nor Last-Modified, so there is nothing for a browser to cache heuristically either.
+  Header set Cache-Control "public, max-age=31536000, immutable" env=HASHED_ASSET
+  Header always unset Expires env=HASHED_ASSET
+
+  # Everything in public/ keeps a FIXED filename across deploys (createjs.min.js,
+  # jscolor.js, manifest.json, og-image.jpg, models/tshirt/*), so content hashing can't
+  # help and the host default meant a change took up to 7 days to reach a repeat visitor.
+  # An hour of freshness, then a 304-cheap revalidate, bounds that at ~1h.
+  # "set" rather than "always", same reasoning as above: no error response should ever
+  # carry a positive cache lifetime.
+  <FilesMatch "\.(js|css|json|png|jpe?g|gif|svg|ico|webp|woff2?|glb|gltf|bin)$">
+    Header set Cache-Control "public, max-age=3600, must-revalidate" env=!HASHED_ASSET
+  </FilesMatch>
 </IfModule>

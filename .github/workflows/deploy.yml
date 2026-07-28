@@ -56,8 +56,14 @@ jobs:
       # account facts, not secrets -- only the key is. The pinned host key below is the
       # server's real ed25519 key (captured via ssh-keyscan 2026-07-10); if Hostinger
       # migrates the server this check fails loudly rather than trusting a new host
-      # silently. --delete keeps the web root an exact mirror of dist/ -- safe because
-      # everything the site needs (including .htaccess) ships in dist/ via public/.
+      # silently. --delete-after keeps the web root an exact mirror of dist/ -- safe
+      # because everything the site needs (including .htaccess) ships in dist/ via
+      # public/. The -after mode matters: plain --delete means --delete-during, which
+      # removes the previous build's hashed chunks WHILE the new ones are still being
+      # transferred, so anyone mid-session on the old bundle loses their lazily-loaded
+      # route chunks for the length of the sync. --delete-after transfers everything
+      # first and only then prunes, holding both builds' assets on disk through the
+      # window (they coexist fine -- the filenames are content-hashed).
       - name: Deploy to Hostinger via rsync over SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -67,7 +73,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           echo '[45.137.159.160]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN9ovrpXkuA4/afZmktfMJGvkX5pavmxwZP13E4lACJz' >> ~/.ssh/known_hosts
           for attempt in 1 2 3; do
-            if rsync -az --delete --timeout=60 \
+            if rsync -az --delete-after --timeout=60 \
               -e "ssh -i ~/.ssh/deploy_key -p 65002 -o ConnectTimeout=15 -o BatchMode=yes" \
               ./dist/ u141529136@45.137.159.160:domains/chromaforge.app/public_html/; then
               echo "Deployed on attempt $attempt"

@@ -1484,6 +1484,44 @@ alone, because "do it now while the app is small." It's done and merged to `mast
   (`[style*='width: 20px']`) and the close-button's `right` value are both keyed to the
   current preset numbers — keep them in sync.
 
+### Serving & HTTP caching (`public/.htaccess`), 2026-07-28
+Cache policy is declared in the repo, not inherited from the host. Found from a real
+symptom (Aaron's phone intermittently loading an older build): Hostinger served
+`index.html` with **no `Cache-Control` at all**, and no explicit freshness means browsers
+fall back to *heuristic* caching (RFC 9111 §4.2.2, commonly 10% of the age since
+`Last-Modified`) — so the longer a deploy had been live, the longer a returning phone
+served cached HTML without even revalidating. Since `index.html` is what names the hashed
+bundles, stale HTML pins the entire app to an old version. iOS Safari is the worst offender;
+desktop hid it because tabs get closed and refreshed.
+Three mutually-exclusive rules: `.html` → `no-cache, must-revalidate` (the ETag makes the
+check a ~4KB 304); `/assets/*` → one year `immutable` (content-hashed, can't go stale);
+everything else from `public/` → `max-age=3600, must-revalidate`, since those filenames are
+FIXED across deploys (`createjs.min.js`, `jscolor.js`, `manifest.json`, `og-image.jpg`,
+`models/tshirt/*`) and the host's 7-day default meant a change took a week to reach a repeat
+visitor. Notes for anyone touching this:
+- **They must stay mutually exclusive.** Apache merges `<FilesMatch>` sections *after*
+  main-scope directives regardless of textual position, so a `<FilesMatch>` and a bare
+  `Header` competing for one file can't be resolved by reordering them. `<FilesMatch>` also
+  matches on BASENAME only — which is why `/assets/` is identified by a `RewriteRule ^assets/
+  - [E=HASHED_ASSET:1]` env var rather than a path pattern.
+- **`Header set`, not `Header always`, on both positive-lifetime rules.** `always` also
+  writes the header onto error responses — verified live in a local Apache harness that it
+  put a year of `immutable` on the 404 below, which for a content-hashed (therefore stable)
+  URL would break that chunk permanently for that browser.
+- A **missing** file under `/assets/` now returns a real 404. It used to fall through to the
+  SPA fallback and return `index.html` as `200 text/html` where the browser expected JS —
+  surfacing as a blank page or an opaque "failed to fetch dynamically imported module".
+- Verified end to end against real Apache 2.4 serving the actual `dist/` (rules, the 304,
+  and the uncacheable 404), not just eyeballed — LiteSpeed emulates `mod_headers`/
+  `mod_rewrite` but is a different server, so **re-check `curl -I` against chromaforge.app
+  after this first deploys**; if the `env=` conditions turn out unsupported there, the
+  fallback is a second `.htaccess` at `public/assets/.htaccess`.
+- Related, in `deploy.yml`: rsync uses `--delete-after`, not plain `--delete` (which means
+  `--delete-during` and prunes the previous build's chunks while the new ones are still
+  transferring, breaking lazy route loads for anyone mid-session during a sync).
+- Already-stale caches heal on their own the first time a browser revalidates; no way to
+  reach back and invalidate them.
+
 ## Current state / what's deployed
 
 `master` is deployed (push triggers GitHub Actions → rsync/SSH → chromaforge.app). As of the
