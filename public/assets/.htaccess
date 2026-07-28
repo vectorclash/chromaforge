@@ -1,0 +1,25 @@
+# Directory-scoped cache policy for Vite's build output. Everything here is
+# content-hashed -- the filename changes whenever the bytes do -- so it can never go
+# stale and never needs revalidating.
+#
+# This lives in its own file rather than as a rule in the root .htaccess because the
+# root's only way to single out this path was a mod_rewrite env var (E=HASHED_ASSET)
+# read back via "Header ... env=", and LiteSpeed (Hostinger's server) does NOT honor
+# that -- measured live 2026-07-28: hashed bundles came back with the root's generic
+# one-hour rule instead of this one. Directory scope needs no env var.
+#
+# The <FilesMatch "."> wrapper is load-bearing, not decoration. Apache applies EVERY
+# <Files>/<FilesMatch> section, from every .htaccess level, after ALL main-scope
+# directives -- so a bare "Header set" here does not override the root's <FilesMatch>,
+# it loses to it (verified against real Apache: the bundles came back at one hour).
+# Wrapped in a section, this merges after the root's because it is deeper.
+#
+# "set" and NOT "always": always would also write onto the 404 the root serves for a
+# missing chunk, and a year of immutable caching on a content-hashed (therefore stable)
+# URL would break that chunk permanently for that browser.
+<IfModule mod_headers.c>
+  <FilesMatch ".">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+    Header always unset Expires
+  </FilesMatch>
+</IfModule>

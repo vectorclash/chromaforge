@@ -1498,24 +1498,37 @@ check a ~4KB 304); `/assets/*` → one year `immutable` (content-hashed, can't g
 everything else from `public/` → `max-age=3600, must-revalidate`, since those filenames are
 FIXED across deploys (`createjs.min.js`, `jscolor.js`, `manifest.json`, `og-image.jpg`,
 `models/tshirt/*`) and the host's 7-day default meant a change took a week to reach a repeat
-visitor. Notes for anyone touching this:
-- **They must stay mutually exclusive.** Apache merges `<FilesMatch>` sections *after*
-  main-scope directives regardless of textual position, so a `<FilesMatch>` and a bare
-  `Header` competing for one file can't be resolved by reordering them. `<FilesMatch>` also
-  matches on BASENAME only — which is why `/assets/` is identified by a `RewriteRule ^assets/
-  - [E=HASHED_ASSET:1]` env var rather than a path pattern.
+visitor. The rules live in TWO files — `public/.htaccess` for html and the fixed-name
+files, `public/assets/.htaccess` for the hashed bundles. Notes for anyone touching this:
+- **`env=` conditions do not work on Hostinger.** The first version singled out `/assets/`
+  in the root file via a `RewriteRule ^assets/ - [E=HASHED_ASSET:1]` var read back as
+  `Header ... env=HASHED_ASSET`. That is correct Apache, passes locally, and **LiteSpeed
+  silently ignores it** — measured live: hashed bundles came back on the generic one-hour
+  rule. Hence the directory-scoped second file. Don't reintroduce `env=` here.
+- **`<FilesMatch>` beats a bare `Header` even from a shallower `.htaccess`.** Apache
+  applies every `<Files>`/`<FilesMatch>` section, from *all* levels, after *all* main-scope
+  directives — so the child file's rule is wrapped in `<FilesMatch ".">` purely to get into
+  the same phase, where being deeper makes it win. Unwrapped it loses to the root's section
+  (verified: bundles served at one hour). `<FilesMatch>` also matches BASENAME only, which
+  is why path scoping has to come from the file's location.
 - **`Header set`, not `Header always`, on both positive-lifetime rules.** `always` also
-  writes the header onto error responses — verified live in a local Apache harness that it
-  put a year of `immutable` on the 404 below, which for a content-hashed (therefore stable)
-  URL would break that chunk permanently for that browser.
-- A **missing** file under `/assets/` now returns a real 404. It used to fall through to the
-  SPA fallback and return `index.html` as `200 text/html` where the browser expected JS —
-  surfacing as a blank page or an opaque "failed to fetch dynamically imported module".
-- Verified end to end against real Apache 2.4 serving the actual `dist/` (rules, the 304,
-  and the uncacheable 404), not just eyeballed — LiteSpeed emulates `mod_headers`/
-  `mod_rewrite` but is a different server, so **re-check `curl -I` against chromaforge.app
-  after this first deploys**; if the `env=` conditions turn out unsupported there, the
-  fallback is a second `.htaccess` at `public/assets/.htaccess`.
+  writes onto error responses — verified it put a year of `immutable` on the 404 below,
+  which for a content-hashed (therefore stable) URL breaks that chunk permanently for that
+  browser.
+- A **missing** file under `/assets/` returns a real 404 (it used to fall through to the SPA
+  fallback and return `index.html` as `200 text/html` where the browser expected JS — a
+  blank page or an opaque "failed to fetch dynamically imported module"). `ErrorDocument
+  404 /404.html` then routes that through a `.html` file **specifically so it inherits the
+  no-cache rule**: LiteSpeed's built-in 404 page carries a ~15-month-old `Last-Modified`
+  and no `Cache-Control`, and 404 is heuristically cacheable (RFC 9110 §15.1), so a browser
+  could cache it for weeks — on a URL that by design never changes name. `public/404.html`
+  is deliberately self-contained (no bundle, no webfont): it renders precisely when the
+  app's own JS failed to load. Humans essentially never see it; client routes 404 through
+  React Router's `NotFoundPage` instead.
+- Verified against real Apache 2.4 serving the actual `dist/` — all four categories, the
+  304, the uncacheable 404, and no duplicate `Cache-Control` — then **re-verified live with
+  `curl -I` against chromaforge.app**, which is what caught the `env=` failure. Local green
+  is not sufficient evidence here; LiteSpeed is a different server.
 - Related, in `deploy.yml`: rsync uses `--delete-after`, not plain `--delete` (which means
   `--delete-during` and prunes the previous build's chunks while the new ones are still
   transferring, breaking lazy route loads for anyone mid-session during a sync).

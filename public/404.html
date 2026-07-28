@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!--
+  Body for ErrorDocument 404 (see .htaccess). Its real job is to be a .html file, so the
+  404 picks up the "no-cache, must-revalidate" rule instead of the server default's
+  stale-dated, heuristically-cacheable headers.
+
+  In practice a human almost never sees this: every URL that isn't a real file is rewritten
+  to index.html and handled by React Router's NotFoundPage, so the only requests that reach
+  here are XHR/script fetches for a missing /assets/ chunk. Deliberately self-contained --
+  no bundle, no webfont, no build step -- since the one time it renders is when the app's
+  own JS has failed to load.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Not found — Chromaforge</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex; align-items: center; justify-content: center;
+        background: #181520; color: #f3f1f7;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        text-align: center; padding: 2rem; line-height: 1.6;
+      }
+      h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 0.5rem; }
+      p { margin: 0 0 1.75rem; color: #a9a3bd; }
+      a {
+        display: inline-block; padding: 0.7rem 1.5rem; border-radius: 999px;
+        background: rgba(166, 224, 0, 0.12); border: 1px solid rgba(166, 224, 0, 0.4);
+        color: #a6e000; text-decoration: none; font-weight: 600;
+      }
+      a:hover, a:focus-visible { background: rgba(166, 224, 0, 0.2); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>That page isn't here</h1>
+      <p>The link may be out of date, or the page may have moved.</p>
+      <a href="/">Back to Chromaforge</a>
+    </main>
+  </body>
+</html>
