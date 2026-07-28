@@ -436,6 +436,19 @@ Key facts:
   per ring section (some sections bare, some fully caged) so the scaffold isn't uniform.
 
 ### Homepage hero: 3D t-shirt preview (2026-07-16)
+**Scope, per Aaron (2026-07-28) — read this before the calibration detail below, and note
+the two halves are NOT the same claim.** This shirt is a fun extra rather than a
+representation of any *specific* product, so it doesn't need to track a given SKU's
+placements or printfile changes, and ProductPage's Printful mockups remain the
+product-accurate surface. **But the texture must land as close as possible to how a print
+sits on a real shirt** — that is the actual constraint, and the calibration below (measured
+island rects, the vertical flip, the 8 trim-strip identities, the cuff handedness) is what
+achieves it, not over-investment. An earlier version of this component got placement
+"completely wrong" and had to be fixed; every rect below is the fix. Aaron's read as of
+2026-07-28 is that the current state is **close enough** — so treat it as the acceptance
+bar to preserve, not a starting point to approximate away from. Anything that moves UVs or
+island rects (a different model, more aggressive decimation) must be checked against real
+renders, since it can silently reintroduce that failure.
 The hero's compact studio panel (DisplayCanvas's `compact` branch) lost its glass backing
 (`.controls-compact` overrides in `components.css` kill the backdrop-filter/gradient
 border/padding; Save gets its own dark translucent fill since its base style is
