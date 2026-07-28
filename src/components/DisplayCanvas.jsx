@@ -13,7 +13,7 @@ import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
 import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
-import { rampTime, rampRush } from '../utils/speedRamp';
+import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -134,6 +134,41 @@ async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
 // onGenerateButtonClick's own fix for that).
 const SHARE_LINK_ID_PLACEHOLDER = 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX';
 
+// MP4 export framing. Sizes are the desktop targets; mobile halves them (see
+// exportAnimationVideo) because full 4K encoding needs ~500MB+ of GPU/RAM that iOS
+// WebViews refuse. '16:9' is the historical export size, so leaving it selected keeps the
+// old behaviour exactly.
+//
+// 3D renders natively at whichever ratio is picked — the scene is built at export size and
+// the camera aspect follows, so portrait/square is a genuine recompose, not a crop. 2D
+// CANNOT do that: its frames are pre-rendered stills baked at the studio's own resolution
+// during Generate (a 30s+ build), so re-rendering 20-60 of them per export is not something
+// a Download click can pay for. Those get a centered cover-crop instead — no distortion,
+// but a 9:16 export off a 16:9 build keeps only the middle 31.6% of the width (measured).
+const EXPORT_ASPECTS = {
+  '16:9': [3840, 2160],
+  '9:16': [2160, 3840],
+  '1:1': [2160, 2160]
+};
+const EXPORT_FPS_OPTIONS = [24, 30, 60];
+
+// Centered source rect matching the destination's aspect, so a frame is cropped rather
+// than stretched into a different shape. Returns the whole source when the aspects already
+// match, which is what keeps the default 16:9 export byte-identical to before.
+export function coverSourceRect(srcWidth, srcHeight, dstWidth, dstHeight) {
+  const srcAspect = srcWidth / srcHeight;
+  const dstAspect = dstWidth / dstHeight;
+  if (Math.abs(srcAspect - dstAspect) < 1e-6) {
+    return { sx: 0, sy: 0, sw: srcWidth, sh: srcHeight };
+  }
+  if (srcAspect > dstAspect) {
+    const w = srcHeight * dstAspect;
+    return { sx: (srcWidth - w) / 2, sy: 0, sw: w, sh: srcHeight };
+  }
+  const h = srcWidth / dstAspect;
+  return { sx: 0, sy: (srcHeight - h) / 2, sw: srcWidth, sh: h };
+}
+
 export default class DisplayCanvas extends React.Component {
   constructor(props) {
     super(props);
@@ -159,11 +194,18 @@ export default class DisplayCanvas extends React.Component {
       frameCount: 20,
       cycleDuration: 10,
       starFrameCount: 10,
-      // Speed ramp: playback-time warp (sine ease-in-out per cycle) -- each loop
-      // starts slow, speeds up, and slows back down symmetrically, still looping
-      // seamlessly. Pure playback timing (frame content is untouched), so it
-      // applies live in both 2D and 3D with no frame rebuild / settingsDirty.
-      speedRamp: false,
+      // MP4 export framing/frame rate. Export-only (never part of a design, never saved),
+      // and applied at export time, so changing either is instant and needs no rebuild.
+      exportAspect: '16:9',
+      exportFps: 24,
+      // Speed ramp: playback-time warp (see utils/speedRamp) -- each loop accelerates
+      // through its whole first half and decelerates through its whole second half, still
+      // looping seamlessly. 3D nearly stops at the seam and peaks at 2.16x; 2D keeps a
+      // 0.25x cruise and peaks at 1.9x (a still-frame crossfade reads as frozen, not slow,
+      // at near-zero speed). Pure playback timing (frame content is untouched), so it
+      // applies live in both modes with no frame rebuild / settingsDirty -- which is also
+      // why defaulting it ON costs nothing: toggling it off is instant, no regeneration.
+      speedRamp: true,
       // 3D animation mode: instead of crossfading pre-rendered 2D frames, fly a camera
       // through a real-time three.js star tunnel (src/animation3d/tunnelScene.js).
       // threeDDesign is the compact { seed, colors, settings } identity of the current 3D
@@ -397,6 +439,14 @@ export default class DisplayCanvas extends React.Component {
     const starSpacing = cycleDuration / starCount;
     const starFade = starSpacing * (8.0 / 7.0);
     return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
+  }
+
+  // Whether the picked export ratio differs from the one the 2D frames were baked at (the
+  // studio canvas: 16:9 on desktop, 1:1 on mobile) — i.e. whether exporting will crop them.
+  // 3D is never cropped; it re-renders at the export size.
+  exportWillCrop() {
+    const [w, h] = EXPORT_ASPECTS[this.state.exportAspect] ?? EXPORT_ASPECTS['16:9'];
+    return Math.abs(w / h - this.props.width / this.props.height) > 1e-6;
   }
 
   // The compact identity of a fresh 3D scene: seed + the current palette + the current
@@ -991,10 +1041,13 @@ export default class DisplayCanvas extends React.Component {
       navigator.userAgent
     );
 
-    // Use a smaller export resolution on mobile to stay within iOS memory limits.
-    // Full 4K encoding requires ~500 MB+ of GPU/RAM which iOS WebViews don't allow.
-    const width  = isMobile ? 1080 : this.props.width;
-    const height = isMobile ? 1080 : this.props.height;
+    // Export framing comes from the picker, not from the studio canvas, so the same
+    // design exports identically from any screen. Mobile halves it to stay within iOS
+    // memory limits (full 4K encoding needs ~500MB+ of GPU/RAM which iOS WebViews don't
+    // allow) — halving rather than the old flat 1080x1080 so the CHOSEN ratio survives.
+    const [aspectWidth, aspectHeight] = EXPORT_ASPECTS[this.state.exportAspect] ?? EXPORT_ASPECTS['16:9'];
+    const width = isMobile ? aspectWidth / 2 : aspectWidth;
+    const height = isMobile ? aspectHeight / 2 : aspectHeight;
 
     const { spacing: SPACING, fade: FADE, starSpacing: STAR_SPACING, starFade: STAR_FADE, cycleDuration: CYCLE_DURATION } =
       this.getAnimTiming(is3D ? this.state.frameCount : images.length);
@@ -1005,7 +1058,7 @@ export default class DisplayCanvas extends React.Component {
     const PERIOD = CYCLE_DURATION;
     // Export exactly one cycle, starting one period in so start and end states are identical
     const OFFSET = PERIOD;
-    const FPS = 24;
+    const FPS = EXPORT_FPS_OPTIONS.includes(this.state.exportFps) ? this.state.exportFps : 24;
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
@@ -1102,6 +1155,11 @@ export default class DisplayCanvas extends React.Component {
 
     const srcWidth  = this.props.width;
     const srcHeight = this.props.height;
+    // Cover-crop the pre-rendered frames into the chosen export ratio instead of
+    // stretching them into it (see EXPORT_ASPECTS). A no-op when the ratios match.
+    const { sx: SRC_X, sy: SRC_Y, sw: SRC_W, sh: SRC_H } = coverSourceRect(
+      srcWidth, srcHeight, width, height
+    );
 
     drawAt = elapsed => {
       ctx.fillStyle = '#000';
@@ -1127,7 +1185,7 @@ export default class DisplayCanvas extends React.Component {
         ctx.translate(width / 2, height / 2);
         ctx.scale(scale, scale);
         // Draw source image scaled to the export canvas size
-        ctx.drawImage(img, 0, 0, srcWidth, srcHeight, -width / 2, -height / 2, width, height);
+        ctx.drawImage(img, SRC_X, SRC_Y, SRC_W, SRC_H, -width / 2, -height / 2, width, height);
         ctx.restore();
       });
 
@@ -1153,7 +1211,7 @@ export default class DisplayCanvas extends React.Component {
           ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
           ctx.translate(width / 2, height / 2);
           ctx.scale(scale, scale);
-          ctx.drawImage(img, 0, 0, srcWidth, srcHeight, -width / 2, -height / 2, width, height);
+          ctx.drawImage(img, SRC_X, SRC_Y, SRC_W, SRC_H, -width / 2, -height / 2, width, height);
           ctx.restore();
         });
         ctx.globalCompositeOperation = 'source-over';
@@ -1237,10 +1295,14 @@ export default class DisplayCanvas extends React.Component {
     for (let f = 0; f < TOTAL_FRAMES; f++) {
       // Speed ramp: warp the linear frame time through the same rampTime the live
       // previews use, so the exported motion matches them exactly. rampTime maps
-      // [0, PERIOD] onto itself monotonically with symmetric velocity at both
-      // ends, so the export still covers exactly one seamless loop.
+      // [0, PERIOD] onto itself monotonically with equal velocity at both
+      // ends, so the export still covers exactly one seamless loop. The floor is
+      // per-mode (3D nearly stops at the seam, 2D keeps a cruise) and MUST match what
+      // the corresponding preview passes -- Animation3DPreview for 3D, AnimationPreview's
+      // ticker driver (which uses the default) for 2D.
       const linear = f / FPS;
-      const elapsed = OFFSET + (speedRamp ? rampTime(linear, PERIOD) : linear);
+      const elapsed =
+        OFFSET + (speedRamp ? rampTime(linear, PERIOD, is3D ? RAMP_FLOOR_3D : RAMP_FLOOR_2D) : linear);
       // rush only means anything to the 3D drawAt (FOV/warp speed enhancement); the 2D
       // compositor ignores it.
       drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0);
@@ -1979,6 +2041,8 @@ export default class DisplayCanvas extends React.Component {
       musicEnabled,
       audioExportSupported,
       speedRamp,
+      exportAspect,
+      exportFps,
       settingsTab,
       animTiming,
       settingsDirty,
@@ -2474,20 +2538,6 @@ export default class DisplayCanvas extends React.Component {
                     <span className="settings-toggle-thumb" />
                   </button>
                 </div>
-                <div className="settings-field">
-                  <span className="settings-label">
-                    Include Music
-                    {!audioExportSupported && <span className="settings-label-note"> (unsupported)</span>}
-                  </span>
-                  <button
-                    className={'settings-toggle' + (musicEnabled && audioExportSupported ? ' on' : '')}
-                    onClick={() => audioExportSupported && this.setState({ musicEnabled: !musicEnabled })}
-                    aria-label={!audioExportSupported ? 'Music export not supported in this browser' : musicEnabled ? 'Music on' : 'Music off'}
-                    style={!audioExportSupported ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
-                  >
-                    <span className="settings-toggle-thumb" />
-                  </button>
-                </div>
                 {/* Frames / Star Frames only mean anything to the 2D crossfade flow --
                     in 3D the scene is continuous, so they disappear. Duration applies
                     live in 3D (the preview rebuilds instantly), hence no settingsDirty. */}
@@ -2511,6 +2561,18 @@ export default class DisplayCanvas extends React.Component {
                     </div>
                   </>
                 )}
+                {/* Duration then Speed Ramp: how long a loop runs, then how that time is
+                    paced. Both are timing, so they sit together at the end of the
+                    scene group -- and the ramp reads as a modifier of the duration above
+                    it rather than something unrelated wedged between the frame counts. */}
+                <div className="settings-field">
+                  <span className="settings-label">Duration</span>
+                  <div className="settings-stepper">
+                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1), settingsDirty: !threeDMode })}>−</button>
+                    <span>{cycleDuration}s</span>
+                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1), settingsDirty: !threeDMode })}>+</button>
+                  </div>
+                </div>
                 {/* Playback-time warp only (see the speedRamp state comment) -- frame
                     content is untouched, so this applies live in both modes with no
                     "regenerate to apply" notice. */}
@@ -2527,13 +2589,69 @@ export default class DisplayCanvas extends React.Component {
                     <span className="settings-toggle-thumb" />
                   </button>
                 </div>
-                <div className="settings-field">
-                  <span className="settings-label">Duration</span>
-                  <div className="settings-stepper">
-                    <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1), settingsDirty: !threeDMode })}>−</button>
-                    <span>{cycleDuration}s</span>
-                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1), settingsDirty: !threeDMode })}>+</button>
+                {/* ── Export group ─────────────────────────────────────────────────────
+                    Everything above this point describes the animation itself (what the
+                    scene is, how long a loop runs, how it's paced); everything below only
+                    affects the FILE that Download produces and changes nothing on screen.
+                    Music belongs here, not up with the scene controls -- previews are
+                    silent, so it has never had any effect except on the exported MP4.
+                    The group is marked by a wider gap rather than a heading, which would
+                    cost a whole row in a panel Aaron already called cluttered.
+
+                    Ratio and frame rate share ONE row: both answer "what file comes out",
+                    and two more full-width rows would crowd this further. */}
+                <div className="settings-field settings-group-start">
+                  <span className="settings-label">
+                    Export
+                    {/* No note in the normal case -- "16:9" and "24 fps" already say what
+                        the selects do, and the longer text wrapped to a second line at
+                        phone width. The one thing worth saying is that 3D re-renders at the
+                        picked ratio while 2D crops its pre-rendered frames, and even that
+                        only when the pick actually differs from the ratio those frames were
+                        built at (16:9 desktop, 1:1 mobile) -- otherwise nothing is cropped
+                        and the warning would be a lie. */}
+                    {!threeDMode && this.exportWillCrop() && (
+                      <span className="settings-label-note"> 2D crops to fit</span>
+                    )}
+                  </span>
+                  <div className="settings-selects">
+                    <select
+                      className="settings-select"
+                      value={exportAspect}
+                      onChange={e => this.setState({ exportAspect: e.target.value })}
+                      aria-label="Export aspect ratio"
+                    >
+                      {Object.keys(EXPORT_ASPECTS).map(ratio => (
+                        <option key={ratio} value={ratio}>{ratio}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="settings-select"
+                      value={exportFps}
+                      onChange={e => this.setState({ exportFps: Number(e.target.value) })}
+                      aria-label="Export frame rate"
+                    >
+                      {EXPORT_FPS_OPTIONS.map(fps => (
+                        <option key={fps} value={fps}>{fps} fps</option>
+                      ))}
+                    </select>
                   </div>
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Music
+                    <span className="settings-label-note">
+                      {audioExportSupported ? ' added to the export only' : ' unsupported here'}
+                    </span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (musicEnabled && audioExportSupported ? ' on' : '')}
+                    onClick={() => audioExportSupported && this.setState({ musicEnabled: !musicEnabled })}
+                    aria-label={!audioExportSupported ? 'Music export not supported in this browser' : musicEnabled ? 'Music on' : 'Music off'}
+                    style={!audioExportSupported ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
                 </div>
               </>
             )}

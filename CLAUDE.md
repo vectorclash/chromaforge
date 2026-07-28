@@ -331,11 +331,63 @@ silently halved framerate on Windows hardware encoders. This is a *different* co
 from print rendering above (video vs. still images) — don't conflate the two.
 **Export/animation loose ends closed 2026-07-18** (Aaron's purpose for exports: advertising
 videos for the app — quality bar is commercial): a "Speed Ramp" Video-tab toggle warps
-playback time with a per-cycle sine ease-in-out (`src/utils/speedRamp.js` — the single
+playback time per cycle (`src/utils/speedRamp.js` — the single
 source of the warp; the 2D preview drives its GSAP timeline through it via a gsap.ticker,
 the 3D preview/exporter pass warped time + a 0..1 `rush` factor into `setTime`, so preview
 and export stay motion-identical and loops stay seamless — velocity is symmetrically zero
-at the seam). iOS music export was silently broken: WebKit's AudioEncoder omits the AAC
+at the seam).
+**Ramp shape reworked + defaulted ON, 2026-07-28.** Velocity is
+`RAMP_FLOOR + A * (1 - |2p - 1|)^RAMP_CURVE` — a rounded triangle rising from the floor at
+the seam to the peak at mid-cycle, A solved so the mean stays exactly 1. Currently
+`RAMP_CURVE = 1.2`, **accelerating for the entire first half of every cycle and
+decelerating through the entire second half** (only ~23% of a loop reads as steady, vs ~70%
+for the shape before it). Both knobs are free — the closed-form integral lands on 0.5 at
+half a cycle and 1.0 at the seam for ANY (curve, floor), so retuning can't break the loop.
+**The floor is the one value that differs per mode**, hence `rampTime`'s third parameter:
+`RAMP_FLOOR_3D = 0.03` (a near stop at each loop end — 2.16x top speed; measured in the
+real scene, the camera goes ~7 world units/sec at the seam against 519 at mid-cycle) and
+`RAMP_FLOOR_2D = 0.25` (2D keeps a real cruise: its animation is a crossfade between still
+frames, so near-zero playback speed reads as a frozen picture, not slow flight). A mode's
+preview and its export must pass the SAME floor or they ramp differently — the two 3D call
+sites are `Animation3DPreview` and `exportAnimationVideo`'s `is3D` branch. `rampRush` needs
+no floor: it is `(v - floor) / (peak - floor)`, which cancels the floor out.
+**Read this before "just make it faster", because it took three rounds with Aaron to pin
+down and the constraint is not obvious**: the warp must cover exactly one period per period
+or the loop seam breaks, so mean velocity is pinned at 1, and every bit of top speed is
+funded by the rest of the cycle sitting slow. A profile that is ALWAYS ramping therefore
+**cannot exceed 2.0x** (a triangle from a standstill is exactly 2.0). The three rounds
+walked the whole trade: (1) longer in/out + ~2x top speed → `sin^6`, 3.2x peak, which put
+~45% of the loop near-still and read as **a dead stop at the seam** ("a huge break at the
+end... like 2 seconds of no movement" — real and measured: 4.5s of a 10s loop under 0.25x);
+(2) a velocity FLOOR fixed that, since **seamlessness needs velocity CONTINUOUS at the seam,
+not zero** — `v(0) = v(1) = 0.25` is exactly as seamless as `v(0) = v(1) = 0` — but holding
+the 3.2x peak alongside a floor forced an even narrower burst, rejected as "way way too
+short of a speed up period"; (3) so the peak was traded away for the ramp, landing at 1.9x,
+95% of the hard 2.0x ceiling; (4) then 3D's floor went to near-zero on request ("it needs to
+come to a near stop at the beginning and end"), which is NOT a return to round 1 — that one
+dwelt under 0.25x for 4.5s of a 10s loop because its shape had a flat plateau there, while
+this shape ramps continuously and so PASSES THROUGH the slow point (1.5s under 0.25x, 0.6s
+under 0.1x). **Duration at low speed is what reads as a break, not touching zero** — that
+distinction is the whole reason both complaints could be satisfied. Dropping the floor also
+returned some peak (2.16x in 3D), since the area it frees funds the burst.
+**More absolute speed beyond that can only come from outside the ramp** — tunnelScene's
+`FLIGHT_SPEED` in 3D, or a shorter Duration in either mode.
+Raising `RAMP_CURVE` buys peak back at a known price: 2.0 → 2.5x peak/37% steady, 4.0 →
+3.75x peak/55% steady. Side benefit of the floor: velocity never approaches zero, so the
+warp is strictly monotonic in floating point (the `sin^6` shape had ~1e-15 backward steps in
+its frozen stretch — harmless, but gone). No stored-design impact — playback timing only.
+**One real bug fixed alongside it, in the 2D ticker driver** (`AnimationPreview`): GSAP
+clamps `tl.time()` to the timeline's CURRENT duration, and that timeline grows only when
+the `tl.call()` scheduled one frame `spacing` ahead fires and appends the next frame. So any
+single tick longer than `spacing` was silently capped — the preview fell behind to one frame
+per tick and stopped matching the export. Latent before (needed <19fps) but the 3.2x peak
+brings it to <38fps on the densest frames/duration the UI allows, i.e. any 30fps device.
+The driver now walks to the target playhead in <=`spacing` hops (a no-op at normal frame
+rates — the loop body never runs). Verified against the real gsap module with the exact
+timeline structure: pre-fix, a step 1.28x `spacing` diverges immediately and caps; post-fix
+it tracks the requested time exactly at up to 12x `spacing`. Watch item, not yet retuned:
+the encoder settings under "Fast-motion blockiness" below were tuned for the old 1.57x peak.
+iOS music export was silently broken: WebKit's AudioEncoder omits the AAC
 `decoderConfig.description`, so mp4-muxer wrote an unplayable audio track with no error —
 `encodeAudioTrack` now synthesizes the AudioSpecificConfig bytes when missing
 (phone-verified fix), and a requested-but-skipped music track alerts instead of failing
@@ -343,6 +395,34 @@ silently. Fast-motion blockiness fixed: `latencyMode: 'quality'` on Constrained 
 (structurally can't B-frame; only the High Profile fallback keeps 'realtime'), mobile
 bitrate 15→25Mbps, keyframes every 2s. Previews (both modes) freeze during export so a
 live scene never competes with the encoder.
+**Export ratio + frame rate pickers, 2026-07-28** (Aaron, for ad formats): one Video-tab row
+carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840, `1:1`
+2160×2160) and `EXPORT_FPS_OPTIONS` (24/30/60). Export-only state, so switching either is
+instant — no rebuild, no `settingsDirty`. Deliberately ONE row rather than two: both answer
+"what file comes out of Download", and the Video tab already carries six rows (Aaron
+explicitly didn't want the panel cluttered).
+**The Video tab is now grouped by what each control affects** (Aaron, same session): the
+scene itself first (3D → Frames → Star Frames → Duration → Speed Ramp — timing last, "how
+long" then "how it's paced"), then a `settings-group-start` rule/gap, then the export group
+(Export ratio+fps → Music). **Music moved into that group because it is an export setting
+and always has been** — previews are silent, so the toggle has never had any effect except
+on the MP4 — and its label says so ("added to the export only"). The group is marked with a
+gap and a brighter rule rather than a heading, which would spend a whole row saying nothing. Framing now comes from the picker rather than
+the studio canvas, so the same design exports identically from any screen, and mobile HALVES
+the chosen size instead of forcing a flat 1080×1080 — the old rule silently changed a
+desktop-shaped export into a square one.
+**The two modes reframe differently, and this is the thing to know before touching it**:
+3D re-renders the scene at the export size (camera aspect follows), so portrait/square is a
+true recompose. 2D physically cannot — its frames are stills baked at the studio's own
+resolution during a 30s+ Generate, and re-rendering 20–60 of them is not something a
+Download click can pay for — so it gets a centered cover-crop (`coverSourceRect`, exported
+for testing). That crop is real content loss: 9:16 off a 16:9 build keeps the middle 31.6%
+of the width and upscales it. The row's note says "2D crops to fit" only when the picked
+ratio actually differs from the frames' own, so it never warns when nothing is cropped.
+`coverSourceRect` returns the whole source on matching aspects, which is what keeps the
+default 16:9 path byte-identical to before. Verified with real exported files, parsed out of
+the MP4 boxes rather than assumed: 1:1@24 → 2160×2160, 120 samples over exactly 5.000s
+(24.00fps); all three ratios and frame rates confirmed reaching `VideoEncoder.configure`.
 
 ### 3D animation mode (three.js star tunnel), 2026-07-11
 **Flight speed is duration-independent as of 2026-07-18** (Aaron's original intent — the
@@ -422,6 +502,33 @@ Key facts:
   still flies dead-ahead with slight positional sway. Star shells (near 5000 / far 7000
   at radius 46→140), nebulae, and the background dome are unchanged from the earlier
   iterations; fog 0.009; camera far 450.
+- **Star streaking at full rush (2026-07-28, Aaron's ask — "stars streak at full speed and
+  return to how it is now at rest").** Each star field gains a companion `LineSegments`
+  layer: ONE segment per star, anchored at the star (`aStreak` attribute 0, full
+  brightness) and trailing to `aStreak` 1, which the vertex shader extrudes along the
+  flight axis by `uStreak` and dims to `STREAK_END_FADE`, so a trail reads as a bright head
+  with a fading tail. **It extrudes toward +z, AWAY from the camera, and that is the
+  physically correct direction** — the stars are static and the camera flies toward +z, so
+  in camera-relative terms every star travels far → near and the smear covers ground already
+  crossed. On screen the head sits at the star with the tail receding to the vanishing
+  point. A first version straddled the star (-1 → 0 → +1) and read wrong for exactly that
+  reason (Aaron, 2026-07-28); verified numerically after the fix — the light ADDED at full
+  rush has a mean screen radius of 209px against the resting stars' 253px, i.e. it falls
+  toward the centre, not around them. Both the extrusion and the opacity ride `rush`, and
+  below `RUSH_STREAK_EPS` the layer is `visible = false` outright.
+  Points sprites can't be stretched (`gl_PointSize` is square),
+  which is why this is a separate line layer rather than a change to the existing materials.
+  Doing the extrusion in the shader keeps per-frame JS to two uniform writes regardless of
+  star count; the only per-frame buffer work is copying each star's palette color onto its
+  4 trail vertices, and that is skipped while the layer is hidden. `frustumCulled = false`
+  because the CPU-side bounding box doesn't know about the shader's displacement.
+  Verified rather than assumed: at rush 0 the scene is **pixel-identical** to the pre-streak
+  build (max delta 0 over 1.4M subpixels, at 5 times through the cycle — it consumes no
+  `rng()` either, so scene generation is untouched), t=0 and t=duration stay frame-identical
+  (seam intact, since rush is 0 there), and at full rush hundreds of thousands of subpixels
+  differ. Length and opacity (12 units / 0.45) were tuned against real renders — the first
+  pass (a 9-unit half-length at 0.85) buried the tunnel geometry in white, the same blow-out
+  failure the additive panels hit earlier.
 - **Space-warp distance compression (Aaron's idea, same day):** far-distance pop-in
   (worst for the unfogged stars) is gone — a vertex-shader patch (`applyWarpShader`,
   onBeforeCompile on the star Points / tunnel LineSegments / panel Mesh materials) scales

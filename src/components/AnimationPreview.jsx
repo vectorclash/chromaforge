@@ -127,7 +127,25 @@ export default function AnimationPreview({
         const tick = (time, deltaTime) => {
           if (killRef.current || pausedRef.current) return;
           clock += deltaTime / 1000;
-          tl.time(rampTime(clock, period), false);
+          const target = rampTime(clock, period);
+          // Walk to the target in <=spacing hops instead of one jump. GSAP clamps
+          // tl.time() to the timeline's CURRENT duration, and this timeline only
+          // grows when the tl.call() one `spacing` ahead fires and appends the next
+          // frame -- so a single hop longer than `spacing` gets capped, and the
+          // preview silently falls behind the export it is supposed to match
+          // (measured: it caps at one frame per tick until it catches up). At the
+          // ramp's ~3.2x peak that needs only a ~38fps device on the densest
+          // frames/duration the UI allows, so it is reachable, not theoretical.
+          // Each hop fires the pending call and extends the timeline before the
+          // next one. `spacing` is the smaller of the two chains' steps
+          // (starSpacing >= spacing always, since starFrames <= frames), so
+          // bounding by it covers the star overlay's calls too.
+          let t = tl.time();
+          while (target - t > spacing) {
+            t += spacing;
+            tl.time(t, false);
+          }
+          tl.time(target, false);
         };
         tickerRef.current = tick;
         gsap.ticker.add(tick);

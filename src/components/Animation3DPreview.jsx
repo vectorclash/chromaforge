@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_SLOW } from '../utils/motionTokens';
-import { rampTime, rampRush } from '../utils/speedRamp';
+import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 
 // 3D animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
 // (src/animation3d/tunnelScene.js) with a single looping GSAP timeline, mirroring
@@ -68,9 +68,11 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         onUpdate: () => {
           // The tween stays linear; the speed ramp is applied as a time WARP into
           // setTime -- the same rampTime the exporter uses, so preview and MP4 match.
+          // RAMP_FLOOR_3D must match what exportAnimationVideo passes for 3D, or the
+          // preview and the exported file would ramp differently.
           // rush drives the FOV/vanishing-point speed enhancement, from the same clock.
           world.setTime(
-            speedRamp ? rampTime(proxy.t, cycleDuration) : proxy.t,
+            speedRamp ? rampTime(proxy.t, cycleDuration, RAMP_FLOOR_3D) : proxy.t,
             speedRamp ? rampRush(proxy.t, cycleDuration) : 0
           );
           renderer.render(world.scene, world.camera);

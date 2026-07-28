@@ -1158,7 +1158,11 @@
   padding: 10px 0;
   border-bottom: 1px solid rgba(250, 250, 250, 0.06);
 }
-.display-canvas .controls-inner .settings-field:last-of-type {
+/* No rule under the LAST field of a tab -- it fences the settings off from the BACK button
+   instead of separating two settings. Note this cannot be `:last-of-type`: that means "last
+   div among its siblings", and the BACK button's own .row div always follows, so the rule
+   this replaces never matched anything and every tab was drawing a trailing line. */
+.display-canvas .controls-inner .settings-field:not(:has(~ .settings-field)) {
   border-bottom: none;
   margin-bottom: 6px;
 }
@@ -1271,6 +1275,61 @@
   align-items: center;
   justify-content: center;
   padding: 0 4px;
+}
+
+/* Marks the first row of a group inside a settings tab (currently the export group in
+   Video). A wider gap plus a slightly brighter rule reads as "these belong together"
+   without spending a whole row on a heading. The row ABOVE drops its own bottom rule, or
+   the group break shows as two lines with a gap between them instead of one line centred
+   in the break. */
+.display-canvas .controls-inner .settings-field:has(+ .settings-group-start) {
+  border-bottom: none;
+}
+.display-canvas .controls-inner .settings-field.settings-group-start {
+  margin-top: 18px;
+  border-top: 1px solid rgba(250, 250, 250, 0.14);
+  padding-top: 18px;
+}
+
+/* Export ratio + frame rate. Two selects share one settings-field row, styled to match
+   .settings-stepper (same fill, border, radius and 36px height) so the row reads as part
+   of the same control family rather than a browser dropdown dropped into the panel.
+   appearance: none removes the native chrome; the caret is a background SVG, and the
+   right padding reserves its space. The <option> list itself is drawn by the OS and can't
+   be styled, hence the explicit dark color-scheme so it doesn't render as light-on-light. */
+.display-canvas .controls-inner .settings-selects {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.display-canvas .controls-inner .settings-select {
+  height: 36px;
+  padding: 0 26px 0 10px;
+  background-color: rgba(0, 0, 0, 0.3);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='rgba(250,250,250,0.6)' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 10px 6px;
+  border: 1px solid rgba(250, 250, 250, 0.12);
+  border-radius: 6px;
+  color: #fafafa;
+  font-family: 'Quicksand', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.display-canvas .controls-inner .settings-select:hover {
+  background-color: rgba(250, 250, 250, 0.1);
+  border-color: rgba(250, 250, 250, 0.25);
+}
+.display-canvas .controls-inner .settings-select:focus-visible {
+  outline: 2px solid rgba(250, 250, 250, 0.5);
+  outline-offset: 2px;
 }
 
 /* Geometry sliders. Single sliders (.settings-range) paint their own progress fill via

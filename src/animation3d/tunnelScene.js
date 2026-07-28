@@ -27,7 +27,7 @@ import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
 // laps of the content per cycle (still seamless — content is periodic in L and colors
 // evolve over the FULL cycle, so repeat laps read color-shifted, not identical).
 
-const FLIGHT_SPEED = 240; // world units/sec — constant across durations (ramp peak ≈ ×1.57)
+const FLIGHT_SPEED = 240; // world units/sec — constant across durations (ramp peak ≈ ×3.23)
 const MAX_CONTENT_LENGTH = 2400; // unique-content cap; longer cycles lap it (integer times)
 const REFERENCE_LENGTH = 400; // density reference: all per-length counts were tuned at this
 const TUNNEL_RADIUS = 46; // outer radius of the star tube
@@ -65,6 +65,18 @@ const WARP_END = 395; // fully collapsed to the axis beyond this (inside the 400
 const RUSH_WARP_PULL = 55;
 const RUSH_FOV_BOOST = 14;
 const BASE_FOV = 70;
+// Star streaking, also driven by rush: every star gets a companion pair of line segments
+// along the flight axis whose half-length and opacity scale from nothing at rest to
+// STREAK_* at the burst's peak, so the field smears into light-speed streaks and settles
+// back to plain points. The layer is hidden outright below RUSH_STREAK_EPS, so the
+// resting scene is exactly the one that existed before streaking — and since rush is 0 at
+// the loop seam, the seam frame is unaffected and the loop stays seamless.
+// STREAK_LENGTH is a look value, not a physical shutter smear: a real frame of travel at
+// the peak (~15 units at 30fps) reads as solid lines rather than streaks.
+const STREAK_LENGTH = 12;
+const STREAK_OPACITY = 0.45;
+const STREAK_END_FADE = 0.25; // brightness at a streak's tips, relative to the star
+const RUSH_STREAK_EPS = 0.002;
 
 // Mirror of the shader smoothstep for JS-driven sprites (large stars, nebulae).
 // `start` is the current (possibly rush-pulled) warp onset distance.
@@ -79,11 +91,38 @@ function warpFactor(d, start = WARP_START) {
 // materials all share the project_vertex chunk). Pure function of view-space position
 // and the scene's shared uWarpStart uniform — deterministic, loop-safe, identical in
 // preview and export (the uniform is only ever set from setTime's rush arg).
-function applyWarpShader(mat, uWarpStart) {
+// `uStreak` (optional) turns the material into the streak layer: each vertex carries an
+// `aStreak` attribute in [-1, 1] giving its position along the trail, extruded along the
+// flight axis by the uniform's half-length and dimmed toward the tips. Doing it in the
+// shader keeps the per-frame JS work to two uniform writes no matter how many stars
+// there are, and keeps the extrusion deterministic (a pure function of rush).
+function applyWarpShader(mat, uWarpStart, uStreak = null) {
   mat.onBeforeCompile = shader => {
     shader.uniforms.uWarpStart = uWarpStart;
+    let decls = 'uniform float uWarpStart;\n';
+    if (uStreak) {
+      shader.uniforms.uStreak = uStreak;
+      decls += 'uniform float uStreak;\nattribute float aStreak;\n';
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `
+      #include <begin_vertex>
+      transformed.z += aStreak * uStreak;
+      `
+      );
+      // Taper the trail's brightness toward both tips. The middle vertex of each star's
+      // pair of segments sits at aStreak 0, so the line interpolates bright core → dim
+      // tip rather than reading as a uniform bar.
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <color_vertex>',
+        `
+      #include <color_vertex>
+      vColor *= mix(1.0, ${STREAK_END_FADE.toFixed(2)}, abs(aStreak));
+      `
+      );
+    }
     shader.vertexShader =
-      'uniform float uWarpStart;\n' +
+      decls +
       shader.vertexShader.replace(
         '#include <project_vertex>',
         `
@@ -97,6 +136,72 @@ function applyWarpShader(mat, uWarpStart) {
       );
   };
   return mat;
+}
+
+// Streak layer for one star field: ONE segment per star, anchored at the star (aStreak 0,
+// full brightness) and trailing away from it (aStreak 1, faded to STREAK_END_FADE).
+//
+// The trail extends toward +z — AWAY from the camera — which is genuinely where a star
+// has been, not where it is going: the stars are static and the camera flies toward +z,
+// so in camera-relative terms every star travels from far to near and the smear covers
+// the ground already crossed. On screen that puts the bright head at the star's own
+// position with the tail receding toward the vanishing point, which is also the classic
+// hyperspace read. An earlier version straddled the star (-1 → 0 → +1) and looked wrong
+// for exactly this reason (Aaron, 2026-07-28).
+//
+// Positions never change — the shader extrudes them — so only the color buffer is
+// rewritten per frame, and only while the streaks are actually visible.
+function makeStarStreaks(field, uWarpStart, uStreak) {
+  const n = field.count;
+  const pos = new Float32Array(n * 2 * 3);
+  const col = new Float32Array(n * 2 * 3);
+  const dir = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    const x = field.pos[i * 3];
+    const y = field.pos[i * 3 + 1];
+    const z = field.pos[i * 3 + 2];
+    for (let v = 0; v < 2; v++) {
+      pos[(i * 2 + v) * 3] = x;
+      pos[(i * 2 + v) * 3 + 1] = y;
+      pos[(i * 2 + v) * 3 + 2] = z;
+    }
+    dir[i * 2] = 0; // at the star
+    dir[i * 2 + 1] = 1; // tail tip, one full streak length behind
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('aStreak', new THREE.BufferAttribute(dir, 1));
+  const mat = applyWarpShader(
+    new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    }),
+    uWarpStart,
+    uStreak
+  );
+  const lines = [];
+  const sync = () => {
+    const src = field.colors;
+    for (let i = 0; i < n; i++) {
+      const s = i * 3;
+      const r = src[s];
+      const g = src[s + 1];
+      const b = src[s + 2];
+      for (let v = 0; v < 2; v++) {
+        const d = (i * 2 + v) * 3;
+        col[d] = r;
+        col[d + 1] = g;
+        col[d + 2] = b;
+      }
+    }
+    geo.attributes.color.needsUpdate = true;
+  };
+  return { geo, mat, lines, sync };
 }
 
 // ─── Noise (from temp/sound-generator stars.js — deterministic, no RNG involved) ──────
@@ -822,6 +927,9 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // the sprite-scale warp math.
   const uWarpStart = { value: WARP_START };
   let warpStartNow = WARP_START;
+  // Streak half-length, shared by both star fields' streak materials. Driven only by
+  // setTime's rush arg, so it is per-scene state like uWarpStart.
+  const uStreak = { value: 0 };
 
   // Constant flight speed: total travel per cycle scales with duration. Unique content
   // is capped at MAX_CONTENT_LENGTH; beyond it the camera laps the content an exact
@@ -938,6 +1046,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     scene.add(pts);
     starCopies.push(pts);
   }
+  const nearStreaks = makeStarStreaks(field, uWarpStart, uStreak);
 
   // Far star shell — a second, denser layer beyond the tunnel wall so deep space stays
   // populated out to where the largest geometry now lives, instead of stars ending
@@ -963,6 +1072,21 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const pts = new THREE.Points(farGeo, farMat);
     pts.position.z = zOff;
     scene.add(pts);
+  }
+  const farStreaks = makeStarStreaks(farField, uWarpStart, uStreak);
+
+  // Both streak layers, cloned at ±L like the star fields they trail.
+  const streakLayers = [nearStreaks, farStreaks];
+  for (const layer of streakLayers) {
+    disposables.push(layer.geo, layer.mat);
+    for (const zOff of [-L, 0, L]) {
+      const line = new THREE.LineSegments(layer.geo, layer.mat);
+      line.position.z = zOff;
+      line.visible = false;
+      line.frustumCulled = false; // the shader moves vertices; the CPU-side box lies
+      scene.add(line);
+      layer.lines.push(line);
+    }
   }
 
   // Large stars — sprites with individual materials for per-star color/scale
@@ -1094,6 +1218,16 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     warpStartNow = WARP_START - RUSH_WARP_PULL * rush;
     uWarpStart.value = warpStartNow;
 
+    // Star streaks: length and brightness ride rush, and the whole layer drops out
+    // below RUSH_STREAK_EPS so the resting scene renders exactly as it did before
+    // streaking existed (and the seam frame, where rush is 0, is untouched).
+    const streaking = rush > RUSH_STREAK_EPS;
+    uStreak.value = STREAK_LENGTH * rush;
+    for (const layer of streakLayers) {
+      layer.mat.opacity = STREAK_OPACITY * rush;
+      for (const line of layer.lines) line.visible = streaking;
+    }
+
     // Camera: constant flight speed (FLIGHT_SPEED, duration-independent), `laps`
     // content lengths per cycle, position wrapped into [0, L) — the content is
     // periodic in L so the wrap is invisible. Straight down the axis, no positional
@@ -1112,6 +1246,9 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     scene.fog.color.copy(fogBase).lerp(_col, 0.9);
 
     updateStarColors(progress, camZ);
+    // Trails inherit their star's freshly-computed palette color. Skipped entirely while
+    // the layer is hidden, which is most of a cycle.
+    if (streaking) for (const layer of streakLayers) layer.sync();
     tunnel.update(progress, geoPaletteHsl, camZ);
 
     // Nebula clouds drift through the palette, phase-offset per cloud; scale-warped at
