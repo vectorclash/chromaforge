@@ -460,9 +460,28 @@ pan-y` on the button), and a real drag sets `dragSuppressClickRef` so the releas
 doesn't navigate; a clean tap still goes to /shop. Verified via headless touch-emulation
 (drag → ~90° spin, URL stays; tap → /shop). Below 480px the shirt+buttons row stacks
 vertically (`.hero-compact-row` media query — side-by-side overflows a phone viewport). The model (Sketchfab "Tshirt" by khalilchahi99, CC-BY-4.0 —
-attribution in its license.txt) lives in `public/models/tshirt/` (GLTFLoader fetches
-scene.bin/textures by URL; Vite can't resolve those from src/assets — the src/assets copy
-is the original). Its baseColor atlas is a square sheet of flat cut-pattern UV islands
+attribution in its license.txt, which is a licence obligation and must ship) lives in
+`public/models/tshirt/` (fetched by URL; Vite can't resolve it from src/assets — the
+src/assets copy is the unmodified original and is kept as the archival source).
+**What's served is an OPTIMIZED build, not the Sketchfab download** (2026-07-28): the
+original is scan-density — 154,048 triangles for something drawn at 190 CSS px — and shipped
+as 5 requests totalling 4717KB, *uncompressed*, on the landing page (Hostinger compresses by
+extension and `.bin` isn't on its list). Now one 708KB `tshirt.glb`: welded, simplified to
+10%, quantized, pruned, textures embedded (see TshirtPreview.jsx's header for the exact
+`gltf-transform` pipeline). Deliberately NOT meshopt/Draco — either shaves ~270KB more but
+drags a decoder in for one small model; `KHR_mesh_quantization` is the only required
+extension and three.js supports it natively, so this needs no loader plugin.
+Two invariants any future re-optimization must hold, because the texture compositing below
+depends on them: the **UV layout** (island rects are measured in atlas space — decimation
+must not move them) and the **material names / 2-mesh split** (the `traverse` keys off them).
+Verified rather than assumed: UV bounds identical modulo ~0.0002 of int16 rounding
+(sub-pixel on a 2048 sheet), front-view silhouette IoU **99.82%** vs the original (bbox
+0.12% narrower, same height), and a real headless render of the component from both models
+with zero console errors or failed requests.
+**Swapping in a different model is far more expensive than it looks** — every island rect,
+the vertical-flip discovery, all 8 trim-strip identities, and the cuff `flipX` handedness
+below are calibrated to *this* atlas, so a new model invalidates all of it and needs the
+orientation harness re-run. Optimizing keeps the calibration intact; replacing does not. Its baseColor atlas is a square sheet of flat cut-pattern UV islands
 (front/back body panels, two sleeves, hem strips). **Per-island composition, not full-bleed**
 (user caught the first full-bleed version putting an off-center crop on each panel): each
 island family gets its own recompose-per-ratio render (body ≈0.69 portrait, sleeve ≈1.9

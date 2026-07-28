@@ -12,8 +12,26 @@ import { capMockupRenderSize } from '../lib/printful';
 //
 // Model: "Tshirt" (https://sketchfab.com/3d-models/tshirt-a88d6e25d67c4b0c91b9ea013e679870)
 // by khalilchahi99 (https://sketchfab.com/khalilchahi99), CC-BY-4.0 -- served from
-// public/models/tshirt/ (GLTFLoader fetches scene.bin + textures by URL, which Vite's
-// import pipeline can't resolve from src/assets). license.txt ships alongside it.
+// public/models/tshirt/ (fetched by URL, which Vite's import pipeline can't resolve from
+// src/assets). license.txt ships alongside it and is a licence obligation, not optional.
+//
+// The .glb here is an OPTIMIZED build of the Sketchfab download, not the download itself:
+// 4717KB across 5 requests (scene.gltf + scene.bin + 3 textures) -> 708KB in one. The
+// source asset is scan-density -- 154,048 triangles for something drawn at 190 CSS px --
+// so it is welded, simplified to 10% (22,624 tris, still well past what that size can
+// resolve), quantized, and pruned, with the textures embedded. Rebuild with:
+//   gltf-transform dedup  in.gltf p1.glb   &&  gltf-transform weld     p1.glb p2.glb
+//   gltf-transform simplify p2.glb p3.glb --ratio 0.1 --error 0.001
+//   gltf-transform quantize p3.glb p4.glb  &&  gltf-transform prune    p4.glb tshirt.glb
+// The unmodified original is kept at src/assets/models/tshirt/ as the archival source.
+//
+// Two properties this pipeline had to preserve, since everything below depends on them:
+// the UV LAYOUT (island rects are measured in atlas space -- simplification must not move
+// them; verified identical bounds before/after, modulo ~0.0002 of int16 quantization
+// rounding, i.e. sub-pixel on a 2048 sheet) and the MATERIAL NAMES/mesh split, which the
+// traverse below relies on. It needs no loader plugin: KHR_mesh_quantization is the only
+// required extension and three.js supports it natively. Deliberately NOT meshopt/Draco --
+// both would shave another ~270KB but drag in a decoder for one small model.
 //
 // Texture spec (from the model's own baseColor atlas): a single square 2048x2048 sheet
 // holding the front/back body panels, two sleeves, and hem-strip UV islands as flat
@@ -267,7 +285,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         key.position.set(2, 3, 4);
         scene.add(key);
 
-        const gltf = await new GLTFLoader().loadAsync('/models/tshirt/scene.gltf');
+        const gltf = await new GLTFLoader().loadAsync('/models/tshirt/tshirt.glb');
         if (disposed) {
           renderer.dispose();
           return;
