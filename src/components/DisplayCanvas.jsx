@@ -14,6 +14,7 @@ import { toCompactDesign } from '../render/compactDesign';
 import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
+import { isMobileDevice } from '../utils/device';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -134,6 +135,52 @@ async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
 // onGenerateButtonClick's own fix for that).
 const SHARE_LINK_ID_PLACEHOLDER = 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX';
 
+// ─── Animation memory budget ─────────────────────────────────────────────────────────
+// Phones were crashing and reloading the tab when the Video settings were pushed up
+// (Aaron, 2026-07-28). It is an out-of-memory kill, and 2D and 3D fail for completely
+// different reasons — measured, not assumed:
+//
+//   2D: every frame AND star frame is an <img> living in the DOM, and AnimationPreview
+//       decodes all of them up front on purpose (decoding lazily made frames paint black).
+//       So they are all resident as RGBA bitmaps at once. At the mobile studio size
+//       (2160x2160) that is 17.8MB EACH — the default 20+10 already holds 534MB, and the
+//       old 60+60 ceiling would have asked for 2.1GB. The encoded blobs are irrelevant
+//       (17MB total) and so is the JS heap (40MB); it is entirely decoded pixels.
+//   3D: bounded by construction. Scene geometry measures 5.6MB at ANY duration >= 10s,
+//       because content length is capped at MAX_CONTENT_LENGTH and the camera laps it.
+//       Nothing there grows with the sliders.
+//
+// So the caps that matter are 2D's frame counts, plus — for both modes — Duration and
+// frame rate, which size the export: mp4-muxer holds the ENTIRE file in memory
+// (ArrayBufferTarget + fastStart: 'in-memory'), which at the mobile 25Mbps bitrate is
+// 89MB at 30s and 179MB at 60s, on top of everything above.
+const ANIM_LIMITS = {
+  desktop: { frames: 60, duration: 60, fps: [24, 30, 60] },
+  mobile: { frames: 30, duration: 30, fps: [24, 30] }
+};
+
+// Star frames cost exactly what main frames cost (same size, same resident bitmap), so
+// they are capped at HALF the frame count rather than by a flat number of their own
+// (Aaron's call). Three reasons it's the right shape: it is already the relationship the
+// rest of the code assumes -- getAnimTiming falls back to ceil(fc / 2), and the 20/10
+// default IS frames/2; it scales with the frame count instead of staying wrong at the
+// low end (10 frames used to allow 10 star frames, doubling that animation's memory for
+// a star layer churning as fast as the artwork); and it bounds total resident bitmaps at
+// 1.5x frames, which is what makes the per-device frame cap alone sufficient to reason
+// about. Worst cases: mobile 30+15 = 356MB, desktop 60+30 = 2.85GB (was 3.8GB).
+const maxStarFrames = frameCount => Math.max(1, Math.floor(frameCount / 2));
+// Resolved once: the UA cannot change mid-session.
+const ANIM_LIMIT = ANIM_LIMITS[isMobileDevice() ? 'mobile' : 'desktop'];
+
+// Mobile 2D frames are RASTERIZED at this long edge instead of the studio's 2160. This is
+// the fix that actually buys the headroom — capping counts alone would have meant a mobile
+// ceiling BELOW today's default, making the setting decorative. The frame is still
+// GENERATED at full studio size, so composition/density is untouched (element counts scale
+// with canvas area — see render/scale.js); only the stored raster is smaller, which cuts
+// each resident bitmap from 17.8MB to 8.3MB. 1440 rather than 1080 because mobile exports
+// at up to 1080 on the short edge, and a 1080 source would then UPSCALE on the 9:16 crop.
+const MOBILE_ANIM_RASTER = 1440;
+
 // MP4 export framing. Sizes are the desktop targets; mobile halves them (see
 // exportAnimationVideo) because full 4K encoding needs ~500MB+ of GPU/RAM that iOS
 // WebViews refuse. '16:9' is the historical export size, so leaving it selected keeps the
@@ -150,7 +197,21 @@ const EXPORT_ASPECTS = {
   '9:16': [2160, 3840],
   '1:1': [2160, 2160]
 };
-const EXPORT_FPS_OPTIONS = [24, 30, 60];
+
+// Downscales a rendered animation frame to MOBILE_ANIM_RASTER on phones, preserving
+// aspect. Returns the canvas itself on desktop, so that path is untouched.
+function rasterizeAnimationFrame(canvas) {
+  const longEdge = Math.max(canvas.width, canvas.height);
+  if (!isMobileDevice() || longEdge <= MOBILE_ANIM_RASTER) return canvas;
+  const scale = MOBILE_ANIM_RASTER / longEdge;
+  const small = document.createElement('canvas');
+  small.width = Math.round(canvas.width * scale);
+  small.height = Math.round(canvas.height * scale);
+  const ctx = small.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, small.width, small.height);
+  return small;
+}
 
 // Centered source rect matching the destination's aspect, so a frame is cropped rather
 // than stretched into a different shape. Returns the whole source when the aspects already
@@ -540,9 +601,13 @@ export default class DisplayCanvas extends React.Component {
     await new Promise(r => setTimeout(r, 0));
 
     const canvas = renderArtwork(config, this.queue);
+    // Generated at full studio size (density depends on canvas area), stored smaller on
+    // phones — see MOBILE_ANIM_RASTER. `out === canvas` on desktop.
+    const out = rasterizeAnimationFrame(canvas);
 
     return new Promise(resolve => {
-      canvas.toBlob(blob => {
+      out.toBlob(blob => {
+        if (out !== canvas) this.clearElement(out);
         this.clearElement(canvas);
         resolve(URL.createObjectURL(blob));
       }, 'image/jpeg', 0.98);
@@ -561,7 +626,11 @@ export default class DisplayCanvas extends React.Component {
       let starField = StarField(starFieldConfig, this.queue);
       context.drawImage(starField, 0, 0);
 
-      canvas.toBlob(blob => {
+      // Same treatment as the main frames: full-size generation, phone-sized raster.
+      const out = rasterizeAnimationFrame(canvas);
+
+      out.toBlob(blob => {
+        if (out !== canvas) this.clearElement(out);
         this.clearElement(canvas);
         resolve(URL.createObjectURL(blob));
       }, 'image/png');
@@ -1037,9 +1106,7 @@ export default class DisplayCanvas extends React.Component {
           Promise.all(animationStarFrames.map(loadImg)),
         ]);
 
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-      navigator.userAgent
-    );
+    const isMobile = isMobileDevice();
 
     // Export framing comes from the picker, not from the studio canvas, so the same
     // design exports identically from any screen. Mobile halves it to stay within iOS
@@ -1058,7 +1125,9 @@ export default class DisplayCanvas extends React.Component {
     const PERIOD = CYCLE_DURATION;
     // Export exactly one cycle, starting one period in so start and end states are identical
     const OFFSET = PERIOD;
-    const FPS = EXPORT_FPS_OPTIONS.includes(this.state.exportFps) ? this.state.exportFps : 24;
+    // Validated against the DEVICE's list, not the full one: a phone must not encode 60fps
+    // just because the value survived from somewhere else.
+    const FPS = ANIM_LIMIT.fps.includes(this.state.exportFps) ? this.state.exportFps : ANIM_LIMIT.fps[0];
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
@@ -1153,8 +1222,11 @@ export default class DisplayCanvas extends React.Component {
 
     const easeInOut = t => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
 
-    const srcWidth  = this.props.width;
-    const srcHeight = this.props.height;
+    // Measured off a loaded frame, NOT from this.props — on phones the stored raster is
+    // smaller than the studio canvas (MOBILE_ANIM_RASTER), and a source rect larger than
+    // the image silently draws a clipped, partly-empty frame.
+    const srcWidth  = images[0]?.naturalWidth || this.props.width;
+    const srcHeight = images[0]?.naturalHeight || this.props.height;
     // Cover-crop the pre-rendered frames into the chosen export ratio instead of
     // stretching them into it (see EXPORT_ASPECTS). A no-op when the ratios match.
     const { sx: SRC_X, sy: SRC_Y, sw: SRC_W, sh: SRC_H } = coverSourceRect(
@@ -2546,9 +2618,9 @@ export default class DisplayCanvas extends React.Component {
                     <div className="settings-field">
                       <span className="settings-label">Frames</span>
                       <div className="settings-stepper">
-                        <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, fc), settingsDirty: true }); }}>−</button>
+                        <button onClick={() => { const fc = Math.max(5, frameCount - 1); this.setState({ frameCount: fc, starFrameCount: Math.min(starFrameCount, maxStarFrames(fc)), settingsDirty: true }); }}>−</button>
                         <span>{frameCount}</span>
-                        <button onClick={() => this.setState({ frameCount: Math.min(60, frameCount + 1), settingsDirty: true })}>+</button>
+                        <button onClick={() => this.setState({ frameCount: Math.min(ANIM_LIMIT.frames, frameCount + 1), settingsDirty: true })}>+</button>
                       </div>
                     </div>
                     <div className="settings-field">
@@ -2556,7 +2628,7 @@ export default class DisplayCanvas extends React.Component {
                       <div className="settings-stepper">
                         <button onClick={() => this.setState({ starFrameCount: Math.max(1, starFrameCount - 1), settingsDirty: true })}>−</button>
                         <span>{starFrameCount}</span>
-                        <button onClick={() => this.setState({ starFrameCount: Math.min(frameCount, starFrameCount + 1), settingsDirty: true })}>+</button>
+                        <button onClick={() => this.setState({ starFrameCount: Math.min(maxStarFrames(frameCount), starFrameCount + 1), settingsDirty: true })}>+</button>
                       </div>
                     </div>
                   </>
@@ -2570,7 +2642,7 @@ export default class DisplayCanvas extends React.Component {
                   <div className="settings-stepper">
                     <button onClick={() => this.setState({ cycleDuration: Math.max(5, cycleDuration - 1), settingsDirty: !threeDMode })}>−</button>
                     <span>{cycleDuration}s</span>
-                    <button onClick={() => this.setState({ cycleDuration: Math.min(60, cycleDuration + 1), settingsDirty: !threeDMode })}>+</button>
+                    <button onClick={() => this.setState({ cycleDuration: Math.min(ANIM_LIMIT.duration, cycleDuration + 1), settingsDirty: !threeDMode })}>+</button>
                   </div>
                 </div>
                 {/* Playback-time warp only (see the speedRamp state comment) -- frame
@@ -2631,7 +2703,7 @@ export default class DisplayCanvas extends React.Component {
                       onChange={e => this.setState({ exportFps: Number(e.target.value) })}
                       aria-label="Export frame rate"
                     >
-                      {EXPORT_FPS_OPTIONS.map(fps => (
+                      {ANIM_LIMIT.fps.map(fps => (
                         <option key={fps} value={fps}>{fps} fps</option>
                       ))}
                     </select>

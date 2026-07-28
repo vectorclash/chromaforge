@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DisplayCanvas from '../components/DisplayCanvas';
+import { isMobileDevice } from '../utils/device';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -44,7 +45,7 @@ export default function StudioPage({ compact = true }) {
 
   let width = 3840;
   let height = 2160;
-  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+  if (isMobileDevice()) {
     width = 2160;
     height = 2160;
   }

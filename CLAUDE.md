@@ -401,6 +401,45 @@ carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840,
 instant — no rebuild, no `settingsDirty`. Deliberately ONE row rather than two: both answer
 "what file comes out of Download", and the Video tab already carries six rows (Aaron
 explicitly didn't want the panel cluttered).
+**Mobile OOM crashes from the animation settings, fixed 2026-07-28** (Aaron: phones would
+"crash and refresh" when the Video settings were pushed up). It was an out-of-memory kill,
+and the two modes fail for unrelated reasons — all numbers below MEASURED on an emulated
+phone, not estimated:
+- **2D is the dangerous one.** Every frame AND star frame is an `<img>` in the DOM, and
+  `AnimationPreview` decodes them all up front deliberately (lazy decode painted black
+  frames), so all are resident as RGBA bitmaps simultaneously. At the mobile studio size
+  (2160×2160) that is **17.8MB each** — the DEFAULT 20+10 already held **534MB**, and the
+  old 60+60 ceiling would have asked for **2.1GB**. Encoded blobs (17MB total) and the JS
+  heap (40MB) are irrelevant; it is entirely decoded pixels.
+- **3D is bounded by construction**: scene geometry measures **5.6MB at any duration ≥10s**,
+  because content length is capped at `MAX_CONTENT_LENGTH` and the camera laps it. Nothing
+  in the scene grows with the sliders.
+- **Both modes** pay at export: mp4-muxer holds the ENTIRE file in memory
+  (`ArrayBufferTarget` + `fastStart: 'in-memory'`), which at the mobile 25Mbps bitrate is
+  89MB at 30s and 179MB at 60s.
+Two fixes. `ANIM_LIMITS` caps mobile at frames 30 / duration 30s / fps ≤30 (desktop keeps
+60 / 60s / 60fps), and star frames are capped at **half the frame count** on both
+(`maxStarFrames`, Aaron's call) rather than by a flat per-device number. A star frame costs
+exactly what a main frame costs, and half is already the relationship the rest of the code
+assumes — `getAnimTiming` falls back to `ceil(fc / 2)` and the 20/10 default IS frames/2 —
+so this removes a second source of truth, scales instead of staying wrong at the low end
+(10 frames used to allow 10 star frames), and bounds total resident bitmaps at 1.5x frames,
+which is what lets the frame cap alone be the number you reason about. Lowering Frames pulls
+Star Frames down to the new cap. Desktop's worst case drops 3.8GB → 2.85GB as a side effect. And — the part that actually buys the headroom, since caps
+alone would have put the mobile ceiling BELOW today's default — mobile 2D frames are
+RASTERIZED at `MOBILE_ANIM_RASTER` (1440 long edge) while still being GENERATED at full
+studio size, so composition and density are untouched (element counts scale with canvas
+area) and each resident bitmap drops 17.8MB → 7.9MB. 1440 not 1080 because mobile exports
+at up to 1080 on the short edge and a 1080 source would UPSCALE on the 9:16 crop.
+Result: default 534MB → **237MB**, and the new mobile worst case (30 frames + 15 star) is
+356MB — still below what the default used to cost. **Gotcha this introduced and closed**: the 2D export's source
+rect came from `this.props`, which is no longer the frame size on phones — a rect larger
+than the image draws a clipped, half-empty frame. It now measures a loaded frame
+(`images[0].naturalWidth`). Verified with a real mobile 9:16 export: frames 1440×1440,
+source rect 810×1440 @315,0 (inside the frame), file 1080×1920, 120 samples over 5.000s.
+**Desktop is untouched and still uncapped-ish** — 3840×2160 frames at 31.6MB each, 949MB at
+the default, which means its own 60+60 ceiling is ~3.8GB. Not observed failing, but the same
+class of problem is one setting away if it ever needs attention.
 **The Video tab is now grouped by what each control affects** (Aaron, same session): the
 scene itself first (3D → Frames → Star Frames → Duration → Speed Ramp — timing last, "how
 long" then "how it's paced"), then a `settings-group-start` rule/gap, then the export group
@@ -1314,6 +1353,25 @@ larger than the button column — it's the panel's visual anchor.
     identical photo. The audit copy rides in `order_items.design_data` as a nested
     `secondaryDesign` key (that column is write-only, so this needed no migration and leaves
     every other product's row shape byte-identical).
+- **JPEG print files: evaluated 2026-07-28, DEFERRED — print files stay PNG.** Don't
+  re-derive this; the measurement is done. Real render of design `b6942c8f` (seed
+  `1vsx8atp`) at the t-shirt front printfile (3150×5550, 17.5Mpx) through render-service's
+  own bundled pipeline: PNG 4.39MB, JPEG 100 3.43MB, **98 2.20MB**, 95 1.45MB, 90 0.88MB.
+  **The decisive finding: `@napi-rs/canvas` subsamples chroma at EVERY jpeg quality,
+  including 100** — proven with a colour-only pattern where luma RMSE stayed 0.48 while Cr
+  RMSE sat at 21.77, *identical* at q100/q98/q90. The library exposes `chromaSubsampling`
+  only on its AVIF config; the JPEG path takes quality alone, so 4:4:4 is not reachable
+  without swapping encoders. Consequence: **quality 98 is the wrong dial** — full-image
+  RMSE moves only 1.86 → 2.38 across q100 → q85, so 98 costs 50% more bytes than 95 for
+  0.1 RMSE. If this is ever revisited, 95 is the pick, not 98. Two reasons it wasn't worth
+  doing now: PNG is already small on this artwork (smooth gradients compress well), so the
+  saving is ~2.2MB per file rather than the order of magnitude JPEG gives on photos; and
+  the error lands entirely on hard colour edges at single-pixel scale, which 150 DPI DTG
+  almost certainly won't resolve. **Blockers if resumed:** `label_outside` is deliberately
+  transparent so it must stay PNG (any switch is per-placement, never global), and nobody
+  has checked whether Printful re-encodes what we send — one draft order with a JPEG file
+  would settle that. Comparison artifact (crops chosen by measurement, wipe view at 1:1):
+  https://claude.ai/code/artifact/8408d969-c3f6-477b-aa02-efd8ce712e53
 - **Storage growth in `design-mockups`: found and fixed 2026-07-19** (the bucket had
   reached ~357MB — a third of the free-tier quota — 254MB of it print-resolution renders
   from Aaron's own test checkouts, uploaded under timestamped names by `render-print-file`
