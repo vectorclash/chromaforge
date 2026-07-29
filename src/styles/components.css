@@ -302,13 +302,54 @@
   opacity: 0.3 !important;
   transform: scale(0.95);
 }
-.color-container.drag-over {
-  /* 2px ring via box-shadow (not border) so the swatch fill stays flush with the
-     buttons and the layout doesn't shift when a swatch is dragged over. */
+/* The rounding a swatch appears to have belongs to the jscolor-enhanced INPUT (8px, from the
+   shared .controls-inner .row button/input rule), not to the .color-container wrapping it --
+   which is why a ring drawn on the container used to render as a hard-cornered rectangle
+   around a rounded block. Mirroring the radius here fixes that and the drag clone's shadow
+   at once: startDrag copies the container's computed borderRadius onto the clone, so its
+   drop shadow was being cast from square corners too. */
+.color-container {
+  --swatch-radius: 8px;
+  border-radius: var(--swatch-radius);
+}
+/* Drop-target ring. Present on every swatch at opacity 0 so it FADES rather than snapping,
+   and so the drag clone (a cloneNode of a container, minus the .drag-over class) can't
+   inherit a lit one.
+
+   Every layer is INSET. The old version was an outset ring plus a 15px outer glow, which the
+   settings scroller clips: a swatch at the edge of the list lost its top, left and bottom
+   edges and read as two stray lines. Nothing here paints outside the swatch, so there is
+   nothing to clip at any scroll position.
+
+   Four layers because this sits on top of an ARBITRARY user-chosen colour, and a single-colour
+   ring always dies on some fill. Checked by lighting the ring on #2CD8FE (the accent itself),
+   #FFFFFF and #000000 simultaneously: the accent band alone disappeared on the cyan swatch,
+   so it is bracketed by a dark edge outside and a pale hairline inside -- between them one of
+   the three always contrasts, whatever the fill. The innermost layer is a dark vignette rather
+   than the old outward glow, which reads as recessed and pairs with the inward scale below. */
+.color-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--swatch-radius);
   box-shadow:
-    0 0 0 2px #2cd8fe,
-    0 0 15px rgba(44, 216, 254, 0.6);
-  transform: scale(1.05);
+    inset 0 0 0 2px rgba(10, 8, 20, 0.92),
+    inset 0 0 0 5px var(--color-interactive),
+    inset 0 0 0 6px rgba(250, 250, 250, 0.6),
+    inset 0 0 18px 3px rgba(10, 8, 20, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  /* Above the colour fill (z 0), below the drag handle and remove button, which stay usable. */
+  z-index: 5;
+  transition: opacity var(--duration-fast) ease;
+}
+.color-container.drag-over::after {
+  opacity: 1;
+}
+.color-container.drag-over {
+  /* Presses IN rather than growing 5% as before. A swap target that recedes reads as
+     "this slot will take it", and an inward transform cannot be clipped by the scroller. */
+  transform: scale(0.96);
 }
 .color-container.drag-clone {
   opacity: 0.8 !important;
@@ -1113,48 +1154,55 @@
   display: flex !important;
 }
 
-/* Phone-only docked close for the settings panel, plus hiding the two viewport-anchored
-   corner controls while that panel is up.
+/* Bound the settings panel to the viewport and scroll the tab body inside it. Before this
+   the panel was intrinsically sized with nothing scrollable anywhere in the chain, so on a
+   short screen its content was CLIPPED AND UNREACHABLE -- not merely off-screen (verified:
+   setting scrollTop on the panel, .controls-container, body and documentElement, plus
+   window.scrollTo, moved it zero pixels). The 2D Video tab needs 584px; an iPhone 15 in
+   Safari has ~636px, i.e. one settings row of headroom, and iOS never grants more because
+   the toolbars only collapse on a page that scrolls and this one never does.
+
+   dvh, not vh: iOS resolves vh against the EXPANDED viewport it only gives a scrolling
+   page, so a vh cap here would still overflow by the height of the toolbars. */
+.display-canvas .controls-container #controls-settings {
+  max-height: calc(100dvh - 32px);
+}
+.display-canvas .controls-inner .settings-tabs,
+.display-canvas .controls-inner .settings-scroll ~ .row {
+  flex-shrink: 0;
+}
+.display-canvas .controls-inner .settings-scroll {
+  /* Flex column, not a plain block: .row carries margin-bottom, and adjacent block siblings
+     would COLLAPSE those margins where the panel's own flex context never did. */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  /* Load-bearing. Flex items default to min-height: auto, which refuses to shrink below
+     content size -- the panel would keep growing past max-height and nothing would scroll. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(250, 250, 250, 0.25) transparent;
+}
+/* .row:last-child means "the BACK row" and carries the gap that fences it off from the
+   settings above. Wrapping the tab bodies made the Color tab's CLEAR/ADD row the last child
+   of the wrapper too, which would have given it that gap as well. */
+.display-canvas .controls-inner .settings-scroll > .row:last-child {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+/* Hide the two viewport-anchored corner controls while the settings panel is up. They are
+   pinned to the window while the panel is centred and near-full-bleed, so on a narrow screen
+   they land ON it -- measured at 393x636, the 56px X at right:25 put 3080px^2 of itself over
+   the tab strip. .animation-pause is the same story mirrored to the left edge.
 
    The breakpoint is 560px, NOT the 480px the panel's own width rule uses, because it comes
-   from a different collision: .controls-open is 56px at right:25, so its left edge sits at
-   100vw - 81, while the panel's right edge sits min(200, (100vw - 40) / 2) past centre.
-   Those cross at 562px of viewport width -- above it the corner X can never reach the
-   panel, below it it can (measured: 3080px^2 of overlap on the Video tab at 393x636, right
-   on the tab strip). .animation-pause is the same story mirrored to the left edge.
-
-   The X is positioned in the corner rather than given a reserved column: the three tab
-   buttons only use ~260px of the 313px strip, so it drops into slack that already exists
-   and the tabs don't have to shrink. A fourth tab would need that revisited. */
-.display-canvas .controls-inner .settings-close-x {
-  display: none;
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 34px;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  margin: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgba(250, 250, 250, 0.06);
-  color: #ff0091;
-  cursor: pointer;
-  box-shadow: none;
-  mix-blend-mode: normal;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.2s ease, transform 0.2s ease;
-}
-.display-canvas .controls-inner .settings-close-x:active {
-  background: rgba(250, 250, 250, 0.16);
-  transform: scale(0.92);
-}
+   from a different collision: .controls-open's left edge sits at 100vw - 81 while the panel's
+   right edge sits min(200, (100vw - 40) / 2) past centre. Those cross at 562px of viewport
+   width -- wider than that and the X can never reach the panel. */
 @media (max-width: 560px) {
-  .display-canvas .controls-inner .settings-close-x {
-    display: flex;
-  }
   /* !important is load-bearing here: componentDidMount fades .controls-open in with
      gsap.to(), which leaves an inline opacity that no plain rule can outrank. Fading
      (rather than display: none) lets both buttons ease out on the transition they already

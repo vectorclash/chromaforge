@@ -947,8 +947,26 @@ export default class DisplayCanvas extends React.Component {
   animateSettingsTab() {
     gsap.set('#controls-settings .color-container', { opacity: 1 });
     const els = '#controls-settings .settings-field, #controls-settings .row';
+    // The entrance starts every row 20px low, and a transform still counts toward a scroll
+    // container's scrollable overflow -- so .settings-scroll briefly gains 20px it doesn't
+    // have at rest and flashes a scrollbar on every tab switch, at ANY viewport size, not
+    // just the short ones that genuinely scroll. Locking overflow for the duration costs
+    // nothing: a list that is still flying in isn't scrollable in any useful sense. Set on
+    // entry as well as cleared onComplete, so a tween interrupted by a fast second tab
+    // switch can't strand the scroller hidden.
+    const scroller = this.mount?.querySelector('#controls-settings .settings-scroll');
+    if (scroller) scroller.style.overflowY = 'hidden';
     gsap.set(els, { alpha: 0, y: 20 });
-    gsap.to(els, { duration: DURATION_BASE, alpha: 1, y: 0, stagger: 0.06, ease: 'back.out(1.7)' });
+    gsap.to(els, {
+      duration: DURATION_BASE,
+      alpha: 1,
+      y: 0,
+      stagger: 0.06,
+      ease: 'back.out(1.7)',
+      onComplete: () => {
+        if (scroller) scroller.style.overflowY = '';
+      }
+    });
   }
 
   animateColors() {
@@ -2377,24 +2395,6 @@ export default class DisplayCanvas extends React.Component {
               (controlsBlurred ? ' controls-visible' : '')
             }
           >
-            {/* Phone-only close, docked in the panel's own corner (hidden above 560px, see
-                components.css). The viewport-anchored corner X at right:25/top:25 lands ON
-                this panel on a narrow screen -- it's pinned to the window while the panel is
-                centred and near-full-bleed, so a tall tab (Video is 584px at 393x636) puts
-                its own tab strip under the X. Docking a close here fixes it at the source:
-                this one travels with the panel and can't collide however tall the panel
-                grows. It closes the panel only -- the same thing BACK does -- because that's
-                what an X inside a panel means; the corner X's "dismiss the whole UI"
-                behaviour returns the moment the panel is closed. */}
-            <button
-              className="settings-close-x"
-              onClick={this.onSettingsCloseButtonClick.bind(this)}
-              aria-label="Close settings"
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
             <div className="settings-tabs">
               <button
                 className={'settings-tab-btn' + (settingsTab === 'color' ? ' active' : '')}
@@ -2416,6 +2416,20 @@ export default class DisplayCanvas extends React.Component {
               </button>
             </div>
 
+            {/* Only the tab BODY scrolls. The tab strip above and the BACK row below stay put
+                as fixed rails, which is the whole point: the panel is centred, so before this
+                every pixel the screen lost took one off the tabs AND one off BACK at the same
+                time -- and nothing in the chain could scroll (the panel was overflow: visible,
+                .display-canvas is overflow: hidden, the document has no scroll height), so
+                anything past the edge was unreachable rather than merely off-screen. Measured
+                at 375x451 the tab strip cleared the top edge completely, stranding you on
+                whichever tab you happened to open.
+
+                A wrapper rather than `overflow` on the panel itself, because the panel is
+                `justify-center`: a centred flex container that overflows pushes content past
+                BOTH edges and scrollTop cannot go negative, so the top would have stayed
+                unreachable even with a scrollbar. */}
+            <div className="settings-scroll">
             {settingsTab === 'color' && (
               <>
                 <div className="row colors">
@@ -2745,6 +2759,7 @@ export default class DisplayCanvas extends React.Component {
                 </div>
               </>
             )}
+            </div>
 
             <div className="row">
               <button
