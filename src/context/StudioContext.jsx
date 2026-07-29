@@ -99,7 +99,7 @@ export function StudioProvider({ children }) {
       config,
       width,
       height,
-      { includeGeometry = true, geometryLayout = null, mirrorX = false, highDensity = false } = {}
+      { includeGeometry = true, geometryLayout = null, mirrorX = false, highDensity = false, sizeFrame = null } = {}
     ) => {
       if (!queueRef.current) throw new Error('Render assets are still loading.');
       const { width: genWidth, height: genHeight } = highDensity
@@ -108,7 +108,8 @@ export function StudioProvider({ children }) {
       const built = generateArtwork(config.seed, genWidth, genHeight, config.colors, config.settings, {
         includeGeometry,
         geometryLayout,
-        mirrorX
+        mirrorX,
+        sizeFrame
       });
       const canvas = renderArtwork(built, queueRef.current);
       let outputCanvas = canvas;

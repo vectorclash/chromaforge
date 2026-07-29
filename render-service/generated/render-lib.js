@@ -122,10 +122,19 @@ function getCountScale(width, height) {
 function getSizeScale(width, height) {
   return Math.min(width, height);
 }
+function resolveFrame(width, height, frame) {
+  if (!frame) return [width, height];
+  return [width * frame.width, height * frame.height];
+}
 var REFERENCE_ASPECT = REFERENCE_WIDTH / REFERENCE_HEIGHT;
-function getElementSizeScale(width, height) {
-  const canvasAspect = Math.max(width, height) / Math.min(width, height);
-  return getSizeScale(width, height) * (canvasAspect / REFERENCE_ASPECT) ** 2;
+function getElementSizeScale(width, height, frame = null) {
+  const [w, h] = resolveFrame(width, height, frame);
+  const canvasAspect = Math.max(w, h) / Math.min(w, h);
+  return getSizeScale(w, h) * Math.min(1, (canvasAspect / REFERENCE_ASPECT) ** 2);
+}
+function getFrameSizeScale(width, height, frame = null) {
+  const [w, h] = resolveFrame(width, height, frame);
+  return getSizeScale(w, h);
 }
 
 // ../src/components/Canvas/GenerateLargeRadialField.js
@@ -160,11 +169,11 @@ var GenerateLargeRadialField = class {
 
 // ../src/components/Canvas/GenerateStarField.js
 var GenerateStarField = class {
-  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null) {
+  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null) {
     let config = {};
     config.width = width;
     config.height = height;
-    let sizeScale = getElementSizeScale(width, height);
+    let sizeScale = getElementSizeScale(width, height, sizeFrame);
     let countScale = getCountScale(width, height);
     let gradientComplexity = Math.round(rng() * 4);
     const starHueBias = backgroundHue === null ? null : (backgroundHue + 180 + (rng() - 0.5) * 60 + 360) % 360;
@@ -301,7 +310,7 @@ function compactSettings(settings) {
 
 // ../src/components/Canvas/GenerateGeometricShape.js
 var GenerateGeometricShape = class {
-  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null) {
+  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null, sizeFrame = null) {
     const geometry = getGeometrySettings(settings);
     let config = {
       width,
@@ -316,9 +325,9 @@ var GenerateGeometricShape = class {
     const minShapeDepth = 2 + (geometry.coherence >= 0.85 ? 1 : 0);
     this.shapeDepth = minShapeDepth + Math.round(rng() * (maxShapeDepth - minShapeDepth));
     this.shapeAng = 360 / this.shapeVertices;
-    const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height) / 3);
+    const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height, sizeFrame) / 3);
     const sizeFactor = geometry.size <= 0.5 ? 0.15 + geometry.size * 0.45 : 0.375 + (geometry.size - 0.5) * 2.85;
-    const coherentSize = getSizeScale(width, height) * sizeFactor / this.shapeDepth;
+    const coherentSize = getFrameSizeScale(width, height, sizeFrame) * sizeFactor / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
     this.points = this.pointsArray(this.shapeSize);
     for (let i = 0; i < shapeNum; i++) {
@@ -484,7 +493,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 7;
+var GENERATOR_VERSION = 8;
 var BLEND_MODES = [
   "screen",
   "overlay",
@@ -498,7 +507,7 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false } = {}) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null } = {}) {
   const rng = makeRng(seed);
   const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
   const config = {
@@ -538,7 +547,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     height,
     paletteColors.slice(),
     rng,
-    backgroundHue
+    backgroundHue,
+    sizeFrame
   );
   let geometryChance = rng();
   const geometry = getGeometrySettings(settings);
@@ -552,7 +562,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       paletteColors.slice(),
       rng,
       settings,
-      geometryLayout
+      geometryLayout,
+      sizeFrame
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;

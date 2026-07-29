@@ -203,6 +203,47 @@ the actual print, generated the same deterministic way.
   differently now and fail render-service's version check for printing until re-saved.
   Same treatment as pre-seed (`v1`) designs already got — best-effort only, not a
   blocker, and nothing is live to real customers yet so the timing cost is low.
+- **The aspect term is CLAMPED at 1, and "Artwork scale" is a per-order choice
+  (2026-07-29, `GENERATOR_VERSION = 8`, Aaron's ask after seeing a real shorts mockup).**
+  `getElementSizeScale` multiplied the canvas's short edge by `(aspect/16:9)²`, which was
+  tuned only on *portrait* shirt panels (0.72 → 0.52) and pulls just as hard the other way —
+  the wide side was never validated against a product, only against an export you view as one
+  whole frame. On the mesh shorts sheet (11250×4350, aspect 2.59, the widest canvas in the
+  catalogue) it *enlarged* elements 2.12×, sizing them at **2.78× the width of one leg panel
+  where a t-shirt front sits at 0.52×** — a 4× inconsistency, plus a knock-on colour bug:
+  oversized translucent shapes stack and wash the garment toward white, which is why the
+  mockups read pale pastel while the studio artwork was vivid. Fixed by clamping the term so
+  it may shrink elements but never enlarge them. **It binds on exactly two canvases in the
+  whole catalogue** — the shorts and the bomber's `details` strip (7950×2700) — since every
+  other product, the 16:9 studio canvas, and all three export ratios already sat at or below
+  1 (verified: 23 of 25 catalog canvases numerically unchanged; 9/9 real render hashes
+  byte-identical vs. a build of the previous commit).
+  **This bump does NOT invalidate stored thumbnails** (unlike v6→v7): they render square,
+  square is below the clamp, and the hashes match — so no `backfill-thumbnails.mjs` run was
+  needed. Don't assume the operational rule above applies to every bump; check first.
+  Alongside it, `renderContext.sizeFrame` measures element sizes against ONE
+  separately-visible panel instead of the whole sheet, for printfiles that get physically cut
+  (`PRODUCT_MOCKUP_CONFIG`'s `legPanel`: mesh shorts `0.250 × 0.926`, joggers
+  `0.276 × 0.989`, flood-measured off Printful's own CAD sewing templates — the shorts leg is
+  2812×4031px/18.7″×26.9″, aspect 1.43, nearly a t-shirt front; the joggers leg is
+  2730×8009px, aspect 2.93). Three things worth not re-deriving:
+  (1) **The frame is FRACTIONS of the canvas, never pixels.** A mockup renders at
+  `capMockupRenderSize`'s capped dims while the print file renders at the printfile's true
+  dims; only a relative frame makes both compose identically.
+  (2) **The clamp applies to the panel route too**, which is what keeps a tall narrow panel
+  honest — unclamped, sizing to the joggers' 2.93-aspect leg would reintroduce the exact
+  blow-up this exists to fix.
+  (3) **It covers `coherentSize`, not just `getElementSizeScale`'s callers.** Scaling only
+  stars and chaotic shapes left the option a no-op for high-coherence designs, whose lattice
+  IS the design and kept spanning the sheet while everything around it shrank.
+  Surfaced as **Artwork scale — Full sheet (default) / One leg** in ProductPage's Print
+  options disclosure; labels name the MECHANISM because the two products get different
+  amounts of change from the same choice (wide leg vs. tall leg), so any label promising a
+  fixed visual outcome would be false on one of them — same lesson as the Back panel copy.
+  Per-order render context, never persisted; in `useMockup`'s cacheKey and the render cache
+  key (front and back share a printfile id, so without it the panel render would be served
+  the sheet one and the choice would silently do nothing). Consumes **zero** `rng()` — counts
+  and structure are identical, only sizes change.
 
 ### Server-side print rendering: `render-service/` — built, deployed, wired into checkout, live-verified
 `render-service/` (new top-level dir, separate from the Vite app) runs the actual,

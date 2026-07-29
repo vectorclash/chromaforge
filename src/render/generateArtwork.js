@@ -74,7 +74,20 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // check, which exists to catch a stale render-service DEPLOY (see
 // compactDesign.js's withCurrentGeneratorVersion for why stored rows must be re-stamped
 // before they reach it, and the live bug that rule fixed).
-export const GENERATOR_VERSION = 7;
+//
+// v7 -> v8 (2026-07-29): getElementSizeScale's aspect term is CLAMPED at 1, so it can shrink
+// elements but never enlarge them (see render/scale.js for the measurements and the real
+// Printful mockups that drove it). Consumes no rng() -- element COUNTS are untouched, only
+// sizes -- so a design's structure is identical and only two canvases in the entire
+// catalogue move: the mesh shorts sheet and the bomber's "details" strip, the only two above
+// 16:9. Everything at or below 16:9 already sat under the clamp, which includes the studio
+// canvas, all three export ratios, every thumbnail, and every other product.
+// NOTE, deliberately: this bump does NOT invalidate stored thumbnails, unlike v6 -> v7.
+// Thumbnails render square (a 2000px density floor) and square is below the clamp, so they
+// are byte-identical -- verified by hash before and after. No backfill run is needed.
+// The same change also adds renderContext.sizeFrame, which is opt-in per product and cannot
+// affect anything that does not pass it.
+export const GENERATOR_VERSION = 8;
 
 const BLEND_MODES = [
   'screen',
@@ -120,7 +133,7 @@ export function generateArtwork(
   height,
   colorValues = [],
   settings = null,
-  { includeGeometry = true, geometryLayout = null, mirrorX = false } = {}
+  { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null } = {}
 ) {
   const rng = makeRng(seed);
 
@@ -192,7 +205,8 @@ export function generateArtwork(
     height,
     paletteColors.slice(),
     rng,
-    backgroundHue
+    backgroundHue,
+    sizeFrame
   );
 
   // Always exactly one draw regardless of the chance setting, so the rest of the sequence
@@ -221,7 +235,8 @@ export function generateArtwork(
       paletteColors.slice(),
       rng,
       settings,
-      geometryLayout
+      geometryLayout,
+      sizeFrame
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;

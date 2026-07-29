@@ -67,6 +67,18 @@ export function getSizeScale(width, height) {
   return Math.min(width, height);
 }
 
+// Resolves the FRAME element sizes are measured against. Normally that is the canvas itself,
+// but a printfile that gets physically cut into several separately-visible panels is never
+// seen whole (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's legPanel), and sizing to
+// the sheet makes each panel show a small, hugely magnified fraction of the composition.
+// `frame` is FRACTIONS of the canvas, not pixels, on purpose: a mockup preview renders at
+// capMockupRenderSize's capped dimensions while the real print file renders at the
+// printfile's true dimensions, and only a relative frame gives both the same composition.
+function resolveFrame(width, height, frame) {
+  if (!frame) return [width, height];
+  return [width * frame.width, height * frame.height];
+}
+
 // The studio's own default aspect ratio -- what getSizeScale's min(w,h) approach was
 // originally eyeballed/tuned against before generators were made ratio-aware at all. Used
 // below as the pivot point a canvas's own aspect ratio is compared against.
@@ -108,7 +120,33 @@ const REFERENCE_ASPECT = REFERENCE_WIDTH / REFERENCE_HEIGHT;
 // with raising RENDER_CAP in lib/printful.js (a separate, independent factor -- the capped
 // preview was also keeping far fewer elements than the true print resolution will), both
 // verified together against a real side-by-side render.
-export function getElementSizeScale(width, height) {
-  const canvasAspect = Math.max(width, height) / Math.min(width, height);
-  return getSizeScale(width, height) * (canvasAspect / REFERENCE_ASPECT) ** 2;
+// The aspect term is CLAMPED at 1 (2026-07-29): it may shrink elements but never enlarge
+// them. Squaring the gap was tuned on portrait shirt panels (0.72 -> 0.52) and pulls just as
+// hard the other way, which nothing validated -- the wide side was only ever checked against
+// an export you view as a single whole frame. On a real product it was badly wrong: the mesh
+// shorts sheet (11250x4350, aspect 2.59, the widest canvas in the catalogue) came out at
+// 2.12, sizing elements 2.78x its own leg panel's width where a t-shirt front sits at 0.52x
+// -- confirmed against real Printful mockups, which also showed the knock-on effect that
+// oversized translucent shapes stack and wash the whole garment out toward white.
+// The clamp binds on exactly two canvases in the catalogue (mesh shorts, and the bomber's
+// 7950x2700 "details" strip); every other product, the 16:9 studio canvas, and all three
+// export ratios already sat at or below 1, so none of them move.
+//
+// `frame` (optional, fractions of the canvas -- see resolveFrame) measures against one
+// visible panel instead of the whole sheet. The clamp applies either way, which is what
+// keeps a tall narrow panel honest: a joggers leg is 2730x8009 (aspect 2.93), so uncapped
+// the panel route would reintroduce the exact blow-up it exists to fix.
+export function getElementSizeScale(width, height, frame = null) {
+  const [w, h] = resolveFrame(width, height, frame);
+  const canvasAspect = Math.max(w, h) / Math.min(w, h);
+  return getSizeScale(w, h) * Math.min(1, (canvasAspect / REFERENCE_ASPECT) ** 2);
+}
+
+// getSizeScale against a visible panel rather than the canvas -- for the one element with a
+// hard containment requirement (GenerateGeometricShape's coherentSize). Without this, the
+// panel option would be a no-op for high-coherence designs: their lattice IS the design, and
+// it would keep spanning the whole sheet while everything around it shrank.
+export function getFrameSizeScale(width, height, frame = null) {
+  const [w, h] = resolveFrame(width, height, frame);
+  return getSizeScale(w, h);
 }

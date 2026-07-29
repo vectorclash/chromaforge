@@ -60,6 +60,7 @@ const server = http.createServer(async (req, res) => {
     includeGeometry,
     geometryLayout,
     mirrorX,
+    sizeFrame,
     regions,
     sourceWidth,
     sourceHeight
@@ -124,6 +125,7 @@ const server = http.createServer(async (req, res) => {
       includeGeometry: includeGeometry !== false,
       geometryLayout: geometryLayout || null,
       mirrorX: mirrorX === true,
+      sizeFrame: sizeFrame || null,
       regions: regions || null,
       sourceWidth: sourceWidth || null,
       sourceHeight: sourceHeight || null

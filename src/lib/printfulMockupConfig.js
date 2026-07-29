@@ -157,7 +157,12 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // front AND back (Printful printfile 472, 11250x4350 -- a 2.6:1 ratio) are one flat
     // canvas physically cut into the two legs when sewn. See twoLegCanvas's own comment
     // below (784) for what this flag does.
-    twoLegCanvas: true
+    twoLegCanvas: true,
+    // Fractions of the printfile occupied by ONE leg's front panel, flood-measured off this
+    // product's own CAD sewing template (2812x4031px = 18.7in x 26.9in, aspect 1.43 -- very
+    // nearly a t-shirt front). Lets the customer size the composition to a single leg rather
+    // than to the whole sheet, which is never seen at once. See render/scale.js.
+    legPanel: { width: 0.250, height: 0.926 }
   }, // mesh shorts
   717: {
     technique: 'cut-sew',
@@ -198,7 +203,11 @@ export const PRODUCT_MOCKUP_CONFIG = {
     mockupStyleIds: [22595, 22596],
     // front/back printfile is 9750x8100 (1.2:1) -- milder than the shorts' 2.6:1, but the
     // same physical situation: one flat canvas cut into two legs. See twoLegCanvas.
-    twoLegCanvas: true
+    twoLegCanvas: true,
+    // Measured the same way as 693's: 2730x8009px = 18.2in x 53.4in, aspect 2.93. That is a
+    // tall narrow frame, which is exactly why getElementSizeScale clamps its aspect term --
+    // unclamped, sizing to this panel would blow elements up rather than reining them in.
+    legPanel: { width: 0.276, height: 0.989 }
   }, // wide-leg joggers
   801: {
     technique: 'cut-sew',

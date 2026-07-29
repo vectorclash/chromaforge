@@ -16,6 +16,7 @@ import {
   getGeometryPlacementOptions,
   getStitchColorOption,
   hasTwoLegCanvas,
+  getLegPanel,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   renderPrintFileStrategy
@@ -370,6 +371,21 @@ export default function ProductPage() {
   const effectiveGeometryLayout = showsTwoLegLayout ? geometryLayout : null;
   useEffect(() => {
     setGeometryLayout('mirror');
+  }, [detail?.product?.id]);
+
+  // Which frame the composition's element sizes are measured against on a product whose
+  // printfile is cut into separately-visible panels. 'sheet' (the default) sizes to the
+  // whole printfile; 'panel' sizes to one leg, so a single leg shows a complete composition
+  // instead of a magnified slice of one. Per-order render context, never saved with the
+  // design -- same treatment as geometryLayout and mirrorSeams.
+  const [artworkScale, setArtworkScale] = useState('sheet');
+  const legPanel = detail?.product ? getLegPanel(getMockupConfigForProduct(detail.product.id)) : null;
+  // Gated once and used everywhere, for the same reason effectiveGeometryLayout is: a
+  // sizeFrame leaking onto a product with no legPanel would silently rescale every other
+  // garment in the catalogue.
+  const effectiveSizeFrame = legPanel && artworkScale === 'panel' ? legPanel : null;
+  useEffect(() => {
+    setArtworkScale('sheet');
   }, [detail?.product?.id]);
 
   // Whether this product's back half prints mirrored so the pattern continues across its
@@ -751,6 +767,7 @@ export default function ProductPage() {
       design: selectedDesign,
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
+      sizeFrame: effectiveSizeFrame,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
@@ -762,7 +779,7 @@ export default function ProductPage() {
     // it would throw away a still-accurate mockup and make the customer sit through another
     // 30-90s Printful round trip that renders a pixel-identical photo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, mirrorSeams, stitchColor]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, mirrorSeams, stitchColor]);
 
   // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
   // top down with the thumbnail strip below it) from "the customer clicked a different
@@ -921,6 +938,7 @@ export default function ProductPage() {
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
     showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
+    legPanel && (artworkScale === 'panel' ? 'Scaled to one leg' : 'Scaled to full sheet'),
     // "Mirrored across legs" above can't collide with this: the two twoLegCanvas products
     // are exactly the ones excluded from mirrorPlacements, so only one of the pair ever runs.
     productMirrorPlacements && (mirrorSeams ? 'Back flipped' : 'Back same as front'),
@@ -938,6 +956,7 @@ export default function ProductPage() {
       design: selectedDesign,
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
+      sizeFrame: effectiveSizeFrame,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
@@ -973,6 +992,7 @@ export default function ProductPage() {
         pocketCrop: cfg.pocketCrop || null,
         geometryPlacements,
         geometryLayout: effectiveGeometryLayout,
+      sizeFrame: effectiveSizeFrame,
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,
@@ -1318,6 +1338,51 @@ export default function ProductPage() {
             (centered on the seam, repeated on both legs) instead. Changing it invalidates
             the current mockup (see the sync effect's geometryLayout dependency) since it
             changes what would actually render. */}
+        {/* Step: artwork scale -- only on products whose printfile is cut into panels that are
+            never seen at once (PRODUCT_MOCKUP_CONFIG's legPanel). The copy names the MECHANISM
+            rather than calling the options "bold"/"fine", following the same lesson the Back
+            panel wording below records: the shorts leg is wide and the joggers leg is tall, so
+            the two products get different amounts of change out of the same choice, and any
+            label promising a fixed visual outcome would be false on one of them. Changing it
+            invalidates the current mockup -- it genuinely changes the composition, so it is in
+            useMockup's cacheKey. */}
+        {legPanel && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Artwork scale
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              This product prints as one sheet that's cut into two legs, so you never see the
+              whole sheet at once — choose what the artwork is sized to fit.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { key: 'sheet', label: 'Full sheet', hint: 'Bigger, bolder shapes' },
+                { key: 'panel', label: 'One leg', hint: 'Smaller, more detail' }
+              ].map(({ key, label, hint }) => {
+                const checked = artworkScale === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setArtworkScale(key)}
+                    aria-pressed={checked}
+                    className={
+                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-ink-950'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    <span className="text-sm font-bold">{label}</span>
+                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {showsTwoLegLayout && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">

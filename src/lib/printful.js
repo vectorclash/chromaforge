@@ -245,6 +245,14 @@ export function hasTwoLegCanvas(cfg) {
   return !!cfg?.twoLegCanvas;
 }
 
+// The fractions of this product's printfile taken up by ONE separately-visible panel, or
+// null if the sheet is seen whole (every product but the two leg ones). Drives whether
+// ProductPage shows the "Artwork scale" choice, and is what gets passed as renderContext's
+// sizeFrame when the customer picks the panel option. See render/scale.js.
+export function getLegPanel(cfg) {
+  return cfg?.legPanel || null;
+}
+
 // Placement -> printfile id for a given variant, optionally restricted to a subset of
 // placements. Mockup previews (useMockup.js) restrict this to cfg.placements -- only what's
 // visible in the requested Front/Back camera-angle photos (see PRODUCT_MOCKUP_CONFIG above).
@@ -401,6 +409,12 @@ export async function renderAndUploadPrintFiles(
     pocketCrop = null,
     geometryPlacements = null,
     geometryLayout = null,
+    // Which frame element sizes are measured against, as fractions of the canvas: null (the
+    // default, every product) means the whole sheet. Products whose sheet is cut into
+    // separately-visible panels can pass their legPanel instead -- see render/scale.js and
+    // ProductPage's Artwork scale control. Fractions, never pixels, so the capped mockup
+    // render and the true-resolution print file compose identically.
+    sizeFrame = null,
     // A second design printed on a physically separate face of the same garment (the
     // reversible bucket hat's inside -- see getSecondaryDesignConfig). Null, or equal to
     // `design`, means every placement renders from `design` exactly as before.
@@ -475,7 +489,12 @@ export async function renderAndUploadPrintFiles(
     // served the front's unmirrored render and the seam fix would silently do nothing.
     const cacheKey =
       `${printfileId}:${includeGeometry}:${geometryLayout || 'center'}` +
-      `${regionsConfig ? ':pocket-regions' : ''}${useSecondary ? ':b' : ''}${mirrorX ? ':mirror' : ''}`;
+      `${regionsConfig ? ':pocket-regions' : ''}${useSecondary ? ':b' : ''}${mirrorX ? ':mirror' : ''}` +
+      // Same reasoning as mirrorX: front and back share one printfile id on these products,
+      // so without this the panel-scaled render would be served the sheet-scaled one and the
+      // customer's choice would silently do nothing. Only ever appended when a frame is
+      // actually in play, so every other product's keys are byte-identical.
+      `${sizeFrame ? `:panel${sizeFrame.width}x${sizeFrame.height}` : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       rendered[cacheKey] = spec
@@ -486,7 +505,8 @@ export async function renderAndUploadPrintFiles(
             includeGeometry,
             regionsConfig,
             geometryLayout,
-            mirrorX
+            mirrorX,
+            sizeFrame
           )
         : Promise.resolve(null);
     }
@@ -663,11 +683,17 @@ export function capRenderStrategy(renderDesignBlob) {
     includeGeometry,
     regionsConfig = null,
     geometryLayout = null,
-    mirrorX = false
+    mirrorX = false,
+    sizeFrame = null
   ) => {
     const { width, height } = capMockupRenderSize(spec.width, spec.height);
     if (!regionsConfig) {
-      const blob = await renderDesignBlob(design, width, height, { includeGeometry, geometryLayout, mirrorX });
+      const blob = await renderDesignBlob(design, width, height, {
+        includeGeometry,
+        geometryLayout,
+        mirrorX,
+        sizeFrame
+      });
       return uploadMockupSourceImage(blob, printfileId);
     }
     if (POCKET_CALIBRATION_GRID) {
@@ -688,7 +714,12 @@ export function capRenderStrategy(renderDesignBlob) {
     // from the same mirrored composition its own panel shows. No current product combines
     // the two (the one product with mirrorPlacements has no pocket), so this is consistency
     // for a future one, not behavior anything exercises today.
-    const sourceBlob = await renderDesignBlob(design, srcW, srcH, { includeGeometry, geometryLayout, mirrorX });
+    const sourceBlob = await renderDesignBlob(design, srcW, srcH, {
+      includeGeometry,
+      geometryLayout,
+      mirrorX,
+      sizeFrame
+    });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
     return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
   };
@@ -707,7 +738,8 @@ export async function renderPrintFileStrategy(
   includeGeometry,
   regionsConfig = null,
   geometryLayout = null,
-  mirrorX = false
+  mirrorX = false,
+  sizeFrame = null
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -723,7 +755,8 @@ export async function renderPrintFileStrategy(
     label: regionsConfig ? `${printfileId}-pocket` : printfileId,
     includeGeometry,
     geometryLayout,
-    mirrorX
+    mirrorX,
+    sizeFrame
   };
   if (regionsConfig) {
     body.regions = regionsConfig.regions;

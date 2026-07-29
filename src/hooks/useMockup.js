@@ -105,7 +105,7 @@ function describeFailure(reasons) {
 // IS submitted to Printful's mockup-tasks endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions) {
+function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -116,7 +116,11 @@ function cacheKey(product, entries, design, geometryPlacements, geometryLayout, 
   // unlike the secondary-design choice, which only affects placements no camera angle shows
   // (see ProductPage's sync effect). A stale unmirrored preview would misrepresent the seam.
   const mirrorSignature = mirrorPlacements ? [...mirrorPlacements].sort().join(',') : 'none';
-  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${JSON.stringify(design)}`;
+  // sizeFrame changes the composition itself (element sizes are measured against one leg
+  // panel rather than the whole sheet -- see render/scale.js), so a stale preview would show
+  // the customer a different artwork scale than the one they picked.
+  const frameSignature = sizeFrame ? `${sizeFrame.width}x${sizeFrame.height}` : 'sheet';
+  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${JSON.stringify(design)}`;
 }
 
 export function useMockup() {
@@ -172,6 +176,7 @@ export function useMockup() {
       geometryPlacements = null,
       geometryLayout = null,
       mirrorPlacements = null,
+      sizeFrame = null,
       productOptions = null
     }) => {
       if (!design) {
@@ -194,7 +199,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions);
+      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -230,7 +235,8 @@ export function useMockup() {
           pocketCrop: cfg.pocketCrop || null,
           geometryPlacements,
           geometryLayout,
-          mirrorPlacements
+          mirrorPlacements,
+          sizeFrame
         });
 
         const placements = entries.map(([placementKey]) => ({
@@ -324,6 +330,7 @@ export function useMockup() {
       geometryPlacements = null,
       geometryLayout = null,
       mirrorPlacements = null,
+      sizeFrame = null,
       productOptions = null
     }) => {
       setError(null);
@@ -331,7 +338,7 @@ export function useMockup() {
       const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
       const key =
         entries
-          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions)
+          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

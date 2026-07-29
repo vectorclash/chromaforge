@@ -63,13 +63,19 @@ export async function renderDesign({
   includeGeometry = true,
   geometryLayout = null,
   mirrorX = false,
+  sizeFrame = null,
   regions = null,
   sourceWidth = null,
   sourceHeight = null
 }) {
   const images = await loadStarImages();
   if (!regions) {
-    const config = generateArtwork(seed, width, height, colors, settings, { includeGeometry, geometryLayout, mirrorX });
+    const config = generateArtwork(seed, width, height, colors, settings, {
+      includeGeometry,
+      geometryLayout,
+      mirrorX,
+      sizeFrame
+    });
     const canvas = renderArtwork(config, images);
     return canvas.toBuffer('image/png');
   }
@@ -79,7 +85,8 @@ export async function renderDesign({
   const sourceConfig = generateArtwork(seed, sourceWidth, sourceHeight, colors, settings, {
     includeGeometry,
     geometryLayout,
-    mirrorX
+    mirrorX,
+    sizeFrame
   });
   const sourceCanvas = renderArtwork(sourceConfig, images);
   const output = createCanvas(width, height);

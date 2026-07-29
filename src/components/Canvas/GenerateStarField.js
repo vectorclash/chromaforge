@@ -2,7 +2,7 @@ import GenerateLinearGradient from './GenerateLinearGradient';
 import { getCountScale, getElementSizeScale } from '../../render/scale';
 
 export default class GenerateStarField {
-  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null) {
+  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null) {
     let config = {};
 
     config.width = width;
@@ -12,7 +12,7 @@ export default class GenerateStarField {
     // relative to the canvas doesn't swing with aspect ratio -- see render/scale.js. This
     // alone can't desync rng() consumption (same number of draws either way, just a
     // different value fed into each), so it's safe on its own.
-    let sizeScale = getElementSizeScale(width, height);
+    let sizeScale = getElementSizeScale(width, height, sizeFrame);
 
     // Counts scale by area so a thumbnail doesn't get literally the same star counts as a
     // print (the original bug) -- but the loops below always run their ORIGINAL fixed trip

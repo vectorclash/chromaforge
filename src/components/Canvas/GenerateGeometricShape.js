@@ -1,10 +1,19 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
-import { getSizeScale, getElementSizeScale } from '../../render/scale';
+import { getSizeScale, getElementSizeScale, getFrameSizeScale } from '../../render/scale';
 import { getGeometrySettings } from '../../render/designSettings';
 
 export default class GenerateGeometricShape {
-  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null) {
+  constructor(
+    width,
+    height,
+    shapeNum,
+    colors = [],
+    rng = Math.random,
+    settings = null,
+    geometryLayout = null,
+    sizeFrame = null
+  ) {
     const geometry = getGeometrySettings(settings);
 
     let config = {
@@ -50,7 +59,7 @@ export default class GenerateGeometricShape {
     // near-square/portrait canvases than on wide ones. The "150 +" floor is left as an
     // intentional absolute minimum (avoids degenerate near-zero shapes at tiny sizes), not
     // part of the aspect-ratio behavior this changes.
-    const chaoticSize = 150 + Math.round((rng() * getElementSizeScale(width, height)) / 3);
+    const chaoticSize = 150 + Math.round((rng() * getElementSizeScale(width, height, sizeFrame)) / 3);
     // At full coherence the lattice radius (shapeSize * shapeDepth, drawn from the canvas
     // centre) is user-controlled via geometry.size: 0.15 * sizeScale (fairly small, ~30%
     // of the short dimension's half) at size=0, up through 0.375 * sizeScale (the original
@@ -79,7 +88,7 @@ export default class GenerateGeometricShape {
       geometry.size <= 0.5
         ? 0.15 + geometry.size * 0.45
         : 0.375 + (geometry.size - 0.5) * 2.85;
-    const coherentSize = (getSizeScale(width, height) * sizeFactor) / this.shapeDepth;
+    const coherentSize = (getFrameSizeScale(width, height, sizeFrame) * sizeFactor) / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
 
     this.points = this.pointsArray(this.shapeSize);
