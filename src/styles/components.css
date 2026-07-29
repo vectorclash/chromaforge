@@ -1113,6 +1113,60 @@
   display: flex !important;
 }
 
+/* Phone-only docked close for the settings panel, plus hiding the two viewport-anchored
+   corner controls while that panel is up.
+
+   The breakpoint is 560px, NOT the 480px the panel's own width rule uses, because it comes
+   from a different collision: .controls-open is 56px at right:25, so its left edge sits at
+   100vw - 81, while the panel's right edge sits min(200, (100vw - 40) / 2) past centre.
+   Those cross at 562px of viewport width -- above it the corner X can never reach the
+   panel, below it it can (measured: 3080px^2 of overlap on the Video tab at 393x636, right
+   on the tab strip). .animation-pause is the same story mirrored to the left edge.
+
+   The X is positioned in the corner rather than given a reserved column: the three tab
+   buttons only use ~260px of the 313px strip, so it drops into slack that already exists
+   and the tabs don't have to shrink. A fourth tab would need that revisited. */
+.display-canvas .controls-inner .settings-close-x {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(250, 250, 250, 0.06);
+  color: #ff0091;
+  cursor: pointer;
+  box-shadow: none;
+  mix-blend-mode: normal;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.display-canvas .controls-inner .settings-close-x:active {
+  background: rgba(250, 250, 250, 0.16);
+  transform: scale(0.92);
+}
+@media (max-width: 560px) {
+  .display-canvas .controls-inner .settings-close-x {
+    display: flex;
+  }
+  /* !important is load-bearing here: componentDidMount fades .controls-open in with
+     gsap.to(), which leaves an inline opacity that no plain rule can outrank. Fading
+     (rather than display: none) lets both buttons ease out on the transition they already
+     carry; pointer-events stops them taking taps meant for the panel underneath. */
+  .display-canvas:has(#controls-settings.controls-visible) .controls-open,
+  .display-canvas:has(#controls-settings.controls-visible) .animation-pause {
+    opacity: 0 !important;
+    transform: scale(0.8);
+    pointer-events: none;
+  }
+}
+
 /* Settings tabs (Color / Video) */
 .display-canvas .controls-inner .settings-tabs {
   display: flex;

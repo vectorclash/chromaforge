@@ -2377,6 +2377,24 @@ export default class DisplayCanvas extends React.Component {
               (controlsBlurred ? ' controls-visible' : '')
             }
           >
+            {/* Phone-only close, docked in the panel's own corner (hidden above 560px, see
+                components.css). The viewport-anchored corner X at right:25/top:25 lands ON
+                this panel on a narrow screen -- it's pinned to the window while the panel is
+                centred and near-full-bleed, so a tall tab (Video is 584px at 393x636) puts
+                its own tab strip under the X. Docking a close here fixes it at the source:
+                this one travels with the panel and can't collide however tall the panel
+                grows. It closes the panel only -- the same thing BACK does -- because that's
+                what an X inside a panel means; the corner X's "dismiss the whole UI"
+                behaviour returns the moment the panel is closed. */}
+            <button
+              className="settings-close-x"
+              onClick={this.onSettingsCloseButtonClick.bind(this)}
+              aria-label="Close settings"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
             <div className="settings-tabs">
               <button
                 className={'settings-tab-btn' + (settingsTab === 'color' ? ' active' : '')}
