@@ -415,6 +415,9 @@ export async function renderAndUploadPrintFiles(
     // ProductPage's Artwork scale control. Fractions, never pixels, so the capped mockup
     // render and the true-resolution print file compose identically.
     sizeFrame = null,
+    // Reflects each render's left half onto its right so the two leg panels mirror and the
+    // pattern meets itself at the centre-front seam -- see renderArtwork.js. Opt-in.
+    legSymmetry = false,
     // A second design printed on a physically separate face of the same garment (the
     // reversible bucket hat's inside -- see getSecondaryDesignConfig). Null, or equal to
     // `design`, means every placement renders from `design` exactly as before.
@@ -494,7 +497,8 @@ export async function renderAndUploadPrintFiles(
       // so without this the panel-scaled render would be served the sheet-scaled one and the
       // customer's choice would silently do nothing. Only ever appended when a frame is
       // actually in play, so every other product's keys are byte-identical.
-      `${sizeFrame ? `:panel${sizeFrame.width}x${sizeFrame.height}` : ''}`;
+      `${sizeFrame ? `:panel${sizeFrame.width}x${sizeFrame.height}` : ''}` +
+      `${legSymmetry ? ':legsym' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       rendered[cacheKey] = spec
@@ -506,7 +510,8 @@ export async function renderAndUploadPrintFiles(
             regionsConfig,
             geometryLayout,
             mirrorX,
-            sizeFrame
+            sizeFrame,
+            legSymmetry
           )
         : Promise.resolve(null);
     }
@@ -684,7 +689,8 @@ export function capRenderStrategy(renderDesignBlob) {
     regionsConfig = null,
     geometryLayout = null,
     mirrorX = false,
-    sizeFrame = null
+    sizeFrame = null,
+    legSymmetry = false
   ) => {
     const { width, height } = capMockupRenderSize(spec.width, spec.height);
     if (!regionsConfig) {
@@ -692,7 +698,8 @@ export function capRenderStrategy(renderDesignBlob) {
         includeGeometry,
         geometryLayout,
         mirrorX,
-        sizeFrame
+        sizeFrame,
+        legSymmetry
       });
       return uploadMockupSourceImage(blob, printfileId);
     }
@@ -718,7 +725,8 @@ export function capRenderStrategy(renderDesignBlob) {
       includeGeometry,
       geometryLayout,
       mirrorX,
-      sizeFrame
+      sizeFrame,
+      legSymmetry
     });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
     return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
@@ -739,7 +747,8 @@ export async function renderPrintFileStrategy(
   regionsConfig = null,
   geometryLayout = null,
   mirrorX = false,
-  sizeFrame = null
+  sizeFrame = null,
+  legSymmetry = false
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -756,7 +765,8 @@ export async function renderPrintFileStrategy(
     includeGeometry,
     geometryLayout,
     mirrorX,
-    sizeFrame
+    sizeFrame,
+    legSymmetry
   };
   if (regionsConfig) {
     body.regions = regionsConfig.regions;

@@ -83,7 +83,7 @@ Deno.serve(async req => {
   }
 
   const body = await req.json();
-  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, regions, sourceWidth, sourceHeight } =
+  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight } =
     body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
@@ -152,6 +152,7 @@ Deno.serve(async req => {
         // Fractions of the canvas, not pixels -- see lib/printful.js. Passed straight
         // through; render-service is the only thing that resolves it against real dims.
         sizeFrame: sizeFrame ?? null,
+        legSymmetry: legSymmetry === true,
         // Optional region composite for placements that continue a larger panel's artwork
         // (hoodie/zip-hoodie pocket) -- validated by render-service itself, just
         // forwarded here. When set, sourceWidth/sourceHeight are the FRONT placement's own

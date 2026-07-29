@@ -133,7 +133,7 @@ export function generateArtwork(
   height,
   colorValues = [],
   settings = null,
-  { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null } = {}
+  { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null, legSymmetry = false } = {}
 ) {
   const rng = makeRng(seed);
 
@@ -164,6 +164,10 @@ export function generateArtwork(
     // rng() and touches no layer generation, so a mirrored render is byte-for-byte the
     // same composition as its unmirrored twin, just flipped.
     mirrorX,
+    // Same nature as mirrorX: a pure render-time raster operation consumed by renderArtwork,
+    // consuming no rng() and touching no layer generation. Opt-in, so default output is
+    // untouched and this needed no GENERATOR_VERSION bump.
+    legSymmetry,
     colors: colorValues.slice()
   };
 

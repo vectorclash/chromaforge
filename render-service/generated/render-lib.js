@@ -507,7 +507,7 @@ var BLEND_MODES = [
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null } = {}) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null, legSymmetry = false } = {}) {
   const rng = makeRng(seed);
   const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
   const config = {
@@ -519,6 +519,10 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     // rng() and touches no layer generation, so a mirrored render is byte-for-byte the
     // same composition as its unmirrored twin, just flipped.
     mirrorX,
+    // Same nature as mirrorX: a pure render-time raster operation consumed by renderArtwork,
+    // consuming no rng() and touching no layer generation. Opt-in, so default output is
+    // untouched and this needed no GENERATOR_VERSION bump.
+    legSymmetry,
     colors: colorValues.slice()
   };
   const compactedSettings = compactSettings(settings);
@@ -798,6 +802,15 @@ function renderArtwork(config, images) {
   }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
+  if (config.legSymmetry) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const half = Math.ceil(config.width / 2);
+    ctx.save();
+    ctx.translate(config.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(canvas, 0, 0, half, config.height, 0, 0, half, config.height);
+    ctx.restore();
+  }
   return canvas;
 }
 export {

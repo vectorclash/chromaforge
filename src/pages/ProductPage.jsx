@@ -388,6 +388,16 @@ export default function ProductPage() {
     setArtworkScale('sheet');
   }, [detail?.product?.id]);
 
+  // Reflects the print's left half onto its right, so the two legs become mirror images and
+  // the pattern meets itself at the centre-front seam (see renderArtwork.js's legSymmetry).
+  // Off by default: bilateral symmetry is a strong look, not a neutral improvement, so it is
+  // the customer's opt-in rather than a taste decided for everyone.
+  const [legSymmetry, setLegSymmetry] = useState(false);
+  const effectiveLegSymmetry = showsTwoLegLayout && legSymmetry;
+  useEffect(() => {
+    setLegSymmetry(false);
+  }, [detail?.product?.id]);
+
   // Whether this product's back half prints mirrored so the pattern continues across its
   // visible side seams (bucket hat only -- see PRODUCT_MOCKUP_CONFIG's mirrorPlacements for
   // the geometry and why mirroring closes both seams at once). Per-order, not saved with the
@@ -768,6 +778,7 @@ export default function ProductPage() {
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
+      legSymmetry: effectiveLegSymmetry,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
@@ -779,7 +790,7 @@ export default function ProductPage() {
     // it would throw away a still-accurate mockup and make the customer sit through another
     // 30-90s Printful round trip that renders a pixel-identical photo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, mirrorSeams, stitchColor]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, mirrorSeams, stitchColor]);
 
   // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
   // top down with the thumbnail strip below it) from "the customer clicked a different
@@ -937,6 +948,7 @@ export default function ProductPage() {
               .filter(o => geometryPlacements.has(o.key))
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
+    showsTwoLegLayout && legSymmetry && 'Mirrored legs',
     showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
     legPanel && (artworkScale === 'panel' ? 'Scaled to one leg' : 'Scaled to full sheet'),
     // "Mirrored across legs" above can't collide with this: the two twoLegCanvas products
@@ -957,6 +969,7 @@ export default function ProductPage() {
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
+      legSymmetry: effectiveLegSymmetry,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
@@ -993,6 +1006,7 @@ export default function ProductPage() {
         geometryPlacements,
         geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
+      legSymmetry: effectiveLegSymmetry,
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,
@@ -1383,6 +1397,53 @@ export default function ProductPage() {
           </div>
         )}
 
+        {/* Step: leg symmetry. Deliberately its own row rather than folded into Artwork scale
+            (Aaron, 2026-07-29) so the two compose: someone can have the finer per-leg scale
+            without committing to the symmetric look, or either one alone. The option labels
+            avoid a bare "Mirrored" because Geometry layout below already uses that word for
+            something narrower (the shape only), and two rows saying "mirrored" would be
+            genuinely ambiguous. */}
+        {showsTwoLegLayout && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Leg symmetry
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              This product prints as one sheet cut into two legs — choose whether they match.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { on: false, label: 'Each leg its own', hint: 'A different part of the pattern on each leg' },
+                { on: true, label: 'Mirrored legs', hint: 'The pattern meets itself at the front seam' }
+              ].map(({ on, label, hint }) => {
+                const checked = legSymmetry === on;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setLegSymmetry(on)}
+                    aria-pressed={checked}
+                    className={
+                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-ink-950'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    <span className="text-sm font-bold">{label}</span>
+                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Stays visible alongside Leg symmetry. It looked like the half-mirror would make
+            this a no-op (only the left half survives, and both options place a copy at
+            width/4 within it) -- but these shapes are big enough to cross the centre, so
+            'mirror' bleeds its 3*width/4 copy back into the surviving half and the two
+            settings genuinely differ. Measured, not assumed. */}
         {showsTwoLegLayout && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">

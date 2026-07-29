@@ -244,6 +244,33 @@ the actual print, generated the same deterministic way.
   key (front and back share a printfile id, so without it the panel render would be served
   the sheet one and the choice would silently do nothing). Consumes **zero** `rng()` — counts
   and structure are identical, only sizes change.
+- **`legSymmetry` — the centre-front seam mirror (2026-07-29, Aaron's idea, same session).**
+  `renderArtwork` optionally reflects the finished raster's LEFT half onto its right, so the
+  two leg panels become mirror images and the pattern meets itself at the centre-front seam
+  instead of restarting. Applied last, after every layer is composited — same single-shared-
+  compositor reasoning as `mirrorX`, so browser mockup and Fly print file mirror identically
+  with one implementation. **The geometry layer already mirrored itself** (GeometricShape's
+  `legLayout: 'mirror'`, the default here since 2026-07-25); the visible discontinuity was
+  the star field, radial field, gradient and overlay, which run straight across the sheet.
+  Three things worth not re-deriving:
+  (1) **It only lands a matching seam because the leg panels are symmetric about the sheet
+  centre** — measured at 0.158–0.408 / 0.592–0.842 on the shorts (exact reflections about
+  0.5) and inner edges 0.468/0.532 on the joggers. A product without that symmetry needs a
+  different transform, hence the `twoLegCanvas` gate. Verified: max subpixel delta across the
+  join is **0**.
+  (2) **`legLayout` is NOT made irrelevant by it** — this was reasoned wrong first and caught
+  by measuring. "Only the left half survives, and both options put a copy at `width/4` inside
+  it" ignores that these shapes are large enough to cross the centre: `'mirror'`'s
+  `3*width/4` copy bleeds back LEFT past `width/2`, so it changes the surviving half too.
+  Both controls stay visible.
+  (3) **No `GENERATOR_VERSION` bump** — opt-in, default off, consumes no `rng()`, and
+  off-output is byte-identical (verified). But render-service must still ship BEFORE the
+  frontend: it ignores an unknown field, so a frontend sending `legSymmetry` against an old
+  bundle shows a mirrored mockup and prints an unmirrored garment, with no version check to
+  catch it — the same hazard as the `density` setting.
+  Surfaced as **Leg symmetry — Each leg its own (default) / Mirrored legs**, its own row
+  rather than folded into Artwork scale so the two compose. Labels avoid a bare "Mirrored"
+  because `legLayout`'s row already uses that word for something narrower (the shape only).
 
 ### Server-side print rendering: `render-service/` — built, deployed, wired into checkout, live-verified
 `render-service/` (new top-level dir, separate from the Vite app) runs the actual,

@@ -64,6 +64,7 @@ export async function renderDesign({
   geometryLayout = null,
   mirrorX = false,
   sizeFrame = null,
+  legSymmetry = false,
   regions = null,
   sourceWidth = null,
   sourceHeight = null
@@ -74,7 +75,8 @@ export async function renderDesign({
       includeGeometry,
       geometryLayout,
       mirrorX,
-      sizeFrame
+      sizeFrame,
+      legSymmetry
     });
     const canvas = renderArtwork(config, images);
     return canvas.toBuffer('image/png');
@@ -86,7 +88,8 @@ export async function renderDesign({
     includeGeometry,
     geometryLayout,
     mirrorX,
-    sizeFrame
+    sizeFrame,
+    legSymmetry
   });
   const sourceCanvas = renderArtwork(sourceConfig, images);
   const output = createCanvas(width, height);

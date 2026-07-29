@@ -105,7 +105,7 @@ function describeFailure(reasons) {
 // IS submitted to Printful's mockup-tasks endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame) {
+function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -120,7 +120,9 @@ function cacheKey(product, entries, design, geometryPlacements, geometryLayout, 
   // panel rather than the whole sheet -- see render/scale.js), so a stale preview would show
   // the customer a different artwork scale than the one they picked.
   const frameSignature = sizeFrame ? `${sizeFrame.width}x${sizeFrame.height}` : 'sheet';
-  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${JSON.stringify(design)}`;
+  // Changes the returned photo (the legs become mirror images), so it belongs in the key.
+  const symmetrySignature = legSymmetry ? 'sym' : 'asym';
+  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
 }
 
 export function useMockup() {
@@ -177,6 +179,7 @@ export function useMockup() {
       geometryLayout = null,
       mirrorPlacements = null,
       sizeFrame = null,
+      legSymmetry = false,
       productOptions = null
     }) => {
       if (!design) {
@@ -199,7 +202,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame);
+      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -236,7 +239,8 @@ export function useMockup() {
           geometryPlacements,
           geometryLayout,
           mirrorPlacements,
-          sizeFrame
+          sizeFrame,
+          legSymmetry
         });
 
         const placements = entries.map(([placementKey]) => ({
@@ -331,6 +335,7 @@ export function useMockup() {
       geometryLayout = null,
       mirrorPlacements = null,
       sizeFrame = null,
+      legSymmetry = false,
       productOptions = null
     }) => {
       setError(null);
@@ -338,7 +343,7 @@ export function useMockup() {
       const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
       const key =
         entries
-          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame)
+          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);
