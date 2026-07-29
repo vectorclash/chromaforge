@@ -7,11 +7,30 @@ import React, { useEffect, useState } from 'react';
 // ancestor to position against, which every call site already has (the aspect-square
 // card wrapper). Resets on `src` change so it replays for slots that swap images in place
 // (e.g. ProductPage's hero mockup), not just on first mount.
+//
+// ...EXCEPT when the browser already has the image decoded, which is the fix for a real bug
+// Aaron caught live (2026-07-29): flipping a print option back to a combination already
+// generated restores the mockup instantly from useMockup's cache, but the hero still blanked
+// to a pulsing skeleton and faded back in, reading as an unexplained dim on what should be an
+// instant swap. The skeleton exists to cover real network latency, and there is none to cover
+// here -- it was invented delay on a deliberate user action.
+// `probe.complete` is true SYNCHRONOUSLY for an image already in the HTTP/memory cache, so
+// this resolves before a blank frame can paint. Deliberately does NOT remove reveal()'s
+// two-frame defer below: that still makes a genuinely-new image fade rather than pop, and it
+// now only runs when the image really did have to be fetched.
+function isAlreadyDecoded(src) {
+  if (!src || typeof window === 'undefined') return false;
+  const probe = new window.Image();
+  probe.src = src;
+  return probe.complete && probe.naturalWidth > 0;
+}
+
 export default function FadeImage({ src, alt = '', className = '', onLoad, onError, ...props }) {
-  const [loaded, setLoaded] = useState(false);
+  // Same check for the initial value, so a cached image is never blank even on first mount.
+  const [loaded, setLoaded] = useState(() => isAlreadyDecoded(src));
 
   useEffect(() => {
-    setLoaded(false);
+    setLoaded(isAlreadyDecoded(src));
   }, [src]);
 
   // A same-origin/cached/blob src (e.g. the studio's own canvas-render preview) can fire

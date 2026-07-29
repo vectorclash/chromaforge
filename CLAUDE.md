@@ -780,6 +780,32 @@ with the "Go to studio" link directly beneath them (`.controls-compact .go-to-st
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
 
+### ProductPage's hero image slot — one animated layer, and why
+Recorded because getting this wrong cost a long, ugly debugging session (2026-07-29) and every
+mistake in it looked like a fresh bug rather than the same structural fault.
+**The rule: exactly ONE thing in that slot animates — the mockup layer's opacity.** The base
+(the product's stock photo, the dim scrim, and the loader/button content) is static: it never
+unmounts, never transitions, never moves. It is only `inert` while covered.
+- **Never give the hero `<img>` a CSS animation class.** It used to carry `--animate-reveal-quick`
+  or `--animate-pop-in`, chosen by a small state machine. Both animate OPACITY, which is also
+  what `FadeImage` transitions, and **a CSS animation overrides an element's own transition
+  outright** — two owners of one property, unfixable by tuning either. That combination produced
+  a fade on cache restores, a scale-up with no user action behind it, and two visibly conflicting
+  fades on generation.
+- **Preload before showing.** `readyHeroUrl` is only set once the image has *decoded*, so the
+  layer is fully drawn before it fades and a camera-angle switch swaps `src` underneath an
+  already-visible layer. Clear it *after* the fade-out (`HERO_FADE_OUT_MS`), never on the state
+  flip — unmounting mid-transition means it vanishes instead of fading.
+- **A layer that mounts at `opacity-100` cannot fade** — there is no previous painted value to
+  transition from. It mounts transparent and flips after two rAFs (same reason `FadeImage`'s own
+  `reveal()` defers twice). Reset that flag only when the layer truly goes away, never on a `src`
+  swap, or an angle switch flashes.
+- **Freeze the base's content while a mockup exists.** `busy` goes false the instant status hits
+  `completed`, which is *before* the image preloads, so the loader snapped to the Generate button
+  first and only then faded. Frozen, it fades out intact under the incoming mockup.
+- Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
+  shows the button over it. What makes either safe is the content fading rather than snapping.
+
 ### Backend: Supabase, seed-first schema
 - `supabase/migrations/0001_initial_schema.sql` — `profiles` (1:1 auth.users, trigger
   auto-created on signup), `designs` (`data` jsonb = `{ generatorVersion, seed, colors,

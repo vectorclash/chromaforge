@@ -37,6 +37,11 @@ import SizeGuideModal from '../components/ui/SizeGuideModal';
 
 gsap.registerPlugin(TextPlugin);
 
+// How long the hero's mockup layer takes to fade OUT -- must stay in step with the
+// duration-200 class on it. Only used to keep the <img> mounted long enough to animate
+// before it is dropped. The blank/button layer underneath never animates at all.
+const HERO_FADE_OUT_MS = 200;
+
 const STATUS_LABEL = {
   rendering: 'Rendering design…',
   creating: 'Sending to Printful…',
@@ -357,6 +362,11 @@ export default function ProductPage() {
   // the closer-to-how-everything-else-looks option, but a shape spanning both legs is the
   // better default look and matches the seam-mirroring default below.
   const [geometryLayout, setGeometryLayout] = useState('mirror');
+  // Reflects the print's left half onto its right, so the two legs become mirror images and
+  // the pattern meets itself at the centre-front seam (see renderArtwork.js's legSymmetry).
+  // Off by default: bilateral symmetry is a strong look, not a neutral improvement, so it is
+  // the customer's opt-in rather than a taste decided for everyone.
+  const [legSymmetry, setLegSymmetry] = useState(false);
   const showsTwoLegLayout = detail?.product
     ? hasTwoLegCanvas(getMockupConfigForProduct(detail.product.id))
     : false;
@@ -368,7 +378,14 @@ export default function ProductPage() {
   // UI never shows. Gating on showsTwoLegLayout here, once, and using this everywhere
   // instead of the raw state is what actually restricts the effect to the products it's
   // meant for.
-  const effectiveGeometryLayout = showsTwoLegLayout ? geometryLayout : null;
+  // Forced to 'single' while Leg symmetry is on. Under symmetry the sheet mirror IS the
+  // mirroring mechanism, so legLayout 'mirror' stacks a second, narrower one inside it: the
+  // 3*width/4 copy's shapes bleed back left across the centre, and the sheet mirror then
+  // duplicates that too, producing visibly doubled/overlapping geometry (caught live by
+  // Aaron, 2026-07-29). Forcing 'single' is also what makes the hidden row honest -- the
+  // control isn't inert, it's decided. Note geometryLayout DEFAULTS to 'mirror', so without
+  // this the overlap is exactly what someone gets by just switching symmetry on.
+  const effectiveGeometryLayout = showsTwoLegLayout ? (legSymmetry ? 'single' : geometryLayout) : null;
   useEffect(() => {
     setGeometryLayout('mirror');
   }, [detail?.product?.id]);
@@ -388,11 +405,6 @@ export default function ProductPage() {
     setArtworkScale('sheet');
   }, [detail?.product?.id]);
 
-  // Reflects the print's left half onto its right, so the two legs become mirror images and
-  // the pattern meets itself at the centre-front seam (see renderArtwork.js's legSymmetry).
-  // Off by default: bilateral symmetry is a strong look, not a neutral improvement, so it is
-  // the customer's opt-in rather than a taste decided for everyone.
-  const [legSymmetry, setLegSymmetry] = useState(false);
   const effectiveLegSymmetry = showsTwoLegLayout && legSymmetry;
   useEffect(() => {
     setLegSymmetry(false);
@@ -716,7 +728,84 @@ export default function ProductPage() {
   const storeEnabled = detail?.storeEnabled ?? true;
   const variant = variants ? variants.find(v => v.id === selectedVariantId) || variants[0] : null;
   const hasMockup = status === 'completed' && images.length > 0;
-  const heroImage = hasMockup ? images[activeImageIndex]?.mockup_url : product?.image;
+  const heroMockupUrl = hasMockup ? images[activeImageIndex]?.mockup_url : null;
+
+  // PRELOAD before swapping. Without this the hero switched to a URL the browser had not
+  // fetched yet, so the scrim vanished the instant hasMockup flipped while the image was
+  // still arriving underneath -- two changes at one moment, out of step, which is what read
+  // as a pop (Aaron, live, 2026-07-29). Decoding first means the swap and the scrim's exit
+  // are the same commit, with nothing half-drawn in between. Same technique the angle-
+  // thumbnail strip already uses below (thumbsPreloaded) for the same reason.
+  const [readyHeroUrl, setReadyHeroUrl] = useState(null);
+  useEffect(() => {
+    if (!heroMockupUrl) return;
+    let cancelled = false;
+    const probe = new window.Image();
+    // onerror too: a mockup URL that 404s must not strand the hero on the stock photo with
+    // no way out -- showing a broken image is the honest failure, and <img> renders its alt.
+    const done = () => !cancelled && setReadyHeroUrl(heroMockupUrl);
+    probe.onload = done;
+    probe.onerror = done;
+    probe.src = heroMockupUrl;
+    if (probe.complete) done();
+    return () => {
+      cancelled = true;
+    };
+  }, [heroMockupUrl]);
+
+  // Cleared whenever the mockup goes away (a print option changed, a new run started) so a
+  // freshly-completed generation can never briefly display the PREVIOUS run's image while its
+  // own is still preloading. Switching camera angle does NOT clear it -- hasMockup stays true
+  // there, so the current image holds on screen until the next one has decoded and can swap
+  // in with nothing in between.
+  // Cleared AFTER the fade, not during it: unmounting the <img> the moment hasMockup went
+  // false removed the element mid-transition, so it vanished instead of fading. It stays
+  // mounted at opacity 0 for the length of the fade and is dropped once it is invisible.
+  useEffect(() => {
+    if (hasMockup) return;
+    const timer = setTimeout(() => setReadyHeroUrl(null), HERO_FADE_OUT_MS);
+    return () => clearTimeout(timer);
+  }, [hasMockup]);
+
+  // Layered, not swapped (Aaron's call, 2026-07-29). The stock photo, scrim and button are a
+  // STATIC base that never animates; the mockup is a layer on top of it that fades in when
+  // ready and out when it goes away. Nothing else moves, so there is exactly one animation
+  // rather than a sequence of them trying to look like one -- which is what the previous
+  // swap-the-src-and-fade-the-scrim version could never quite do.
+  const showMockup = hasMockup && !!readyHeroUrl;
+
+  // The layer MOUNTS when readyHeroUrl is first set, and an element that mounts already at
+  // opacity-100 has nothing to transition FROM -- so it appeared instantly on a fresh
+  // generation while behaving on later swaps, where the element already existed. It now mounts
+  // transparent and is flipped on a later frame, so the browser has two distinct painted
+  // values to animate between. Two rAFs, not one: a single frame can still be batched into the
+  // same paint (same reason FadeImage's own reveal defers twice).
+  // Only reset when the layer actually goes away (readyHeroUrl null). A camera-angle switch
+  // changes readyHeroUrl non-null -> non-null and must NOT reset this, or the visible image
+  // would drop to transparent and flash before coming back.
+  const scrimModeRef = useRef('generate');
+  const [mockupFadedIn, setMockupFadedIn] = useState(false);
+  useEffect(() => {
+    if (!readyHeroUrl) {
+      setMockupFadedIn(false);
+      return;
+    }
+    let inner;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setMockupFadedIn(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      if (inner) cancelAnimationFrame(inner);
+    };
+  }, [readyHeroUrl]);
+
+
+
+  // Deliberately NOT gated on the preload: this is the URL handed to page meta/OG tags and to
+  // the Stripe line item, which care about which image represents this order, not about what
+  // is painted right now. Falls back to the product's stock photo exactly as before.
+  const heroImage = heroMockupUrl || product?.image;
 
   usePageMeta(
     product
@@ -792,21 +881,20 @@ export default function ProductPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, mirrorSeams, stitchColor]);
 
-  // Distinguishes "a mockup just finished generating" (slide-up-and-fade reveal, staggered
-  // top down with the thumbnail strip below it) from "the customer clicked a different
-  // camera-angle thumbnail on an already-revealed mockup" (the existing snappy pop-in swap,
-  // see --animate-pop-in above) -- both change the hero's `key`, but only the former should
-  // read as content arriving rather than a deliberate switch. The ref flips to true only
-  // after the fresh-reveal render has committed, and resets once hasMockup goes false again
-  // (a new generation started), so the next completion replays the reveal. Declared before
-  // the loading/error early returns below -- hooks must run unconditionally on every render,
-  // and this one used to sit after those returns, so the loading render skipped it while the
-  // loaded render didn't, tripping React's "rendered fewer hooks than expected" error.
-  const hasRevealedMockupRef = useRef(false);
-  const isFreshMockupReveal = hasMockup && !hasRevealedMockupRef.current;
-  useEffect(() => {
-    hasRevealedMockupRef.current = hasMockup;
-  }, [hasMockup]);
+  // The hero deliberately has NO animation class of its own. It used to carry
+  // --animate-reveal-quick on a fresh generation and --animate-pop-in otherwise, chosen by a
+  // small state machine -- and every bug in this slot came from that (Aaron, live,
+  // 2026-07-29): both keyframe sets animate OPACITY, which is also what FadeImage transitions,
+  // and a CSS animation overrides an element's own transition outright. Two owners of one
+  // property, so they could not be reconciled by tuning either side -- generating a mockup ran
+  // both at once and read as two conflicting fades, while a cache restore or an angle switch
+  // replayed an arrival animation for content the customer had not experienced as arriving.
+  // FadeImage is now the single owner of the hero's opacity: skeleton while an image is really
+  // being fetched, instant when the browser already has it (see isAlreadyDecoded), and instant
+  // for the no-mockup backdrop. The staggered reveal that made a completed generation feel
+  // like arrival still exists on the surrounding copy and the angle-thumbnail strip, which own
+  // their own opacity and so never conflicted. Don't reintroduce an animation class here
+  // without moving opacity out of one of the two systems first.
 
   // The angle-thumbnail strip's per-item stagger (see --animate-reveal-quick below) only
   // controls when each wrapper's own opacity/transform starts -- it says nothing about when
@@ -949,7 +1037,9 @@ export default function ProductPage() {
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
     showsTwoLegLayout && legSymmetry && 'Mirrored legs',
-    showsTwoLegLayout && (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
+    showsTwoLegLayout &&
+      !legSymmetry &&
+      (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
     legPanel && (artworkScale === 'panel' ? 'Scaled to one leg' : 'Scaled to full sheet'),
     // "Mirrored across legs" above can't collide with this: the two twoLegCanvas products
     // are exactly the ones excluded from mirrorPlacements, so only one of the pair ever runs.
@@ -959,6 +1049,17 @@ export default function ProductPage() {
     .filter(Boolean)
     .join(' · ');
   const busy = BUSY_STATUSES.includes(status);
+
+  // What the base layer shows, held frozen while a mockup exists. Without the freeze it snaps
+  // the moment status hits 'completed' -- before the image has even preloaded -- so the loader
+  // was replaced by the Generate button and only THEN faded. Frozen, the loading state stays
+  // put and simply fades away under the incoming mockup; the mode updates again as soon as the
+  // mockup is gone, so the way back shows the right thing fading in.
+  const scrimMode = !user ? 'signin' : busy ? 'busy' : status === 'failed' ? 'failed' : 'generate';
+  if (!hasMockup) scrimModeRef.current = scrimMode;
+  const displayedScrimMode = hasMockup ? scrimModeRef.current : scrimMode;
+
+
 
   const onGenerateClick = () =>
     generate({
@@ -1439,12 +1540,14 @@ export default function ProductPage() {
           </div>
         )}
 
-        {/* Stays visible alongside Leg symmetry. It looked like the half-mirror would make
-            this a no-op (only the left half survives, and both options place a copy at
-            width/4 within it) -- but these shapes are big enough to cross the centre, so
-            'mirror' bleeds its 3*width/4 copy back into the surviving half and the two
-            settings genuinely differ. Measured, not assumed. */}
-        {showsTwoLegLayout && (
+        {/* Hidden while Leg symmetry is on, because symmetry FORCES 'single' (see
+            effectiveGeometryLayout). Note this is not the "it's a no-op" reasoning that was
+            tried and disproved earlier -- the two settings do render differently under
+            symmetry. The problem is that neither still means its label: the sheet mirror
+            copies the left half to the right, so 'Single leg / Confined to one panel' can
+            never be true, and 'Mirrored' stacks a second mirror inside the first and doubles
+            the geometry. Differing is not the same as meaningful. */}
+        {showsTwoLegLayout && !legSymmetry && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
               Geometry layout
@@ -1574,22 +1677,33 @@ export default function ProductPage() {
             "useless" blank photo elsewhere on the page. */}
         <div>
           <div className="relative aspect-square overflow-hidden rounded-xl border border-hairline bg-ink-900">
-            <FadeImage
-              key={hasMockup && images.length > 1 ? activeImageIndex : 'hero'}
-              src={heroImage}
-              alt={product.title}
-              className={
-                'h-full w-full object-cover' +
-                (hasMockup ? (isFreshMockupReveal ? ' animate-reveal-quick' : ' animate-pop-in') : '')
-              }
-            />
-            {!hasMockup && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6">
-                {!user ? (
+            {/* BASE LAYER -- the product's stock photo, the scrim and the button. Static: its
+                src never changes and it never animates. It is simply covered by the mockup
+                layer below when there is one. */}
+            <FadeImage src={product?.image} alt={product.title} className="h-full w-full object-cover" />
+            {(
+              <div
+                aria-hidden={showMockup}
+                // It stays mounted while invisible and contains a real button, so without
+                // this it would still be tab-reachable -- keyboard focus landing on an
+                // invisible "Generate mockup". `inert` (React 19 supports the boolean prop
+                // directly) removes it from the tab order and the a11y tree together;
+                // pointer-events-none alone only handles the mouse.
+                inert={showMockup}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 p-6"
+              >
+                <div
+                  inert={showMockup}
+                  className={
+                    'flex items-center justify-center transition-opacity duration-300 ' +
+                    (showMockup ? 'opacity-0' : 'opacity-100')
+                  }
+                >
+                {displayedScrimMode === 'signin' ? (
                   <p className="max-w-xs text-center text-sm text-text">
                     <Link to="/account" className="text-accent underline">Sign in</Link> to generate a mockup of your design.
                   </p>
-                ) : busy ? (
+                ) : displayedScrimMode === 'busy' ? (
                   <div className="flex flex-col items-center gap-3 text-center text-text">
                     <div className="animate-reveal-quick" style={{ animationDelay: '0ms' }}>
                       <HexagonLoader />
@@ -1612,7 +1726,7 @@ export default function ProductPage() {
                       </p>
                     )}
                   </div>
-                ) : status === 'failed' ? (
+                ) : displayedScrimMode === 'failed' ? (
                   <div className="flex animate-pop-in flex-col items-center gap-3 text-center">
                     <p className="max-w-xs text-sm text-accent">{mockupError}</p>
                     <Button onClick={onGenerateClick} disabled={!selectedDesign}>
@@ -1624,11 +1738,31 @@ export default function ProductPage() {
                     Generate mockup
                   </Button>
                 )}
+                </div>
               </div>
             )}
+
+            {/* MOCKUP LAYER -- the ONLY thing in this slot that animates. It sits on top of the
+                blank/button layer, fades in when ready, and quick-fades out when it goes away,
+                revealing a base that never moved and never needed to. The base is only
+                disabled (inert) while covered, never transitioned.
+                Rendered from readyHeroUrl, set once the image has decoded, so it is fully
+                drawn before it fades and a camera-angle switch swaps src underneath an
+                already-visible layer with nothing in between. */}
+            {readyHeroUrl && (
+              <img
+                src={readyHeroUrl}
+                alt={product.title}
+                className={
+                  'pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity ' +
+                  (showMockup && mockupFadedIn ? 'opacity-100 duration-500' : 'opacity-0 duration-200')
+                }
+              />
+            )}
+
           </div>
 
-          {hasMockup && images.length > 1 && thumbsPreloaded && (
+          {showMockup && images.length > 1 && thumbsPreloaded && (
             <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
               {images.map((m, i) => (
                 <button
