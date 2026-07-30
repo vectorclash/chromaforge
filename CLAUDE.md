@@ -1503,7 +1503,7 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     ProductPage hides the row and skips `mirrorX` in that mode (`seamsAlreadyMatch`) — a
     correctness requirement, with front/back continuing to share one cached render as a bonus.
     **(2) Five rows → two.** `artworkScale` + `legSymmetry` + `geometryLayout` collapsed into one
-    `legArtwork` state with two options, **Mirrored shapes (default)** / **One large design**;
+    `legArtwork` state with two options, **Detailed (default)** / **Oversized**;
     Geometry placement is hidden on these two products only, so geometry renders on every panel
     there (which is what makes the `geometryPlacementKeys` fix above belt-and-braces rather than
     the only thing standing between a customer and a blank back). `geometryLayout` is now fixed
@@ -1522,9 +1522,21 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     **RMSE 0.17 with geometry OFF**, independently confirming both the ordered scale and the
     geometry bug. **Technique worth reusing: when a per-order setting isn't persisted, recover it
     by matching candidate renders against the stored print file.**
-    Label is "Mirrored **shapes**", not "Mirrored legs": without leg symmetry the legs are not
-    mirror images — the stars, gradient and overlay run straight across the sheet — so "legs"
-    would be exactly the false-label class the Back panel copy was rewritten to remove.
+    **The labels name SCALE, and neither uses the word "mirrored" — it took three tries to get
+    there, so don't undo it.** "Mirrored legs" was wrong first (without leg symmetry the legs
+    aren't mirror images; the stars, gradient and overlay run straight across the sheet), and
+    "Mirrored **shapes**" was still wrong (Aaron, live: "I don't know if the way we have things
+    worded makes sense to what's actually happening") because `effectiveGeometryLayout` is fixed
+    at `'mirror'` for BOTH modes — so naming one option after mirroring implied the other wasn't,
+    while the row directly below is **Front & back → Mirrored**, where the word is literally
+    true. Two adjacent rows using "mirrored" for different things, and non-distinguishingly in
+    one of them, is the same false-label class the Back panel copy was rewritten to remove. The
+    word now belongs to that row alone.
+    Measured so the labels can be trusted: element **counts are identical** between the modes
+    (31/14/28 geometry shapes, 255 stars, three designs) and every shape scales by one constant
+    **0.4196** = `elementSizeScale(leg) / elementSizeScale(sheet)` = 1825.4/4350. Oversized is
+    the same composition zoomed until few shapes fit a leg — not a busier or different one. Which
+    is also the answer to "why does Detailed have more stuff": it has *smaller* stuff.
     Verified with real renders (routing: 1 shared render with the seam flip off, 2 with it on,
     geometry on in every one) and headless at 1280px and 390px on both products, no console
     errors, with every other product's routing byte-identical. **Untouched by all of this:

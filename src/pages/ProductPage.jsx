@@ -371,10 +371,25 @@ export default function ProductPage() {
   // is really one taste decision (Artwork scale, Leg symmetry, Geometry layout) and the labels
   // had stopped making sense next to each other -- two rows both used the word "mirrored" for
   // different scopes, and "Full sheet" names an object the customer never sees.
-  //   'mirrored' (DEFAULT) -- element sizes measured against ONE leg panel, with the geometry
-  //     shape repeated flipped on each leg (legLayout 'mirror').
-  //   'large'              -- the same geometry layout, sizes measured against the whole sheet.
+  //   'detailed'  (DEFAULT) -- element sizes measured against ONE leg panel.
+  //   'oversized'           -- element sizes measured against the whole sheet.
   // Per-order render context, never saved with the design.
+  //
+  // SCALE is the entire difference, and the keys/labels say so because an earlier pair
+  // ("Mirrored shapes" / "One large design") did not, and was actively false (Aaron, live,
+  // 2026-07-29: "I don't know if the way we have things worded makes sense to what's actually
+  // happening"). effectiveGeometryLayout is fixed at 'mirror' for BOTH modes, so the shapes are
+  // mirrored across the legs either way -- naming one option after mirroring implied the other
+  // wasn't. Worse, the row directly below is "Front & back -> Mirrored", where the word IS
+  // literally true, so "mirrored" meant two different things in adjacent rows and nothing
+  // distinguishing in this one. The word now belongs to that row alone.
+  // Measured, so the labels can be trusted: element COUNTS are identical between the two modes
+  // (31/14/28 geometry shapes and 255 stars across three test designs) and every shape scales by
+  // one constant, 0.4196 = elementSizeScale(leg) / elementSizeScale(sheet) = 1825.4 / 4350. So
+  // 'oversized' shows the same composition zoomed until only a few shapes fit a leg -- not a
+  // different or a busier one. (A design with partial coherence lands slightly above 0.42, since
+  // coherentSize measures against the frame on its own curve: at coherence 0.2, 0.8*0.4196 +
+  // 0.2*0.6466 = 0.465, matching the 0.468 measured.)
   //
   // legSymmetry (the SHEET mirror -- reflecting the finished raster's left half onto its right)
   // is deliberately NOT part of either mode, and this was got wrong first. Aaron's instruction
@@ -387,9 +402,9 @@ export default function ProductPage() {
   // symmetry in was the single biggest cause of the mismatch. Leaving it out also keeps the
   // "Front & back" row meaningful in the default mode (no symmetric sheet means no no-op), and
   // that flip is what closes the front/back seams here -- verified exact.
-  const [legArtwork, setLegArtwork] = useState('mirrored');
+  const [legArtwork, setLegArtwork] = useState('detailed');
   useEffect(() => {
-    setLegArtwork('mirrored');
+    setLegArtwork('detailed');
   }, [detail?.product?.id]);
 
   // Each of the three "effective" values below is resolved ONCE here and used everywhere,
@@ -404,7 +419,7 @@ export default function ProductPage() {
   // this stays an explicit false rather than being ripped out -- it is one line away if the
   // symmetric look is ever wanted back as a third option.
   const effectiveLegSymmetry = false;
-  const effectiveSizeFrame = legPanel && legArtwork === 'mirrored' ? legPanel : null;
+  const effectiveSizeFrame = legPanel && legArtwork === 'detailed' ? legPanel : null;
   // No longer a customer choice -- fixed at 'mirror', which was the row's own default and is
   // what the ordered shorts were printed with: the geometry shape repeated flipped on each leg
   // rather than confined to one, and above all not centred on the cut line, the one spot
@@ -1057,7 +1072,7 @@ export default function ProductPage() {
               .filter(o => geometryPlacements.has(o.key))
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
-    showsTwoLegLayout && (legArtwork === 'mirrored' ? 'Mirrored shapes' : 'One large design'),
+    showsTwoLegLayout && (legArtwork === 'detailed' ? 'Detailed artwork' : 'Oversized artwork'),
     // Only when it isn't a no-op, matching the row's own visibility -- summarising a setting
     // that changes nothing would be exactly the kind of false line this summary exists to
     // avoid. (Always shown today -- leg symmetry, the one thing that made it a no-op, is off.)
@@ -1471,11 +1486,9 @@ export default function ProductPage() {
             before anyone wears it). See legArtwork's own comment for exactly what each mode
             resolves to. Changing it invalidates the current mockup -- it genuinely changes the
             composition, so it is in useMockup's cacheKey.
-            "Mirrored SHAPES", not "Mirrored legs": with leg symmetry deliberately left out of
-            this mode (see legArtwork), the legs are NOT mirror images of each other -- only the
-            geometry shape is repeated flipped, while the stars, gradient and overlay run
-            straight across the sheet. "Mirrored legs" would be exactly the class of false label
-            the Back panel copy below was rewritten to remove. */}
+            The labels name SCALE, and no label here uses the word "mirrored" on purpose -- see
+            legArtwork's comment for the two false pairs this went through first and why the
+            word belongs to the Front & back row alone. */}
         {showsTwoLegLayout && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
@@ -1483,19 +1496,19 @@ export default function ProductPage() {
             </h2>
             <p className="mt-1 text-xs text-text-muted">
               This product prints as one sheet that's cut into two legs, so you never see the
-              whole sheet at once — choose how the pattern sits across them.
+              whole sheet at once — choose how big the pattern is on each one.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
                 {
-                  key: 'mirrored',
-                  label: 'Mirrored shapes',
-                  hint: 'Sized to one leg, shapes mirrored across both'
+                  key: 'detailed',
+                  label: 'Detailed',
+                  hint: 'The whole pattern on each leg'
                 },
                 {
-                  key: 'large',
-                  label: 'One large design',
-                  hint: 'One composition spread across both legs'
+                  key: 'oversized',
+                  label: 'Oversized',
+                  hint: 'A few large shapes per leg'
                 }
               ].map(({ key, label, hint }) => {
                 const checked = legArtwork === key;
