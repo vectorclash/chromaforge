@@ -15,14 +15,27 @@
 import tinycolor from 'tinycolor2';
 import { makeRng, randInt } from './prng';
 
-export const LABEL_MARK_GENERATOR_VERSION = 4;
+// v5 (2026-07-30): the split-panel aspect threshold was removed -- see the layout-rule
+// comment below. Only the bucket hat's `label_inside` changes output; every other label in
+// the catalogue is byte-identical (verified by PNG hash across all six real sizes).
+export const LABEL_MARK_GENERATOR_VERSION = 5;
 
-// Wide placements (label_inside is 375x150, 2.5:1) get a two-panel layout: a square dark
-// panel holding the mark, and the remaining rectangle filled flat with the design's own
-// chosen accent color -- ties the sewn-in tag to the artwork's palette instead of leaving
-// the mark alone in a long dark field. Square-ish placements (label_outside, 450x450)
-// keep the single centered layout; a split panel there would just crowd the mark.
-const SPLIT_MIN_ASPECT = 1.6;
+// Layout rule (Aaron, 2026-07-30): **the mark gets a square, and whatever is left over is
+// accent.** A square dark panel holds the mark; the remaining rectangle is filled flat with
+// the design's own chosen accent color, tying the sewn-in tag to the artwork's palette
+// instead of leaving the mark alone in a long dark field.
+//
+// There is deliberately NO aspect threshold. The accent's share is already a smooth,
+// continuous function of the label's shape -- `1 - 1/aspect`, i.e. 60% at 2.5:1, 43% at
+// 1.75:1, 33% at 1.5:1 -- and it reaches exactly 0 on its own at a square. An earlier
+// `SPLIT_MIN_ASPECT = 1.6` cliff snapped everything below it to no accent at all, which
+// zeroed the bucket hat's natural 33% for no reason (its labels are 450x300, aspect 1.50).
+// Removing the threshold changed exactly one label in the whole catalogue -- that one; the
+// square marks were already at 0 by the arithmetic, and every transparent variant forces
+// `accent` to null regardless (see the `transparent` handling below).
+//
+// A portrait label (taller than wide) would leave nothing over, so it correctly falls to the
+// single centered panel. Nothing in the catalogue is portrait today.
 
 // The vectorclash mark's 37 chords, copied directly from Logo.jsx's <line> coordinates.
 const LINES = [
@@ -162,12 +175,13 @@ export function generateLabelMark(design, width, height, { transparent = false }
   // panel is square (width = the label's height) so the ring sits in a balanced field;
   // everything to its right is the accent fill. Kept as plain rects in the config so the
   // renderer stays layout-agnostic and QA harnesses can try other ratios through it.
-  const aspect = width / height;
+  const markSide = Math.min(width, height);
+  const accentWidth = width - markSide;
   const panels =
-    aspect >= SPLIT_MIN_ASPECT
+    accentWidth > 0
       ? {
-          mark: { x: 0, y: 0, w: height, h: height },
-          accent: { x: height, y: 0, w: width - height, h: height }
+          mark: { x: 0, y: 0, w: markSide, h: height },
+          accent: { x: markSide, y: 0, w: accentWidth, h: height }
         }
       : {
           mark: { x: 0, y: 0, w: width, h: height },
@@ -184,7 +198,14 @@ export function generateLabelMark(design, width, height, { transparent = false }
     backgroundColor: transparent ? null : BACKGROUND_COLOR,
     ringColor: transparent ? BACKGROUND_COLOR : RING_COLOR,
     accentColor: mainColorHex,
-    panels: transparent ? { ...panels, accent: null } : panels,
+    // A transparent label has no panels to speak of, so the mark takes the whole canvas.
+    // NOT `{ ...panels, accent: null }` -- that nulls the accent but keeps the SQUARE mark
+    // panel, which shrinks the mark and shoves it to the left edge on any non-square
+    // transparent label (caught by hash-diffing the bucket hat's 450x300 `label_outside`
+    // when the aspect threshold was removed).
+    panels: transparent
+      ? { mark: { x: 0, y: 0, w: width, h: height }, accent: null }
+      : panels,
     bounds: BOUNDS,
     ring: { center: RING_CENTER, radius: RING_RADIUS },
     lines

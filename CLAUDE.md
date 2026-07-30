@@ -1264,13 +1264,33 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     `getGeometryPlacementOptions`' checkbox keys, now it's an explicit, guaranteed rule.
     **Split-panel layout for wide labels (2026-07-10, user's idea, user-approved from a
     rendered QA page)**: `label_inside`'s 2.5:1 canvas no longer holds the mark alone
-    centered in a long dark field — wide placements (aspect ≥ 1.6,
-    `LABEL_MARK_GENERATOR_VERSION = 3`; now 4, see below) split into a square dark panel with the mark plus
+    centered in a long dark field — wide placements (originally aspect ≥ 1.6,
+    `LABEL_MARK_GENERATOR_VERSION = 3`; the threshold is GONE as of v5, see below) split into a square dark panel with the mark plus
     a flat fill of the design's chosen accent (the same `mainColorHex` the colored chords
     spin from, so the panels share a root color; zero new rng draws). Panel rects live in
     the generator's config (`panels.mark`/`panels.accent`) so `renderLabelMark` stays
     layout-agnostic; square `label_outside` keeps the single centered panel
     (`panels.accent = null`).
+    **Split threshold removed — `LABEL_MARK_GENERATOR_VERSION = 5` (2026-07-30, Aaron's call:
+    "the logo should get a proper square area and the rest is color so however that ends up
+    being is fine").** The accent's share was already a smooth continuous function of the
+    label's shape — `1 - 1/aspect`, i.e. 60% at 2.5:1, 43% at 1.75:1, 33% at 1.5:1 — reaching
+    exactly 0 at a square on its own. `SPLIT_MIN_ASPECT = 1.6` was therefore a cliff on a
+    function that needed no floor, and it zeroed the **bucket hat**'s natural 33% (its
+    `label_inside` is 450×300, aspect 1.50) for no reason. Now `mark` is a square of side
+    `min(width, height)` and `accent` is whatever is left; a portrait label leaves nothing
+    over and correctly falls back to the single centered panel. **Exactly one label in the
+    catalogue changed** — verified by PNG hash across all six real sizes, rendered through the
+    real generator under `@napi-rs/canvas`.
+    **Real bug caught by that hash check, worth not repeating:** the transparent branch was
+    `{ ...panels, accent: null }`, which nulls the accent but keeps the *square* mark panel —
+    so removing the threshold silently shrank the hat's `label_outside` mark and shoved it to
+    the left edge. A transparent label now builds its own full-canvas mark panel explicitly.
+    Nulling one field of a computed layout is not the same as choosing a different layout.
+    **No render-service redeploy needed for label changes** — unlike every other placement,
+    label marks are rendered client-side and uploaded directly (see the bypass note above), so
+    `generateLabelMark` is not in the Fly bundle at all. Uploads are content-hashed, so changed
+    bytes get a new URL and Printful's fetch-by-URL cache is not a hazard here.
     **Transparent label_outside + heavier mark (2026-07-15, `LABEL_MARK_GENERATOR_VERSION
     = 4`, Aaron-approved from real track-jacket draft mockups — orders 166996698/166999659):**
     Printful composites label placements OVER the garment's own print (confirmed on a real
