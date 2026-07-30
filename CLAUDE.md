@@ -283,6 +283,14 @@ the actual print, generated the same deterministic way.
   version of that test wrongly compared across aspects and reported a meaningless 159%.
   **This bump DOES invalidate stored thumbnails, and the backfill must run with NO
   `--generator-version` filter** — see the operational-rule bullet in the Supabase section.
+  **Verified in production, 2026-07-30** (real live order `c15d1c8d` / Printful `169226286`,
+  mesh shorts L): the back print file is an exact horizontal mirror of the front — 0 differing
+  subpixels of 195,750,000 at the true 11250×4350 — and carries geometry, with the front
+  matching a local v9 "Detailed" render at RMSE 0.45 against 68 for geometry-off and 93 for
+  Oversized. See `TODO.md`'s go-live step 6 for the full check list, including the two things
+  worth repeating next time: **`flyctl status` to confirm ALL machines took the release** (a
+  split release fails roughly half of checkouts intermittently, the nastiest symptom available)
+  and the free draft-order check on any product whose submitted payload changed.
 - **`legSymmetry` — the centre-front seam mirror (2026-07-29, Aaron's idea, same session).**
   `renderArtwork` optionally reflects the finished raster's LEFT half onto its right, so the
   two leg panels become mirror images and the pattern meets itself at the centre-front seam

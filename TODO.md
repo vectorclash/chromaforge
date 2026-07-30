@@ -99,6 +99,18 @@ tracks what's true now, not history.
       came back from CDTFA and the registration was added — Stripe's flow didn't actually
       prompt for the permit number itself (apparently not a required field on their end);
       confirmed done via the dashboard screenshot, not just assumed.
+      **BUT tax was still not actually being collected until 2026-07-29, and this entry is
+      why nobody noticed.** Activation has TWO halves and only one was done: the dashboard
+      registration (2026-07-09, above) and the `STRIPE_AUTOMATIC_TAX` kill switch, which had
+      been set to `false` on 2026-07-05 as the documented temporary unblock *while* the
+      dashboard side was pending — and was never flipped back once it landed. So every live
+      order between launch and 2026-07-29 was created with `automatic_tax: { enabled: false }`,
+      including California ones. Unset 2026-07-29 (the code enables tax for any value that
+      isn't the literal string `"false"`, so absent = on).
+      **Lesson for any future entry here: a dashboard/console step and a code-side flag are
+      separate halves, and ticking one is not the feature.** Ticking this box on the dashboard
+      alone made the gap invisible for three weeks; it surfaced only from an unrelated secrets
+      audit, where the flag's digest happened to match `STORE_ENABLED`'s.
 - [x] **Enable receipt emails** in Stripe (Settings → Business → Customer emails →
       "Successful payments" toggle) — done 2026-07-02. Still can't be verified end-to-end
       until live mode, since test mode never actually sends them.
@@ -238,6 +250,30 @@ tracks what's true now, not history.
        and `printful-webhook` delivered a follow-up status event for the same order —
        confirming both the payment path and the Printful status-tracking integration work
        against the real live account, not just in test mode. Chromaforge is live.
+6. [x] **Re-verified end to end after the 2026-07-29 generator work (v8 + v9 in one day),
+       2026-07-30.** `STORE_ENABLED` was paused during that work and this order is what
+       re-opened it. Real live Apple Pay purchase, mesh shorts L, order `c15d1c8d`, Printful
+       `169226286`. Everything below was checked against the real artifacts, not assumed:
+       - **Tax collected for the first time ever** (see the Stripe Tax entry above for why it
+         silently wasn't): $34.69 + $5.99 shipping + **$2.99 tax = $43.67**, confirmed on the
+         emailed receipt. $2.99/$34.69 = **8.625%**, San Francisco's exact district rate, and
+         applied to the item only — shipping correctly untaxed (CA exempts separately-stated
+         common-carrier delivery). Taxing shipping too would have read $3.51, so this confirms
+         Stripe Tax is applying real jurisdiction rules rather than a flat percentage.
+       - **The two 2026-07-29 fixes, proven in production**: the back print file is an EXACT
+         horizontal mirror of the front (0 differing subpixels of 195,750,000 at the true
+         11250x4350), and it carries geometry — the front matches a local v9 "Detailed" render
+         at RMSE 0.45 while the geometry-off variant sits at 68 and Oversized at 93. Sanity
+         check that needs no tooling: front/back are 7.4/7.5 MB here, against 7.9/2.7 MB on the
+         broken order that started it — that size gap WAS the missing geometry.
+       - Order row `submitted` with a payment intent and Stripe's authoritative totals;
+         `generatorVersion: 9` stamped; Printful `pending` (accepted, queued) with all five
+         files `ok` and both artwork files at 11250x4350.
+       - Pre-flight checks that passed the same session: both Fly machines on the v9 release
+         (a split release would have failed ~half of checkouts intermittently — check
+         `flyctl status`, not just the deploy output), live bundle serving v9,
+         `PRINTFUL_SKIP_CONFIRM` absent, catalog drift clean on all 15 products, draft-order
+         check PASS on 693/784, 38/38 thumbnails byte-identical to fresh v9 renders.
 
 ## Code — high value, near term
 
