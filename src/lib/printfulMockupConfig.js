@@ -51,17 +51,42 @@
 // template to within 2px of 3000 (0.07%), and a garment's front/back panels are themselves
 // symmetric about their own vertical centerline, so a full-canvas mirror maps the panel onto
 // itself instead of shifting artwork relative to fabric.
-// Deliberately NOT set on four products:
+// Deliberately NOT set on two products:
 //   274 tote bag -- no distinct 'back' placement at all; one canvas wraps the whole bag.
 //   630 bandana -- likewise no 'back' placement: it's a single hemmed square with no seam
 //     for a pattern to restart at.
-//   693 mesh shorts and 784 wide-leg joggers -- both DO have a back placement in their
-//     printfile mapping, but both are `twoLegCanvas` (see below): each canvas is physically
-//     CUT IN HALF into two legs, so front and back don't meet as one cylinder at two side
-//     seams. Each leg has its own outseam and inseam, and the simple
-//     front's-right-edge-meets-back's-left-edge argument that makes mirroring correct
-//     everywhere else does not hold. Would need its own seam analysis before being enabled.
-// It's exposed as a per-order customer toggle (ProductPage's "Back panel"), default on.
+// The two `twoLegCanvas` products (693 mesh shorts, 784 wide-leg joggers) WERE excluded, on
+// the grounds that their canvas is cut in half into two legs so front and back never meet as
+// one cylinder at two side seams, making the simple front's-right-edge-meets-back's-left-edge
+// argument inapplicable. **That analysis was done 2026-07-29 and the exclusion was wrong** --
+// the argument holds, it just applies per leg. Both are enabled now. The reasoning, so it
+// isn't re-derived: flood-measuring Printful's own front and back templates for both products
+// (transparent region = fabric piece) shows each sheet is a mirror-symmetric LAYOUT -- shorts
+// leg panels at x 0.156-0.455 / 0.546-0.844 (exact reflections, own-flip IoU 0.978), joggers
+// at 0.147-0.492 / 0.507-0.852 (IoU 0.996), inner crotch/inseam edges facing the sheet centre
+// and outseam edges facing the sheet edges. Worn, the back sheet is rotated 180 degrees about
+// the vertical (not flipped), so its x axis runs opposite the front's in world space and the
+// front sheet's LOW-x leg panel is sewn to the back sheet's HIGH-x one. Because the panels are
+// exact reflections, a plain full-sheet horizontal flip maps panel onto its partner edge for
+// edge -- inner to inner, outer to outer -- and the seam condition at both the outseam and the
+// inseam reduces to F(x) == F(x), true unconditionally. Caveat: the pairing is derived from
+// standard construction plus that measurement, not photographed; no mockup style on either
+// product shows a back or side view, so it can't be picture-verified before a physical sample.
+// Verified on real renders at the true 11250x4350 shorts printfile, three designs (chaotic,
+// custom palette, full-coherence lattice): mirroring the back takes both the outseam and the
+// inseam to a max subpixel delta of 0, from 161-251 unmirrored.
+// NOTE, for if the symmetric look ever returns as an option: leg symmetry and this flip must
+// never both be on. ProductPage keeps legSymmetry false today (see legArtwork -- folding it into
+// the default destroyed the look Aaron had actually ordered), so the flip is always live on these
+// two products and is what closes their seams. Were symmetry on, the sheet would be exactly
+// symmetric about its own centre (measured delta 0), so the seams would already match with NO
+// flip -- and adding one BREAKS them (0 -> 238). The reason: mirrorX sets its transform at the
+// TOP of renderArtwork so every layer draws flipped, while legSymmetry reflects the FINISHED
+// raster at the bottom; together they yield a symmetric sheet built from the flipped
+// composition's left half, which is not the front's sheet. (First reasoned as "the flip is just
+// a no-op there"; that was wrong, and measuring is what caught it. ProductPage's
+// seamsAlreadyMatch encodes the rule so it can't be lost.)
+// It is exposed as a per-order customer toggle (ProductPage's "Front & back"), default on.
 export const PRODUCT_MOCKUP_CONFIG = {
   257: {
     technique: 'cut-sew',
@@ -154,6 +179,17 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // on-model, and lifestyle angles) -- front is the only flat preview available.
     placements: ['front'],
     mockupStyleIds: [8603],
+    // ...but the shorts DO have a real, printed 'back' panel -- it just can't be previewed.
+    // Without this override the geometry checkboxes would be derived from `placements` above
+    // and offer Front only, which leaves 'back' out of ProductPage's selection Set, and
+    // includesGeometry reads an absent placement as "geometry OFF". That silently printed
+    // every pair of shorts with a geometry-less back and gave the customer no control over
+    // it (real order, 2026-07-29). Same override the bucket hat (654) needs, same reason.
+    geometryPlacementKeys: ['front', 'back'],
+    // Enabled 2026-07-29 -- see mirrorPlacements' own comment above for the seam analysis that
+    // reversed this product's earlier exclusion, and why the flip is a no-op under "Mirrored
+    // legs" (which is why ProductPage only offers the choice in the other artwork mode).
+    mirrorPlacements: ['back'],
     // front AND back (Printful printfile 472, 11250x4350 -- a 2.6:1 ratio) are one flat
     // canvas physically cut into the two legs when sewn. See twoLegCanvas's own comment
     // below (784) for what this flag does.
@@ -201,6 +237,10 @@ export const PRODUCT_MOCKUP_CONFIG = {
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back'],
     mockupStyleIds: [22595, 22596],
+    // Enabled 2026-07-29 alongside the shorts (693) -- same seam analysis, see
+    // mirrorPlacements' comment above. This product's own measurement: leg panels at
+    // x 0.147-0.492 / 0.507-0.852, own-flip IoU 0.996.
+    mirrorPlacements: ['back'],
     // front/back printfile is 9750x8100 (1.2:1) -- milder than the shorts' 2.6:1, but the
     // same physical situation: one flat canvas cut into two legs. See twoLegCanvas.
     twoLegCanvas: true,

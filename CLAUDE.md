@@ -1128,6 +1128,26 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     have silently mismatched a front rendered with geometry off. The selection is part of
     the mockup cache key (`useMockup.js`) so toggling a checkbox correctly misses a stale
     cached preview instead of silently reusing one rendered under a different selection.
+    **Real bug from this, found in a live order 2026-07-29**: the checkbox list is derived
+    from `cfg.placements` — the MOCKUP-visible set — and mesh shorts (693) carry
+    `placements: ['front']` only because Printful publishes no "Flat Back" style for them,
+    not because there's no back panel. So `back` had no checkbox, was therefore never in
+    ProductPage's selection Set, and `includesGeometry` reads an absent placement as
+    **geometry OFF** — every pair of shorts printed a geometry-less back (stars + gradient
+    only), with no UI able to change it, and the front-only mockup could never reveal it.
+    The section is also gated on `geometryOptions.length > 1`, so it was hidden entirely.
+    Fixed with `geometryPlacementKeys: ['front', 'back']` on 693 — the same override the
+    bucket hat (654) already needed for its unphotographable inside faces, which is the tell
+    that this is a general hazard and not a one-off: **any product whose printed panels
+    outnumber its previewable ones needs the override.** Audited all 15 against the live
+    catalog's real `available_placements` (not assumed): **693 was the only one.** The other
+    mismatches are deliberate — `744`'s `inside_pocket`, `615`'s `hood_inner`/`facing`, and
+    `801`/`390`'s `details` are interior/trim surfaces where geometry-off is the intended
+    rule, same as `label_panel`. Note the joggers (784) were **never** affected despite
+    being the shorts' twin in every other respect: they do list `['front', 'back']`. With
+    both panels on, the shorts' front and back resolve to the same render cache key (one
+    printfile, and `twoLegCanvas` products are excluded from `mirrorPlacements`), so the back
+    is byte-identical to the front and costs no extra render.
   - **Label placements, 2026-07-04**: Printful's catalog was audited product-by-product
     (`getPrintfileSpecs`/`getPrintfileSpecs?templates=1`, live) and turned out to expose
     *three* distinct label-type placements, not one, previously never even considered:
@@ -1403,6 +1423,66 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     call) for the two-leg-canvas products (mesh shorts, joggers). It was `'single'` only as
     the closer-to-everything-else option; a shape spanning both legs is the better default
     and matches the seam default above.
+  - **The two leg products: seam mirroring enabled, and five option rows collapsed to two
+    (2026-07-29, Aaron's call after the geometry bug above).** Two separate changes, same
+    session, driven by "it's too complicated as it is and none of the settings other than
+    stitch color really make any sense the way they are worded now."
+    **(1) `mirrorPlacements: ['back']` now covers mesh shorts (693) and joggers (784)** — 13 of
+    15 products, only the tote and bandana left out (neither has a back placement at all). Their
+    earlier exclusion, on the grounds that a cut-in-half canvas means front and back never meet
+    as one cylinder so the front's-right-meets-back's-left argument can't apply, **was wrong**:
+    the argument holds, it just applies per leg. Flood-measuring Printful's own front AND back
+    templates (transparent region = fabric piece) shows every sheet is a mirror-symmetric
+    *layout* — shorts leg panels at x 0.156–0.455 / 0.546–0.844, joggers 0.147–0.492 /
+    0.507–0.852, own-flip IoU 0.978 and 0.996 — with inner crotch/inseam edges facing the sheet
+    centre. Worn, the back sheet is rotated 180° about the vertical (not flipped), so its x axis
+    runs opposite the front's in world space and the front's LOW-x panel is sewn to the back's
+    HIGH-x one; because the panels are exact reflections, the existing full-sheet `mirrorX` maps
+    panel onto partner edge-for-edge and the seam condition reduces to `F(x) == F(x)`. Confirmed
+    on real renders at the true 11250×4350 printfile across three designs (chaotic, custom
+    palette, full-coherence lattice): **mirrored takes both the outseam and the inseam to max
+    subpixel delta 0, from 161–251 unmirrored.** No renderer change was needed. Caveat: the
+    pairing is derived from construction plus that measurement, never photographed — no mockup
+    style on either product shows a back or side view.
+    **The one real trap here, and it was reasoned WRONG first:** under leg symmetry the back must
+    NOT be mirrored. The initial claim was "the flip is a no-op there, since mirroring a
+    symmetric image returns itself." Measuring killed it — `mirrorX` sets its transform at the
+    TOP of `renderArtwork` so every layer draws flipped, while `legSymmetry` reflects the
+    FINISHED raster at the bottom; together they build a symmetric sheet out of the *flipped*
+    composition's left half, which is not the front's sheet, so seams go from **0 to 238**.
+    ProductPage hides the row and skips `mirrorX` in that mode (`seamsAlreadyMatch`) — a
+    correctness requirement, with front/back continuing to share one cached render as a bonus.
+    **(2) Five rows → two.** `artworkScale` + `legSymmetry` + `geometryLayout` collapsed into one
+    `legArtwork` state with two options, **Mirrored shapes (default)** / **One large design**;
+    Geometry placement is hidden on these two products only, so geometry renders on every panel
+    there (which is what makes the `geometryPlacementKeys` fix above belt-and-braces rather than
+    the only thing standing between a customer and a blank back). `geometryLayout` is now fixed
+    at `'mirror'` and `legSymmetry` at `false`; only the size frame differs between the modes.
+    **`legSymmetry` is deliberately NOT in either mode, and getting that wrong is the trap.**
+    First pass folded it into the default, reading Aaron's "the one leg option == mirrored,
+    that's the default" as the SHEET mirror. It meant the **geometry layout** mirror — the shape
+    repeated flipped on each leg — which was already on by default. He caught it immediately
+    ("both layout options fail to reproduce the front of the shorts I did order"). Settled by
+    matching real renders against the actual print file of the order (design `e2bcfaa7`, seed
+    `qos0t1c0`, still in Storage inside the 24h `cleanup-storage` window — the per-order render
+    context is never persisted, so the print file IS the only record of what was used):
+    one-leg + layout-mirror + symmetry-OFF reproduces the front at **RMSE 0.46 / max 5**
+    (rounding noise; the reference came off Fly, a different `@napi-rs/canvas` build), while the
+    symmetric variant sits at 57.5 and every other combination at 50–99. The back matched at
+    **RMSE 0.17 with geometry OFF**, independently confirming both the ordered scale and the
+    geometry bug. **Technique worth reusing: when a per-order setting isn't persisted, recover it
+    by matching candidate renders against the stored print file.**
+    Label is "Mirrored **shapes**", not "Mirrored legs": without leg symmetry the legs are not
+    mirror images — the stars, gradient and overlay run straight across the sheet — so "legs"
+    would be exactly the false-label class the Back panel copy was rewritten to remove.
+    Verified with real renders (routing: 1 shared render with the seam flip off, 2 with it on,
+    geometry on in every one) and headless at 1280px and 390px on both products, no console
+    errors, with every other product's routing byte-identical. **Untouched by all of this:
+    `render/scale.js`'s aspect clamp and its `frame` parameter** — Aaron asked directly whether
+    the same-day scaling fix had been reverted; it hadn't, and the RMSE 0.46 match against a
+    v8-clamped, one-leg-scaled print file is itself the proof.
+    **Still open: the other 13 products keep Geometry placement and were not otherwise
+    reworded** — Aaron's complaint was general, so this is a candidate for the same treatment.
   - **ProductPage's options collapsed into one "Print options" disclosure, 2026-07-25**
     (Aaron: the page felt cluttered — fairly, since two of the sections had landed that same
     day). Five refinement sections (inside artwork, geometry placement, geometry layout, side

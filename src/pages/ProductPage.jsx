@@ -352,77 +352,95 @@ export default function ProductPage() {
     });
   };
 
-  // Products whose front/back printfile is one flat canvas cut into two garment legs when
-  // sewn (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's twoLegCanvas) center the
-  // geometry shape exactly on that cut line by default, the one spot guaranteed to end up
-  // hidden in the inseam. 'single' confines it to one leg (matches how every other product
-  // already looks); 'mirror' centers it on the seam and repeats it, flipped, on the other
-  // leg. Same per-order, not-part-of-the-design treatment as geometryPlacements above.
-  // Defaults to 'mirror' (Aaron's call, 2026-07-25) -- it was 'single' originally, chosen as
-  // the closer-to-how-everything-else-looks option, but a shape spanning both legs is the
-  // better default look and matches the seam-mirroring default below.
-  const [geometryLayout, setGeometryLayout] = useState('mirror');
-  // Reflects the print's left half onto its right, so the two legs become mirror images and
-  // the pattern meets itself at the centre-front seam (see renderArtwork.js's legSymmetry).
-  // Off by default: bilateral symmetry is a strong look, not a neutral improvement, so it is
-  // the customer's opt-in rather than a taste decided for everyone.
-  const [legSymmetry, setLegSymmetry] = useState(false);
   const showsTwoLegLayout = detail?.product
     ? hasTwoLegCanvas(getMockupConfigForProduct(detail.product.id))
     : false;
-  // Real bug, found live (2026-07-06): geometryLayout state defaults to 'single' for every
-  // product, not just two-leg-canvas ones, and was being sent unconditionally -- since
-  // GenerateGeometricShape treats any truthy geometryLayout as "not the default center"
-  // (see its own comment), every OTHER product's geometry silently started rendering
-  // off-center-left (anchored at width/4) instead of centered, even though its own toggle
-  // UI never shows. Gating on showsTwoLegLayout here, once, and using this everywhere
-  // instead of the raw state is what actually restricts the effect to the products it's
-  // meant for.
-  // Forced to 'single' while Leg symmetry is on. Under symmetry the sheet mirror IS the
-  // mirroring mechanism, so legLayout 'mirror' stacks a second, narrower one inside it: the
-  // 3*width/4 copy's shapes bleed back left across the centre, and the sheet mirror then
-  // duplicates that too, producing visibly doubled/overlapping geometry (caught live by
-  // Aaron, 2026-07-29). Forcing 'single' is also what makes the hidden row honest -- the
-  // control isn't inert, it's decided. Note geometryLayout DEFAULTS to 'mirror', so without
-  // this the overlap is exactly what someone gets by just switching symmetry on.
-  const effectiveGeometryLayout = showsTwoLegLayout ? (legSymmetry ? 'single' : geometryLayout) : null;
-  useEffect(() => {
-    setGeometryLayout('mirror');
-  }, [detail?.product?.id]);
-
-  // Which frame the composition's element sizes are measured against on a product whose
-  // printfile is cut into separately-visible panels. 'sheet' (the default) sizes to the
-  // whole printfile; 'panel' sizes to one leg, so a single leg shows a complete composition
-  // instead of a magnified slice of one. Per-order render context, never saved with the
-  // design -- same treatment as geometryLayout and mirrorSeams.
-  const [artworkScale, setArtworkScale] = useState('sheet');
   const legPanel = detail?.product ? getLegPanel(getMockupConfigForProduct(detail.product.id)) : null;
-  // Gated once and used everywhere, for the same reason effectiveGeometryLayout is: a
-  // sizeFrame leaking onto a product with no legPanel would silently rescale every other
-  // garment in the catalogue.
-  const effectiveSizeFrame = legPanel && artworkScale === 'panel' ? legPanel : null;
+
+  // Hidden on the two-leg products (Aaron, 2026-07-29): those have exactly Front and Back, and
+  // geometry belongs on both, so the row was two checkboxes nobody should want to change. The
+  // Set stays fully populated (see its init above), so geometry renders on every panel there --
+  // which is also the permanent fix for the live bug found the same day, where 'back' had no
+  // checkbox at all and includesGeometry read its absence as geometry OFF. Every other product
+  // keeps the picker; it's the one refinement no other print-on-demand store offers.
+  const showsGeometryPlacements = geometryOptions.length > 1 && !showsTwoLegLayout;
+
+  // ONE control for how the artwork sits on a product that prints as a single sheet cut into
+  // two legs (mesh shorts, joggers -- PRODUCT_MOCKUP_CONFIG's twoLegCanvas/legPanel).
+  // Consolidated 2026-07-29 on Aaron's call: this page had grown three separate rows for what
+  // is really one taste decision (Artwork scale, Leg symmetry, Geometry layout) and the labels
+  // had stopped making sense next to each other -- two rows both used the word "mirrored" for
+  // different scopes, and "Full sheet" names an object the customer never sees.
+  //   'mirrored' (DEFAULT) -- element sizes measured against ONE leg panel, with the geometry
+  //     shape repeated flipped on each leg (legLayout 'mirror').
+  //   'large'              -- the same geometry layout, sizes measured against the whole sheet.
+  // Per-order render context, never saved with the design.
+  //
+  // legSymmetry (the SHEET mirror -- reflecting the finished raster's left half onto its right)
+  // is deliberately NOT part of either mode, and this was got wrong first. Aaron's instruction
+  // was "the one leg option == mirrored, that's the default," which read as the sheet mirror; it
+  // meant the GEOMETRY LAYOUT mirror, which was already on by default. Proven by matching real
+  // renders against the actual print file of the shorts he ordered (design e2bcfaa7, seed
+  // qos0t1c0, still in Storage): one-leg + layout-mirror + symmetry OFF reproduces it at
+  // RMSE 0.46 / max delta 5 (rounding noise -- the reference came off Fly), while adding the
+  // sheet mirror takes that to RMSE 57.5 and every other combination sits at 50-98. Folding
+  // symmetry in was the single biggest cause of the mismatch. Leaving it out also keeps the
+  // "Front & back" row meaningful in the default mode (no symmetric sheet means no no-op), and
+  // that flip is what closes the front/back seams here -- verified exact.
+  const [legArtwork, setLegArtwork] = useState('mirrored');
   useEffect(() => {
-    setArtworkScale('sheet');
+    setLegArtwork('mirrored');
   }, [detail?.product?.id]);
 
-  const effectiveLegSymmetry = showsTwoLegLayout && legSymmetry;
-  useEffect(() => {
-    setLegSymmetry(false);
-  }, [detail?.product?.id]);
+  // Each of the three "effective" values below is resolved ONCE here and used everywhere,
+  // rather than reading the raw state at each call site. That discipline exists because of a
+  // real bug (2026-07-06): geometryLayout was sent unconditionally, and since
+  // GenerateGeometricShape treats ANY truthy geometryLayout as "not the default center," every
+  // other product in the catalogue silently started rendering its geometry off-center-left
+  // even though the toggle UI never showed for it. Same hazard for sizeFrame, which would
+  // rescale every other garment if it leaked past a product with no legPanel.
+  // Never on: see legArtwork's comment. The renderer still supports it (renderArtwork's
+  // legSymmetry) and the two-leg seam reasoning in PRODUCT_MOCKUP_CONFIG still refers to it, so
+  // this stays an explicit false rather than being ripped out -- it is one line away if the
+  // symmetric look is ever wanted back as a third option.
+  const effectiveLegSymmetry = false;
+  const effectiveSizeFrame = legPanel && legArtwork === 'mirrored' ? legPanel : null;
+  // No longer a customer choice -- fixed at 'mirror', which was the row's own default and is
+  // what the ordered shorts were printed with: the geometry shape repeated flipped on each leg
+  // rather than confined to one, and above all not centred on the cut line, the one spot
+  // guaranteed to end up hidden in the inseam.
+  const effectiveGeometryLayout = showsTwoLegLayout ? 'mirror' : null;
 
   // Whether this product's back half prints mirrored so the pattern continues across its
-  // visible side seams (bucket hat only -- see PRODUCT_MOCKUP_CONFIG's mirrorPlacements for
-  // the geometry and why mirroring closes both seams at once). Per-order, not saved with the
-  // design, same as every other choice on this page. Defaults ON: the unmirrored version
+  // visible side seams (see PRODUCT_MOCKUP_CONFIG's mirrorPlacements for which products and
+  // the per-leg seam analysis that brought the shorts/joggers in). Per-order, not saved with
+  // the design, same as every other choice on this page. Defaults ON: the unmirrored version
   // visibly restarts the composition at each seam, which reads as a defect rather than a
   // style, so continuous is the better default and opting out is the deliberate act.
   const [mirrorSeams, setMirrorSeams] = useState(true);
   const productMirrorPlacements = detail?.product
     ? getMirrorPlacements(getMockupConfigForProduct(detail.product.id))
     : null;
+  // Kept as a derived flag rather than inlined `false`, because it encodes a real constraint
+  // that would bite immediately if the symmetric look ever came back as an option: when leg
+  // symmetry is on, the back must NOT be mirrored. Measured at the real 11250x4350 shorts
+  // printfile across three designs (chaotic, custom palette, full-coherence lattice): under
+  // symmetry the sheet is exactly symmetric about its centre (max subpixel delta 0), so
+  // front(c) and back(W-1-c) already match at both the outseam and the inseam with NO flip --
+  // and adding the flip takes those from 0 to 238/185.
+  // First reasoned as "the flip is a no-op there, mirroring a symmetric image returns itself."
+  // That is wrong, and measuring is what caught it: mirrorX is applied at the TOP of
+  // renderArtwork (it sets the transform, so every layer draws flipped), while legSymmetry runs
+  // at the BOTTOM on the finished raster. Together they build a symmetric sheet out of the
+  // FLIPPED composition's left half -- still symmetric, but not the front's sheet, so seams
+  // break rather than not changing.
+  // With symmetry off (today, always) this is false, so the row shows and the flip is what
+  // actually closes the front/back seams -- verified exact, see PRODUCT_MOCKUP_CONFIG.
+  const seamsAlreadyMatch = effectiveLegSymmetry;
+  const showsMirrorSeamsChoice = !!productMirrorPlacements && !seamsAlreadyMatch;
   // Same gating discipline as effectiveGeometryLayout above -- resolve once, use everywhere,
   // so the flag can never reach a product that doesn't declare mirrorable placements.
-  const effectiveMirrorPlacements = mirrorSeams ? productMirrorPlacements : null;
+  const effectiveMirrorPlacements = mirrorSeams && !seamsAlreadyMatch ? productMirrorPlacements : null;
   useEffect(() => {
     setMirrorSeams(true);
   }, [detail?.product?.id]);
@@ -879,7 +897,10 @@ export default function ProductPage() {
     // it would throw away a still-accurate mockup and make the customer sit through another
     // 30-90s Printful round trip that renders a pixel-identical photo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, mirrorSeams, stitchColor]);
+    // effectiveMirrorPlacements, not the raw mirrorSeams: while leg symmetry is on the flip is
+    // a no-op, and depending on the raw flag there would throw away a still-accurate mockup and
+    // charge the customer another 30-90s Printful round trip for an identical photo.
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor]);
 
   // The hero deliberately has NO animation class of its own. It used to carry
   // --animate-reveal-quick on a fresh generation and --animate-pop-in otherwise, chosen by a
@@ -1013,9 +1034,9 @@ export default function ProductPage() {
   // doesn't render an empty disclosure.
   const hasPrintOptions =
     !!secondaryDesignConfig ||
-    geometryOptions.length > 1 ||
+    showsGeometryPlacements ||
     showsTwoLegLayout ||
-    !!productMirrorPlacements ||
+    showsMirrorSeamsChoice ||
     !!stitchColorOption ||
     colorIsFinish;
 
@@ -1027,7 +1048,7 @@ export default function ProductPage() {
     // garment, which is exactly the misreading this product's override exists to prevent.
     colorIsFinish && variant?.color && `${variant.color} ${colorLabel.toLowerCase()}`,
     secondaryDesignConfig && (secondaryChoice ? `Inside: ${secondaryChoice.title || 'Untitled'}` : 'Same design both faces'),
-    geometryOptions.length > 1 &&
+    showsGeometryPlacements &&
       (geometryPlacements.size === 0
         ? 'No geometry'
         : geometryPlacements.size === geometryOptions.length
@@ -1036,14 +1057,11 @@ export default function ProductPage() {
               .filter(o => geometryPlacements.has(o.key))
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
-    showsTwoLegLayout && legSymmetry && 'Mirrored legs',
-    showsTwoLegLayout &&
-      !legSymmetry &&
-      (geometryLayout === 'mirror' ? 'Mirrored across legs' : 'Single leg'),
-    legPanel && (artworkScale === 'panel' ? 'Scaled to one leg' : 'Scaled to full sheet'),
-    // "Mirrored across legs" above can't collide with this: the two twoLegCanvas products
-    // are exactly the ones excluded from mirrorPlacements, so only one of the pair ever runs.
-    productMirrorPlacements && (mirrorSeams ? 'Back flipped' : 'Back same as front'),
+    showsTwoLegLayout && (legArtwork === 'mirrored' ? 'Mirrored shapes' : 'One large design'),
+    // Only when it isn't a no-op, matching the row's own visibility -- summarising a setting
+    // that changes nothing would be exactly the kind of false line this summary exists to
+    // avoid. (Always shown today -- leg symmetry, the one thing that made it a no-op, is off.)
+    showsMirrorSeamsChoice && (mirrorSeams ? 'Back mirrored' : 'Back same as front'),
     stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`
   ]
     .filter(Boolean)
@@ -1413,7 +1431,7 @@ export default function ProductPage() {
             meaningful to toggle. Changing a checkbox invalidates the current mockup (see the
             sync effect's geometryPlacementsSignature dependency) since it changes what would
             actually render. */}
-        {geometryOptions.length > 1 && (
+        {showsGeometryPlacements && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
               Geometry placement
@@ -1445,128 +1463,47 @@ export default function ProductPage() {
           </div>
         )}
 
-        {/* Step: for products whose front/back printfile is one flat canvas cut into two
-            garment legs when sewn (mesh shorts, joggers -- see PRODUCT_MOCKUP_CONFIG's
-            twoLegCanvas), the geometry shape's default centering lands it exactly on that
-            seam -- the one spot guaranteed to end up hidden in the inseam. This lets the
-            customer pick single-leg (matches how every other product looks) or mirrored
-            (centered on the seam, repeated on both legs) instead. Changing it invalidates
-            the current mockup (see the sync effect's geometryLayout dependency) since it
-            changes what would actually render. */}
-        {/* Step: artwork scale -- only on products whose printfile is cut into panels that are
-            never seen at once (PRODUCT_MOCKUP_CONFIG's legPanel). The copy names the MECHANISM
-            rather than calling the options "bold"/"fine", following the same lesson the Back
-            panel wording below records: the shorts leg is wide and the joggers leg is tall, so
-            the two products get different amounts of change out of the same choice, and any
-            label promising a fixed visual outcome would be false on one of them. Changing it
-            invalidates the current mockup -- it genuinely changes the composition, so it is in
-            useMockup's cacheKey. */}
-        {legPanel && (
-          <div>
-            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              Artwork scale
-            </h2>
-            <p className="mt-1 text-xs text-text-muted">
-              This product prints as one sheet that's cut into two legs, so you never see the
-              whole sheet at once — choose what the artwork is sized to fit.
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {[
-                { key: 'sheet', label: 'Full sheet', hint: 'Bigger, bolder shapes' },
-                { key: 'panel', label: 'One leg', hint: 'Smaller, more detail' }
-              ].map(({ key, label, hint }) => {
-                const checked = artworkScale === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setArtworkScale(key)}
-                    aria-pressed={checked}
-                    className={
-                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                      (checked
-                        ? 'border-accent bg-accent text-ink-950'
-                        : 'border-hairline text-text-secondary hover:border-text')
-                    }
-                  >
-                    <span className="text-sm font-bold">{label}</span>
-                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Step: leg symmetry. Deliberately its own row rather than folded into Artwork scale
-            (Aaron, 2026-07-29) so the two compose: someone can have the finer per-leg scale
-            without committing to the symmetric look, or either one alone. The option labels
-            avoid a bare "Mirrored" because Geometry layout below already uses that word for
-            something narrower (the shape only), and two rows saying "mirrored" would be
-            genuinely ambiguous. */}
+        {/* Step: how the artwork sits across the two legs. ONE row covering what used to be
+            three (Artwork scale, Leg symmetry, Geometry layout) -- consolidated 2026-07-29 on
+            Aaron's call that the page was too complicated and the labels had stopped making
+            sense: two of the three rows used the word "mirrored" for different scopes, and
+            "Full sheet" named an object the customer never sees (the sheet is cut in half
+            before anyone wears it). See legArtwork's own comment for exactly what each mode
+            resolves to. Changing it invalidates the current mockup -- it genuinely changes the
+            composition, so it is in useMockup's cacheKey.
+            "Mirrored SHAPES", not "Mirrored legs": with leg symmetry deliberately left out of
+            this mode (see legArtwork), the legs are NOT mirror images of each other -- only the
+            geometry shape is repeated flipped, while the stars, gradient and overlay run
+            straight across the sheet. "Mirrored legs" would be exactly the class of false label
+            the Back panel copy below was rewritten to remove. */}
         {showsTwoLegLayout && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              Leg symmetry
+              Artwork
             </h2>
             <p className="mt-1 text-xs text-text-muted">
-              This product prints as one sheet cut into two legs — choose whether they match.
+              This product prints as one sheet that's cut into two legs, so you never see the
+              whole sheet at once — choose how the pattern sits across them.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
-                { on: false, label: 'Each leg its own', hint: 'A different part of the pattern on each leg' },
-                { on: true, label: 'Mirrored legs', hint: 'The pattern meets itself at the front seam' }
-              ].map(({ on, label, hint }) => {
-                const checked = legSymmetry === on;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => setLegSymmetry(on)}
-                    aria-pressed={checked}
-                    className={
-                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                      (checked
-                        ? 'border-accent bg-accent text-ink-950'
-                        : 'border-hairline text-text-secondary hover:border-text')
-                    }
-                  >
-                    <span className="text-sm font-bold">{label}</span>
-                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Hidden while Leg symmetry is on, because symmetry FORCES 'single' (see
-            effectiveGeometryLayout). Note this is not the "it's a no-op" reasoning that was
-            tried and disproved earlier -- the two settings do render differently under
-            symmetry. The problem is that neither still means its label: the sheet mirror
-            copies the left half to the right, so 'Single leg / Confined to one panel' can
-            never be true, and 'Mirrored' stacks a second mirror inside the first and doubles
-            the geometry. Differing is not the same as meaningful. */}
-        {showsTwoLegLayout && !legSymmetry && (
-          <div>
-            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              Geometry layout
-            </h2>
-            <p className="mt-1 text-xs text-text-muted">
-              This product's front is one canvas split into two legs when sewn — choose how
-              the geometry shape sits across that seam.
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {[
-                { key: 'single', label: 'Single leg', hint: 'Confined to one panel' },
-                { key: 'mirror', label: 'Mirrored', hint: 'Repeated on both' }
+                {
+                  key: 'mirrored',
+                  label: 'Mirrored shapes',
+                  hint: 'Sized to one leg, shapes mirrored across both'
+                },
+                {
+                  key: 'large',
+                  label: 'One large design',
+                  hint: 'One composition spread across both legs'
+                }
               ].map(({ key, label, hint }) => {
-                const checked = geometryLayout === key;
+                const checked = legArtwork === key;
                 return (
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setGeometryLayout(key)}
+                    onClick={() => setLegArtwork(key)}
                     aria-pressed={checked}
                     className={
                       'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
@@ -1594,19 +1531,22 @@ export default function ProductPage() {
             half its own composition" implied the off state renders the back separately, when
             in fact front and back share one render on every product here (same printfile
             dimensions -> byte-identical output), so the only thing this changes is the flip.
-            The hint lines carry the reason anyone would want it. */}
-        {productMirrorPlacements && (
+            The hint lines carry the reason anyone would want it.
+            showsMirrorSeamsChoice is always true on these products today, since it only goes
+            false under leg symmetry, which is off -- see seamsAlreadyMatch for why that pairing
+            would be actively wrong (measured 0 -> 238) rather than merely redundant. */}
+        {showsMirrorSeamsChoice && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              Back panel
+              Front &amp; back
             </h2>
             <p className="mt-1 text-xs text-text-muted">
-              The back prints the same artwork as the front. Flipping it lines the pattern up
+              The back prints the same artwork as the front. Mirroring it lines the pattern up
               where the two meet at the side seams.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
-                { on: true, label: 'Flipped', hint: 'Pattern continues around the sides' },
+                { on: true, label: 'Mirrored', hint: 'Pattern continues around the sides' },
                 { on: false, label: 'Same as front', hint: 'Pattern restarts at each seam' }
               ].map(({ on, label, hint }) => {
                 const checked = mirrorSeams === on;
