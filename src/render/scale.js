@@ -6,6 +6,16 @@ const REFERENCE_WIDTH = 3840;
 const REFERENCE_HEIGHT = 2160;
 const REFERENCE_AREA = REFERENCE_WIDTH * REFERENCE_HEIGHT;
 
+// The reference canvas's own element-size scale -- i.e. what getElementSizeScale returns for
+// the studio default (min(w,h) = 2160, aspect term exactly 1 since this IS the reference
+// aspect). Exported so a generator that used to carry an ABSOLUTE pixel constant can express
+// the same value as a FRACTION of the size scale instead, reproducing its old number exactly
+// at the reference resolution while scaling correctly everywhere else. See
+// GenerateGeometricShape's CHAOTIC_MIN_FRACTION -- an absolute pixel floor in a
+// resolution-relative formula is a real bug (it made capped mockup previews render shapes up
+// to 65% larger than the print they were previewing), not a harmless minimum.
+export const REFERENCE_ELEMENT_SIZE_SCALE = Math.min(REFERENCE_WIDTH, REFERENCE_HEIGHT);
+
 // How much of a generated element set to KEEP, relative to the reference resolution, so
 // density doesn't stay pinned to reference-tuned counts regardless of canvas size (the
 // original bug: a 320x320 thumbnail got literally the same star counts as a 3840x2160

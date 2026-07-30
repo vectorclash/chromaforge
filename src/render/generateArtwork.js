@@ -87,7 +87,37 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // are byte-identical -- verified by hash before and after. No backfill run is needed.
 // The same change also adds renderContext.sizeFrame, which is opt-in per product and cannot
 // affect anything that does not pass it.
-export const GENERATOR_VERSION = 8;
+//
+// v8 -> v9 (2026-07-29, same day): GenerateGeometricShape's chaotic-shape minimum size is a
+// FRACTION of the element size scale instead of an absolute `150 +` pixel constant. An
+// absolute term in an otherwise resolution-relative formula made a design's composition
+// depend on the pixel size it was rendered at, which broke the core guarantee that a mockup
+// and its print are the same piece: previews render through capMockupRenderSize while print
+// files render at true printfile dimensions, so previews showed systematically LARGER shapes
+// than the print. Worst on the mesh shorts (11250px sheet capped to 2000px, a 5.6x ratio, the
+// largest in the catalogue): the first shape spanned 37.6% of the sheet in the preview vs
+// 22.9% in the print, +65%. Found by Aaron holding a Printful order preview (rendered from the
+// real print file) next to the live product page and noticing the same elements "zoomed in".
+// Consumes the SAME single rng() draw, so element counts, structure and every downstream
+// layer are untouched -- only chaotic-shape sizes move. 150/2160 reproduces the old value
+// exactly at the studio's default 3840x2160, so the canvas designs are made on is unchanged;
+// every other render size is what shifts. See GenerateGeometricShape for the full note.
+// Byte-identical where it should be, verified by PNG hash across 3 designs x 8 canvases:
+// the studio's own 3840x2160 AND the 2160x3840 export (also reference aspect, also min 2160)
+// are untouched; the square export, thumbnails, and every printfile move. A FULL-COHERENCE
+// design is untouched everywhere -- at coherence 1 shapeSize collapses to exactly coherentSize,
+// so chaoticSize's weight is 0 and this cannot reach it.
+// NOTE: this bump DOES invalidate stored thumbnails (unlike v7 -> v8). Thumbnails render at a
+// 2000px density floor, whose size scale is nowhere near the reference's 2160, so their
+// chaotic shapes genuinely change size.
+// Run the backfill with NO --generator-version filter:
+//   node render-service/backfill-thumbnails.mjs      (37 rows as of this bump)
+// The flag is the right tool when a bump only affects designs SAVED under one version (v6->v7
+// was like that). This one affects every stored design regardless, because nothing ever renders
+// a previous version -- every row is re-rendered by current code. And since the backfill is
+// read-only on the `designs` table, a row's stored version never advances, so filtering by it
+// would keep re-selecting the same subset and miss the rest.
+export const GENERATOR_VERSION = 9;
 
 const BLEND_MODES = [
   'screen',

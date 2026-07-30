@@ -1,6 +1,11 @@
 import tinycolor from 'tinycolor2';
 import { randomColorHex } from '../../render/prng';
-import { getSizeScale, getElementSizeScale, getFrameSizeScale } from '../../render/scale';
+import {
+  getSizeScale,
+  getElementSizeScale,
+  getFrameSizeScale,
+  REFERENCE_ELEMENT_SIZE_SCALE
+} from '../../render/scale';
 import { getGeometrySettings } from '../../render/designSettings';
 
 export default class GenerateGeometricShape {
@@ -56,10 +61,33 @@ export default class GenerateGeometricShape {
     // Orientation-independent (see render/scale.js's getElementSizeScale) -- chaotic shapes
     // have no containment requirement (unlike coherentSize below), so there's no reason to
     // anchor their size to the short axis only, which was making them relatively bigger on
-    // near-square/portrait canvases than on wide ones. The "150 +" floor is left as an
-    // intentional absolute minimum (avoids degenerate near-zero shapes at tiny sizes), not
-    // part of the aspect-ratio behavior this changes.
-    const chaoticSize = 150 + Math.round((rng() * getElementSizeScale(width, height, sizeFrame)) / 3);
+    // near-square/portrait canvases than on wide ones.
+    //
+    // The minimum term is a FRACTION of the size scale, not an absolute pixel count. It used
+    // to read `150 + ...`, described as "an intentional absolute minimum (avoids degenerate
+    // near-zero shapes at tiny sizes)". The intent was fine; a fixed pixel value was the wrong
+    // mechanism, and it was a real bug (v8 -> v9, 2026-07-29, found by Aaron comparing a
+    // Printful order preview against the live product page): this formula is otherwise fully
+    // resolution-relative, so an absolute term makes a render's composition depend on the
+    // pixel size it happens to be rendered at. Mockup previews render through
+    // capMockupRenderSize while print files render at true printfile dimensions, so previews
+    // systematically showed LARGER shapes than the print they were previewing -- on the mesh
+    // shorts, whose 11250px sheet is capped to 2000px (a 5.6x ratio, the largest in the
+    // catalogue), the first shape spanned 37.6% of the sheet in the preview against 22.9% in
+    // the print, +65%. That also explains those mockups reading washed-out pastel: oversized
+    // translucent shapes stack toward white. A relative floor is scale-invariant, so a small
+    // canvas now gets proportionally small shapes -- which is what "the same composition at any
+    // size" means, and is not degenerate.
+    // 150/2160 is chosen to reproduce the old value EXACTLY at the studio's own default
+    // resolution, so the canvas people actually design on does not move at all; every other
+    // size is what shifts. The two terms are rounded SEPARATELY, matching the old
+    // `150 + Math.round(...)` exactly rather than rounding their sum -- rounding the sum would
+    // differ by up to 1px at the reference and give up that guarantee for nothing.
+    // Consumes the same single rng() draw, so no downstream layer shifts.
+    const CHAOTIC_MIN_FRACTION = 150 / REFERENCE_ELEMENT_SIZE_SCALE;
+    const chaoticSizeScale = getElementSizeScale(width, height, sizeFrame);
+    const chaoticSize =
+      Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round((rng() * chaoticSizeScale) / 3);
     // At full coherence the lattice radius (shapeSize * shapeDepth, drawn from the canvas
     // centre) is user-controlled via geometry.size: 0.15 * sizeScale (fairly small, ~30%
     // of the short dimension's half) at size=0, up through 0.375 * sizeScale (the original

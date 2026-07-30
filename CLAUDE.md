@@ -244,6 +244,45 @@ the actual print, generated the same deterministic way.
   key (front and back share a printfile id, so without it the panel render would be served
   the sheet one and the choice would silently do nothing). Consumes **zero** `rng()` — counts
   and structure are identical, only sizes change.
+- **No absolute pixel constants in a size formula — `GENERATOR_VERSION = 9` (2026-07-29,
+  same day as v8).** `GenerateGeometricShape`'s chaotic-shape minimum was `150 + round(rng() *
+  getElementSizeScale(...) / 3)`. That `150` was documented as "an intentional absolute minimum
+  (avoids degenerate near-zero shapes at tiny sizes)"; the intent was fine, the mechanism was a
+  real bug. **Everything else in that formula is resolution-relative, so an absolute term makes
+  a design's composition depend on the pixel size it happens to be rendered at** — which
+  directly breaks the guarantee that a mockup and its print are the same piece, since previews
+  render through `capMockupRenderSize` while print files render at true printfile dimensions.
+  Previews therefore showed systematically LARGER shapes than the print. Worst on the mesh
+  shorts, whose 11250px sheet caps to 2000px — a **5.6× ratio, the largest in the catalogue**
+  (a t-shirt front is 2.7×): the first shape spanned **37.6% of the sheet in the preview against
+  22.9% in the print, +65%**. It also explains those mockups reading washed-out pastel —
+  oversized translucent shapes stack toward white, the same symptom that drove v8, but from an
+  unrelated cause.
+  **How it was found, worth repeating:** Aaron put Printful's own order view (which renders from
+  the real print file) next to the live product page (a Printful mockup of our *capped* render)
+  and saw "the same elements, but zoomed in." Two Printful mockups of the same design at
+  different source resolutions is the comparison that exposes this class of bug; neither view
+  alone can.
+  Fixed by expressing the floor as a fraction of the size scale —
+  `150 / REFERENCE_ELEMENT_SIZE_SCALE` (new export in `scale.js`, = 2160). Things worth not
+  re-deriving:
+  (1) **The two terms are rounded separately**, matching the old `150 + Math.round(...)`, so the
+  studio's own 3840×2160 is **byte-identical**. Rounding the sum instead would differ by up to
+  1px there and give up that guarantee for nothing.
+  (2) **Consumes the same single `rng()` draw**, so counts, structure and every downstream layer
+  are untouched — only chaotic-shape sizes move.
+  (3) **A full-coherence design is completely unaffected**, at every size: at coherence 1
+  `shapeSize` collapses to exactly `coherentSize`, so `chaoticSize`'s weight is 0.
+  (4) A swept check found this was the **only** absolute pixel constant in a size calculation —
+  star sizes are all `sizeScale / k`, the radial field is `getSizeScale / 2`. (The
+  `-100 + rng() * width + 100` patterns in `GenerateStarField`/`StarField` are positions and
+  cancel algebraically; left alone deliberately.)
+  Verified: composition is now invariant across pixel sizes *within* an aspect family — max
+  shape-size error **2.17%** (rounding in `pointsArray`) across 4 designs × 2 frames × 4 sizes,
+  down from +65%. Cross-*aspect* differences are intended (recompose-per-ratio) and a first
+  version of that test wrongly compared across aspects and reported a meaningless 159%.
+  **This bump DOES invalidate stored thumbnails, and the backfill must run with NO
+  `--generator-version` filter** — see the operational-rule bullet in the Supabase section.
 - **`legSymmetry` — the centre-front seam mirror (2026-07-29, Aaron's idea, same session).**
   `renderArtwork` optionally reflects the finished raster's LEFT half onto its right, so the
   two leg panels become mirror images and the pattern meets itself at the centre-front seam
@@ -887,6 +926,17 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
   `generatorVersion` of its own). A filter matching zero rows exits 1 rather than looking
   like a clean run. **Add this to the checklist whenever `GENERATOR_VERSION` bumps**,
   alongside the existing "redeploy render-service" step.
+  **When to use the filter, and when NOT to (clarified at v8 → v9, 2026-07-29).** The filter is
+  right when a bump only changes output for designs *saved* under particular versions. It is
+  **wrong** when a bump changes output for every stored design — v9 did, since it altered the
+  size formula itself and nothing ever renders a previous version. Two traps in that case:
+  the filter would skip most of the table, and because the script is **read-only on the
+  `designs` table** a row's stored `generatorVersion` never advances, so a filtered run
+  re-selects the same subset forever and the rest stay stale indefinitely. Run it bare
+  (`node backfill-thumbnails.mjs`, 37 rows at v9) whenever the change isn't version-scoped.
+  Corollary: **the version column is not a record of thumbnail freshness** — after any backfill
+  the JPEG is current while the stored version still reads whatever it was saved under. The
+  live distribution at v9 (10 rows at v6, 26 at v7, 1 at v8) reflects save history only.
 - **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
   egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
   `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every

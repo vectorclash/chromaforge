@@ -116,6 +116,7 @@ var GenerateLinearGradient = class {
 var REFERENCE_WIDTH = 3840;
 var REFERENCE_HEIGHT = 2160;
 var REFERENCE_AREA = REFERENCE_WIDTH * REFERENCE_HEIGHT;
+var REFERENCE_ELEMENT_SIZE_SCALE = Math.min(REFERENCE_WIDTH, REFERENCE_HEIGHT);
 function getCountScale(width, height) {
   return Math.sqrt(width * height / REFERENCE_AREA);
 }
@@ -325,7 +326,9 @@ var GenerateGeometricShape = class {
     const minShapeDepth = 2 + (geometry.coherence >= 0.85 ? 1 : 0);
     this.shapeDepth = minShapeDepth + Math.round(rng() * (maxShapeDepth - minShapeDepth));
     this.shapeAng = 360 / this.shapeVertices;
-    const chaoticSize = 150 + Math.round(rng() * getElementSizeScale(width, height, sizeFrame) / 3);
+    const CHAOTIC_MIN_FRACTION = 150 / REFERENCE_ELEMENT_SIZE_SCALE;
+    const chaoticSizeScale = getElementSizeScale(width, height, sizeFrame);
+    const chaoticSize = Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round(rng() * chaoticSizeScale / 3);
     const sizeFactor = geometry.size <= 0.5 ? 0.15 + geometry.size * 0.45 : 0.375 + (geometry.size - 0.5) * 2.85;
     const coherentSize = getFrameSizeScale(width, height, sizeFrame) * sizeFactor / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
@@ -493,7 +496,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 8;
+var GENERATOR_VERSION = 9;
 var BLEND_MODES = [
   "screen",
   "overlay",
