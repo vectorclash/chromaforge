@@ -1203,18 +1203,35 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     `801`/`390`'s `details` are interior/trim surfaces where geometry-off is the intended
     rule, same as `label_panel`. Note the joggers (784) were **never** affected despite
     being the shorts' twin in every other respect: they do list `['front', 'back']`. With
-    both panels on, the shorts' front and back resolve to the same render cache key (one
-    printfile, and `twoLegCanvas` products are excluded from `mirrorPlacements`), so the back
-    is byte-identical to the front and costs no extra render.
+    both panels on, the shorts' front and back resolved to the same render cache key (one
+    printfile, and `twoLegCanvas` products were excluded from `mirrorPlacements` at the time),
+    so the back was byte-identical to the front and cost no extra render. **No longer true as
+    of later the same day**: 693/784 now carry `mirrorPlacements: ['back']` and the Back panel
+    toggle defaults on, so the back is a genuinely different render. Front and back only share
+    one render when the customer turns that toggle off.
   - **Label placements, 2026-07-04**: Printful's catalog was audited product-by-product
     (`getPrintfileSpecs`/`getPrintfileSpecs?templates=1`, live) and turned out to expose
     *three* distinct label-type placements, not one, previously never even considered:
-    `label_inside` (universal, every hooded/crewneck product, fixed 375×150px/2.5"×1",
-    `fit`), `label_outside` (joggers/track jacket only, 450×450px/3"×3", `cover`), and
+    `label_inside`, `label_outside`, and
     `label_panel` (hoodie/zip hoodie/sweatshirt only — confirmed via Printful's own
     mockup-generator template reference images to be the hood/neckline **interior lining**
     panel, sharing a full-size printfile with front/pocket, not a small tag despite the
-    name). Real checkout already submits every placement Printful returns
+    name). **Coverage and sizes re-audited live 2026-07-30 against
+    `mockup-generator/printfiles/{id}` for all 15 products — the earlier summary of these two
+    was wrong in three ways, so trust this list, not a remembered rule:**
+    `label_inside` is on **11 of 15** — absent on both t-shirts (257/261), the tote (274) and
+    the pillow (83), so it is NOT universal and NOT "every crewneck product". `label_outside`
+    is on **5**: track jacket (801), mesh shorts (693), joggers (784), crossbody bag (744) and
+    bucket hat (654) — not the "joggers/track jacket only" previously recorded here (which
+    this file already contradicted itself, since the 654 draft-order note names
+    `label_outside` on the hat). **Neither placement is a fixed size.** `label_inside` is
+    375×150px/2.5"×1" on 8 products but 1050×600/7"×4" on the windbreaker (615) and
+    450×300/3"×2" on the bucket hat; `label_outside` is 450×450/3"×3" on the jacket, shorts
+    and joggers, 300×300/2"×2" on the crossbody, 450×300/3"×2" on the hat. All are 150 DPI.
+    This costs nothing in code — the split-panel layout keys off the aspect ratio (≥ 1.6), not
+    a hardcoded size, so the 2.5:1 and 1.75:1 tags split and the 1.5:1 and square ones don't —
+    but any future change that assumes one label size would be wrong on four products.
+    Real checkout already submits every placement Printful returns
     (`resolvePlacementEntries` with no filter — see above), so all three were already being
     *sent*; `label_inside`/`label_outside` just got the same shrunk full composition every
     other placement does, which for a 2.5"×1" tag reads as noise, not a mark. Fixed with a
@@ -1462,17 +1479,22 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
     Endless wrap is not reachable; it needs a horizontally tileable composition this
     generator can't produce.
     **Extended to every product with a distinct back panel, same session** (Aaron's ask), so
-    this is not a bucket-hat feature — 11 of the 15 products carry `mirrorPlacements:
-    ['back']`. Two facts were checked rather than assumed before extending: every one of
+    this is not a bucket-hat feature. (**At the time this was written 11 of 15 carried
+    `mirrorPlacements: ['back']`; it is now 13 of 15** — the mesh shorts and joggers were added
+    later the same day, see the two-leg-products section below, which supersedes the exclusion
+    reasoning in this paragraph. Only the tote (274) and bandana (630) are still out, and
+    neither has a `back` placement at all.) Two facts were checked rather than assumed before extending: every one of
     those products' back print area is centered in its template to within 2px of 3000
     (0.07%), and garment front/back panels are themselves symmetric about their own vertical
     centerline, so a full-canvas mirror maps the panel onto itself instead of shifting
-    artwork relative to fabric. **Three products are deliberately excluded**: the tote (274,
+    artwork relative to fabric. **Three products were excluded at this point**: the tote (274,
     no distinct back — one canvas wraps the bag), and the mesh shorts (693) and joggers
     (784), which DO have a back placement but are `twoLegCanvas` — their canvas is cut in
     half into two legs, so front and back never meet as one cylinder at two side seams and
-    the argument that justifies mirroring everywhere else doesn't hold. Enabling those needs
-    its own seam analysis first.
+    the argument that justifies mirroring everywhere else doesn't hold. **That reasoning about
+    the two leg products was later proven wrong and both are now mirrored** — the argument does
+    hold, it just applies per leg; see the two-leg-products section below for the measurement
+    that reversed it. The tote's exclusion stands.
     Costs one extra print render per checkout on a mirrored product (the back is genuinely a
     different image now). Verified per product that turning the toggle on changes exactly the
     intended placement and nothing else, and that the toggle-OFF path is identical to
