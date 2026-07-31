@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap/all';
+import { DURATION_FAST, DURATION_SLOW } from '../../utils/motionTokens';
 import { useStudio } from '../../context/StudioContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
@@ -62,6 +63,11 @@ function GenerateShine() {
   );
 }
 
+// What the Generate button dims to while a generate is in flight -- the value the
+// `disabled:opacity-30` utility used to supply, kept here because GSAP now owns this
+// property outright (see the tween in MiniGenerator below).
+const DISABLED_OPACITY = 0.3;
+
 // Ambient presence of the generator: either a floating widget or docked in the footer.
 // The thumbnail and the footer's art band both read the same StudioContext.previewUrl,
 // so regenerating here updates both at once, fading the same way.
@@ -84,7 +90,45 @@ export default function MiniGenerator({ inline = false }) {
   // of stopping early (a fixed-duration burst) or starting late (keying off `incoming`
   // alone, which is exactly the "feels disconnected" complaint this replaces).
   const [generating, setGenerating] = useState(false);
-  const pending = generating || !!incoming;
+  // `holding` is load-bearing here, not belt-and-braces: useCrossfadeImage's reveal is
+  // fade-out -> DURATION_HOLD blank beat -> fade-in, and `incoming` is only set at the
+  // START of the fade-in. `generating` ends the moment previewUrl lands, i.e. at the start
+  // of the fade-out -- so without `holding` there is a ~1.2s dead gap covering the whole
+  // fade-out + hold, in which the icon snaps to rest and then starts spinning again. That
+  // is a real, measured regression from the crossfade rework (dd61219, which added the
+  // hold): sampled rotation went 0deg at the click, ~33deg by 74ms, back to 0 from 77ms to
+  // 1294ms, then spinning again to 1786ms -- exactly the "almost starts, then nothing, then
+  // starts a moment too late" symptom.
+  //
+  // It deliberately ends AT the fade-in rather than after it, so the icon settling and the
+  // button coming back live are the same beat as the new artwork appearing, instead of the
+  // reveal finishing and the button waking up a half-second later. That's the same instant
+  // GenerateGlow's own fade-out is timed to (it rides `holding` too, see useCrossfadeImage's
+  // comment) -- so every "working" signal in the widget resolves together, on the artwork.
+  // Hence `incoming` is intentionally NOT part of this.
+  const pending = generating || holding;
+
+  // The button's dimmed/live state is the same motion as the artwork's, not a lookalike:
+  // GSAP drives its opacity with the exact durations and ease useCrossfadeImage uses on the
+  // images themselves -- dim over DURATION_FAST alongside the old preview's fade-out,
+  // restore over DURATION_SLOW alongside the new one's fade-in, both power2.inOut. Matching
+  // them in CSS was tried and abandoned: a hand-picked cubic-bezier tracks a JS ease only
+  // approximately (measured drift of ~7 opacity points mid-curve even with the durations
+  // equal), and the two engines can't be reconciled by tuning -- so the same engine runs
+  // both, and .mini-generate-btn deliberately leaves opacity out of its CSS transition.
+  // useLayoutEffect, not useEffect, so the dim is committed in the same frame as the click
+  // rather than a paint later, and so it pairs with the hook's own layout effect.
+  const generateBtnRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = generateBtnRef.current;
+    if (!el) return;
+    const tween = gsap.to(el, {
+      opacity: pending ? DISABLED_OPACITY : 1,
+      duration: pending ? DURATION_FAST : DURATION_SLOW,
+      ease: 'power2.inOut'
+    });
+    return () => tween.kill();
+  }, [pending]);
 
   // Clear any stale error state from a previous design's failed save attempt
   useEffect(() => {
@@ -147,11 +191,12 @@ export default function MiniGenerator({ inline = false }) {
         <div className="flex flex-col gap-3 w-32 shrink-0">
           <button
             type="button"
+            ref={generateBtnRef}
             onClick={onGenerate}
             disabled={pending}
             aria-label="Generate new design"
             title="Generate new design"
-            className="group relative flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl border border-white/10 bg-white/5 text-text-secondary transition-all duration-200 hover:scale-[1.03] hover:border-accent/30 hover:bg-accent/10 hover:text-accent active:scale-[0.96] text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:scale-100 cursor-pointer"
+            className="mini-generate-btn group relative flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl border border-white/10 bg-white/5 text-text-secondary hover:scale-[1.03] hover:border-accent/30 hover:bg-accent/10 hover:text-accent active:scale-[0.96] text-xs font-bold uppercase tracking-wider disabled:cursor-not-allowed disabled:hover:scale-100 cursor-pointer"
           >
             <GenerateShine />
             <RefreshIcon spinning={pending} />
@@ -250,11 +295,12 @@ export default function MiniGenerator({ inline = false }) {
       <div className="mt-2.5 flex gap-2">
         <button
           type="button"
+          ref={generateBtnRef}
           onClick={onGenerate}
           disabled={pending}
           aria-label="Generate new design"
           title="Generate new design"
-          className="group relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/5 text-text-secondary transition-all duration-200 hover:scale-[1.08] hover:border-accent/30 hover:bg-accent/10 hover:text-accent active:scale-[0.92] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:scale-100 cursor-pointer"
+          className="mini-generate-btn group relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/5 text-text-secondary hover:scale-[1.08] hover:border-accent/30 hover:bg-accent/10 hover:text-accent active:scale-[0.92] disabled:cursor-not-allowed disabled:hover:scale-100 cursor-pointer"
         >
           <GenerateShine />
           <RefreshIcon spinning={pending} />

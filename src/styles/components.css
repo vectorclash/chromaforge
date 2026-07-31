@@ -18,6 +18,23 @@
   display: none;
 }
 
+/* The mini-generator's Generate button. Everything here is one deliberate omission:
+   OPACITY IS NOT IN THIS TRANSITION LIST, because GSAP owns it (MiniGenerator's
+   useLayoutEffect ties the button's dim/restore to the exact tweens useCrossfadeImage runs
+   on the artwork, so the two are the same motion rather than two curves that merely start
+   together). This was `transition-all duration-200`, which broke that two ways: it finished
+   the restore 270ms before the artwork's fade-in did (208ms vs 476ms), and -- had the
+   duration simply been raised to match -- a CSS transition on the same property GSAP is
+   writing every frame lags behind each inline write and smears the curve anyway. Same
+   lesson as the icon's old `transition-transform` vs `animate-spin` fight; see RefreshIcon.
+   Every other property keeps --duration-fast, since hover/press feedback must stay quick.
+   No Tailwind utility expresses "transition everything except opacity", hence this rule. */
+.mini-generate-btn {
+  transition-property: transform, color, background-color, border-color, box-shadow;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: ease;
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
    Locked foundation (design-session hand-off) — surface + component recipes.
    Deliberately NOT scoped under `.display-canvas`: `.cf-glass` is for floating panels
