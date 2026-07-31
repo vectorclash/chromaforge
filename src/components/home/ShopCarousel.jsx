@@ -21,6 +21,19 @@ const DRAG_THRESHOLD_PX = 8;
 const FLICK_MS = 180;
 const FLICK_MAX_STEPS = 2;
 
+// A release settles on its own terms, NOT with the arrows' DURATION/EASE. Two reasons, and
+// both are why a slow drag used to feel like the strip stalled before finishing the move:
+// `power2.inOut` eases IN, so a track that was tracking the finger at speed stops dead and
+// then has to accelerate again -- a visible velocity discontinuity at exactly the moment the
+// motion should be continuous. `power3.out` leaves at the speed the drag had and only
+// decelerates. And a fixed 0.4s spent the same time on a 0.1-slot correction as on a
+// two-card flick, which is what made the short ones read as slow-motion; the duration now
+// scales with how far there actually is to travel.
+const SETTLE_EASE = 'power3.out';
+const SETTLE_PER_STEP = 0.3;
+const SETTLE_MIN = 0.16;
+const SETTLE_MAX = 0.42;
+
 // visibleCount/peekFraction were fixed at 3 actives + a 0.4 peek regardless of viewport --
 // fine at desktop widths, but on a phone the stage (after the two fixed-size arrow buttons
 // and section padding eat into it) can be under 200px, and forcing 3 cards + 2 peeks into
@@ -124,14 +137,14 @@ export default function ShopCarousel() {
   // Sets (or animates) the track's x and every card's opacity/scale for a given position.
   // `x` is derived so card[position] (the first active slot) lands right after the left
   // peek sliver + a gap; everything else falls out of that by construction.
-  function applyLayout(position, { animate, onComplete } = {}) {
+  function applyLayout(position, { animate, onComplete, duration = DURATION, ease = EASE } = {}) {
     const track = trackRef.current;
     if (!track || !cardWidth) return;
     const step = cardWidth + GAP_PX;
     const peekWidth = peekFraction * cardWidth;
     const x = peekWidth + GAP_PX - position * step;
     if (animate) {
-      gsap.to(track, { x, duration: DURATION, ease: EASE, onComplete, overwrite: 'auto' });
+      gsap.to(track, { x, duration, ease, onComplete, overwrite: 'auto' });
     } else {
       // killTweensOf first -- a snap correction (animate: false) runs inside the previous
       // step's onComplete, and gsap.set alone doesn't reliably win against a tween that's
@@ -159,7 +172,7 @@ export default function ShopCarousel() {
       // these elements specifically (their hover-lift becomes a snap instead of an ease,
       // an acceptable trade for cards GSAP is already constantly repositioning).
       if (animate && near) {
-        gsap.to(el, { opacity, scale, duration: DURATION, ease: EASE, overwrite: 'auto', transition: 'none' });
+        gsap.to(el, { opacity, scale, duration, ease, overwrite: 'auto', transition: 'none' });
       } else {
         gsap.killTweensOf(el);
         gsap.set(el, { opacity, scale, transition: 'none' });
@@ -217,6 +230,20 @@ export default function ShopCarousel() {
     return p;
   }
 
+  // Settle from wherever the drag left the track onto `target`, carrying the drag's motion
+  // through rather than restarting it (see SETTLE_EASE above).
+  function settleTo(target) {
+    const distance = Math.abs(target - positionRef.current);
+    const duration = Math.max(SETTLE_MIN, Math.min(SETTLE_MAX, distance * SETTLE_PER_STEP));
+    positionRef.current = target;
+    applyLayout(target, {
+      animate: true,
+      duration,
+      ease: SETTLE_EASE,
+      onComplete: snapIfDrifted
+    });
+  }
+
   function onPointerDown(e) {
     if (!n || !cardWidth) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -268,8 +295,7 @@ export default function ShopCarousel() {
     // Dragging right (positive velocity) walks the position DOWN, hence the negation.
     const projected = -(drag.velocity * FLICK_MS) / step;
     const clamped = Math.max(-FLICK_MAX_STEPS, Math.min(FLICK_MAX_STEPS, projected));
-    positionRef.current = Math.round(positionRef.current + clamped);
-    applyLayout(positionRef.current, { animate: true, onComplete: snapIfDrifted });
+    settleTo(Math.round(positionRef.current + clamped));
   }
 
   function onPointerCancel(e) {
@@ -277,8 +303,7 @@ export default function ShopCarousel() {
     if (!drag || e.pointerId !== drag.id) return;
     dragRef.current = null;
     if (!drag.active) return;
-    positionRef.current = Math.round(positionRef.current);
-    applyLayout(positionRef.current, { animate: true, onComplete: snapIfDrifted });
+    settleTo(Math.round(positionRef.current));
   }
 
   // A drag that ends over a card would otherwise fire that card's <Link> click and navigate
