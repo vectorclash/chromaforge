@@ -53,11 +53,26 @@ export default function MobileNav({ open, onClose }) {
   const { currentDesign, renderDesignBlob, queueReady } = useStudio();
   const [mounted, setMounted] = useState(open);
   const [bgUrl, setBgUrl] = useState(null);
+  // Whether `bgUrl` should appear without the generate choreography -- see the
+  // designAtOpenRef note below.
+  const [bgInstant, setBgInstant] = useState(false);
   const panelRef = useRef(null);
   const renderedDesignRef = useRef(null);
+  // The design that was already current at the moment the panel opened. Anything matching
+  // it was generated somewhere the user could already see (the hero or the footer), so
+  // catching up to it here is not a generate and must not be narrated as one -- the panel
+  // simply opens with the current artwork already in place. A design that arrives *while*
+  // the panel is open is a real generate and still gets the full fade-out/hold/fade-in.
+  const designAtOpenRef = useRef(null);
 
   useEffect(() => {
-    if (open) setMounted(true);
+    if (open) {
+      designAtOpenRef.current = currentDesign;
+      setMounted(true);
+    }
+    // `currentDesign` is deliberately not a dependency: this must capture what was current
+    // at the open, and keep that value while the panel stays open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Same live-artwork-as-background treatment as SiteFooter -- re-renders the current
@@ -85,6 +100,7 @@ export default function MobileNav({ open, onClose }) {
         // and the background silently stopped updating on generate.
         renderedDesignRef.current = currentDesign;
         const url = URL.createObjectURL(blob);
+        setBgInstant(isSameDesign(designAtOpenRef.current, currentDesign));
         setBgUrl(prev => {
           if (prev) URL.revokeObjectURL(prev);
           return url;
@@ -96,7 +112,9 @@ export default function MobileNav({ open, onClose }) {
     };
   }, [mounted, currentDesign, queueReady, renderDesignBlob]);
 
-  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
+  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl, {
+    instant: bgInstant
+  });
 
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
