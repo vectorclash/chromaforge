@@ -13,12 +13,45 @@ const PEEK_SCALE = 0.9;
 const DURATION = 0.4;
 const EASE = 'power2.inOut';
 
+// Drag/flick tuning. DRAG_THRESHOLD_PX is the tap-vs-drag disambiguation distance (same 8px
+// TshirtPreview uses) -- below it, a touch is still a tap on the card's <Link>. FLICK_MS is
+// how far ahead a release's velocity is projected, and FLICK_MAX_STEPS caps that projection
+// so a hard swipe advances a couple of cards rather than an unbounded number.
+const DRAG_THRESHOLD_PX = 8;
+const FLICK_MS = 180;
+const FLICK_MAX_STEPS = 2;
+
 // visibleCount/peekFraction were fixed at 3 actives + a 0.4 peek regardless of viewport --
 // fine at desktop widths, but on a phone the stage (after the two fixed-size arrow buttons
 // and section padding eat into it) can be under 200px, and forcing 3 cards + 2 peeks into
 // that produced genuinely unusable ~25-30px thumbnails. Scaled down by the same measured
 // stage width cardWidth already depends on, so it reacts to the same resize/orientation
 // changes with no separate breakpoint tracking needed.
+// Opacity/scale for a card sitting `d` slots from the first active slot -- a CONTINUOUS
+// function of a fractional d, because during a drag the track sits between slots and every
+// card is partway between states. Classifying by rounded slot instead made the edge cards
+// jump their whole opacity/scale step at the halfway point, which reads as a pop rather
+// than the strip sliding.
+//
+// `t` is how far outside the active window the card is: 0 anywhere inside it, 1 at the peek
+// slot on either side, 2+ fully gone. Opacity ramps 1 -> PEEK_OPACITY over the first step
+// and PEEK_OPACITY -> 0 over the second; scale ramps 1 -> PEEK_SCALE over the first and then
+// holds, since an invisible card's scale doesn't matter and holding it means a card fading
+// back in is already at peek size.
+//
+// The values at whole-number d are identical to the old discrete ones (t = 0 -> 1/1,
+// t = 1 -> PEEK_OPACITY/PEEK_SCALE, t = 2 -> 0/PEEK_SCALE), so arrow navigation still tweens
+// between exactly the same endpoints it did before.
+function edgeFalloff(d, visibleCount) {
+  const t = d < 0 ? -d : Math.max(0, d - (visibleCount - 1));
+  const first = Math.min(1, t);
+  const second = Math.max(0, Math.min(1, t - 1));
+  return {
+    opacity: (1 - first * (1 - PEEK_OPACITY)) * (1 - second),
+    scale: 1 - first * (1 - PEEK_SCALE)
+  };
+}
+
 function layoutParamsForWidth(available) {
   if (available < 420) return { visibleCount: 1, peekFraction: 0.12 };
   if (available < 700) return { visibleCount: 2, peekFraction: 0.22 };
@@ -60,6 +93,8 @@ export default function ShopCarousel() {
   const trackRef = useRef(null);
   const positionRef = useRef(0);
   const initializedRef = useRef(false);
+  const dragRef = useRef(null);
+  const draggedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,15 +147,7 @@ export default function ShopCarousel() {
     // replacing it, and they fight.
     Array.from(track.children).forEach((el, i) => {
       const d = i - position;
-      let opacity = 0;
-      let scale = PEEK_SCALE;
-      if (d >= 0 && d < visibleCount) {
-        opacity = 1;
-        scale = 1;
-      } else if (d === -1 || d === visibleCount) {
-        opacity = PEEK_OPACITY;
-        scale = PEEK_SCALE;
-      }
+      const { opacity, scale } = edgeFalloff(d, visibleCount);
       // Only animate cards near the visible window -- anything farther out is already at
       // (or snapping to) opacity 0 and doesn't need a tween.
       const near = d >= -2 && d <= visibleCount + 1;
@@ -161,6 +188,107 @@ export default function ShopCarousel() {
   function goPrev() {
     positionRef.current -= 1;
     applyLayout(positionRef.current, { animate: true, onComplete: snapIfDrifted });
+  }
+
+  // --- Touch/pointer dragging -------------------------------------------------------
+  //
+  // The track follows the finger 1:1 through a fractional position, then settles on the
+  // nearest whole slot on release (plus a velocity projection, so a flick carries). The
+  // infinite loop survives because the drift correction runs *during* the drag as well as
+  // after it: whenever the live position wanders out of the middle third we shift it (and
+  // the drag's own baseline) by a whole copy, which is invisible since the clone thirds
+  // render pixel-identical content. Without that, a long drag would run off the end of the
+  // tripled strip into empty space -- the arrows never could, since they only ever move one
+  // slot before snapping back.
+  //
+  // Applied to every pointer type, not just touch: a mouse drag on the strip is the same
+  // gesture and costs nothing extra, and the tap-vs-drag guard below keeps the cards' own
+  // <Link> navigation intact either way.
+  function shiftIntoMiddleThird(pos, drag) {
+    let p = pos;
+    while (p < n) {
+      p += n;
+      if (drag) drag.basePosition += n;
+    }
+    while (p >= 2 * n) {
+      p -= n;
+      if (drag) drag.basePosition -= n;
+    }
+    return p;
+  }
+
+  function onPointerDown(e) {
+    if (!n || !cardWidth) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    draggedRef.current = false;
+    dragRef.current = {
+      id: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastT: e.timeStamp,
+      velocity: 0,
+      basePosition: positionRef.current,
+      active: false
+    };
+  }
+
+  function onPointerMove(e) {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.active) {
+      // Horizontally dominant movement only -- a vertical swipe is the page scrolling
+      // (the stage keeps `touch-action: pan-y` so the browser can still handle it).
+      if (Math.abs(dx) < DRAG_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
+      drag.active = true;
+      draggedRef.current = true;
+      stageRef.current?.setPointerCapture?.(e.pointerId);
+    }
+    const dt = e.timeStamp - drag.lastT;
+    if (dt > 0) drag.velocity = (e.clientX - drag.lastX) / dt;
+    drag.lastX = e.clientX;
+    drag.lastT = e.timeStamp;
+
+    const step = cardWidth + GAP_PX;
+    const pos = shiftIntoMiddleThird(drag.basePosition - dx / step, drag);
+    positionRef.current = pos;
+    applyLayout(pos, { animate: false });
+  }
+
+  function onPointerUp(e) {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.id) return;
+    dragRef.current = null;
+    stageRef.current?.releasePointerCapture?.(e.pointerId);
+    if (!drag.active) return;
+
+    const step = cardWidth + GAP_PX;
+    // Dragging right (positive velocity) walks the position DOWN, hence the negation.
+    const projected = -(drag.velocity * FLICK_MS) / step;
+    const clamped = Math.max(-FLICK_MAX_STEPS, Math.min(FLICK_MAX_STEPS, projected));
+    positionRef.current = Math.round(positionRef.current + clamped);
+    applyLayout(positionRef.current, { animate: true, onComplete: snapIfDrifted });
+  }
+
+  function onPointerCancel(e) {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.id) return;
+    dragRef.current = null;
+    if (!drag.active) return;
+    positionRef.current = Math.round(positionRef.current);
+    applyLayout(positionRef.current, { animate: true, onComplete: snapIfDrifted });
+  }
+
+  // A drag that ends over a card would otherwise fire that card's <Link> click and navigate
+  // to the product. Capture phase so it never reaches the Link; the flag resets on the next
+  // pointerdown, so a genuine tap still navigates.
+  function onClickCapture(e) {
+    if (!draggedRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    draggedRef.current = false;
   }
 
   // Measure the stage (its width is CSS-driven via flex-1, not by us, to avoid a circular
@@ -225,7 +353,23 @@ export default function ShopCarousel() {
           {/* Stage: wide enough for peek + 3 actives + peek. overflow-hidden lives here,
               sized so its edge falls exactly at the end of each peek sliver -- the
               gradients below cover only that sliver, never the 3 active cards. */}
-          <div ref={stageRef} className="relative min-w-0 flex-1 overflow-hidden">
+          <div
+            ref={stageRef}
+            className="relative min-w-0 flex-1 cursor-grab overflow-hidden active:cursor-grabbing"
+            // pan-y: vertical swipes stay the browser's (page scroll), horizontal ones are
+            // ours. Without it the browser claims the horizontal gesture too and the
+            // pointermove stream stops mid-drag.
+            style={{ touchAction: 'pan-y' }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+            onClickCapture={onClickCapture}
+            // Product images and the cards' <Link> are both natively draggable, and a mouse
+            // drag on either hands the gesture to the browser's drag-and-drop (ghost image,
+            // no further pointermove) instead of the carousel.
+            onDragStart={e => e.preventDefault()}
+          >
             <div
               className="pointer-events-none absolute inset-y-0 left-0 z-10 bg-gradient-to-r from-ink-950 to-ink-950/0"
               style={{ width: peekWidth || undefined }}
