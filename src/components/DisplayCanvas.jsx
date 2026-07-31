@@ -181,6 +181,13 @@ const ANIM_LIMIT = ANIM_LIMITS[isMobileDevice() ? 'mobile' : 'desktop'];
 // at up to 1080 on the short edge, and a 1080 source would then UPSCALE on the 9:16 crop.
 const MOBILE_ANIM_RASTER = 1440;
 
+// Homepage-hero parallax overscale. This single number sets how far the artwork can drift:
+// the offset is capped at the (scale - 1) / 2 of container height the overscale hides on
+// each side, so an edge can never slide into view no matter how the hero is sized. At 1.3
+// that is 15% of the hero's height, spent evenly across the whole time the hero is leaving
+// the viewport. See componentDidMount for the progress mapping.
+const HERO_PARALLAX_SCALE = 1.3;
+
 // MP4 export framing. Sizes are the desktop targets; mobile halves them (see
 // exportAnimationVideo) because full 4K encoding needs ~500MB+ of GPU/RAM that iOS
 // WebViews refuse. '16:9' is the historical export size, so leaving it selected keeps the
@@ -308,12 +315,26 @@ export default class DisplayCanvas extends React.Component {
 
     this.checkAudioExportSupport();
 
-    // Compact (homepage hero) only: the artwork renders slightly oversized (scale 1.12)
-    // and drifts upward at a fraction of the scroll speed -- a parallax against the rest
-    // of the homepage scrolling past. The offset is clamped to what the overscale can
-    // cover (6% of the container height per direction) so an edge never slides into
-    // view. Transform only -- every GSAP tween on .image-container animates alpha, so
-    // nothing fights this. rAF-throttled; skipped under prefers-reduced-motion.
+    // Compact (homepage hero) only: the artwork renders oversized (HERO_PARALLAX_SCALE)
+    // and drifts downward as the hero scrolls up -- a parallax against the rest of the
+    // homepage scrolling past. Transform only -- every GSAP tween on .image-container
+    // animates alpha, so nothing fights this. rAF-throttled; skipped under
+    // prefers-reduced-motion.
+    //
+    // The offset is driven by the hero's own EXIT PROGRESS rather than by a fixed fraction
+    // of scrollTop, so the artwork keeps moving for the entire time any part of it is on
+    // screen and lands on its full travel exactly as the section clears the viewport --
+    // the earlier `min(scrollTop * 0.15, 6%)` form hit its ceiling less than half a
+    // viewport in and then sat frozen for the rest of the scroll, which on a phone (where
+    // the hero is most of what you see) read as the effect switching off. Total travel is
+    // whatever the overscale can cover ((scale - 1) / 2 of the height per direction), so
+    // an edge still never slides into view: raising the scale is what buys more movement.
+    //
+    // Progress is measured off this component's own root, NOT off .image-container -- the
+    // latter is the element being translated, so reading its rect would feed the offset
+    // back into its own input. (The root is `position: fixed` but Hero.jsx's
+    // `contain: layout` makes the hero section its containing block, so it scrolls with
+    // the section and its rect tracks the page normally.)
     if (this.props.compact && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       // The page scrolls inside SiteLayout's own overflow-y viewport, NOT the document
       // (window.scrollY stays 0 forever -- confirmed live, the first window-scroll
@@ -325,18 +346,28 @@ export default class DisplayCanvas extends React.Component {
       const apply = () => {
         raf = 0;
         const el = document.querySelector('.image-container');
-        if (!el || !scroller) return;
-        const max = el.clientHeight * 0.06;
+        const host = this.mount;
+        if (!el || !host || !scroller) return;
+        const rect = host.getBoundingClientRect();
+        if (!rect.height) return;
+        // 0 while the hero sits at the top of the viewport, 1 once its bottom edge has
+        // passed the top of the scroll viewport (i.e. it has fully left the screen).
+        const scrolled = scroller.getBoundingClientRect().top - rect.top;
+        const progress = Math.max(0, Math.min(1, scrolled / rect.height));
+        const max = (el.clientHeight * (HERO_PARALLAX_SCALE - 1)) / 2;
         // Positive (downward) offset: the section scrolls up past the viewport while the
         // artwork inside it lags behind, i.e. the background moves slower than the page.
-        const y = Math.min(scroller.scrollTop * 0.15, max);
-        el.style.transform = `translateY(${y}px) scale(1.12)`;
+        el.style.transform = `translateY(${progress * max}px) scale(${HERO_PARALLAX_SCALE})`;
       };
       this.onHeroParallaxScroll = () => {
         if (!raf) raf = requestAnimationFrame(apply);
       };
       this.heroParallaxScroller = scroller;
       scroller?.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
+      // The travel distance is a fraction of the hero's height, which is viewport-derived
+      // (h-screen) -- so a rotation or a mobile URL-bar collapse changes it with no scroll
+      // event to recompute it against.
+      window.addEventListener('resize', this.onHeroParallaxScroll, { passive: true });
       // Set the initial oversize before any scroll happens.
       this.onHeroParallaxScroll();
     }
@@ -346,6 +377,7 @@ export default class DisplayCanvas extends React.Component {
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
       this.heroParallaxScroller?.removeEventListener('scroll', this.onHeroParallaxScroll);
+      window.removeEventListener('resize', this.onHeroParallaxScroll);
     }
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);
