@@ -23,6 +23,23 @@ import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
 // a new ring starts every RIPPLE_CYCLE/2, so the hold window sees exactly two visible
 // pulses when RIPPLE_CYCLE itself equals the full window (confirmed live -- setting this
 // to HOLD_WINDOW/2 instead read as four pulses, not two, for exactly that reason).
+//
+// That "exactly two" used to be a coincidence of timing rather than a guarantee, and it
+// showed: the layers repeated forever, so a third ring started the instant the window ran
+// a hair past RIPPLE_CYCLE, painting a few center dots before the host unmounted. Measured,
+// the margin was 8ms (window 1192ms vs cycle 1200ms) -- which is why it appeared "every now
+// and then", and most often on mobile, where a single slow frame is enough to cross it.
+// Each layer therefore runs ONE ring and stops (no repeat), which makes the count
+// structural: two pulses, however long a caller keeps this mounted.
+//
+// Deliberately unconditional, including for DisplayCanvas's hero loader, whose mount window
+// is the only variable one (render time + DURATION_HOLD, rather than a fixed crossfade
+// hold). A `loop` option for that case was built and then dropped as unnecessary: the two
+// rings are offset half a cycle, so layer 1 is still traveling until 1.8s, well past every
+// hero window measured (1.15-1.25s, and barely moved by 6x CPU throttling since the fixed
+// hold dominates). Worth knowing if that ever changes: past ~1.8s the grid goes still until
+// the artwork lands, so a much slower generate would want its own indicator rather than a
+// repeat here -- a repeat would bring the cut-off ring straight back.
 const HOLD_WINDOW = DURATION_FAST + DURATION_HOLD;
 const RIPPLE_CYCLE = HOLD_WINDOW;
 
@@ -49,18 +66,20 @@ function DotRipple() {
     const tweens = [];
 
     layers.forEach((layer, i) => {
-      const recolor = () => {
-        layer.style.setProperty('--ripple-c1', spun());
-        layer.style.setProperty('--ripple-c2', spun());
-      };
-      recolor();
+      // Each ring is colored once, at mount. This used to also run on every repeat, back
+      // when the layers looped -- with one ring per layer there is no repeat to recolor on,
+      // and a fresh spin per mount still means consecutive generates never look alike.
+      layer.style.setProperty('--ripple-c1', spun());
+      layer.style.setProperty('--ripple-c2', spun());
       const proxy = { r: 0 };
       tweens.push(
         gsap.to(proxy, {
           r: maxR,
           duration: RIPPLE_CYCLE,
           delay: (i * RIPPLE_CYCLE) / layers.length,
-          repeat: -1,
+          // One ring per layer -- see the header: this is what makes "exactly two pulses"
+          // structural rather than a coincidence of the mount window's length.
+          repeat: 0,
           ease: 'none',
           onUpdate: () => {
             layer.style.setProperty('--ripple-r', proxy.r + 'px');
@@ -71,7 +90,6 @@ function DotRipple() {
             const intensity = t <= falloffStart ? 1 : Math.max(0, 1 - (t - falloffStart) / (1 - falloffStart));
             layer.style.setProperty('--ripple-intensity', intensity);
           },
-          onRepeat: recolor,
         }),
         gsap.fromTo(layer, { opacity: 0 }, { opacity: 1, duration: 0.4 })
       );
