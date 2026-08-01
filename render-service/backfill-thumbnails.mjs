@@ -73,7 +73,8 @@ const ONLY_GENERATOR_VERSION = (() => {
 
 // Must match StudioContext.jsx's THUMBNAIL_SIZE exactly -- this backfill is only
 // reproducing what that code already does for a fresh save, not choosing its own size.
-const THUMBNAIL_SIZE = 320;
+// Raised 320 -> 640 alongside it (2026-07-31): 320 was an upscale on every 2x desktop card.
+const THUMBNAIL_SIZE = 640;
 const THUMBNAIL_BUCKET = 'design-thumbnails';
 const JPEG_QUALITY = 85; // @napi-rs/canvas's toBuffer takes 0-100, NOT 0-1 like browser
 // Canvas.toBlob -- confirmed empirically (0.85 and 1 produced byte-identical output, both

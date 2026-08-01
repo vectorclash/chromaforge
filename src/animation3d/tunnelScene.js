@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import tinycolor from 'tinycolor2';
+import { nLerp, valueNoise } from '../render/valueNoise';
 import { makeRng, randomPalette } from '../render/prng';
 import { getGeometrySettings } from '../render/designSettings';
 // The -3d sprites are the sound-generator example's INVERTED variants (bright core on
@@ -204,38 +205,10 @@ function makeStarStreaks(field, uWarpStart, uStreak) {
   return { geo, mat, lines, sync };
 }
 
-// ─── Noise (from temp/sound-generator stars.js — deterministic, no RNG involved) ──────
-function nHash(x, y, z) {
-  const n = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
-  return n - Math.floor(n);
-}
-function nLerp(a, b, t) {
-  return a + (b - a) * t;
-}
-function nSmooth(t) {
-  return t * t * (3 - 2 * t);
-}
-function valueNoise(x, y, z) {
-  const ix = Math.floor(x),
-    iy = Math.floor(y),
-    iz = Math.floor(z);
-  const fx = nSmooth(x - ix),
-    fy = nSmooth(y - iy),
-    fz = nSmooth(z - iz);
-  return nLerp(
-    nLerp(
-      nLerp(nHash(ix, iy, iz), nHash(ix + 1, iy, iz), fx),
-      nLerp(nHash(ix, iy + 1, iz), nHash(ix + 1, iy + 1, iz), fx),
-      fy
-    ),
-    nLerp(
-      nLerp(nHash(ix, iy, iz + 1), nHash(ix + 1, iy, iz + 1), fx),
-      nLerp(nHash(ix, iy + 1, iz + 1), nHash(ix + 1, iy + 1, iz + 1), fx),
-      fy
-    ),
-    fz
-  );
-}
+// ─── Noise ──────────────────────────────────────────────────────────────────
+// Deterministic, no RNG involved. Shared with the About section's hexagon dust, which
+// clusters its specks the same way — see render/valueNoise.js.
+
 const CLUSTER = {
   freqLarge: 0.04,
   freqMid: 0.1,

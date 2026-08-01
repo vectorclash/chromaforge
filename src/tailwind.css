@@ -279,8 +279,19 @@ code {
    which missed exactly this case: AboutSection's `<h2>` ("Art, computed from a single
    seed") wrapping with "seed" orphaned alone on its own line. Browsers without
    `text-wrap: pretty` support just keep today's default wrapping -- a harmless no-op, not
-   a broken state. */
+   a broken state.
+
+   `li` was missing until 2026-07-31, found by scanning every route for one-word last lines
+   rather than by eye: the privacy page's list at 390px had one reading "number.", the only
+   text block on the site still computing `text-wrap: wrap`.
+
+   Note the limit of this rule, because it is easy to expect more of it than it gives: it
+   prevents a last line of ONE word. It does nothing about a two-word tail, which reads
+   almost as badly and which no CSS can express. Where that matters, bind the last two words
+   with a non-breaking space -- pretty then counts them as one token and pulls a third word
+   down. See AboutSection's closing paragraph for the one place that is currently done. */
 p,
+li,
 h1,
 h2,
 h3,

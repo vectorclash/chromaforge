@@ -7,6 +7,7 @@ import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import GalleryModal from '../components/ui/GalleryModal';
+import { useCrossfadeImage } from '../hooks/useCrossfadeImage';
 import ShirtIcon from '../components/buttons/ShirtIcon';
 import HeartIcon from '../components/buttons/HeartIcon';
 import AnimationIcon from '../components/buttons/AnimationIcon';
@@ -33,6 +34,10 @@ export default function GalleryPage() {
   });
   const { user } = useAuth();
   const { setPrintQueueDesign, previewUrl } = useStudio();
+  // Two stacked layers through the shared hook rather than a bare <img src={previewUrl}>:
+  // MiniGenerator sits on this route, so generating from it used to crossfade the widget
+  // while this empty-state thumbnail popped to the new design on the same beat.
+  const emptyPreview = useCrossfadeImage(previewUrl);
   const navigate = useNavigate();
   const [tab, setTab] = useState('public');
   const [designs, setDesigns] = useState([]);
@@ -231,12 +236,24 @@ export default function GalleryPage() {
           {/* The studio's own live preview, not a stock illustration -- an empty gallery
               should still look like this is a generative art tool, not a blank state from
               any other app. Same previewUrl the ambient MiniGenerator widget shows. */}
-          {previewUrl && (
-            <img
-              src={previewUrl}
-              alt=""
-              className="h-36 w-36 rounded-2xl border border-hairline object-cover opacity-90"
-            />
+          {emptyPreview.shown && (
+            <div className="relative h-36 w-36 overflow-hidden rounded-2xl border border-hairline opacity-90">
+              <img
+                ref={emptyPreview.shownRef}
+                src={emptyPreview.shown}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+              {emptyPreview.incoming && (
+                <img
+                  ref={emptyPreview.incomingRef}
+                  src={emptyPreview.incoming}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                  style={{ opacity: 0 }}
+                />
+              )}
+            </div>
           )}
           <p className="text-text-secondary">
             {tab === 'mine'

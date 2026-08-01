@@ -1859,7 +1859,16 @@ export default class DisplayCanvas extends React.Component {
     // legacy "hide the whole panel, click anywhere to bring it back" interaction would
     // otherwise still fire on background clicks with no visible way to undo it once the
     // compact-mode reopen icon is hidden.
-    if (this.props.compact) return;
+    //
+    // Dismissing an OPEN save panel is the one half of this that does belong in compact, and
+    // is what the full studio's background click already does first. It carries none of the
+    // objection above -- the panel's own Save button reopens it, so there is an obvious way
+    // back -- and without it the hero's save panel is the only dismissable surface on the
+    // site that a background click does nothing to.
+    if (this.props.compact) {
+      if (this.state.saveVisible) this.onSettingsCloseButtonClick();
+      return;
+    }
 
     const { controlsAreOpen } = this.state;
     this.onSettingsCloseButtonClick();

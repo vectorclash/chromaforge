@@ -25,7 +25,27 @@ import s2 from '../assets/images/star-sprite-small.png';
 // once here (mirroring DisplayCanvas's own load) so the render pipeline works off-canvas.
 
 const PREVIEW_SIZE = 480;
-const THUMBNAIL_SIZE = 320;
+// Sized to cover a gallery card on a 2x screen, which 320 did not: measured live, the cards
+// occupy 259 CSS px on the gallery page and 227 on the homepage, so a retina display asks for
+// 518 and 454 device pixels and a 320px JPEG was being upscaled ~1.6x. Mobile happened to land
+// at 318 needed against 320 stored (101%), which is why this went unnoticed -- phones were
+// always correct and only desktop was soft.
+//
+// It became visible rather than merely true at GENERATOR_VERSION 9: that made elements about
+// a third of their previous size within a square frame (see CLAUDE.md's thumbnail note), and
+// fine detail survives an upscale far worse than the large flat gradient shapes this used to
+// carry.
+//
+// Verified rather than assumed. Scoring each encode against the 2000px render resampled to a
+// real 518px card -- i.e. including the upscale the browser actually performs -- RMSE drops
+// 8.22 -> 5.42, 7.27 -> 4.73 and 5.48 -> 3.67 across three seeds, about a third better in
+// every case. Files go 11-26KB -> 29-66KB, so the whole designs table's thumbnails move from
+// roughly 0.7MB to 1.7MB: nowhere near the scale at which the design-mockups bucket became a
+// quota problem.
+//
+// Changing this needs `backfill-thumbnails.mjs` re-run (bare, no --generator-version filter)
+// to reach existing rows; its own copy of the constant must be kept in sync.
+const THUMBNAIL_SIZE = 640;
 
 const StudioContext = createContext(null);
 

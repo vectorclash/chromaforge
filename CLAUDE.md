@@ -945,6 +945,40 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
   Corollary: **the version column is not a record of thumbnail freshness** — after any backfill
   the JPEG is current while the stored version still reads whatever it was saved under. The
   live distribution at v9 (10 rows at v6, 26 at v7, 1 at v8) reflects save history only.
+- **Gallery thumbnails legitimately look "zoomed out" next to the studio, and this is NOT a
+  regression — decided 2026-07-31 (Aaron: leave as-is). Don't re-diagnose it.** Reported after
+  the v9 backfill as thumbnails no longer matching a downloaded image. Two effects stack, both
+  measured through the real pipeline:
+  (1) **Thumbnails are SQUARE (320², generated at 2000² via the density floor) and the studio
+  is 16:9.** `getElementSizeScale`'s aspect term squares how far a canvas sits from 16:9, so a
+  square gets `(1/1.778)² = 0.316` — every element is sized to ~32% of its 16:9 size. Measured
+  mean geometry-shape extent as a fraction of the short edge, three seeds: 72.5 / 48.6 / 30.6%
+  at 16:9 against 22.9 / 15.4 / 9.7% square, a 3.16x gap; star sizes 3.15% vs 1.09%. Element
+  **counts are identical** (31 shapes either way), so it is scale, not density — and it has
+  been true since v3, for every thumbnail ever generated.
+  (2) **v9 widened it, at square sizes only.** Replacing the chaotic floor's absolute 150px
+  with a fraction of the size scale reproduces 150 exactly at the studio's 2160, but a square
+  thumbnail's size scale is just 632 (2000 × 0.316), so the floor fell to 44px. Versus a v8
+  bundle built from `ffe9b79^`: **−36.3 / −29.4 / −44.4% at 2000², and exactly 0.0% at
+  3840×2160.** Pre-backfill cards were v6/v7 JPEGs still carrying the 150px floor, which is
+  why only the thumbnail side of the comparison moved.
+  **Do not "fix" this by reverting v9** — the absolute constant it removed was a real bug worth
+  up to 65% on mockup-vs-print. The real fix, if it is ever wanted, is to stop previewing a
+  16:9 canvas with a square image: render thumbnails at 16:9 and cover-crop into the square
+  card (loses ~44% of the width), or make the cards 16:9 (touches GalleryPage, GallerySection
+  and GalleryModal). Both need a backfill re-run. Note the mismatch is **desktop-only** —
+  StudioPage renders 2160×2160 on mobile, where the studio and the thumbnail agree.
+- **`THUMBNAIL_SIZE` is 640, raised from 320 on 2026-07-31** (`StudioContext.jsx`, mirrored in
+  `backfill-thumbnails.mjs` — the two must stay in sync). 320 was an upscale on every 2x
+  desktop card: measured live, cards occupy 259 CSS px on the gallery page and 227 on the
+  homepage, so a retina screen asks for 518 and 454 device pixels. Mobile needed 318 against
+  320 stored, which is why phones always looked right and only desktop was soft. Reported as
+  "why are the thumbnails so pixelated now" right after the v9 backfill, and the "now" is the
+  interesting half: the undersizing was always there, but v9's ~3x smaller elements gave the
+  same raster far finer detail, and fine detail survives an upscale much worse than the large
+  flat gradient shapes it used to carry. Verified against the 2000px render resampled to a real
+  518px card: RMSE 8.22/7.27/5.48 → 5.42/4.73/3.67 across three seeds. Thumbnails for the whole
+  table go from roughly 0.7MB to 1.7MB.
 - **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
   egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
   `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every
@@ -2094,6 +2128,24 @@ things land).
 
 ## Working conventions established this project
 
+- **Every surface showing the current active artwork reveals on the SAME shared timing —
+  site-wide, always.** Not an instant swap, not a privately-tuned duration. Several surfaces
+  display the same design at once (hero, MiniGenerator, SiteFooter, MobileNav, ProductPage's
+  design tile, GalleryPage's empty state, AboutBlob), so one revealing on its own schedule
+  visibly desynchronises the page, and a surface that pops while its neighbours crossfade
+  reads as a bug. Rules: trigger on `StudioContext.previewUrl`, **never** `currentDesign`
+  (which changes the instant Generate is clicked — a small preview finishes in ~200ms while
+  the studio's full render is still going, so keying off it reveals early and alone; this
+  exact mistake was caught and rejected in both TshirtPreview and AboutBlob). DOM surfaces
+  use `useCrossfadeImage`; don't hand-roll it. Timings come from `utils/motionTokens.js`
+  (`DURATION_FAST` out, `DURATION_HOLD` blank beat, `DURATION_SLOW` in, `power2.inOut`).
+  Canvas/WebGL surfaces can't use the hook, so they reproduce the beat from those same
+  tokens and **crossfade instead of dipping out** — a persistent object vanishing for the
+  hold beat reads as breakage (rejected in TshirtPreview, then again in AboutBlob) — offset
+  by `DURATION_FAST + DURATION_HOLD` so they start and end exactly with the DOM surfaces.
+  The hook's `instant: true` is a documented exception for surfaces hidden while the design
+  changed (MobileNav), not a shortcut. TshirtPreview is the one legitimate variant: it sits
+  beside the hero and syncs to DisplayCanvas's own `isLoading` via `waiting`.
 - **Verify every styling/behavior change against a live baseline** — computed-style
   diffs, screenshots, and actual interaction tests (drag, click, toggle), not just "it
   builds." This caught several real bugs (clipped pointer indicators, dead-zone hit
