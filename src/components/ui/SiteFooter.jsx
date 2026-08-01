@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
@@ -9,9 +9,17 @@ import Wordmark from './Wordmark';
 const RENDER_WIDTH = 1600;
 const RENDER_HEIGHT = 500;
 
+// Parallax overscale for the background artwork, mirroring the homepage hero's (see
+// DisplayCanvas's HERO_PARALLAX_SCALE). This single number sets the travel: the offset is
+// capped at the (scale - 1) / 2 of height the overscale hides on each side, so an edge can
+// never slide into view however the footer is sized.
+const PARALLAX_SCALE = 1.24;
+
 export default function SiteFooter() {
   const { currentDesign, renderDesignBlob, queueReady } = useStudio();
   const [bgUrl, setBgUrl] = useState(null);
+  const footerRef = useRef(null);
+  const artRef = useRef(null);
 
   useEffect(() => {
     if (!queueReady) return;
@@ -33,21 +41,93 @@ export default function SiteFooter() {
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
 
+  // The artwork drifts down into place as the footer scrolls in, lagging the page rather than
+  // riding with it. Same construction as the hero's parallax, with two differences worth
+  // knowing:
+  //
+  //   - Progress runs off the footer ENTERING the viewport, where the hero's runs off it
+  //     leaving. It reaches 1 exactly when the page bottoms out, which is where a footer
+  //     comes to rest -- so the artwork lands on its natural framing (offset 0) at the
+  //     position anyone actually looks at it, and only the approach is offset.
+  //   - Only the two <img> layers are transformed, not the whole background wrapper. That
+  //     wrapper also holds the dark contrast gradient and the DotRipple, both of which have
+  //     to stay pinned to the footer -- scaling the gradient would move the very edge it
+  //     exists to keep text readable against.
+  //
+  // Transform only, so it can't collide with useCrossfadeImage, which animates opacity alone.
+  // rAF-throttled and skipped entirely under prefers-reduced-motion.
+  useEffect(() => {
+    if (!shown) return undefined;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const host = footerRef.current;
+    // The page scrolls inside SiteLayout's own overflow-y viewport, not the document --
+    // window.scrollY stays 0 forever here. Scroll events don't bubble, but they do fire on
+    // the scrolling element, found by walking up from the footer.
+    const scroller = host?.closest('.overflow-y-auto');
+    if (!host || !scroller) return undefined;
+
+    let raf = 0;
+    const apply = () => {
+      raf = 0;
+      const el = artRef.current;
+      if (!el) return;
+      const rect = host.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      if (!rect.height || !el.clientHeight) return;
+      // How far the footer has come into view. The denominator is the smaller of the footer
+      // and the viewport, because that is all the entry the page can actually deliver: with
+      // a footer shorter than the screen it stops arriving once the page bottoms out, and
+      // dividing by the full sweep would leave the drift permanently unfinished.
+      const travel = Math.min(rect.height, view.height) || 1;
+      const progress = Math.max(0, Math.min(1, (view.bottom - rect.top) / travel));
+      const max = (el.clientHeight * (PARALLAX_SCALE - 1)) / 2;
+      el.style.transform = `translateY(${(progress - 1) * max}px) scale(${PARALLAX_SCALE})`;
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    // Travel is a fraction of the footer's height, which reflows with the viewport -- a
+    // rotation or a mobile URL-bar collapse changes it with no scroll event to recompute on.
+    window.addEventListener('resize', onScroll, { passive: true });
+
+    // Recompute when anything ABOVE the footer changes height, which is not optional here.
+    // Unlike the hero -- whose progress is measured against the top of the page and so is
+    // correct from the first frame -- this one reads the footer's distance down the page, and
+    // that keeps moving as the content above it lays out. Measured: the first pass computed
+    // progress 1 and wrote translateY(0), then snapped to -39.6px the instant you scrolled.
+    // Observing the scroller's own children rather than a named element keeps this from
+    // depending on SiteLayout's internal structure.
+    const ro = new ResizeObserver(onScroll);
+    for (const child of scroller.children) ro.observe(child);
+
+    apply();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      ro.disconnect();
+      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [shown]);
+
   return (
-    <footer className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
+    <footer ref={footerRef} className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
       {/* Active artwork as the footer's background at 50% opacity */}
       {shown && (
         <div className="site-footer-bg absolute inset-0 opacity-75 z-0 pointer-events-none">
-          <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          {incoming && (
-            <img
-              ref={incomingRef}
-              src={incoming}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-              style={{ opacity: 0 }}
-            />
-          )}
+          {/* The parallax layer -- only the artwork moves; see the effect above. */}
+          <div ref={artRef} className="absolute inset-0 will-change-transform">
+            <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            {incoming && (
+              <img
+                ref={incomingRef}
+                src={incoming}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ opacity: 0 }}
+              />
+            )}
+          </div>
           {holding && <DotRipple />}
           {/* Subtle dark gradient overlay to ensure text contrast */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40"></div>
