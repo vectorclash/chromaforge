@@ -226,7 +226,7 @@ export default function GallerySection() {
           </div>
         )}
 
-        <div className="reveal-item mt-8 flex justify-center">
+        <div className="reveal-item mt-8 flex justify-start">
           <Link to="/gallery" className="font-quicksand text-sm text-ink-950/60 transition hover:text-ink-950">
             View full gallery &rarr;
           </Link>

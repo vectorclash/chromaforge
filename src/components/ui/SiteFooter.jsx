@@ -6,8 +6,12 @@ import DotRipple from '../DotRipple';
 import MiniGenerator from './MiniGenerator';
 import Wordmark from './Wordmark';
 
-const RENDER_WIDTH = 1600;
-const RENDER_HEIGHT = 500;
+// Same 3.2:1 aspect as before -- the footer's framing is unchanged, only the pixel density.
+// 1600 wide was an upscale on any retina screen (a full-bleed footer asks for ~2x the CSS
+// width, and the parallax overscale asks for another 24% on top), which read soft against
+// the crisp text over it.
+const RENDER_WIDTH = 3200;
+const RENDER_HEIGHT = 1000;
 
 // Parallax overscale for the background artwork, mirroring the homepage hero's (see
 // DisplayCanvas's HERO_PARALLAX_SCALE). This single number sets the travel: the offset is
@@ -15,9 +19,13 @@ const RENDER_HEIGHT = 500;
 // never slide into view however the footer is sized.
 const PARALLAX_SCALE = 1.24;
 
+// Grace period before a replaced background url is revoked -- see the setTimeout below.
+const STALE_BG_REVOKE_MS = 5000;
+
 export default function SiteFooter() {
   const { currentDesign, renderDesignBlob, queueReady } = useStudio();
   const [bgUrl, setBgUrl] = useState(null);
+  const bgUrlRef = useRef(null);
   const footerRef = useRef(null);
   const artRef = useRef(null);
 
@@ -28,10 +36,13 @@ export default function SiteFooter() {
       .then(blob => {
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
-        setBgUrl(prev => {
-          if (prev) URL.revokeObjectURL(prev);
-          return url;
-        });
+        const dead = bgUrlRef.current;
+        bgUrlRef.current = url;
+        setBgUrl(url);
+        // Delayed, for the same reason StudioContext's preview url is (see the comment
+        // there): useCrossfadeImage is still loading the url it is revealing for ~1.7s
+        // after a newer one lands, and revoking it out from under that stalls the reveal.
+        if (dead) setTimeout(() => URL.revokeObjectURL(dead), STALE_BG_REVOKE_MS);
       })
       .catch(() => {});
     return () => {
@@ -112,7 +123,7 @@ export default function SiteFooter() {
 
   return (
     <footer ref={footerRef} className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
-      {/* Active artwork as the footer's background at 50% opacity */}
+      {/* Active artwork as the footer's background */}
       {shown && (
         <div className="site-footer-bg absolute inset-0 opacity-75 z-0 pointer-events-none">
           {/* The parallax layer -- only the artwork moves; see the effect above. */}
@@ -130,7 +141,9 @@ export default function SiteFooter() {
           </div>
           {holding && <DotRipple />}
           {/* Subtle dark gradient overlay to ensure text contrast */}
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40"></div>
+          {/* Contrast scrim. Weighted to the bottom, where the legal/bottom bar sits on the
+              smallest type in the app; the top is left far more open so the artwork reads. */}
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-950/95 via-ink-950/60 to-ink-950/15"></div>
         </div>
       )}
 

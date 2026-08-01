@@ -25,6 +25,10 @@ import s2 from '../assets/images/star-sprite-small.png';
 // once here (mirroring DisplayCanvas's own load) so the render pipeline works off-canvas.
 
 const PREVIEW_SIZE = 480;
+// How long a replaced preview url stays alive before being revoked -- comfortably longer
+// than useCrossfadeImage's full reveal (DURATION_FAST + DURATION_HOLD + DURATION_SLOW =
+// 1.7s), which is the window in which a consumer can still be loading it.
+const STALE_PREVIEW_REVOKE_MS = 5000;
 // Sized to cover a gallery card on a 2x screen, which 320 did not: measured live, the cards
 // occupy 259 CSS px on the gallery page and 227 on the homepage, so a retina display asks for
 // 518 and 454 device pixels and a 320px JPEG was being upscaled ~1.6x. Mobile happened to land
@@ -63,6 +67,9 @@ export function StudioProvider({ children }) {
     generateArtwork(randomSeed(), 1080, 1080, [])
   );
   const [previewUrl, setPreviewUrl] = useState(null);
+  // Mirrors previewUrl so the render effect can revoke the url it is replacing without
+  // doing that (a side effect) inside a setState updater, which StrictMode invokes twice.
+  const previewUrlRef = useRef(null);
   // Tracks the exact image-design object (by reference -- see buildConfig's onDesignChange,
   // which hands the same object to setCurrentDesign that DisplayCanvas keeps as this.mainConfig)
   // that was last saved, so "is the CURRENT design already saved" is a single shared fact
@@ -158,15 +165,19 @@ export function StudioProvider({ children }) {
   useEffect(() => {
     if (!queueReady) return;
     let cancelled = false;
-    let url;
     renderDesignBlob(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
       .then(blob => {
         if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setPreviewUrl(prev => {
-          if (prev) URL.revokeObjectURL(prev);
-          return url;
-        });
+        const url = URL.createObjectURL(blob);
+        const dead = previewUrlRef.current;
+        previewUrlRef.current = url;
+        setPreviewUrl(url);
+        // The old url is revoked on a DELAY, not immediately. Every consumer of previewUrl
+        // reveals it through useCrossfadeImage, which spends ~1.7s fading the old image out,
+        // holding, and fading the new one in -- and it preloads mid-reveal. Revoking on the
+        // spot pulled the url out from under a reveal that was still using it whenever two
+        // previews landed close together, which is a load error, not a blank frame.
+        if (dead) setTimeout(() => URL.revokeObjectURL(dead), STALE_PREVIEW_REVOKE_MS);
       })
       .catch(() => {});
     return () => {

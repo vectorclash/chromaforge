@@ -156,10 +156,18 @@ export default function AboutShirts({ className = '' }) {
 
     // The strip the row can touch: the shirt box plus the drop shadow's reach on each side.
     // Everything outside it is backdrop that never changes.
+    // Snapped to WHOLE canvas pixels, which is not cosmetic. Both users of this rect blit with
+    // it -- the backdrop restore and the layer composite -- and a fractional edge makes
+    // drawImage resample, blending the boundary row against what is outside the rect (nothing,
+    // on the transparent layer). That left a faint dark hairline running the full width of the
+    // canvas just below the shirt row. It also kept the two from agreeing: the backdrop already
+    // floor/ceil'd its own copy, so the strip being restored and the strip being drawn over
+    // were off by a pixel.
     function shirtBand(W, H) {
       const pad = 0.07 * SHIRT.w * W + 0.02 * SHIRT.h * H + 2;
-      const y = SHIRT.top * H - pad;
-      return { y, h: SHIRT.h * H + pad * 2 };
+      const y = Math.max(0, Math.floor(SHIRT.top * H - pad));
+      const bottom = Math.min(H, Math.ceil(SHIRT.top * H + SHIRT.h * H + pad));
+      return { y, h: bottom - y };
     }
 
     function draw(t) {

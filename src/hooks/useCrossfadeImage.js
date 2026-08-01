@@ -47,18 +47,33 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
       ease: 'power2.inOut',
       onComplete: () => {
         if (epoch !== epochRef.current) return;
+        // Take the newest url if one arrived during the fade-out, rather than the one this
+        // reveal started on. That older url may well be DEAD by now -- StudioContext revokes
+        // the previous object URL when a new preview replaces it -- and revealing it would
+        // be one wasted reveal before the queued one runs anyway.
+        const target = queuedUrlRef.current || nextUrl;
+        queuedUrlRef.current = null;
         // Preload before revealing -- avoids swapping in a still-decoding frame, same
         // reasoning as DisplayCanvas's own setImage.
         const preload = new Image();
-        preload.onload = () => {
+        // onerror runs the SAME continuation, and that is the whole point: this is the only
+        // exit from `holding`, so a url that never loads used to leave it true FOREVER --
+        // permanently spinning MiniGenerator's refresh icon, holding its Generate button
+        // dimmed and disabled, and leaving the thumbnail faded out with the glow up. A
+        // revoked blob url is exactly that case, and nothing else in the chain could
+        // recover it. Better to reveal a broken layer for one beat (the next generate
+        // replaces it) than to strand the widget.
+        const proceed = () => {
           if (epoch !== epochRef.current) return;
           gsap.delayedCall(DURATION_HOLD, () => {
             if (epoch !== epochRef.current) return;
             setHolding(false);
-            setIncomingSrc(nextUrl);
+            setIncomingSrc(target);
           });
         };
-        preload.src = nextUrl;
+        preload.onload = proceed;
+        preload.onerror = proceed;
+        preload.src = target;
       }
     });
   };

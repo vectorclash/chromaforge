@@ -457,7 +457,7 @@ export default function ShopCarousel() {
         </div>
       )}
 
-      <div className="reveal-item mt-8 flex justify-center">
+      <div className="reveal-item mt-8 flex justify-start">
         <Link to="/shop" className="font-quicksand text-sm text-text-muted transition hover:text-text">
           View full catalog &rarr;
         </Link>
