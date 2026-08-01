@@ -354,6 +354,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
             textureCtx.globalAlpha = 1;
             textureCtx.drawImage(sheet, 0, 0);
             texture.needsUpdate = true;
+            stateRef.current.wake?.();
             return;
           }
           const f = { t: 0 };
@@ -373,8 +374,12 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
               textureCtx.drawImage(sheet, 0, 0);
               texture.needsUpdate = true;
               crossfadeTween = null;
+              // The final frame of the crossfade is drawn here, after the loop's last render;
+              // one more frame is needed to actually show it.
+              stateRef.current.wake?.();
             }
           });
+          stateRef.current.wake?.();
         };
 
         mount.appendChild(renderer.domElement);
@@ -394,6 +399,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           // Normalize by half the viewport so the cap is only reached at the screen edges.
           const t = (e.clientX - centerX) / (window.innerWidth / 2);
           targetYaw = Math.max(-1, Math.min(1, t)) * MAX_YAW;
+          stateRef.current.wake?.();
         };
 
         // Phones have no hover, so gamma (side-to-side tilt, degrees) stands in for the
@@ -408,6 +414,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           baseGamma += (e.gamma - baseGamma) * 0.01;
           const t = (e.gamma - baseGamma) / 25;
           targetYaw = Math.max(-1, Math.min(1, t)) * MAX_YAW;
+          stateRef.current.wake?.();
         };
         const startOrientation = () => {
           window.addEventListener('deviceorientation', onOrientation);
@@ -457,6 +464,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
             const dx = e.clientX - lastX;
             const dYaw = dx * 0.012; // ~0.7° of spin per pixel
             dragYaw = Math.max(-DRAG_MAX_YAW, Math.min(DRAG_MAX_YAW, dragYaw + dYaw));
+            stateRef.current.wake?.();
             lastX = e.clientX;
           };
           const onPointerEnd = () => {
@@ -504,6 +512,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         let aberrationTween = null;
         const setAberration = (value, duration) => {
           aberrationTween?.kill();
+          stateRef.current.wake?.();
           aberrationTween = gsap.to(aberrationPass.uniforms.uAmount, {
             value,
             duration,
@@ -511,8 +520,34 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           });
         };
 
+        // Two gates on the render loop, because neither is enough alone and this scene is the
+        // most expensive thing on the page per frame (a RenderPass plus a full-screen
+        // ShaderPass). It used to render unconditionally, 60 times a second, for as long as the
+        // page was open -- including while you were reading About or sitting at the footer,
+        // with a motionless shirt.
+        //
+        //   onScreen  -- the mount is actually in view. Nothing below matters if it isn't.
+        //   settled   -- the shirt has reached its target angle and no effect is running, so
+        //                consecutive frames would be identical.
+        //
+        // Any input, any generate, and any texture change has to clear `settled` or the change
+        // never reaches the screen; `wake()` is that one door, and everything that mutates the
+        // scene goes through it.
         let raf = 0;
-        const animate = now => {
+        let onScreen = true;
+        let settled = false;
+        const wake = () => {
+          settled = false;
+          // Off-screen input still updates targetYaw and the texture -- it just doesn't get
+          // rendered until the mount comes back, which the observer below handles. Without the
+          // onScreen check here, every mousemove anywhere on the page would render one frame of
+          // a shirt nobody can see.
+          if (!raf && onScreen) raf = requestAnimationFrame(animate);
+        };
+        stateRef.current.wake = wake;
+
+        function animate(now) {
+          raf = 0;
           // After release, ease the drag rotation back to forward-facing.
           if (!dragging && dragYaw !== 0) {
             dragYaw *= 0.92;
@@ -520,12 +555,39 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           }
           // Direct manipulation tracks the finger tightly; ambient follow stays lazy.
           const followRate = dragging ? 0.35 : 0.04;
+          const before = pivot.rotation.y;
           pivot.rotation.y += (dragYaw + targetYaw - pivot.rotation.y) * followRate;
           aberrationPass.uniforms.uTime.value = now * 0.001;
           composer.render();
-          raf = requestAnimationFrame(animate);
-        };
-        raf = requestAnimationFrame(animate);
+          // Idle only once the shirt has stopped moving AND the aberration pass is back at
+          // identity -- its uTime drives a live distortion, so a non-zero uAmount means the
+          // picture is still changing even with the shirt still.
+          const still =
+            !crossfadeTween &&
+            !dragging &&
+            dragYaw === 0 &&
+            Math.abs(pivot.rotation.y - before) < 1e-4 &&
+            aberrationPass.uniforms.uAmount.value < 1e-3;
+          settled = still;
+          if (!settled && onScreen) raf = requestAnimationFrame(animate);
+        }
+        wake();
+
+        // Scrolling away stops it outright; coming back resumes from wherever it was, which is
+        // correct -- nothing here is driven by wall-clock time.
+        const io = new IntersectionObserver(
+          entries => {
+            onScreen = entries[0]?.isIntersecting ?? true;
+            if (onScreen) wake();
+            else if (raf) {
+              cancelAnimationFrame(raf);
+              raf = 0;
+            }
+          },
+          { rootMargin: '80px' }
+        );
+        io.observe(mount);
+        inputCleanups.push(() => io.disconnect());
 
         stateRef.current.api = { setSheet, setAberration };
         // If a generate is already in flight when the scene comes up, join it mid-state.
@@ -540,6 +602,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         commitStagedSheet();
 
         cleanup = () => {
+          stateRef.current.wake = null;
           cancelAnimationFrame(raf);
           inputCleanups.forEach(fn => fn());
           crossfadeTween?.kill();

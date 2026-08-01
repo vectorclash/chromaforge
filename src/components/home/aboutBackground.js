@@ -683,6 +683,23 @@ function paint(ctx, W, H, sprites, makeCanvas) {
   }
   ctx.restore();
 
+  // The flares' CROSSES are baked in here, at rest, while their glows are drawn per frame (see
+  // drawStars). They are split that way for cost, not for looks: a cross reaches 5.6 disc
+  // diameters and its arms dominate the area that has to be restored from this cache every
+  // frame, so animating them made the backdrop 33x more expensive per frame than the plain
+  // band restore it replaced (measured: 0.4ms -> 13.2ms at a retina laptop's real canvas
+  // size). Held still, their pixels never change and never need restoring.
+  //
+  // Order is unchanged: cross first, glow over it -- the centre should read as the brightest
+  // thing there rather than as a seam between two half-spikes.
+  for (const s of STARS) {
+    const size = Math.round(s.size * S);
+    if (size < 2) continue;
+    ctx.save();
+    ctx.globalAlpha = s.a * SPIKE_ALPHA;
+    drawSpikes(ctx, makeCanvas, s.x * W, s.y * H, size * DISC_FRACTION, s.c);
+    ctx.restore();
+  }
 }
 
 // The named flares breathe, so the illustration is not entirely still between shirts.
@@ -692,16 +709,21 @@ function paint(ctx, W, H, sprites, makeCanvas) {
 // periods are deliberately not multiples of each other, so the field never returns to a pose
 // it has held before within any watch a person would give it.
 //
-// What moves: the glow's own alpha, its drawn size, and -- pulled hardest, because it is what
-// actually reads as a twinkle at this scale -- the length and opacity of the cross. The disc
-// stays put; a flare that changes position would read as the composition shifting.
+// What moves is the GLOW only -- its alpha and its drawn size. The cross is baked into the
+// cached backdrop at rest (see paint), and the flare never moves; one that changed position
+// would read as the composition shifting.
+//
+// The cross used to twinkle too, harder than anything else, and it was the most expensive thing
+// on the page: its arms reach 5.6 disc diameters, so restoring them from the cache every frame
+// took the backdrop from 0.4ms to 13.2ms a frame at a retina laptop's real canvas size. Holding
+// them still costs one dimension of the effect and removes most of the per-frame area. If the
+// twinkle ever needs to read stronger, raise `alpha` -- do not put the cross back on a timer.
 const TWINKLE = {
   seed: 'about-twinkle',
   periodMin: 3.4,
   periodMax: 7.1,
-  alpha: 0.22, // +-, as a fraction of the star's own alpha
-  size: 0.06, // +-, as a fraction of the sprite's draw box
-  spike: 0.3 // +-, applied to the cross's length and its alpha together
+  alpha: 0.3, // +-, as a fraction of the star's own alpha
+  size: 0.07 // +-, as a fraction of the sprite's draw box
 };
 
 let twinklePhases = null;
@@ -723,33 +745,20 @@ function wave(i, t) {
   return Math.sin(2 * Math.PI * (t / p.period + p.phase));
 }
 
-// The canvas the caller has to restore before redrawing one star: three rects, not the one
-// square that bounds it. The cross reaches 5.6 disc diameters tip to tip while the glow is
-// barely one, so a bounding square is dominated by the arms' empty corners -- summed over the
-// eight flares at the real render size those squares come to 3.2 megapixels against a 3.2
-// megapixel canvas, i.e. repainting everything, twice over where they overlap. The arms are
-// thin, so restoring the cross itself instead lands at roughly a quarter of that.
-//
-// Sized for the LARGEST the flare ever gets, not its resting size, or the twinkle leaves a
-// trail at its extremes.
+// The canvas the caller has to restore before redrawing one star. Only the glow's own box: the
+// cross does not animate, so its pixels in the cache are already correct and rewriting them
+// would cost more area than everything else here put together. Sized for the LARGEST the glow
+// ever gets, not its resting size, or the twinkle leaves a trail at its extremes.
 function starRects(s, W, H, S) {
   const size = Math.round(s.size * S) * (1 + TWINKLE.size);
-  // The disc DIAMETER drawSpikes is given, at full twinkle -- both its own measurements are
-  // in these units.
-  const disc = Math.round(s.size * S) * DISC_FRACTION * (1 + TWINKLE.spike);
-  const arm = (disc * SPIKE_LENGTH) / 2 + 2;
-  // Half the arm's thickness. Generous (3x the sprite's own) for its soft edges, but it must
-  // come off the SPIKE's thickness and not the glow's box -- using the latter is what made a
-  // first version of this cost more than the bounding squares it was replacing.
-  const half = (Math.max(2, disc * SPIKE_THICKNESS) * 3) / 2 + 2;
   const cx = s.x * W;
   const cy = s.y * H;
-  const rect = (x, y, w, h) => ({ x: Math.floor(x), y: Math.floor(y), w: Math.ceil(w) + 1, h: Math.ceil(h) + 1 });
-  return [
-    rect(cx - arm, cy - half, arm * 2, half * 2),
-    rect(cx - half, cy - arm, half * 2, arm * 2),
-    rect(cx - size / 2 - 2, cy - size / 2 - 2, size + 4, size + 4)
-  ];
+  return [{
+    x: Math.floor(cx - size / 2 - 2),
+    y: Math.floor(cy - size / 2 - 2),
+    w: Math.ceil(size + 4) + 1,
+    h: Math.ceil(size + 4) + 1
+  }];
 }
 
 function drawStars(ctx, W, H, sprites, makeCanvas, t) {
@@ -762,10 +771,6 @@ function drawStars(ctx, W, H, sprites, makeCanvas, t) {
     const cx = s.x * W;
     const cy = s.y * H;
     ctx.save();
-    // Cross first, disc over it: the spike runs through the flare's centre, and the centre
-    // should read as the brightest thing there rather than as a seam between two half-spikes.
-    ctx.globalAlpha = Math.min(1, s.a * SPIKE_ALPHA * (1 + TWINKLE.spike * w));
-    drawSpikes(ctx, makeCanvas, cx, cy, base * DISC_FRACTION * (1 + TWINKLE.spike * w), s.c);
     ctx.globalAlpha = Math.min(1, s.a * (1 + TWINKLE.alpha * w));
     // The tinted sprite is cached at the RESTING size and scaled on the way out, so a
     // continuously changing size doesn't mint a new cached canvas every frame.
