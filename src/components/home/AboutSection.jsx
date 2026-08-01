@@ -35,18 +35,22 @@ import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 // max-w-5xl matches the gallery and shop sections; this one used to be the odd max-w-2xl out
 // because it was a single narrow column of prose.
 const ROW = 'grid items-center gap-8 lg:grid-cols-2 lg:gap-14';
-// AboutBlob's canvas is deliberately larger than the silhouette drawn inside it (the edge
-// stars overflow the blob's own box), so it only fills about 84% of its container while the
-// shirt image fills all of it. Holding the shirts to that same fraction is what makes the two
-// artworks read as the same size -- at equal widths the shirts would look ~19% bigger.
+// Both images fill their row, and they are sized identically -- no per-image fraction.
 //
-// The caps only apply while stacked, where there is no column to bound them. Dropping them
-// entirely was tried and is wrong in the gap between the stack and the two-column breakpoint:
-// at a 900px viewport the images went to 852 and 716px, roughly doubling the section's
-// height. Above lg the column width governs instead, which is why the caps are lifted there
-// -- left on, they would strand both images short of their own columns.
-const BLOB_SIZE = 'mx-auto w-full max-w-lg lg:max-w-none';
-const SHIRT_SIZE = 'mx-auto w-[84%] max-w-md lg:max-w-none';
+// An earlier version held the shirts to 84% of the blob's width, on the theory that
+// AboutBlob's canvas is larger than the silhouette inside it so the blob only fills 84% of its
+// box. That number is the blob's SILHOUETTE box, and it ignores that the edge stars overflow
+// that box: measured off the live canvases' actual non-transparent extents, AboutBlob's ink
+// fills 94.5% of its width and AboutShirts' 99%. So the correction was aimed at a 19%
+// mismatch that is really 4.8% -- below noticing -- and overshot far enough to make the shirts
+// 12% SMALLER than the blob rather than equal to it.
+//
+// The one thing the caps were right about is the band between the mobile stack and the
+// two-column breakpoint: with no cap at all, a 900px viewport gave images 852px wide and grew
+// the section from 1294px to 1682px. max-w-xl keeps that in hand while still letting both
+// images fill the row everywhere it matters -- on phones the container is well under it, and
+// above lg the column governs.
+const IMAGE_SIZE = 'mx-auto w-full max-w-xl lg:max-w-none';
 
 export default function AboutSection() {
   const ref = useScrollTriggerReveal();
@@ -73,7 +77,7 @@ export default function AboutSection() {
           desktop. Free to do because each visual is an aria-hidden canvas, so DOM order
           carries no reading order. */}
       <div className={ROW}>
-        <AboutBlob className={`reveal-item ${BLOB_SIZE} lg:order-2`} />
+        <AboutBlob className={`reveal-item ${IMAGE_SIZE} lg:order-2`} />
         <p className="reveal-item font-quicksand text-text-secondary lg:order-1">
           It started as a few tools I was building to make art with. I wanted to see whether I
           could make my work directly in code, and one thing led to another until it was a full
@@ -91,7 +95,7 @@ export default function AboutSection() {
       />
 
       <div className={ROW}>
-        <AboutShirts className={`reveal-item ${SHIRT_SIZE} lg:order-1`} />
+        <AboutShirts className={`reveal-item ${IMAGE_SIZE} lg:order-1`} />
         <div className="lg:order-2">
           {/* The non-breaking space is doing real work, not decoration. The site-wide
               `text-wrap: pretty` rule (tailwind.css) only prevents a ONE-word last line, and
