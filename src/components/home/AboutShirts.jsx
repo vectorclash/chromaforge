@@ -176,7 +176,9 @@ export default function AboutShirts({ className = '' }) {
       if (!W || !H) return;
       const S = W / BOX_W;
       const band = shirtBand(W, H);
-      drawAboutBackground(ctx, W, H, spritesRef.current, makeCanvas, needsFullPaint ? null : band);
+      // `t` also drives the named flares' twinkle -- they are the one part of the backdrop
+      // that is no longer cached, and they restore/redraw their own boxes inside this call.
+      drawAboutBackground(ctx, W, H, spritesRef.current, makeCanvas, needsFullPaint ? null : band, t);
       needsFullPaint = false;
 
       // The fill every shirt is a window onto: built once per size into a cached canvas, from

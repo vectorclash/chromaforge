@@ -24,61 +24,59 @@
 import tinycolor from 'tinycolor2';
 import { makeRng, randomSeed } from '../../render/prng.js';
 
-// Sampled from the original, masked to each shirt's own silhouette so the hexagons behind it
-// are excluded, and positioned at that shirt's own centre across the row.
+// ===========================================================================
+// THE TWO THINGS TO EDIT ARE RIGHT HERE: the angle, then the colours.
+// Everything after this block is machinery and needs no touching.
+// ===========================================================================
+
+// Which way the gradient runs, in degrees, as a DIRECTION FROM THE FIRST STOP TOWARD THE LAST.
+// Screen convention, so y points down:
 //
-// These are the BASE colour under the facets -- the darkest, most chromatic quintile of each
-// shirt's fabric pixels, not the median. Sampling the median first was a real mistake and it
-// showed immediately: the median already contains all the white facet fill, so building a
-// gradient from it and then layering facets and stars on top double-counts the lightness and
-// the whole row rendered as pale cream. The p20 base is what those light layers are sitting
-// ON, which is what this gradient has to be.
+//     0    straight left -> right
+//   -34    left -> right, tilted 34 degrees UPWARD (what the original does)
+//   -90    bottom -> top
+//    90    top -> bottom
 //
-// It is also a better sweep than the medians suggested: violet -> cyan -> pure YELLOW -> pink,
-// where the medians read violet -> pale blue -> peach -> pink. Shirt 3's base is h59 s0.89
-// l0.51, confirming the green/yellow that the hue run 256 -> -19 has to pass through is
-// really there rather than something to interpolate around.
-// The four sampled colours, and where each shirt's centre sits across the row as a fraction
-// of the illustration's width -- (first + i * pitch + w/2) / 650, matching AboutShirts' own
-// geometry.
-const SHIRT_COLOURS = [
-  { x: 0.2354, c: '#855cee' }, // shirt 1, violet  (h257 s0.81 l0.65)
-  { x: 0.4546, c: '#95dffb' }, // shirt 2, cyan    (h196 s0.93 l0.78)
-  { x: 0.6738, c: '#f1ee12' }, // shirt 3, yellow  (h 59 s0.89 l0.51)
-  { x: 0.893, c: '#ff5c8d' } // shirt 4, pink      (h342 s1.00 l0.68)
+// This was previously wrong in a specific way worth recording: it was derived as the big
+// hexagon's axis "mirrored horizontally" (180 - 125.8 = 54.2), but mirroring flips the
+// HORIZONTAL component and leaves the vertical one alone, so the row ran downward to the right
+// where the original runs upward -- the opposite tilt, at roughly the same steepness.
+//
+// The -34 is measured off the original, on fabric pixels only (each shirt's own silhouette,
+// eroded so no outline or hexagon behind it leaks in). Worth knowing if it is ever remeasured:
+// shirts 1 and 4 are flat plateaus -- h251-264 and h341-342 right across their area, because
+// there is nothing past violet or past pink for their hue to run to -- so the tilt is only
+// observable through shirts 2 and 3, and any estimator that includes the flat ones gets
+// dragged toward horizontal (a whole-image fit says -19). On shirt 3 alone, hue runs h73 at
+// its bottom-left corner to h341 at its top-right, which is where -34 comes from.
+export const FILL_ANGLE = -34;
+
+// The colour ramp along that direction. `at` is 0..1 from one end of the axis to the other and
+// `c` is any CSS colour string -- paste hex straight in. Add or remove stops freely; the only
+// rule is that `at` runs ascending and the list starts at 0 and ends at 1.
+//
+// The four inner stops sit on the four shirt centres as the original composes them. Those
+// positions depend on the angle: at -34 the row projects onto t 0.308 / 0.467 / 0.626 / 0.785,
+// while at 0 degrees the same four centres land on 0.235 / 0.455 / 0.674 / 0.893 -- so if you
+// change FILL_ANGLE much and the colours stop lining up with the shirts, this is why. The 0
+// and 1 stops sit beyond the outermost shirts: the row scrolls through the full width, so the
+// ends need to be a run-out rather than a flat cap.
+//
+// The colours are each shirt's BASE -- the darkest, most chromatic quintile of its fabric, not
+// its median. That distinction is the one real trap here: a median already contains all the
+// white facet fill, so a gradient built from medians and then covered in facets and stars
+// double-counts the lightness and the whole row renders as pale cream. When sampling in
+// Affinity, take the deepest part of a shirt rather than an average of it.
+export const FILL_STOPS = [
+  { at: 0.0, c: '#6a43d1' }, // run-out before shirt 1, deeper violet
+  { at: 0.308, c: '#835bed' }, // shirt 1, violet   h257 s0.80 l0.64
+  { at: 0.467, c: '#8ddeff' }, // shirt 2, cyan     h197 s1.00 l0.78
+  { at: 0.626, c: '#d9bb01' }, // shirt 3, yellow   h 52 s0.99 l0.43
+  { at: 0.785, c: '#ff4e84' }, // shirt 4, pink     h342 s1.00 l0.65
+  { at: 1.0, c: '#d40142' } // run-out past shirt 4, deeper pink
 ];
 
-// The big hexagon's own gradient axis runs at 125.8 degrees (indigo top-right to green
-// bottom-left). This is that mirrored horizontally, which is what puts violet at the row's
-// left where the original has it. Derived rather than picked, so the two layers stay related
-// if the hexagon is ever re-angled.
-export const FILL_ANGLE = 180 - 125.8;
-
-// The illustration's own proportions, which the stop positions below are solved against.
-const REF_W = 650;
-const REF_H = 366;
-
-// Stop positions are SOLVED from the shirt centres, not written as x-fractions, and getting
-// this wrong is the trap worth recording. The gradient runs at an angle, so distance along its
-// axis is compressed relative to x: across the full width the shirt row (which sits at exactly
-// the canvas's vertical centre) only covers t 0.22..0.78. A first version placed the stops at
-// plain x-fractions, which put the violet start and the pink end outside that band entirely --
-// they landed in the canvas corners above and below the row, and the rightmost shirt rendered
-// yellow with no pink anywhere in the composition.
-//
-// The 0 and 1 stops continue past the outermost shirts so the row's ends are a run-out rather
-// than a flat cap, since shirts scroll through the full width.
-export const FILL_STOPS = (() => {
-  const rad = (FILL_ANGLE * Math.PI) / 180;
-  const len = Math.abs(REF_W * Math.cos(rad)) + Math.abs(REF_H * Math.sin(rad));
-  const at = xFrac => ((xFrac - 0.5) * REF_W * Math.cos(rad)) / len + 0.5;
-  const inner = SHIRT_COLOURS.map(s => ({ at: at(s.x), c: s.c }));
-  return [
-    { at: 0, c: tinycolor(inner[0].c).spin(-8).darken(6).toHexString() },
-    ...inner,
-    { at: 1, c: tinycolor(inner[inner.length - 1].c).spin(8).lighten(6).toHexString() }
-  ];
-})();
+// ===========================================================================
 
 // Neither layer uses a single blend mode, because the original doesn't: shirt 1 carries
 // near-white facet panels AND a darker violet one, and shirt 3 has genuinely dark dots (one
