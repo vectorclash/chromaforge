@@ -9,7 +9,7 @@ import GenerateLinearGradient from '../components/Canvas/GenerateLinearGradient'
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
-import { makeRng, randomSeed, expandMonochromePalette} from './prng';
+import { makeRng, randomSeed, expandMonochromePalette, meanLuminance, BRIGHT_BACKDROP } from './prng';
 import { getGeometrySettings, compactSettings } from './designSettings';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
@@ -117,7 +117,23 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // a previous version -- every row is re-rendered by current code. And since the backfill is
 // read-only on the `designs` table, a row's stored version never advances, so filtering by it
 // would keep re-selecting the same subset and miss the rest.
-export const GENERATOR_VERSION = 9;
+// v9 -> v10 (2026-08-02): the star field was reworked so the stars actually contrast with what
+// is under them (Aaron: they "fade into the background too much and never really pop except
+// every now and then"). Three separate causes -- blend, colour, count/size -- fixed together;
+// see CLAUDE.md's "Star field contrast" bullet and the comments on starBlendMode below,
+// prng.js's contrastPalette/meanLuminance, and GenerateStarField's size skew for the full
+// reasoning, including the three things that were reasoned wrong first (chroma not lightness,
+// perceived luminance not HSL lightness, and why screen/hard-light are excluded).
+// New rng() draws and a different draw count shift the whole downstream sequence
+// (geometryChance, overlayChance, ...), so this changes output for EVERY seed -- same as
+// v3/v5/v6.
+// Operationally this bump needs BOTH follow-ups, unlike v8:
+//   - redeploy render-service (flyctl deploy --config render-service/fly.toml, from the repo
+//     root) or every Buy Now fails the generatorVersion mismatch check;
+//   - re-run the thumbnail backfill with NO --generator-version filter
+//     (node render-service/backfill-thumbnails.mjs), since this alters every stored design
+//     regardless of what version it was saved under -- same reasoning as v9.
+export const GENERATOR_VERSION = 10;
 
 const BLEND_MODES = [
   'screen',
@@ -132,6 +148,52 @@ const BLEND_MODES = [
 
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
+}
+
+// The star field's own blend mode, biased so the stars actually survive being composited
+// (Aaron, 2026-08-02: they "fade into the background too much and never really pop").
+// It used to be a uniform pick from all eight BLEND_MODES, so a sizeable minority of designs
+// (5 of a measured 16-seed sample) went down under a mode that erases the layer outright
+// against the backdrop it landed on -- multiply/darken/soft-light/overlay. That alone was
+// never the whole story, which is why cause 2 below matters just as much: a seed could roll
+// 'screen' and STILL vanish, because the star colours matched the background's. Fixing only
+// one of the two leaves the complaint standing. The direction follows the same
+// measured background lightness contrastPalette uses, so the pair always agree: on a dark
+// backdrop the stars are light and want a lightening mode; on a pale one they are deep and
+// want a darkening one. 'source-over' is in both sets deliberately -- it draws the star's
+// own colour untouched, which is the strongest contrast available.
+//
+// A minority of designs still take the fully unbiased pick, so the full range of looks is
+// still reachable rather than every star field converging on one treatment. Exactly ONE
+// rng() draw either way (the set is chosen from the same value), matching what the plain
+// randomBlendMode call here consumed before.
+// 'source-over' takes THREE of the four slots on purpose. It draws the star's own colour
+// untouched, and it is the only mode that reliably preserves the saturation contrastPalette
+// worked to put there -- every lightening mode risks washing a star toward white wherever the
+// backdrop happens to be locally light, which is exactly the "near white and boring" result
+// Aaron rejected. Measured on real renders: 'screen' and 'hard-light' blow a saturated
+// mid-lightness star out to a white core outright, so neither appears here at all; 'lighten'
+// holds its colour over a genuinely dark region and only drifts over a light one, so it keeps
+// the single variety slot. Note the direction sets are chosen from the backdrop's MEAN
+// luminance, while washing is driven by LOCAL luminance -- a gradient with a light corner can
+// still wash there, which is the reason for weighting source-over this heavily rather than
+// trusting the mode alone.
+const STAR_BLEND_ON_DARK = ['source-over', 'source-over', 'source-over', 'lighten'];
+const STAR_BLEND_ON_LIGHT = ['source-over', 'source-over', 'source-over', 'darken'];
+const STAR_BLEND_BIAS = 0.9;
+
+function starBlendMode(rng, backgroundLuminance) {
+  const roll = rng();
+  if (roll >= STAR_BLEND_BIAS) {
+    // Remap the tail onto [0, 1) so the unbiased branch still spans every mode evenly.
+    const t = (roll - STAR_BLEND_BIAS) / (1 - STAR_BLEND_BIAS);
+    return BLEND_MODES[Math.min(BLEND_MODES.length - 1, Math.floor(t * BLEND_MODES.length))];
+  }
+  // Same exported threshold contrastPalette uses, imported rather than repeated -- if these
+  // two ever disagreed, a design would get light stars under a darkening blend, or vice versa.
+  const set = backgroundLuminance > BRIGHT_BACKDROP ? STAR_BLEND_ON_LIGHT : STAR_BLEND_ON_DARK;
+  const t = roll / STAR_BLEND_BIAS;
+  return set[Math.min(set.length - 1, Math.floor(t * set.length))];
 }
 
 // generateArtwork(seed, width, height, colorValues, settings, renderContext) -> composition
@@ -224,7 +286,16 @@ export function generateArtwork(
     );
   }
 
-  config.secondBlend = randomBlendMode(rng);
+  // How bright the backdrop the star field lands on actually LOOKS (sRGB relative luminance,
+  // not HSL lightness -- see meanLuminance for why that distinction is load-bearing). Pure arithmetic on
+  // already-resolved colors -- no rng() draw, so it can't desync consumption. Both the star
+  // blend mode and the star colours key off this ONE value so they can never disagree about
+  // which direction "contrast" points. It measures the background gradient only; a radial
+  // field may also sit between it and the stars, which shifts things locally but not enough
+  // to flip the overall read.
+  const backgroundLuminance = meanLuminance(config.gradientBackgroundConfig.colors);
+
+  config.secondBlend = starBlendMode(rng, backgroundLuminance);
 
   // No rng() draw -- pure arithmetic on gradientBackgroundConfig's already-resolved
   // colors, so this can't desync consumption. Only meaningful with no user palette (see
@@ -234,13 +305,15 @@ export function generateArtwork(
     paletteColors.length === 0
       ? tinycolor(config.gradientBackgroundConfig.colors[0]).toHsl().h
       : null;
+
   config.starFieldConfig = new GenerateStarField(
     width,
     height,
     paletteColors.slice(),
     rng,
     backgroundHue,
-    sizeFrame
+    sizeFrame,
+    backgroundLuminance
   );
 
   // Always exactly one draw regardless of the chance setting, so the rest of the sequence

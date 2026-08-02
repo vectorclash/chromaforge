@@ -7,7 +7,7 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
 import { getDesignIdFromUrl, getShareUrlPrefix, buildShareUrl } from '../utils/urlConfig';
 import { getDesign } from '../lib/designs';
-import { randomSeed } from '../render/prng';
+import { randomSeed, meanLuminance } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
@@ -696,7 +696,20 @@ export default class DisplayCanvas extends React.Component {
     const colorValues = this.mainConfig.gradientBackgroundConfig.colors.slice();
     for (let i = 0; i < starCount; i++) {
       await breathe();
-      const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
+      // backgroundHue/sizeFrame stay at their defaults here (these overlay frames aren't
+      // tied to a placement, and the hue bias only applies to an empty palette anyway), but
+      // the background lightness is passed for real -- it's what decides whether the stars
+      // are driven light or dark to contrast, so leaving it at the 0.5 default would give
+      // these frames a different star treatment than the main frames they overlay.
+      const starConfig = new GenerateStarField(
+        this.props.width,
+        this.props.height,
+        colorValues.slice(),
+        Math.random,
+        null,
+        null,
+        meanLuminance(colorValues)
+      );
       const blobUrl = await this.buildStarOnlyBlob(starConfig);
       starFrames.push(blobUrl);
     }
@@ -740,7 +753,20 @@ export default class DisplayCanvas extends React.Component {
     const colorValues = resolvedConfigs[0].gradientBackgroundConfig.colors.slice();
     for (let i = 0; i < starCount; i++) {
       await breathe();
-      const starConfig = new GenerateStarField(this.props.width, this.props.height, colorValues.slice());
+      // backgroundHue/sizeFrame stay at their defaults here (these overlay frames aren't
+      // tied to a placement, and the hue bias only applies to an empty palette anyway), but
+      // the background lightness is passed for real -- it's what decides whether the stars
+      // are driven light or dark to contrast, so leaving it at the 0.5 default would give
+      // these frames a different star treatment than the main frames they overlay.
+      const starConfig = new GenerateStarField(
+        this.props.width,
+        this.props.height,
+        colorValues.slice(),
+        Math.random,
+        null,
+        null,
+        meanLuminance(colorValues)
+      );
       const blobUrl = await this.buildStarOnlyBlob(starConfig);
       starFrames.push(blobUrl);
     }

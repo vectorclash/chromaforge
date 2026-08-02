@@ -60,9 +60,10 @@ function expandMonochromePalette(baseColor, rng, count = 3) {
   }
   return colors;
 }
-function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = null } = {}) {
+function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = null, centered = false } = {}) {
   const spread = minSpread + rng() * (maxSpread - minSpread);
-  const hueStart = baseHue === null ? rng() * 360 : baseHue;
+  const anchor = baseHue === null ? rng() * 360 : baseHue;
+  const hueStart = centered ? anchor - spread / 2 : anchor;
   const step = count > 1 ? spread / (count - 1) : 0;
   const colors = [];
   for (let i = 0; i < count; i++) {
@@ -74,10 +75,45 @@ function randomPalette(rng, count, { minSpread = 8, maxSpread = 180, baseHue = n
   }
   return colors;
 }
+var SAT_TARGET = 96;
+var LIGHT_MIN = 30;
+var LIGHT_MAX = 56;
+var LIGHT_TARGET_DARK = 34;
+var LIGHT_TARGET_LIGHT = 52;
+var BRIGHT_BACKDROP = 0.42;
+function contrastPalette(colors, backgroundLuminance, strength = 1) {
+  const goDark = backgroundLuminance > BRIGHT_BACKDROP;
+  const targetL = goDark ? LIGHT_TARGET_DARK : LIGHT_TARGET_LIGHT;
+  return colors.map((c) => {
+    const { h, s, l } = tinycolor(c).toHsl();
+    const l100 = l * 100;
+    const s100 = s * 100;
+    const nextL = l100 + (targetL - l100) * strength;
+    const nextS = Math.max(s100, s100 + (SAT_TARGET - s100) * strength);
+    return tinycolor({
+      h,
+      s: clamp(nextS, 0, 100),
+      l: clamp(nextL, LIGHT_MIN, LIGHT_MAX)
+    }).toHexString();
+  });
+}
+function meanLuminance(colors) {
+  if (!colors || colors.length === 0) return 0.5;
+  let sum = 0;
+  for (const c of colors) {
+    const { r, g, b } = tinycolor(c).toRgb();
+    const lin = (v) => {
+      const x = v / 255;
+      return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    };
+    sum += 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+  return sum / colors.length;
+}
 
 // ../src/components/Canvas/GenerateLinearGradient.js
 var GenerateLinearGradient = class {
-  constructor(width, height, complexity = 0, colors = [], rng = Math.random, { hueBias = null } = {}) {
+  constructor(width, height, complexity = 0, colors = [], rng = Math.random, { hueBias = null, hueSpread = null } = {}) {
     let config = {};
     config.width = width;
     config.height = height;
@@ -105,7 +141,12 @@ var GenerateLinearGradient = class {
       config.colors = randomPalette(
         rng,
         colorAmount,
-        hueBias !== null ? { baseHue: hueBias, minSpread: 10, maxSpread: 35 } : {}
+        hueBias !== null ? {
+          baseHue: hueBias,
+          centered: true,
+          minSpread: hueSpread ? hueSpread.min : 10,
+          maxSpread: hueSpread ? hueSpread.max : 35
+        } : {}
       );
     }
     return config;
@@ -170,7 +211,7 @@ var GenerateLargeRadialField = class {
 
 // ../src/components/Canvas/GenerateStarField.js
 var GenerateStarField = class {
-  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null) {
+  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null, backgroundLuminance = 0.5) {
     let config = {};
     config.width = width;
     config.height = height;
@@ -178,46 +219,59 @@ var GenerateStarField = class {
     let countScale = getCountScale(width, height);
     let gradientComplexity = Math.round(rng() * 4);
     const starHueBias = backgroundHue === null ? null : (backgroundHue + 180 + (rng() - 0.5) * 60 + 360) % 360;
+    const SPECTRUM_CHANCE = 0.14;
+    const spectrum = rng() < SPECTRUM_CHANCE;
     let gradientConfig = new GenerateLinearGradient(
       width,
       height,
       gradientComplexity,
       colors.reverse(),
       rng,
-      { hueBias: starHueBias }
+      {
+        hueBias: starHueBias,
+        hueSpread: spectrum ? { min: 130, max: 260 } : { min: 10, max: 35 }
+      }
+    );
+    const contrastStrength = 0.6 + rng() * 0.4;
+    gradientConfig.colors = contrastPalette(
+      gradientConfig.colors,
+      backgroundLuminance,
+      contrastStrength
     );
     config.gradientConfig = gradientConfig;
     let stars = [];
-    let xlStarSizeMax = sizeScale / 2.5;
-    let xlStarSizeMin = sizeScale / 20;
+    const ABUNDANT_CHANCE = 0.15;
+    const abundant = rng() < ABUNDANT_CHANCE;
+    let xlStarSizeMax = sizeScale / (abundant ? 3.2 : 7);
+    let xlStarSizeMin = sizeScale / 40;
     let xlStars = [];
-    for (let i = 0; i < 5; i++) {
-      let ranSize = Math.round(xlStarSizeMin + rng() * xlStarSizeMax);
+    for (let i = 0; i < 7; i++) {
+      let ranSize = Math.round(xlStarSizeMin + Math.pow(rng(), 2.4) * xlStarSizeMax);
       let ranX = Math.round(-100 + rng() * width + 100);
       let ranY = Math.round(-100 + rng() * height + 100);
       xlStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
-    stars.push(...xlStars.slice(0, Math.max(1, Math.round(5 * countScale))));
-    let largeStarSizeMax = sizeScale / 4.5;
-    let largeStarSizeMin = sizeScale / 120;
+    stars.push(...xlStars.slice(0, Math.max(1, Math.round(7 * countScale))));
+    let largeStarSizeMax = sizeScale / (abundant ? 7 : 14);
+    let largeStarSizeMin = sizeScale / 200;
     let largeStars = [];
-    for (let i = 0; i < 50; i++) {
-      let ranSize = Math.round(largeStarSizeMin + rng() * largeStarSizeMax);
+    for (let i = 0; i < 90; i++) {
+      let ranSize = Math.round(largeStarSizeMin + Math.pow(rng(), 2) * largeStarSizeMax);
       let ranX = Math.round(-100 + rng() * width + 100);
       let ranY = Math.round(-100 + rng() * height + 100);
       largeStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
-    stars.push(...largeStars.slice(0, Math.max(1, Math.round(50 * countScale))));
-    let mediumStarSizeMax = sizeScale / 100;
+    stars.push(...largeStars.slice(0, Math.max(1, Math.round(90 * countScale))));
+    let mediumStarSizeMax = sizeScale / 130;
     let mediumStarSizeMin = sizeScale / 3e3;
     let mediumStars = [];
-    for (let i = 0; i < 200; i++) {
-      let ranSize = Math.round(mediumStarSizeMin + rng() * mediumStarSizeMax);
+    for (let i = 0; i < 450; i++) {
+      let ranSize = Math.round(mediumStarSizeMin + Math.pow(rng(), 1.7) * mediumStarSizeMax);
       let ranX = Math.round(-100 + rng() * width + 100);
       let ranY = Math.round(-100 + rng() * height + 100);
       mediumStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-small" });
     }
-    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(200 * countScale))));
+    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(450 * countScale))));
     let smallStarChance = rng();
     let smallStarAmount;
     if (smallStarChance < 0.7) {
@@ -496,7 +550,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 9;
+var GENERATOR_VERSION = 10;
 var BLEND_MODES = [
   "screen",
   "overlay",
@@ -509,6 +563,19 @@ var BLEND_MODES = [
 ];
 function randomBlendMode(rng) {
   return BLEND_MODES[Math.floor(rng() * BLEND_MODES.length)];
+}
+var STAR_BLEND_ON_DARK = ["source-over", "source-over", "source-over", "lighten"];
+var STAR_BLEND_ON_LIGHT = ["source-over", "source-over", "source-over", "darken"];
+var STAR_BLEND_BIAS = 0.9;
+function starBlendMode(rng, backgroundLuminance) {
+  const roll = rng();
+  if (roll >= STAR_BLEND_BIAS) {
+    const t2 = (roll - STAR_BLEND_BIAS) / (1 - STAR_BLEND_BIAS);
+    return BLEND_MODES[Math.min(BLEND_MODES.length - 1, Math.floor(t2 * BLEND_MODES.length))];
+  }
+  const set = backgroundLuminance > BRIGHT_BACKDROP ? STAR_BLEND_ON_LIGHT : STAR_BLEND_ON_DARK;
+  const t = roll / STAR_BLEND_BIAS;
+  return set[Math.min(set.length - 1, Math.floor(t * set.length))];
 }
 function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null, legSymmetry = false } = {}) {
   const rng = makeRng(seed);
@@ -547,7 +614,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       rng
     );
   }
-  config.secondBlend = randomBlendMode(rng);
+  const backgroundLuminance = meanLuminance(config.gradientBackgroundConfig.colors);
+  config.secondBlend = starBlendMode(rng, backgroundLuminance);
   const backgroundHue = paletteColors.length === 0 ? tinycolor3(config.gradientBackgroundConfig.colors[0]).toHsl().h : null;
   config.starFieldConfig = new GenerateStarField(
     width,
@@ -555,7 +623,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     paletteColors.slice(),
     rng,
     backgroundHue,
-    sizeFrame
+    sizeFrame,
+    backgroundLuminance
   );
   let geometryChance = rng();
   const geometry = getGeometrySettings(settings);

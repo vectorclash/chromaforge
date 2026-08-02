@@ -291,6 +291,70 @@ the actual print, generated the same deterministic way.
   worth repeating next time: **`flyctl status` to confirm ALL machines took the release** (a
   split release fails roughly half of checkouts intermittently, the nastiest symptom available)
   and the free draft-order check on any product whose submitted payload changed.
+- **Star field contrast — `GENERATOR_VERSION = 10` (2026-08-02, Aaron: the stars "fade into
+  the background too much and never really pop except every now and then").** THREE causes,
+  and fixing any one alone leaves the complaint standing:
+  (1) **Blend.** `config.secondBlend` was a uniform pick from all eight `BLEND_MODES`, so 6 of
+  a 16-seed sample composited the layer under a mode that erases a star of the kind that design
+  wanted. `starBlendMode` now picks from a set chosen by the backdrop, with a 10% tail on the
+  fully unbiased pick so the old range of looks stays reachable.
+  (2) **Colour, the one that isn't obvious.** The stars are TINTED by the star field's own
+  internal gradient — `StarField` composites it through the sprite alpha with
+  `destination-atop` — and with a user palette that gradient was `colors.reverse()`, i.e. **the
+  background's own palette**: same hues, same lightness, directly on top of each other. So a
+  seed could roll `screen` and still vanish.
+  (3) **Count and size.** Fixed per-tier trip counts 5/50/200 → 7/90/450 (255 → 547 sprite
+  stars at full size), with every tier's size ceiling cut and its size draw skewed toward small.
+  Still fixed and size-independent — the `getCountScale` slice is what varies with canvas size.
+  **Three things here were reasoned wrong first and corrected only by looking at real renders.
+  Don't re-derive them the wrong way round:**
+  - **Chroma is the lever, not lightness.** `contrastPalette` first drove lightness hard toward
+    a target of 82. Aaron rejected it on sight ("silly and washed out... near white and
+    boring"): raising lightness necessarily drains a colour toward white, and a lightening blend
+    on top finishes the job. The reference this generator came from is a Hubble plate
+    gradient-mapped against the background's gradient running the other way — fully saturated
+    yellow-green/cyan/magenta at MID lightness. It now pushes saturation to 96 and confines
+    lightness to a **30–56 band**, with the direction (34 or 52) picked by the backdrop.
+  - **Perceived luminance, not HSL lightness, decides the direction** (`meanLuminance`, sRGB
+    relative luminance; threshold `BRIGHT_BACKDROP = 0.42`, exported so `starBlendMode` and
+    `contrastPalette` cannot drift apart). HSL rates pure green at exactly 0.50 — the same as
+    mid grey — so a searing green backdrop was classed as "mid" and handed light stars. By
+    luminance it is 0.72 and correctly gets deep ones. Caught on seed `aa11bb22`.
+  - **`screen` and `hard-light` are excluded from the blend sets entirely**, which reads as
+    backwards on a dark backdrop until you look: both blow a saturated mid-lightness star out to
+    a white core, and they were the single biggest contributor to the washed-out result.
+    `source-over` takes **three of four slots** in each set because it draws the star's own
+    colour untouched. Note the sets are chosen from MEAN luminance while washing is driven by
+    LOCAL luminance, so a gradient with one light corner can still wash there — that asymmetry
+    is why source-over is weighted this heavily rather than trusting the mode.
+  **Spectrum roll (added same session, Aaron: "the stars gradient never seem to get too
+  colorful... I just want the possibility of extreme colorful starfields, rarely").**
+  `SPECTRUM_CHANCE = 0.14` of auto-palette designs sweep **130–260°** of hue instead of the
+  usual tight cluster around the background's complement. The old **10–35° cap was not
+  arbitrary and was not wrong about its evidence** — a wide spread genuinely did wrap the last
+  stop back onto the background's own hue — but it mistook a property of `randomPalette`
+  walking stops FORWARD from the anchor for a property of wide spreads. `randomPalette`'s new
+  `centered` option spaces them symmetrically around the anchor, so even a 260° sweep keeps
+  every stop ≥50° off the background hue. **Capped at 260, not 360, deliberately**: a full
+  sweep necessarily passes through the hue it exists to contrast with. One unconditional
+  `rng()` draw. It reaches only auto-palette designs — with a real user palette
+  `GenerateLinearGradient` takes its `colors.length > 0` branch and neither `hueBias` nor
+  `hueSpread` has any effect, which is correct.
+  Sizes: `ABUNDANT_CHANCE = 0.15` opens the ceiling for the rare lush design; otherwise
+  `Math.pow(rng(), k)` skews each tier's already-taken draw toward the small end (no extra
+  draw). Measured over 400 seeds at 3840×2160, the largest star in a design is a median **14%**
+  of the short edge. v4's widening of the xl tier was fine for 5 stars and does not survive 7
+  next to 90 large ones.
+  Verified: blend, layer presence, geometry-shape counts and star colours are identical across
+  320²/2000²/3840×2160/3150×5550/6000² for four seeds, so the mockup-equals-print guarantee
+  holds. Comparison artifact (16 seeds, drag-wipe, real pipeline under `@napi-rs/canvas`):
+  https://claude.ai/code/artifact/4c487348-f890-4d7a-a5dd-161c3ced0ed6
+  **This bump needs BOTH follow-ups** (unlike v8): redeploy render-service, and re-run
+  `backfill-thumbnails.mjs` with **no** `--generator-version` filter — it changes output for
+  every stored design regardless of what version it was saved under, same as v9.
+  Also note `DisplayCanvas`'s two star-only animation-overlay call sites pass the real
+  `meanLuminance` of their frames' background; left at the default they'd get a different star
+  treatment than the frames they overlay.
 - **`legSymmetry` — the centre-front seam mirror (2026-07-29, Aaron's idea, same session).**
   `renderArtwork` optionally reflects the finished raster's LEFT half onto its right, so the
   two leg panels become mirror images and the pattern meets itself at the centre-front seam
