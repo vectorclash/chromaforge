@@ -313,7 +313,8 @@ export function generateArtwork(
     rng,
     backgroundHue,
     sizeFrame,
-    backgroundLuminance
+    backgroundLuminance,
+    seed
   );
 
   // Always exactly one draw regardless of the chance setting, so the rest of the sequence

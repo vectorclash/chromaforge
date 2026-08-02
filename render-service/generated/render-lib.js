@@ -210,9 +210,16 @@ var GenerateLargeRadialField = class {
 };
 
 // ../src/components/Canvas/GenerateStarField.js
+var XL_BASE = 5;
+var XL_TOTAL = 7;
+var LARGE_BASE = 50;
+var LARGE_TOTAL = 90;
+var MEDIUM_BASE = 200;
+var MEDIUM_TOTAL = 450;
 var GenerateStarField = class {
-  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null, backgroundLuminance = 0.5) {
+  constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null, backgroundLuminance = 0.5, seed = "") {
     let config = {};
+    const starRng = makeRng(`${seed}-stars`);
     config.width = width;
     config.height = height;
     let sizeScale = getElementSizeScale(width, height, sizeFrame);
@@ -220,7 +227,7 @@ var GenerateStarField = class {
     let gradientComplexity = Math.round(rng() * 4);
     const starHueBias = backgroundHue === null ? null : (backgroundHue + 180 + (rng() - 0.5) * 60 + 360) % 360;
     const SPECTRUM_CHANCE = 0.14;
-    const spectrum = rng() < SPECTRUM_CHANCE;
+    const spectrum = starRng() < SPECTRUM_CHANCE;
     let gradientConfig = new GenerateLinearGradient(
       width,
       height,
@@ -232,7 +239,7 @@ var GenerateStarField = class {
         hueSpread: spectrum ? { min: 130, max: 260 } : { min: 10, max: 35 }
       }
     );
-    const contrastStrength = 0.6 + rng() * 0.4;
+    const contrastStrength = 0.6 + starRng() * 0.4;
     gradientConfig.colors = contrastPalette(
       gradientConfig.colors,
       backgroundLuminance,
@@ -241,37 +248,40 @@ var GenerateStarField = class {
     config.gradientConfig = gradientConfig;
     let stars = [];
     const ABUNDANT_CHANCE = 0.15;
-    const abundant = rng() < ABUNDANT_CHANCE;
+    const abundant = starRng() < ABUNDANT_CHANCE;
     let xlStarSizeMax = sizeScale / (abundant ? 3.2 : 7);
     let xlStarSizeMin = sizeScale / 40;
     let xlStars = [];
-    for (let i = 0; i < 7; i++) {
-      let ranSize = Math.round(xlStarSizeMin + Math.pow(rng(), 2.4) * xlStarSizeMax);
-      let ranX = Math.round(-100 + rng() * width + 100);
-      let ranY = Math.round(-100 + rng() * height + 100);
+    for (let i = 0; i < XL_TOTAL; i++) {
+      const r = i < XL_BASE ? rng : starRng;
+      let ranSize = Math.round(xlStarSizeMin + Math.pow(r(), 2.4) * xlStarSizeMax);
+      let ranX = Math.round(-100 + r() * width + 100);
+      let ranY = Math.round(-100 + r() * height + 100);
       xlStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
-    stars.push(...xlStars.slice(0, Math.max(1, Math.round(7 * countScale))));
+    stars.push(...xlStars.slice(0, Math.max(1, Math.round(XL_TOTAL * countScale))));
     let largeStarSizeMax = sizeScale / (abundant ? 7 : 14);
     let largeStarSizeMin = sizeScale / 200;
     let largeStars = [];
-    for (let i = 0; i < 90; i++) {
-      let ranSize = Math.round(largeStarSizeMin + Math.pow(rng(), 2) * largeStarSizeMax);
-      let ranX = Math.round(-100 + rng() * width + 100);
-      let ranY = Math.round(-100 + rng() * height + 100);
+    for (let i = 0; i < LARGE_TOTAL; i++) {
+      const r = i < LARGE_BASE ? rng : starRng;
+      let ranSize = Math.round(largeStarSizeMin + Math.pow(r(), 2) * largeStarSizeMax);
+      let ranX = Math.round(-100 + r() * width + 100);
+      let ranY = Math.round(-100 + r() * height + 100);
       largeStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
-    stars.push(...largeStars.slice(0, Math.max(1, Math.round(90 * countScale))));
+    stars.push(...largeStars.slice(0, Math.max(1, Math.round(LARGE_TOTAL * countScale))));
     let mediumStarSizeMax = sizeScale / 130;
     let mediumStarSizeMin = sizeScale / 3e3;
     let mediumStars = [];
-    for (let i = 0; i < 450; i++) {
-      let ranSize = Math.round(mediumStarSizeMin + Math.pow(rng(), 1.7) * mediumStarSizeMax);
-      let ranX = Math.round(-100 + rng() * width + 100);
-      let ranY = Math.round(-100 + rng() * height + 100);
+    for (let i = 0; i < MEDIUM_TOTAL; i++) {
+      const r = i < MEDIUM_BASE ? rng : starRng;
+      let ranSize = Math.round(mediumStarSizeMin + Math.pow(r(), 1.7) * mediumStarSizeMax);
+      let ranX = Math.round(-100 + r() * width + 100);
+      let ranY = Math.round(-100 + r() * height + 100);
       mediumStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-small" });
     }
-    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(450 * countScale))));
+    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(MEDIUM_TOTAL * countScale))));
     let smallStarChance = rng();
     let smallStarAmount;
     if (smallStarChance < 0.7) {
@@ -624,7 +634,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     rng,
     backgroundHue,
     sizeFrame,
-    backgroundLuminance
+    backgroundLuminance,
+    seed
   );
   let geometryChance = rng();
   const geometry = getGeometrySettings(settings);

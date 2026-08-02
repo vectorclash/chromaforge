@@ -345,6 +345,27 @@ the actual print, generated the same deterministic way.
   draw). Measured over 400 seeds at 3840×2160, the largest star in a design is a median **14%**
   of the short edge. v4's widening of the xl tier was fine for 5 stars and does not survive 7
   next to 90 large ones.
+  **THE SIDE STREAM IS LOAD-BEARING, and this was shipped wrong first (2026-08-02).** Every
+  draw v10 adds comes from `makeRng(`${seed}-stars`)`, never from the shared `rng` — same
+  discipline as `expandMonochromePalette`'s `${seed}-palette` and `generateLabelMark`'s
+  `${seed}-label`. The first version drew from the shared stream, and because a star costs
+  THREE draws (size, x, y), raising the counts was **+876 draws** sitting upstream of
+  `geometryChance`/`overlayChance` — so it silently rerolled the geometry coin for every stored
+  design. Measured against all 45 real gallery rows: **13 lost their geometry layer outright**
+  (Aaron, live: "the recent render change has completely destroyed the existing artwork...
+  nothing we did should have touched the geometry layers at all"). Only 30 kept it, and only
+  because 21 of those carry `settings.geometry.chance = 1`, which passes regardless of the draw.
+  The tier loops therefore run the FIRST `XL_BASE`/`LARGE_BASE`/`MEDIUM_BASE` (5/50/200 — v9's
+  exact counts) off the shared `rng` and every star beyond that off `starRng`. **Never move a
+  whole loop to one stream**: all-`rng` reintroduces the bug, and all-`starRng` shifts the
+  sequence just as badly by REMOVING draws. The `_BASE` constants are the shape of v9's
+  main-stream consumption — add stars by raising `_TOTAL` only.
+  Re-verified against all 45 stored designs x 3 sizes: composition (background, radial field,
+  geometry, overlay, every blend but the star field's own) **identical to v9 on all 45**, geometry
+  presence 43/45 exactly as before, star field changed on all 45.
+  **General rule this establishes: a change that is meant to affect ONE layer must not draw from
+  the shared stream at all.** The main sequence is a shared resource, and `GENERATOR_VERSION`
+  does not protect stored designs from it — nothing renders a previous version.
   Verified: blend, layer presence, geometry-shape counts and star colours are identical across
   320²/2000²/3840×2160/3150×5550/6000² for four seeds, so the mockup-equals-print guarantee
   holds. Comparison artifact (16 seeds, drag-wipe, real pipeline under `@napi-rs/canvas`):

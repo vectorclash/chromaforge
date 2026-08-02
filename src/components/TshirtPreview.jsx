@@ -70,6 +70,13 @@ import { capMockupRenderSize } from '../lib/printful';
 // on-screen presentation is small, same as thumbnailing any other full-resolution image.
 const TEXTURE_SIZE = 1024;
 const ATLAS = 2048;
+// [0] is the FRONT panel, [1] is the BACK -- the order is load-bearing (the back is drawn
+// mirrored, see the draw call) and is NOT guessable from the rects, so it was measured off
+// the model rather than assumed: for every triangle whose UV lands inside each rect, the mean
+// POSITION z is +0.170 for [0] and -0.198 for [1], and the camera sits at +z looking at the
+// origin with no base rotation on the pivot. Normals are useless for this -- the mesh is a
+// closed solid, so each panel carries an inner and an outer surface and the +z/-z counts come
+// out even (2632 vs 2606 on [0]). Re-measure if the model is ever replaced.
 const BODY_ISLANDS = [
   { x: 61, y: 440, w: 916, h: 1332 },
   { x: 1114, y: 520, w: 872, h: 1267 }
@@ -649,8 +656,15 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const sc = TEXTURE_SIZE / ATLAS;
         ctx.drawImage(base, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
         // flipY on every island counters the atlas's flipped UV mapping (see drawCover).
-        BODY_ISLANDS.forEach(r =>
-          drawCover(ctx, body, r.x * sc, r.y * sc, r.w * sc, r.h * sc, { flipY: true })
+        // flipX on index 1 (the BACK panel) mirrors it, matching what a real order does:
+        // PRODUCT_MOCKUP_CONFIG's mirrorPlacements puts every product with a distinct back
+        // on a flipped back panel by default, so an unmirrored back here showed the shirt
+        // differently from the thing you would actually receive (Aaron, 2026-08-02).
+        BODY_ISLANDS.forEach((r, i) =>
+          drawCover(ctx, body, r.x * sc, r.y * sc, r.w * sc, r.h * sc, {
+            flipY: true,
+            flipX: i === 1
+          })
         );
         // The two sleeve islands map onto the garment in opposite orientations, so the
         // second draw is additionally horizontally mirrored -- identical draws made one

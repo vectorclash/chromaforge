@@ -1,6 +1,13 @@
 import GenerateLinearGradient from './GenerateLinearGradient';
 import { getCountScale, getElementSizeScale } from '../../render/scale';
-import { contrastPalette } from '../../render/prng';
+import { contrastPalette, makeRng } from '../../render/prng';
+
+// _BASE = how many stars v9 generated from the shared rng; _TOTAL = how many v10 draws in all.
+// The BASE values must never change -- they are the shape of v9's main-stream consumption, and
+// moving one re-rolls every saved design's composition. Add stars by raising _TOTAL only.
+const XL_BASE = 5, XL_TOTAL = 7;
+const LARGE_BASE = 50, LARGE_TOTAL = 90;
+const MEDIUM_BASE = 200, MEDIUM_TOTAL = 450;
 
 export default class GenerateStarField {
   constructor(
@@ -10,9 +17,31 @@ export default class GenerateStarField {
     rng = Math.random,
     backgroundHue = null,
     sizeFrame = null,
-    backgroundLuminance = 0.5
+    backgroundLuminance = 0.5,
+    seed = ''
   ) {
     let config = {};
+
+    // SIDE RNG STREAM -- everything v10 ADDED draws from here, never from the shared `rng`.
+    //
+    // This is not a style choice, it is the whole reason existing designs survive. The main
+    // stream is shared by every layer in sequence, so any draw added here shifts the value
+    // that lands on generateArtwork's geometryChance/overlayChance further down. v10's first
+    // version took its new draws from `rng` -- and because raising the star counts costs
+    // THREE draws per star (size, x, y), that was +876 draws -- which silently rerolled the
+    // geometry coin for every saved design. 13 of 45 real gallery designs lost their geometry
+    // layer outright (Aaron, live: "the recent render change has completely destroyed the
+    // existing artwork... nothing we did should have touched the geometry layers at all").
+    //
+    // Drawing from `${seed}-stars` instead means this layer's main-stream consumption is
+    // byte-identical to v9, so composition -- which layers exist, the geometry shapes, the
+    // overlay, the blend modes -- is untouched and only the stars themselves change. Same
+    // separate-stream discipline as expandMonochromePalette's `${seed}-palette` and
+    // generateLabelMark's `${seed}-label`.
+    //
+    // RULE for anything added here later: if it needs randomness, it draws from starRng. A new
+    // draw on `rng` is a composition change to every design in the gallery.
+    const starRng = makeRng(`${seed}-stars`);
 
     config.width = width;
     config.height = height;
@@ -25,7 +54,7 @@ export default class GenerateStarField {
 
     // Counts scale by area so a thumbnail doesn't get literally the same star counts as a
     // print (the original bug) -- but the loops below always run their ORIGINAL fixed trip
-    // count (7/90/450/tiered-small) and only KEEP a
+    // count (see the _BASE/_TOTAL constants above, plus tiered-small) and only KEEP a
     // size-scaled subset of what gets generated. This is deliberate: if the loop trip count
     // itself varied by size, rng() consumption would too, which shifts every downstream
     // draw (geometryChance, overlayChance, etc.) -- meaning the same seed could gain or
@@ -63,12 +92,14 @@ export default class GenerateStarField {
     // degrees off the background hue. Capped at 260 rather than a full 360 for exactly that
     // reason -- a full sweep necessarily passes through the hue it is supposed to contrast with.
     //
-    // ONE rng() draw, taken unconditionally, so consumption is fixed either way. It only
-    // reaches an auto-palette design: with a real user palette GenerateLinearGradient takes its
+    // Drawn from starRng (see the side-stream note at the top), so it cannot move the main
+    // sequence. Note it does NOT change randomPalette's own draw count -- the spread is one
+    // draw whatever its range -- so the gradient's main-stream consumption is unchanged. It
+    // only reaches an auto-palette design: with a real user palette GenerateLinearGradient takes its
     // colors.length > 0 branch and neither hueBias nor hueSpread has any effect, which is
     // correct -- their palette is their choice, not something to sweep.
     const SPECTRUM_CHANCE = 0.14;
-    const spectrum = rng() < SPECTRUM_CHANCE;
+    const spectrum = starRng() < SPECTRUM_CHANCE;
     let gradientConfig = new GenerateLinearGradient(
       width,
       height,
@@ -87,10 +118,9 @@ export default class GenerateStarField {
     // at the same lightness as the pixels underneath. That is why stars faded out instead of
     // popping. contrastPalette drives them away from the background's measured lightness and
     // up in saturation, preserving hue so a user's palette still reads as their palette.
-    // ONE rng() draw, taken unconditionally (never inside a branch), so consumption stays
-    // fixed -- strength is biased high, with a tail of gentler results so not every design
-    // gets the identical treatment.
-    const contrastStrength = 0.6 + rng() * 0.4;
+    // Drawn from starRng, not rng -- see the side-stream note at the top. Strength is biased
+    // high, with a tail of gentler results so not every design gets the identical treatment.
+    const contrastStrength = 0.6 + starRng() * 0.4;
     gradientConfig.colors = contrastPalette(
       gradientConfig.colors,
       backgroundLuminance,
@@ -115,10 +145,10 @@ export default class GenerateStarField {
     //      one of the rare lush ones that gets the genuinely large stars. Most designs render
     //      the restrained ceiling; ABUNDANT_CHANCE of them open it up.
     //
-    // The roll is taken unconditionally and exactly once, before any tier, so rng()
-    // consumption is fixed regardless of which branch it lands on.
+    // The roll comes from starRng (see the side-stream note at the top) so it cannot move the
+    // main sequence.
     const ABUNDANT_CHANCE = 0.15;
-    const abundant = rng() < ABUNDANT_CHANCE;
+    const abundant = starRng() < ABUNDANT_CHANCE;
 
     // Ceilings are per-tier fractions of sizeScale (bigger divisor = smaller star). The
     // restrained xl ceiling is a third of what v4's widening left it at -- that widening was
@@ -130,27 +160,35 @@ export default class GenerateStarField {
 
     // Counts are still FIXED, size-independent trip counts -- the countScale slice below is
     // what varies with canvas size, exactly as before.
-    for (let i = 0; i < 7; i++) {
-      let ranSize = Math.round(xlStarSizeMin + Math.pow(rng(), 2.4) * xlStarSizeMax);
-      let ranX = Math.round(-100 + rng() * width + 100);
-      let ranY = Math.round(-100 + rng() * height + 100);
+    //
+    // The first XL_BASE stars draw from the shared `rng`, in the same order and count as v9,
+    // and every star beyond that draws from starRng. That is what keeps the main sequence
+    // byte-identical while still adding stars -- see the side-stream note at the top. Do not
+    // "simplify" this to one stream: all-`rng` re-rolls the geometry layer for every saved
+    // design, and all-`starRng` would shift the sequence just as badly by removing draws.
+    for (let i = 0; i < XL_TOTAL; i++) {
+      const r = i < XL_BASE ? rng : starRng;
+      let ranSize = Math.round(xlStarSizeMin + Math.pow(r(), 2.4) * xlStarSizeMax);
+      let ranX = Math.round(-100 + r() * width + 100);
+      let ranY = Math.round(-100 + r() * height + 100);
 
       xlStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-large' });
     }
-    stars.push(...xlStars.slice(0, Math.max(1, Math.round(7 * countScale))));
+    stars.push(...xlStars.slice(0, Math.max(1, Math.round(XL_TOTAL * countScale))));
 
     let largeStarSizeMax = sizeScale / (abundant ? 7 : 14);
     let largeStarSizeMin = sizeScale / 200;
     let largeStars = [];
 
-    for (let i = 0; i < 90; i++) {
-      let ranSize = Math.round(largeStarSizeMin + Math.pow(rng(), 2) * largeStarSizeMax);
-      let ranX = Math.round(-100 + rng() * width + 100);
-      let ranY = Math.round(-100 + rng() * height + 100);
+    for (let i = 0; i < LARGE_TOTAL; i++) {
+      const r = i < LARGE_BASE ? rng : starRng;
+      let ranSize = Math.round(largeStarSizeMin + Math.pow(r(), 2) * largeStarSizeMax);
+      let ranX = Math.round(-100 + r() * width + 100);
+      let ranY = Math.round(-100 + r() * height + 100);
 
       largeStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-large' });
     }
-    stars.push(...largeStars.slice(0, Math.max(1, Math.round(90 * countScale))));
+    stars.push(...largeStars.slice(0, Math.max(1, Math.round(LARGE_TOTAL * countScale))));
 
     // The fine tier -- 450 of these are what "many more stars" actually looks like, so they
     // stay small and are skewed hardest of the three.
@@ -158,14 +196,15 @@ export default class GenerateStarField {
     let mediumStarSizeMin = sizeScale / 3000;
     let mediumStars = [];
 
-    for (let i = 0; i < 450; i++) {
-      let ranSize = Math.round(mediumStarSizeMin + Math.pow(rng(), 1.7) * mediumStarSizeMax);
-      let ranX = Math.round(-100 + rng() * width + 100);
-      let ranY = Math.round(-100 + rng() * height + 100);
+    for (let i = 0; i < MEDIUM_TOTAL; i++) {
+      const r = i < MEDIUM_BASE ? rng : starRng;
+      let ranSize = Math.round(mediumStarSizeMin + Math.pow(r(), 1.7) * mediumStarSizeMax);
+      let ranX = Math.round(-100 + r() * width + 100);
+      let ranY = Math.round(-100 + r() * height + 100);
 
       mediumStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-small' });
     }
-    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(450 * countScale))));
+    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(MEDIUM_TOTAL * countScale))));
 
     let smallStarChance = rng();
     let smallStarAmount;
