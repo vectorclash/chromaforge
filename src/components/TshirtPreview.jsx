@@ -102,7 +102,7 @@ const SLEEVE_ISLANDS = [
 // flipping the y1919 band instead made BOTH cuffs read as mismatched ("wearer's left"
 // = viewer-right = the y1879/mirrored-sleeve cuff was the off one).
 const STRIP_ISLANDS = [
-  { x: 29, y: 1797, w: 918, h: 34, from: 'body', edge: 'bottom' }, // back hem
+  { x: 29, y: 1797, w: 918, h: 34, from: 'body', edge: 'bottom', flip: true }, // back hem (mirrored body panel)
   { x: 30, y: 1838, w: 917, h: 34, from: 'body', edge: 'bottom' }, // front hem
   { x: 29, y: 1879, w: 725, h: 34, from: 'sleeve', edge: 'bottom', flip: true }, // cuff (mirrored sleeve)
   { x: 29, y: 1919, w: 725, h: 34, from: 'sleeve', edge: 'bottom' }, // cuff
@@ -688,8 +688,15 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
           const dw = s.w * sc + 4;
           const dh = s.h * sc + 4;
           ctx.save();
-          ctx.translate(dx + (s.flip ? dw : 0), dy);
-          ctx.scale(s.flip ? -1 : 1, 1);
+          // The vertical flip is the SAME atlas-UV correction every panel island needs
+          // (see drawCover) -- without it a trim reads upside down against the panel it
+          // continues from, which is exactly how it shipped (Aaron, 2026-08-03: front hem
+          // and both cuffs upside down). The horizontal `flip` additionally matches a
+          // strip to a panel that is itself drawn mirrored: the cuff of the flipX sleeve,
+          // and the back hem, which had been left unmirrored when the back panel gained
+          // its flipX and so wound opposite the print above it.
+          ctx.translate(dx + (s.flip ? dw : 0), dy + dh);
+          ctx.scale(s.flip ? -1 : 1, -1);
           ctx.drawImage(img, 0, srcY, img.width, bandH, 0, 0, dw, dh);
           ctx.restore();
         });
