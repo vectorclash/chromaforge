@@ -153,8 +153,14 @@ export default function SiteFooter() {
           {/* Column 1: Brand & Socials */}
           <div className="flex flex-col gap-4">
             <Wordmark className="text-base sm:text-lg" />
+            {/* Opens on the same line as the meta description (index.html), and closes on
+                the same construction as the About section's intro, so the three places that
+                describe the app in one breath agree. Deliberately says DESIGNS, not
+                "algorithms": there is one generator, and what someone makes here is a design
+                identified by a seed -- which is exactly what the About section explains. */}
             <p className="max-w-[240px] text-xs leading-relaxed">
-              An interactive, generative art playground and custom apparel workshop. Craft, save, and wear your unique algorithms.
+              A generative art studio in your browser. Save the designs you like, share them, or
+              print one on a garment.
             </p>
             {/* p-2 -m-2 on each link: grows the actual tappable box (the raw 18px svg icons
                 were well under a usable touch target) while the matching negative margin
