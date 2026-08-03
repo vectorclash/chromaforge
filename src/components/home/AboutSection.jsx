@@ -119,19 +119,13 @@ export default function AboutSection() {
       <div className={`${ROW} mt-8 lg:mt-0`}>
         <AboutShirts className={`reveal-item ${IMAGE_SIZE} lg:order-1`} />
         <div className="lg:order-2">
-          {/* This paragraph is worded for its TAIL, which is why it reads slightly long.
-              It used to end "...that came&nbsp;up.", with the non-breaking space binding the
-              last two words so `text-wrap: pretty` (tailwind.css) would pull a third word down
-              rather than strand one. That binding no longer survives: the reveal now runs the
-              copy through SplitText, whose `reduceWhiteSpace` (on by default) does
-              `replace(/\s+/g, ' ')` -- and JS `\s` matches U+00A0, so the nbsp is normalised to
-              an ordinary space before lines are measured. "up." was stranding alone on the last
-              line (Aaron, live).
-              The wording carries it instead: a longer, less end-loaded tail gives the wrap more
-              places to break acceptably. Note this makes an orphan LESS LIKELY, it does not
-              make it impossible -- if one shows up at some width again, the durable fix is
-              <span className="whitespace-nowrap"> on the last two words, which is a style on a
-              real element and so survives whitespace normalisation. */}
+          {/* This paragraph is worded for its TAIL, which is why it reads slightly long: a
+              less end-loaded ending gives `text-wrap: pretty` (tailwind.css) more acceptable
+              places to break, since pretty only prevents a ONE-word last line and this column
+              had been stranding a two-word tail. Wording is doing that job rather than a
+              non-breaking space, which an earlier version used -- if an orphan ever shows up
+              again, prefer <span className="whitespace-nowrap"> on the last two words over an
+              &nbsp;, since a real element with a style survives any text processing. */}
           <p className="reveal-item font-quicksand text-text-secondary">
             It rewards digging in, though. Feed it your own colors, work the geometry sliders,
             and you&rsquo;ll end up with something that prints far better on a garment than the
