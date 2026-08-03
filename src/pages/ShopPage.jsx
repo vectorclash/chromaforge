@@ -6,6 +6,17 @@ import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { preloadImages } from '../utils/preloadImages';
+import { DURATION_SLOW } from '../utils/motionTokens';
+
+// One source of truth for the grid geometry: the placeholder and the real grid are stacked
+// on top of each other during the crossfade, so any divergence would show as the
+// placeholder sliding sideways as it fades.
+const GRID_CLASS = 'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3';
+
+// Three columns at lg, so six tiles is roughly the first screenful; the rest stream in
+// under their own per-card placeholders, off-screen.
+const PRELOAD_COUNT = 6;
 
 // The storefront: the curated, spec-verified starter products (see STARTER_PRODUCT_IDS in
 // lib/printful.js for the current list). Each tile links to its product page where the
@@ -17,7 +28,16 @@ export default function ShopPage() {
     path: '/shop'
   });
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Catalog has landed AND the first screenful of product photos has decoded -- the moment
+  // the real grid is worth showing. Replaces a plain `loading` flag tracking the fetch
+  // alone: dropping the placeholder the instant the JSON arrived, while every photo was
+  // still in flight, left a grid of blank cards filling in afterwards (see the gallery's
+  // own notes and utils/preloadImages.js).
+  const [revealed, setRevealed] = useState(false);
+  // The placeholder outlives `revealed` by one transition so it fades out UNDER the
+  // incoming cards, rather than being cut away and leaving a frame where neither is
+  // painted -- the real cards start at opacity 0, `animate-fade-slide-up` being `backwards`.
+  const [skeletonMounted, setSkeletonMounted] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -27,11 +47,15 @@ export default function ShopPage() {
         const all = await listCatalogProducts();
         const byId = new Map(all.map(p => [p.id, p]));
         const starter = STARTER_PRODUCT_IDS.map(id => byId.get(id)).filter(Boolean);
-        if (!cancelled) setProducts(starter);
+        if (cancelled) return;
+        setProducts(starter);
+        // Hold the placeholder across the image fetch too, so the grid arrives complete.
+        // Bounded and never rejecting, so a slow CDN cannot keep the shop from appearing.
+        await preloadImages(starter.slice(0, PRELOAD_COUNT).map(p => p.image).filter(Boolean));
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setRevealed(true);
       }
     })();
     return () => {
@@ -39,14 +63,37 @@ export default function ShopPage() {
     };
   }, []);
 
+  // Drop the faded-out placeholder once its transition has run. A timer rather than
+  // `transitionend`, which never fires when prefers-reduced-motion collapses the
+  // transition to ~0ms -- that would strand it in the DOM.
+  useEffect(() => {
+    if (!revealed) return;
+    const t = setTimeout(() => setSkeletonMounted(false), DURATION_SLOW * 1000);
+    return () => clearTimeout(t);
+  }, [revealed]);
+
   return (
     <PageContainer title="Shop" subtitle="Wear the algorithm. Every piece is generated, never reprinted.">
-      {loading && (
-        <SkeletonGrid count={6} className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3" />
+      {/* Placeholder and real grid share one relative box and overlap for the crossfade.
+          While waiting the placeholder is in normal flow and gives the page its height; on
+          reveal it flips to absolute so the real grid takes over layout without the page
+          collapsing for a frame, and fades out on top. The tile count is EXACT from the
+          first frame here -- unlike the gallery, the shop knows how many products it is
+          about to show before it asks (STARTER_PRODUCT_IDS is a compile-time list), so the
+          placeholder can never promise a different page height than the content delivers. */}
+      {skeletonMounted && !error && (
+        <div className="relative">
+          <SkeletonGrid
+            count={STARTER_PRODUCT_IDS.length}
+            className={`${GRID_CLASS} transition-opacity duration-500 ease-out ${
+              revealed ? 'pointer-events-none absolute inset-x-0 top-0 opacity-0' : 'opacity-100'
+            }`}
+          />
+        </div>
       )}
       {error && <p className="animate-pop-in text-accent">{error}</p>}
-      {!loading && !error && (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {revealed && !error && (
+        <div className={GRID_CLASS}>
           {products.map((product, i) => (
             <Card
               key={product.id}
