@@ -23,8 +23,26 @@ import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 import AuthorBadge from '../components/ui/AuthorBadge';
+import { preloadImages } from '../utils/preloadImages';
+import { DURATION_SLOW } from '../utils/motionTokens';
 
 const PAGE_SIZE = 20;
+
+// One source of truth for the grid geometry: the skeleton and the real grid are stacked on
+// top of each other during the crossfade below, so any divergence between their column
+// counts or gaps would show up as the placeholder sliding sideways as it fades.
+const GRID_CLASS = 'grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4';
+
+// How many thumbnails to warm before revealing. Four columns x two rows is roughly the
+// first screenful on a desktop viewport; the rest stream in under their own per-card
+// placeholders, off-screen, where nobody watches them arrive.
+const PRELOAD_COUNT = 8;
+
+// The placeholder's tile count while the query is still in flight, i.e. the only moment we
+// genuinely don't know how many cards are coming. Public is exact whenever the feed has a
+// full page (it asks for PAGE_SIZE and gets it); `mine` is a guess for one render, and is
+// replaced by the real count for every subsequent visit -- see lastCountRef.
+const INITIAL_SKELETON_COUNT = { public: PAGE_SIZE, mine: 8 };
 
 export default function GalleryPage() {
   usePageMeta({
@@ -41,7 +59,20 @@ export default function GalleryPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('public');
   const [designs, setDesigns] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Data has landed AND the first screenful of thumbnails has decoded -- the moment the
+  // real grid is worth showing. This deliberately replaces a plain `loading` flag tracking
+  // the query alone: dropping the placeholder the instant the rows arrived, while every
+  // thumbnail was still in flight, is exactly what made the page flash a phantom grid
+  // (see preloadImages.js).
+  const [revealed, setRevealed] = useState(false);
+  // The placeholder outlives `revealed` by one transition so it can fade out UNDER the
+  // incoming cards rather than being cut away, leaving a blank frame where neither is
+  // painted (the real cards start at opacity 0 -- `animate-fade-slide-up` is `backwards`).
+  const [skeletonMounted, setSkeletonMounted] = useState(true);
+  // Remembered per tab so a return visit or a tab switch reserves the right amount of
+  // space immediately, instead of guessing and then correcting.
+  const lastCountRef = useRef({});
+  const loadTokenRef = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(null);
@@ -56,7 +87,14 @@ export default function GalleryPage() {
   // My Designs tab, and the same design appearing under both read as a duplicate.
   const load = useCallback(
     async which => {
-      setLoading(true);
+      // Switching tabs mid-flight must not let the outgoing request finish over the top of
+      // the incoming one. Worth guarding now specifically because waiting on the thumbnails
+      // widens this window from "one query" to "one query plus an image fetch".
+      const token = ++loadTokenRef.current;
+      const isStale = () => token !== loadTokenRef.current;
+
+      setRevealed(false);
+      setSkeletonMounted(true);
       setError(null);
       setHasMore(false);
       try {
@@ -64,15 +102,24 @@ export default function GalleryPage() {
           which === 'mine'
             ? await listMyDesigns()
             : await listPublicDesigns({ limit: PAGE_SIZE, excludeUserId: user?.id });
+        if (isStale()) return;
         setDesigns(rows);
+        lastCountRef.current[which] = rows.length;
         setHasMore(which === 'public' && rows.length === PAGE_SIZE);
         listMyLikedIds(rows.map(d => d.id))
           .then(ids => setLikedIds(new Set(ids)))
           .catch(() => {});
+        // Hold the placeholder across the image fetch too, so the grid arrives complete.
+        // Bounded, and never rejects, so neither a slow network nor a design with no stored
+        // thumbnail can keep the page from appearing -- see preloadImages.js.
+        await preloadImages(
+          rows.slice(0, PRELOAD_COUNT).map(d => getThumbnailUrl(d.user_id, d.id))
+        );
       } catch (err) {
+        if (isStale()) return;
         setError(err.message);
       } finally {
-        setLoading(false);
+        if (!isStale()) setRevealed(true);
       }
     },
     [user?.id]
@@ -81,6 +128,15 @@ export default function GalleryPage() {
   useEffect(() => {
     load(tab);
   }, [tab, load]);
+
+  // Drop the faded-out placeholder once its transition has run. A timer rather than
+  // `transitionend`, which never fires if the element is display:none'd or the transition
+  // is collapsed to ~0ms by prefers-reduced-motion -- either would strand it in the DOM.
+  useEffect(() => {
+    if (!revealed) return;
+    const t = setTimeout(() => setSkeletonMounted(false), DURATION_SLOW * 1000);
+    return () => clearTimeout(t);
+  }, [revealed]);
 
   const onLoadMore = async () => {
     const cursor = designs[designs.length - 1]?.created_at;
@@ -220,8 +276,25 @@ export default function GalleryPage() {
         )}
       </div>
 
-      {loading && (
-        <SkeletonGrid count={8} className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4" />
+      {/* The placeholder and the real grid live in one relative box and overlap for the
+          length of the crossfade. While waiting, the placeholder is in normal flow and is
+          what gives the page its height; on reveal it flips to absolute so the real grid
+          takes over the layout without the page collapsing to zero height for a frame, and
+          fades out on top. Both use GRID_CLASS, so the tiles it fades out of line up with
+          the cards fading in. */}
+      {skeletonMounted && !error && (
+        <div className="relative">
+          <SkeletonGrid
+            count={
+              // Exact as soon as the rows are in hand -- the guess only covers the query
+              // itself, so the tile count never visibly corrects underneath the reveal.
+              designs.length || lastCountRef.current[tab] || INITIAL_SKELETON_COUNT[tab]
+            }
+            className={`${GRID_CLASS} transition-opacity duration-500 ease-out ${
+              revealed ? 'pointer-events-none absolute inset-x-0 top-0 opacity-0' : 'opacity-100'
+            }`}
+          />
+        </div>
       )}
       {error && (
         <p className="animate-pop-in text-accent">
@@ -231,7 +304,7 @@ export default function GalleryPage() {
           </button>
         </p>
       )}
-      {!loading && !error && designs.length === 0 && (
+      {revealed && !error && designs.length === 0 && (
         <div className="flex animate-fade-slide-up flex-col items-center gap-5 py-12 text-center">
           {/* The studio's own live preview, not a stock illustration -- an empty gallery
               should still look like this is a generative art tool, not a blank state from
@@ -270,8 +343,8 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {!loading && designs.length > 0 && (
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
+      {revealed && designs.length > 0 && (
+        <div className={GRID_CLASS}>
           {designs.map((design, i) => (
             <Card
               key={design.id}
