@@ -1,7 +1,12 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+# Unanchored on purpose: `/node_modules` only ever covered the repo root, so
+# render-service/node_modules was tracked by accident -- 39 files including macOS-only
+# native binaries (a 27MB skia .node) that nothing uses. The Docker image runs its own
+# `npm ci` from package-lock.json, and scripts/check-render-regression.mjs symlinks the
+# local install into its worktree, so no build path ever wanted them in git.
+node_modules
 /.pnp
 .pnp.js
 
