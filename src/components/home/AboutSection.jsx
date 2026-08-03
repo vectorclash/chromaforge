@@ -56,7 +56,9 @@ export default function AboutSection() {
   const ref = useScrollTriggerReveal();
   return (
     <section id="about" ref={ref} className="mx-auto max-w-5xl px-6 py-24">
-      <div className="reveal-item mb-12 lg:mb-16">
+      {/* mb-8 matches ROW's gap-8, keeping the mobile stack on one rhythm; the roomier
+          mb-16 is a desktop-only separation between the header and the first row. */}
+      <div className="reveal-item mb-8 lg:mb-16">
         <p className="font-quicksand text-xs font-bold uppercase tracking-[0.18em] text-accent">
           How it works
         </p>
@@ -77,7 +79,20 @@ export default function AboutSection() {
           desktop. Free to do because each visual is an aria-hidden canvas, so DOM order
           carries no reading order. */}
       <div className={ROW}>
-        <AboutBlob className={`reveal-item ${IMAGE_SIZE} lg:order-2`} />
+        {/* AboutBlob's canvas is deliberately larger than the silhouette (its MARGIN block
+            reserves room for the edge stars and the wobble), so 12.73% of its height is
+            transparent below the blob and 19.35% above it (the top edge star reaches
+            furthest) -- against AboutShirts, whose hexagon backdrop is full-bleed. Left
+            alone, the mobile stack's gaps measure equal but READ unequal.
+            Pulled back as percentages, not px: a percentage margin resolves against the
+            container's WIDTH, and each blank is a fixed fraction of the canvas, so
+            dividing by CANVAS_W/CANVAS_H gives 8.87% and 13.48% of the width, which hold
+            at every viewport.
+            Only in the stack -- at lg the rule separates the rows and items-center would
+            just re-centre a shortened box. */}
+        <AboutBlob
+          className={`reveal-item ${IMAGE_SIZE} -mt-[13.48%] -mb-[8.87%] lg:order-2 lg:mt-0 lg:mb-0`}
+        />
         <p className="reveal-item font-quicksand text-text-secondary lg:order-1">
           It started as a few tools I was building to make art with. I wanted to see whether I
           could make my work directly in code, and one thing led to another until it was a full
@@ -88,25 +103,39 @@ export default function AboutSection() {
 
       {/* Fades out at both ends rather than butting into the padding as a hard line, the same
           way the hero's dot grid dissipates. Its own reveal-item so it draws in with the row
-          it introduces instead of sitting there ahead of the content. */}
+          it introduces instead of sitting there ahead of the content.
+          Desktop only: it separates two side-by-side rows. In the mobile stack there are no
+          rows to separate -- every element is already one-per-line -- so the rule and its
+          spacing both go. */}
       <div
-        className="reveal-item my-14 h-px bg-gradient-to-r from-transparent via-[rgba(250,250,250,0.14)] to-transparent lg:my-20"
+        className="reveal-item hidden h-px bg-gradient-to-r from-transparent via-[rgba(250,250,250,0.14)] to-transparent lg:my-20 lg:block"
         aria-hidden="true"
       />
 
-      <div className={ROW}>
+      {/* mt-8 matches ROW's own gap-8, so in the mobile stack the shirts sit the same
+          distance below the preceding paragraph as the blob does above its one -- one
+          consistent rhythm down the column. Zeroed at lg, where the rule's my-20 separates
+          the two rows instead. */}
+      <div className={`${ROW} mt-8 lg:mt-0`}>
         <AboutShirts className={`reveal-item ${IMAGE_SIZE} lg:order-1`} />
         <div className="lg:order-2">
-          {/* The non-breaking space is doing real work, not decoration. The site-wide
-              `text-wrap: pretty` rule (tailwind.css) only prevents a ONE-word last line, and
-              at the 460px column this row is pinned to on every desktop width it was landing
-              on a two-word tail ("came up.") -- measured, at every viewport from 1024 up, not
-              just a couple of unlucky widths. Binding the last two words makes pretty treat
-              them as a single token, so it pulls a third word down instead. */}
+          {/* This paragraph is worded for its TAIL, which is why it reads slightly long.
+              It used to end "...that came&nbsp;up.", with the non-breaking space binding the
+              last two words so `text-wrap: pretty` (tailwind.css) would pull a third word down
+              rather than strand one. That binding no longer survives: the reveal now runs the
+              copy through SplitText, whose `reduceWhiteSpace` (on by default) does
+              `replace(/\s+/g, ' ')` -- and JS `\s` matches U+00A0, so the nbsp is normalised to
+              an ordinary space before lines are measured. "up." was stranding alone on the last
+              line (Aaron, live).
+              The wording carries it instead: a longer, less end-loaded tail gives the wrap more
+              places to break acceptably. Note this makes an orphan LESS LIKELY, it does not
+              make it impossible -- if one shows up at some width again, the durable fix is
+              <span className="whitespace-nowrap"> on the last two words, which is a style on a
+              real element and so survives whitespace normalisation. */}
           <p className="reveal-item font-quicksand text-text-secondary">
             It rewards digging in, though. Feed it your own colors, work the geometry sliders,
             and you&rsquo;ll end up with something that prints far better on a garment than the
-            first thing that came&nbsp;up.
+            first thing the generator happened to hand you.
           </p>
           <div className="reveal-item mt-6">
             <Link to="/studio" className="font-quicksand text-sm text-text-muted transition hover:text-text">
