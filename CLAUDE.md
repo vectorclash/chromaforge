@@ -795,6 +795,39 @@ achieves it, not over-investment. An earlier version of this component got place
 bar to preserve, not a starting point to approximate away from. Anything that moves UVs or
 island rects (a different model, more aggressive decimation) must be checked against real
 renders, since it can silently reintroduce that failure.
+**The shirt looks like a DIFFERENT PIECE from the artwork behind it, and that is intended —
+settled 2026-08-05 (Aaron: keep print fidelity). Don't re-diagnose it as a lighting or
+colour bug; it isn't one.** Reported twice as the shirt "feeling different" / "darker". The
+body texture renders at the t-shirt printfile's aspect (4200×5400, capped to 1556×2000)
+while the wall behind it is the studio's 16:9, and `getElementSizeScale`'s aspect term puts
+the panel's elements at **52% of the short edge against the background's 100%**, at
+`getCountScale` **0.61**. On top of that, recompose-per-ratio means the portrait render is a
+freshly generated layout from the seed, not a crop of the landscape one — so the shapes are
+smaller AND somewhere else. Half-size translucent shapes stack denser, which is why the
+shirt reads more saturated while the wall reads washed. The only real lever is rendering the
+texture at 16:9 and cover-cropping it into the island rects (the shirt would then show
+literally the same composition, cropped) — explicitly rejected, since it would stop
+depicting how the design actually prints.
+**Lighting was separately recalibrated the same day**, a real 8% fix that is NOT the above:
+the previous ambient 2.26 / key 1.04 solved for a camera-facing surface, which is the
+brightest fabric on screen rather than the typical fabric — measured over every visible
+triangle of the real `.glb` weighted by projected area, that 0.964 sat at the top of a
+0.78→1.05 spread whose mean was **0.921**, with a third of the garment below 0.9. The target
+is now the area-weighted mean, not the peak.
+Same session, the garment also gained the two cues that make it read as CLOTH rather than a
+printed surface — a procedural sky/floor gradient environment (built in-component, PMREM'd;
+NOT `RoomEnvironment`, whose coloured panels would tint the fabric) and `sheen` on both
+materials. Both were chosen because they leave camera-facing colour alone: sheen peaks at
+grazing angles, and the environment's mean radiance is normalised so it trades against
+`AmbientLight` one-for-one (a uniform env of radiance L gives irradiance πL, i.e. a displayed
+factor of exactly L). Hence `AMBIENT` is DERIVED, not typed — `π * (1 - ENV_IRRADIANCE) -
+key * 0.743`, with 0.743 the measured mean of N·L over the visible garment. `KEY_INTENSITY`,
+`ENV_IRRADIANCE` and `SHEEN` are the only knobs; the brightness sum is conserved whatever
+they're set to. **A spotlight is the wrong tool here despite being the usual reach** (and
+despite Aaron's past three.js experience that only spotlights behaved — that was almost
+certainly the pre-r155 `useLegacyLights` unit change, long gone at three 0.185): its distance
+decay makes brightness positional, so no single factor could map a texel to the background's
+colour.
 The hero's compact studio panel (DisplayCanvas's `compact` branch) lost its glass backing
 (`.controls-compact` overrides in `components.css` kill the backdrop-filter/gradient
 border/padding; Save gets its own dark translucent fill since its base style is
