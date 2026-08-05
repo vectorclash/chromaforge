@@ -33,8 +33,10 @@ const MODAL_RENDER_SIZE = 1400;
 // The budget shrank from 210px to 130px when the title/author/chips moved ON TOP of the
 // artwork (see the render below): the only thing still stacked beneath the square is the
 // action bar, so the artwork gets that space back as size instead.
+// The 2rem terms are the backdrop's own p-4 gutter (both sides), so the width cap and the
+// height-derived cap both measure the space actually available inside it.
 const PANEL_SIZE_CLASS =
-  'w-[min(100vw,calc(100dvh_-_130px))] sm:w-[min(90vw,calc(90vh_-_130px),1000px)]';
+  'w-[min(100vw_-_2rem,calc(100dvh_-_2rem_-_130px))] sm:w-[min(90vw,calc(90vh_-_130px),1000px)]';
 
 // Pixel size the full render is downscaled to before sampling its palette. Big enough that
 // drawImage's averaging doesn't mute a design's vivid accents into the wash behind them,
@@ -168,18 +170,19 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
 
   return (
     <div
-      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/70 backdrop-blur-sm sm:p-6"
+      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-sm sm:p-6"
       onClick={onClose}
     >
       <SolidPanel
         className={
-          // p-0 + overflow-hidden: the artwork is full-bleed to the panel's own edges, and
-          // on phones the panel itself is flush to the window (no backdrop padding), so the
-          // image reaches the screen edge and the metadata rides on top of it rather than
-          // competing with it for vertical space. The corner radius stays .cf-solid's own
-          // 16px at every width -- it's what --animate-iris-in's clip-path ends on, and
+          // p-0 + overflow-hidden: the artwork is full-bleed to the panel's own edges, so
+          // the metadata rides on top of it rather than competing with it for vertical
+          // space. The panel keeps a gutter to the window on phones (the backdrop's p-4) --
+          // flush to the edge read as awkward. max-h-full, not a dvh value: the flex parent
+          // is already the viewport minus that gutter. The corner radius stays .cf-solid's
+          // own 16px at every width -- it's what --animate-iris-in's clip-path ends on, and
           // .cf-solid is unlayered CSS so a `rounded-none` utility would lose to it anyway.
-          'relative flex max-h-[100dvh] flex-col overflow-hidden animate-iris-in p-0 sm:max-h-[92vh] ' +
+          'relative flex max-h-full flex-col overflow-hidden animate-iris-in p-0 sm:max-h-[92vh] ' +
           PANEL_SIZE_CLASS
         }
         role="dialog"
