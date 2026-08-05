@@ -273,22 +273,45 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.setSize(size, size);
-        // The material's Lambert diffuse term is albedo/pi * irradiance, so a surface
-        // lit by ambient alone (most of a curved garment -- only the side facing `key`
-        // gets direct contribution) rendered noticeably darker than the true texture at
-        // the old 2.4 ambient intensity (2.4/pi = 76%). Raised so that floor lands near
-        // 100% (3.2/pi = 102%); ACESFilmicToneMapping rolls the now-brighter directly-lit
-        // side (which would otherwise hard-clip to white, losing color/saturation) off
-        // gracefully instead of clipping -- confirmed both ends needed together, since
-        // raising ambient alone without tone mapping pushed the lit side further into
-        // washed-out clipping.
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.0;
+        // LIGHTING IS CALIBRATED SO THE SHIRT REPRODUCES THE TEXTURE, NOT MERELY SO IT
+        // LOOKS LIT. The shirt sits directly beside the same design rendered flat as the
+        // page background, so any deviation reads as the two being different colours --
+        // reported live (2026-08-05) as the shirt's colours "feeling different" on bright,
+        // saturated designs.
+        //
+        // The previous setup (ambient 3.2 / key 1.6 under ACESFilmicToneMapping) had the
+        // whole garment past white before tone mapping: the diffuse term is
+        // irradiance * albedo/pi, so even the DIMMEST, ambient-only part of the shirt sat at
+        // 3.2/pi = 1.02, and the lit side at 1.53. That put every pixel of the garment inside
+        // the compressed shoulder of the ACES curve, which desaturates and hue-shifts as it
+        // rolls off. Measured against three.js's own ACES fit, front-facing fabric averaged
+        // dE 17.5 off the true texture colour and peaked at 37.5 -- cyan #00e5ff rendered as
+        // #a5e6ea, a pale grey-cyan with its red channel pushed from 0 to 165. Saturated
+        // brights were the worst hit, which is exactly the case that was reported.
+        //
+        // The fix is to keep the whole garment on the LINEAR part of the response instead:
+        // no tone mapping, and total irradiance chosen so a front-facing surface lands at
+        // almost exactly 1.0 (2.26 + 1.04 * 0.743 = 3.03; 3.03/pi = 0.964). A texel then
+        // survives sRGB-decode -> multiply -> sRGB-encode unchanged, so fabric facing the
+        // viewer is the same colour as the background. Front-facing error drops to dE 1.0
+        // (worst 1.5, on white, from the peak 1.05 factor clipping slightly).
+        //
+        // COUNTERINTUITIVE PART, DO NOT "RESTORE" THE OLD VALUES TO GET DEPTH BACK: cutting
+        // the lights this far costs no visible modelling. The old 1.02 -> 1.53 swing looks
+        // like far more shading than the new 0.72 -> 1.05 one, but ACES was flattening most
+        // of it -- measured displayed shading range across the garment is 6.5 points of
+        // luminance before and 6.4 after. Nearly the same form, from a third of the light,
+        // because it's no longer being spent inside the compressed part of the curve.
+        //
+        // The model carries no normal map, no AO and no vertex colours (verified in the
+        // .glb), so `key` is the ONLY source of form -- keep the two intensities in their
+        // current ratio if either is ever retuned, and re-check both numbers together.
+        renderer.toneMapping = THREE.NoToneMapping;
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
-        scene.add(new THREE.AmbientLight(0xffffff, 3.2));
-        const key = new THREE.DirectionalLight(0xffffff, 1.6);
+        scene.add(new THREE.AmbientLight(0xffffff, 2.26));
+        const key = new THREE.DirectionalLight(0xffffff, 1.04);
         key.position.set(2, 3, 4);
         scene.add(key);
 

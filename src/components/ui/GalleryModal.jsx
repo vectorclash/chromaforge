@@ -9,6 +9,7 @@ import AnimationIcon from '../buttons/AnimationIcon';
 import { getThumbnailUrl } from '../../lib/designs';
 import { useStudio } from '../../context/StudioContext';
 import AuthorBadge from './AuthorBadge';
+import samplePalette from '../../utils/samplePalette';
 
 // Rendered bigger than the 320x320 gallery thumbnail so the artwork actually looks crisp
 // full-screen-ish, but well short of print resolution -- this is a preview, not a print
@@ -30,6 +31,15 @@ const MODAL_RENDER_SIZE = 1400;
 // separately-capped max-w-[95vw] panel once its own padding was subtracted, and bled out
 // past the panel's edge on narrow viewports).
 const PANEL_SIZE_CLASS = 'w-[min(90vw,calc(90vh_-_210px),1000px)]';
+
+// Pixel size the full render is downscaled to before sampling its palette. Big enough that
+// drawImage's averaging doesn't mute a design's vivid accents into the wash behind them,
+// small enough that getImageData + the scan is free.
+const SAMPLE_SIZE = 200;
+
+// How many swatches the rail shows. Five matches the largest stored palette in the gallery
+// (sizes run 3-6, and a 6th dot starts crowding the seed chip beside it on a narrow panel).
+const SWATCH_COUNT = 5;
 
 const PILL =
   'flex h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 font-quicksand text-sm font-semibold transition';
@@ -55,6 +65,14 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
   const { renderDesignBlob, queueReady } = useStudio();
   const [fullSrc, setFullSrc] = useState(null);
   const [fullLoaded, setFullLoaded] = useState(false);
+  // Palette sampled off the full render, used only when the design has no palette of its
+  // own. Most of the gallery is in that case -- a design's `colors` is the palette the user
+  // explicitly picked, and an auto-palette design stores an empty array (37 of 47 rows when
+  // this was built), deriving its colours from the seed inside the generators without ever
+  // persisting them. Keyed off the render rather than the stored thumbnail because the
+  // render is a same-origin blob: URL, so the canvas isn't tainted; the thumbnail comes from
+  // Storage and getImageData on it would throw.
+  const [sampledColors, setSampledColors] = useState(null);
   // This component stays mounted (GalleryPage always renders it; `design` just flips
   // between an object and null), so `fullSrc`/`fullLoaded` persist across closes. Track
   // which design they actually belong to so reopening the SAME design shows the already-
@@ -72,6 +90,7 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
     if (!design || design.id === renderedIdRef.current) return;
     setFullSrc(null);
     setFullLoaded(false);
+    setSampledColors(null);
     if (fullSrcRef.current) URL.revokeObjectURL(fullSrcRef.current);
   }, [design?.id]);
 
@@ -116,6 +135,33 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
 
   if (!design) return null;
 
+  const storedColors = Array.isArray(design.data?.colors) ? design.data.colors : [];
+  const swatches = (storedColors.length ? storedColors : sampledColors || []).slice(0, SWATCH_COUNT);
+  const seed = design.data?.seed;
+  // Only surfaced when the design actually carries non-default settings -- compactDesign
+  // omits `settings` entirely otherwise, and a "coherence 0" chip on every design that
+  // never touched the sliders would be noise standing in for an answer nobody asked for.
+  const coherence = design.data?.settings?.geometry?.coherence;
+  const hasChips = swatches.length > 0 || seed || coherence != null;
+
+  // Reads the palette off the render once it's on screen. Runs in the load handler rather
+  // than an effect because it needs the decoded image, which is exactly what this event
+  // reports. Failure is silent and non-fatal: the rail just doesn't render.
+  const handleFullLoad = e => {
+    setFullLoaded(true);
+    if (storedColors.length || sampledColors) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = SAMPLE_SIZE;
+      canvas.height = SAMPLE_SIZE;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(e.target, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+      setSampledColors(samplePalette(ctx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE), SWATCH_COUNT));
+    } catch {
+      setSampledColors([]);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-sm sm:p-6"
@@ -123,7 +169,8 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
     >
       <SolidPanel
         className={
-          'relative flex max-h-[92vh] flex-col overflow-y-auto animate-pop-in p-5 sm:p-6 ' + PANEL_SIZE_CLASS
+          'relative flex max-h-[92vh] flex-col overflow-y-auto animate-iris-in p-5 sm:p-6 ' +
+          PANEL_SIZE_CLASS
         }
         role="dialog"
         aria-modal="true"
@@ -140,38 +187,52 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           <CloseIcon />
         </Button>
 
-        <div className="pr-10">
-          <h2 id="gallery-modal-title" className="truncate font-quicksand text-lg font-bold text-text">
+        {/* The entrance is one orchestrated beat, not three independent ones: the panel
+            irises open, the artwork blooms out of blur inside it, then the title and the
+            actions arrive on the existing reveal-quick stagger (same pattern/delays as
+            ProductPage's mockup reveal). Delays are inline because they're per-element
+            offsets within one sequence, which is what the token's own comment describes. */}
+        <div className="animate-reveal-quick pr-10" style={{ animationDelay: '160ms' }}>
+          <h2
+            id="gallery-modal-title"
+            className="truncate font-quicksand text-xl font-bold tracking-tight text-text"
+          >
             {design.title || (design.kind === 'animation' ? 'Untitled animation' : 'Untitled')}
           </h2>
-          <AuthorBadge profile={design.profiles} size="md" className="mt-1" />
+          <AuthorBadge profile={design.profiles} size="md" className="mt-1.5" />
         </div>
 
-        <div className="relative mt-4 aspect-square w-full shrink-0 overflow-hidden rounded-xl bg-ink-900">
-          <FadeImage
-            key={design.id}
-            src={getThumbnailUrl(design.user_id, design.id)}
-            alt=""
-            onError={e => {
-              e.target.style.visibility = 'hidden';
-            }}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          {fullSrc && (
-            <img
-              key={fullSrc}
-              src={fullSrc}
-              alt={design.title || 'Untitled design'}
-              onLoad={() => setFullLoaded(true)}
-              className={
-                'absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ' +
-                (fullLoaded ? 'opacity-100' : 'opacity-0')
-              }
+        <div className="relative mt-4 aspect-square w-full shrink-0 overflow-hidden rounded-xl bg-ink-900 ring-1 ring-white/5">
+          {/* The bloom lives on this inner wrapper rather than the rounded container above
+              so its blur and 1.06 overscale are clipped by that container's own
+              overflow-hidden -- on the container itself, the blur would soften the panel's
+              corners for the length of the animation. */}
+          <div className="absolute inset-0 animate-bloom-in">
+            <FadeImage
+              key={design.id}
+              src={getThumbnailUrl(design.user_id, design.id)}
+              alt=""
+              onError={e => {
+                e.target.style.visibility = 'hidden';
+              }}
+              className="absolute inset-0 h-full w-full object-cover"
             />
-          )}
+            {fullSrc && (
+              <img
+                key={fullSrc}
+                src={fullSrc}
+                alt={design.title || 'Untitled design'}
+                onLoad={handleFullLoad}
+                className={
+                  'absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ' +
+                  (fullLoaded ? 'opacity-100' : 'opacity-0')
+                }
+              />
+            )}
+          </div>
           {design.kind === 'animation' && (
             <div
-              className="pointer-events-none absolute left-3 top-3 flex items-center gap-1 rounded-full bg-black/40 px-2.5 py-1.5 text-text backdrop-blur-sm"
+              className="pointer-events-none absolute left-3 top-3 flex items-center gap-1 rounded-full border border-white/10 bg-black/50 px-2.5 py-1.5 text-text backdrop-blur-sm"
               title="Animation"
             >
               <AnimationIcon size={14} />
@@ -179,12 +240,67 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           )}
         </div>
 
+        {/* The design's own facts, between the artwork and the things you can do to it.
+            Every chip is conditional: an animation has no seed or palette, and a design that
+            never touched the geometry sliders has no settings -- the row itself disappears
+            rather than rendering an empty shell. Shares the actions' stagger delay so it
+            arrives with them as one group, not as a fourth beat. */}
+        {hasChips && (
+          <div
+            className="mt-4 flex animate-reveal-quick flex-wrap items-center gap-2"
+            style={{ animationDelay: '280ms' }}
+          >
+            {swatches.length > 0 && (
+              <span
+                className="flex h-7 items-center rounded-full border border-hairline bg-ink-900 px-2.5"
+                title={
+                  storedColors.length
+                    ? `Palette: ${swatches.join(', ')}`
+                    : `Colors in this design: ${swatches.join(', ')}`
+                }
+              >
+                {/* Overlapped, so five swatches read as one palette object rather than five
+                    separate dots competing with the chips beside them. The ring is the chip's
+                    own background, which is what makes the overlap legible. */}
+                <span className="flex">
+                  {swatches.map((hex, i) => (
+                    <span
+                      key={hex + i}
+                      className="h-4 w-4 rounded-full ring-2 ring-ink-900"
+                      style={{ backgroundColor: hex, marginLeft: i === 0 ? 0 : '-5px' }}
+                    />
+                  ))}
+                </span>
+              </span>
+            )}
+
+            {seed && (
+              <span className="flex h-7 items-center gap-1.5 rounded-full border border-hairline bg-ink-900 px-2.5 font-quicksand text-xs font-semibold text-text-secondary">
+                <span className="text-[10px] uppercase tracking-widest text-text-muted">Seed</span>
+                <span className="tabular-nums">{seed}</span>
+              </span>
+            )}
+
+            {coherence != null && (
+              <span className="flex h-7 items-center gap-1.5 rounded-full border border-hairline bg-ink-900 px-2.5 font-quicksand text-xs font-semibold text-text-secondary">
+                <span className="text-[10px] uppercase tracking-widest text-text-muted">
+                  Coherence
+                </span>
+                <span className="tabular-nums">{coherence}</span>
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Two rows, not one wrapping flex row -- with 3-4 pills plus a CTA, wrapping
             could strand "Open in studio" alone on its own line, still pinned to the
             right via ml-auto, which read as a stray floating button rather than a
             deliberate primary action. A dedicated full-width row below the quick actions
             reads the same (and looks intentional) at every width instead. */}
-        <div className="mt-5 flex flex-wrap items-center gap-3">
+        <div
+          className="mt-5 flex animate-reveal-quick flex-wrap items-center gap-3"
+          style={{ animationDelay: '280ms' }}
+        >
           <button
             type="button"
             onClick={() => onToggleLike(design)}
@@ -193,7 +309,9 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           >
             <HeartIcon filled={liked} size={18} />
             <span>{liked ? 'Liked' : 'Like'}</span>
-            {design.likes_count > 0 && <span className="text-text-muted">{design.likes_count}</span>}
+            {design.likes_count > 0 && (
+              <span className="tabular-nums text-text-muted">{design.likes_count}</span>
+            )}
           </button>
 
           {design.kind !== 'animation' && (
@@ -223,7 +341,11 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
         <button
           type="button"
           onClick={() => onOpenStudio(design)}
-          className={PILL + ' mt-3 w-full justify-center border-accent/60 text-accent hover:bg-accent/10'}
+          className={
+            PILL +
+            ' mt-3 w-full animate-reveal-quick justify-center border-accent/60 text-accent hover:bg-accent/10'
+          }
+          style={{ animationDelay: '340ms' }}
         >
           <span>Open in studio</span>
           <ArrowIcon size={14} />

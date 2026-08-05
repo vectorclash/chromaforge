@@ -125,6 +125,24 @@
      baked into the keyframe, so this only suits content that is exactly one h-8 row with
      an mt-4 above it -- don't reuse it for arbitrary-height content. */
   --animate-expand-in: expand-in var(--duration-base) ease-out both;
+
+  /* Gallery modal panel -- an iris rather than pop-in's scale-overshoot. The panel opens
+     from a small centred square out to its full rounded rect, which reads as the artwork
+     being framed rather than a dialog arriving. Deliberately NOT shared with ConfirmDialog:
+     an iris on a text confirmation would be a flourish with nothing behind it, whereas here
+     the thing being revealed is the whole point of the modal. The clip-path's end radius is
+     .cf-solid's own 16px (components.css) so the reveal lands exactly on the panel's edge
+     instead of cutting a differently-rounded hole just inside it -- keep the two in sync.
+     Slower than --duration-slow on purpose: this is the one entrance in the app allowed to
+     take its time. */
+  --animate-iris-in: iris-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  /* The artwork inside that panel -- resolves out of blur and desaturation instead of
+     fading. It mirrors what is literally happening behind it: the stored thumbnail is on
+     screen while renderDesignBlob finishes a full-density render, so the piece really is
+     coming into focus. `both` so the un-blurred end state holds; a dropped filter would
+     otherwise snap back on the last frame. */
+  --animate-bloom-in: bloom-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes expand-in {
@@ -216,6 +234,30 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes iris-in {
+  from {
+    opacity: 0;
+    clip-path: inset(42% 42% 42% 42% round 40px);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 16px);
+  }
+}
+
+@keyframes bloom-in {
+  from {
+    opacity: 0;
+    filter: blur(18px) saturate(0.4);
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0) saturate(1);
+    transform: scale(1);
   }
 }
 
