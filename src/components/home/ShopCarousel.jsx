@@ -164,18 +164,19 @@ export default function ShopCarousel() {
       // Only animate cards near the visible window -- anything farther out is already at
       // (or snapping to) opacity 0 and doesn't need a tween.
       const near = d >= -2 && d <= visibleCount + 1;
-      // .cf-card has its own `transition: transform 0.2s` for its hover-lift effect
-      // (components.css) -- since GSAP writes `transform` via inline style every frame,
-      // the browser's CSS transition was *also* smoothing those writes on top of GSAP's
-      // own easing, dragging scale ~200ms behind opacity/x and causing a visible pop when
-      // the snap correction set it instantly. `transition: 'none'` here overrides that for
-      // these elements specifically (their hover-lift becomes a snap instead of an ease,
-      // an acceptable trade for cards GSAP is already constantly repositioning).
+      // Cards outside the active window are the faded peek slivers that live under the edge
+      // gradients -- see `.cf-card.carousel-card.is-peek` in components.css for why they get
+      // no hover shadow. `edgeFalloff` treats exactly this range as unfaded.
+      el.classList.toggle('is-peek', !(d >= 0 && d <= visibleCount - 1));
+      // No `transition` written here on purpose: the CSS transition that was smoothing
+      // GSAP's own transform writes is now scoped to box-shadow on `.carousel-card`, so the
+      // inline override this used to need is gone -- and with it the hover shadow snapping
+      // on/off with no ease. See components.css.
       if (animate && near) {
-        gsap.to(el, { opacity, scale, duration, ease, overwrite: 'auto', transition: 'none' });
+        gsap.to(el, { opacity, scale, duration, ease, overwrite: 'auto' });
       } else {
         gsap.killTweensOf(el);
-        gsap.set(el, { opacity, scale, transition: 'none' });
+        gsap.set(el, { opacity, scale });
       }
     });
   }
@@ -410,7 +411,7 @@ export default function ShopCarousel() {
                   key={`${i}-${product.id}`}
                   as={Link}
                   to={`/shop/${product.id}`}
-                  className="group shrink-0"
+                  className="carousel-card group shrink-0"
                   style={{ width: cardWidth || undefined }}
                 >
                   <div className="relative aspect-square overflow-hidden bg-ink-900">

@@ -226,6 +226,37 @@
   box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.8);
 }
 
+/* ShopCarousel's cards, which GSAP repositions every frame. Transform is dropped from the
+   transition list (box-shadow keeps its ease) because the browser was ALSO smoothing GSAP's
+   own per-frame transform writes on top of GSAP's easing, dragging scale ~200ms behind
+   opacity/x. That used to be handled by GSAP writing inline `transition: none` on each card,
+   which fixed the transform but made the hover shadow SNAP on and off with no ease -- under
+   the edge-fade gradients that read as them flashing in and out (Aaron, 2026-08-11). Scoping
+   the transition here fixes the transform smoothing at its source and lets the shadow ease
+   again; the carousel no longer writes `transition` inline at all.
+   The hover lift is intentionally not restored: GSAP holds an inline transform on these
+   cards, which outranks this rule, so it has never applied to them. */
+.cf-card.carousel-card {
+  transition: box-shadow 0.2s;
+}
+
+/* Cards outside the active window are inert. They sit under the edge-fade gradients at 50%
+   opacity, scaled down and clipped by the stage -- presented, deliberately, as off-stage.
+   They were still full hover targets, and because the gradients are `pointer-events: none`
+   the cursor reached straight through them: rolling along the row ran the card's whole
+   hover treatment underneath the fade -- box-shadow, `group-hover` image zoom, the caption
+   sliding up -- appearing on whichever edge the cursor was near and vanishing again as it
+   crossed the scaled-down hit box. That is the "gradients flashing in and out" Aaron
+   reported (2026-08-11); measured, the strip's pixels moved by up to 70/255 over 8% of the
+   strip. `pointer-events: none` is one rule for all of it, rather than overriding each
+   hover utility in turn.
+   The trade: a peek sliver is no longer clickable -- use the arrows or drag, which is what
+   its appearance already implies. Dragging is unaffected (the gesture lives on the stage,
+   and events now pass through to it). */
+.cf-card.carousel-card.is-peek {
+  pointer-events: none;
+}
+
 /* CloseButton — the morphing X / dot icon. GSAP converts #lineOne/#lineTwo/#outer/#inner
    to <path> at runtime, so these <path> rules style nodes that don't exist in the JSX. */
 .close-button rect {
