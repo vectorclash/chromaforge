@@ -9,6 +9,14 @@ import PageContainer from './PageContainer';
 // using solid surfaces rather than glass (see SolidPanel). Because html/body are
 // `overflow: hidden` (to lock the studio full-screen), this layout is its own scroll
 // viewport rather than relying on the document to scroll.
+//
+// `h-dvh`, NOT `h-screen`: iOS Safari resolves `100vh` against the large viewport (toolbars
+// retracted), so with the URL bar showing this container was taller than the visible area
+// and Safari panned the layout viewport to compensate -- dragging the container's top, and
+// with it SiteHeader's `sticky top-0` bar, up under the toolbar. HomePage never showed this
+// because it renders the header with `overlay` (position: fixed, which resolves against the
+// visual viewport); every route here uses the sticky variant. See also tailwind.css's
+// html/body rule, which needed the same unit for the same reason.
 export default function SiteLayout() {
   const scrollRef = useRef(null);
   const { pathname } = useLocation();
@@ -21,7 +29,7 @@ export default function SiteLayout() {
   }, [pathname]);
 
   return (
-    <div ref={scrollRef} className="flex h-screen flex-col overflow-y-auto bg-ink-950 text-text">
+    <div ref={scrollRef} className="flex h-dvh flex-col overflow-y-auto bg-ink-950 text-text">
       <SiteHeader />
       {/* Keyed on the path so navigation replays the enter animation (and remounts the
           page, which is what a route change does anyway for distinct routes). */}

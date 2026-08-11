@@ -293,10 +293,17 @@
 /* Globals previously in App.scss / index.scss (both files removed). Preflight already
    covers box-sizing: border-box and body margin: 0, so only the app-specific parts are
    restated here. */
+/* `dvh`, not `vh`: on iOS Safari `100vh` is the LARGE viewport (toolbars retracted), so
+   while the URL bar is showing the document is taller than what's actually visible. Safari
+   pans the layout viewport by that difference -- `overflow: hidden` here does not prevent
+   it -- which slid the top of SiteLayout's scroll container (and with it the `sticky`
+   header) up underneath the top toolbar on every non-home route. No `vh` fallback: the
+   build's browser targets all support `dvh` (Lightning CSS strips a duplicate declaration
+   outright, which is how that was confirmed). */
 html,
 body {
   min-width: 100vw;
-  min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
