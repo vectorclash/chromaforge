@@ -296,7 +296,9 @@ export default function AboutShirts({ className = '' }) {
       entries => {
         visibleRef.current = entries[0]?.isIntersecting ?? true;
       },
-      { root: host.closest('.overflow-y-auto') || null, rootMargin: '120px' }
+      // Viewport root: the document scrolls site-wide (see tailwind.css). This used to look
+      // up a `.overflow-y-auto` scroll ancestor, back when the homepage owned its own.
+      { root: null, rootMargin: '120px' }
     );
     io.observe(host);
 

@@ -293,17 +293,41 @@
 /* Globals previously in App.scss / index.scss (both files removed). Preflight already
    covers box-sizing: border-box and body margin: 0, so only the app-specific parts are
    restated here. */
-/* `dvh`, not `vh`: on iOS Safari `100vh` is the LARGE viewport (toolbars retracted), so
-   while the URL bar is showing the document is taller than what's actually visible. Safari
-   pans the layout viewport by that difference -- `overflow: hidden` here does not prevent
-   it -- which slid the top of SiteLayout's scroll container (and with it the `sticky`
-   header) up underneath the top toolbar on every non-home route. No `vh` fallback: the
-   build's browser targets all support `dvh` (Lightning CSS strips a duplicate declaration
-   outright, which is how that was confirmed). */
+/* THE DOCUMENT IS THE SCROLLER, site-wide. This is load-bearing and easy to undo by
+   accident, so: iOS Safari only minimizes its toolbar in response to the DOCUMENT
+   scrolling -- a nested `overflow-y-auto` element never triggers it, however it is styled,
+   and there is no API or meta tag that opts in. Reintroducing `overflow: hidden` here (or
+   giving SiteLayout/HomePage their own scroll viewport again) costs ~60px of phone screen
+   on every route and cannot be compensated for elsewhere.
+
+   Until 2026-08-11 this rule was `min-width: 100vw; min-height: 100vh; overflow: hidden`.
+   That lock was added in 2020 FOR THE STUDIO, when the studio was the whole app -- it was
+   only ever meant to scope to that one immersive canvas. When the store/gallery/account
+   routes were built in 2026 the lock was left global and each new layout was given its own
+   nested `overflow-y-auto` scroller to work around it. That was the wrong way round (scope
+   the lock, don't work around it), it was not what the lock was for, and it is what kept
+   iOS Safari's toolbar expanded on every route for as long as it stood. Two artifacts of
+   that workaround are gone now and should not be reinvented: the
+   `closest('.overflow-y-auto')` lookups the scroll effects needed to find their real
+   scroller (there is one scroller now, the document), and `min-width: 100vw`, which with a
+   real document scrollbar makes the page wider than the viewport and produces a spurious
+   horizontal scrollbar.
+
+   `dvh`, not `vh`: on iOS Safari `100vh` is the LARGE viewport (toolbars retracted), so
+   while the URL bar is showing a `100vh` box is taller than what is actually visible. No
+   `vh` fallback -- the build's browser targets all support `dvh` (Lightning CSS strips a
+   duplicate declaration outright, which is how that was confirmed). */
 html,
 body {
-  min-width: 100vw;
   min-height: 100dvh;
+}
+
+/* The one place scrolling is still locked: the standalone /studio route, whose full-bleed
+   canvas is meant to be immersive (StudioPage adds this; see useScrollLock for the
+   transient modal/overlay equivalent, which needs `position: fixed` rather than this
+   because `overflow: hidden` alone does not stop touch scrolling on iOS). */
+html.no-scroll,
+html.no-scroll body {
   overflow: hidden;
 }
 

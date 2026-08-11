@@ -39,7 +39,6 @@ export function useScrollTriggerReveal(deps = []) {
 
     const items = el.querySelectorAll('.reveal-item');
     const targets = items.length ? [...items] : [el];
-    const scroller = el.closest('.overflow-y-auto') || undefined;
 
     const tweens = targets.map(target => {
       // Some reveal targets (.cf-card, via GallerySection's Card) have their own CSS
@@ -65,13 +64,10 @@ export function useScrollTriggerReveal(deps = []) {
           ease: 'power2.out',
           scrollTrigger: {
             trigger: target,
-            // html/body are overflow:hidden site-wide (the studio needs a locked
-            // full-bleed canvas), so the homepage scrolls its own div, not the window --
-            // ScrollTrigger defaults to the window/document, and would simply never fire
-            // without this. Same closest('.overflow-y-auto') pattern GalleryPage's own
-            // IntersectionObserver already uses to find its real scroll ancestor for the
-            // identical reason.
-            scroller,
+            // No `scroller` -- ScrollTrigger's default (the window/document) is correct now
+            // that the document is what scrolls site-wide (see tailwind.css). This used to
+            // pass an explicit `closest('.overflow-y-auto')` ancestor, which today would
+            // find either nothing or, worse, MobileNav's fixed full-screen panel.
             // Starts when this specific item first touches the viewport bottom, finishes
             // once its top reaches the vertical center. clamp() (GSAP 3.12+) adjusts both
             // for items too close to either end of the page to ever physically reach

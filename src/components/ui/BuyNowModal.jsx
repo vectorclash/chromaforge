@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
+import useScrollLock from '../../hooks/useScrollLock';
 
 // Buy Now, centralized into one modal (Aaron's redesign, approved from a live mockup,
 // 2026-07-21) -- previously a "Buy without a preview" link duplicated in the mockup image
@@ -24,6 +25,8 @@ export default function BuyNowModal({
   elapsedSeconds
 }) {
   const dismissible = stage === 'confirm' || stage === 'error';
+
+  useScrollLock(Boolean(stage));
 
   useEffect(() => {
     if (!dismissible) return undefined;

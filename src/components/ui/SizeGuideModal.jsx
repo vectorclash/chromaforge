@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
+import useScrollLock from '../../hooks/useScrollLock';
 import { getSizeGuide } from '../../lib/printful';
 
 // Printful's published size guide, surfaced on the product page. This exists because
@@ -193,6 +194,7 @@ function MeasurementTable({ table, unit }) {
 }
 
 export default function SizeGuideModal({ open, productId, productTitle, onClose }) {
+  useScrollLock(open);
   const [guide, setGuide] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

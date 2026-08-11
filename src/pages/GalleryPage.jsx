@@ -169,12 +169,14 @@ export default function GalleryPage() {
     if (tab !== 'public' || !hasMore || loadingMore) return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-    const root = sentinel.closest('.overflow-y-auto');
+    // Root is the viewport (null): the document scrolls site-wide, see tailwind.css. This
+    // used to hunt for a `.overflow-y-auto` scroll ancestor, back when SiteLayout owned its
+    // own scroll viewport.
     const observer = new IntersectionObserver(
       entries => {
         if (entries[0].isIntersecting) onLoadMoreRef.current();
       },
-      { root, rootMargin: '600px' }
+      { root: null, rootMargin: '600px' }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
 import { gsap } from 'gsap/all';
 import { useAuth } from '../../context/AuthContext';
+import useScrollLock from '../../hooks/useScrollLock';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
@@ -51,6 +52,12 @@ const itemClass = ({ isActive }) =>
 export default function MobileNav({ open, onClose }) {
   const { user, avatarUrl } = useAuth();
   const { currentDesign, renderDesignBlob, queueReady } = useStudio();
+  // Keyed on `open`, not `mounted`: the page unfreezes as the close tween starts rather
+  // than after it, and on a navigation the unlock's scroll restore lands before
+  // SiteLayout's own route-change scroll-to-top (cleanups run before effects in a commit),
+  // so following a link still arrives at the top of the new page rather than at the offset
+  // the menu was opened from.
+  useScrollLock(open);
   const [mounted, setMounted] = useState(open);
   const [bgUrl, setBgUrl] = useState(null);
   // Whether `bgUrl` should appear without the generate choreography -- see the

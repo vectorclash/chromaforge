@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
+import useScrollLock from '../../hooks/useScrollLock';
 
 // Shared modal for destructive confirmations (design delete, ...) -- replaces
 // window.confirm, which uses browser chrome that can't be styled, blocks the render
@@ -16,6 +17,8 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel
 }) {
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = e => {

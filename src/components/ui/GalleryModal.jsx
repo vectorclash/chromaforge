@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
+import useScrollLock from '../../hooks/useScrollLock';
 import FadeImage from './FadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HeartIcon from '../buttons/HeartIcon';
@@ -69,6 +70,7 @@ function CloseIcon() {
 // for the panel itself (see tailwind.css's animate-fade-in comment).
 export default function GalleryModal({ design, liked, canDelete, onClose, onToggleLike, onPrint, onDelete, onOpenStudio }) {
   const { renderDesignBlob, queueReady } = useStudio();
+  useScrollLock(Boolean(design));
   const [fullSrc, setFullSrc] = useState(null);
   const [fullLoaded, setFullLoaded] = useState(false);
   // Palette sampled off the full render, used only when the design has no palette of its

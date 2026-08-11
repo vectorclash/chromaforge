@@ -71,19 +71,19 @@ export default function SiteFooter() {
     if (!shown) return undefined;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     const host = footerRef.current;
-    // The page scrolls inside SiteLayout's own overflow-y viewport, not the document --
-    // window.scrollY stays 0 forever here. Scroll events don't bubble, but they do fire on
-    // the scrolling element, found by walking up from the footer.
-    const scroller = host?.closest('.overflow-y-auto');
-    if (!host || !scroller) return undefined;
-
+    if (!host) return undefined;
+    // The document is the scroller site-wide (see tailwind.css). This used to walk up to a
+    // `.overflow-y-auto` ancestor, back when SiteLayout and HomePage each owned their own
+    // scroll viewport; that lookup would now return null and this effect would silently
+    // bail, taking the parallax with it.
     let raf = 0;
     const apply = () => {
       raf = 0;
       const el = artRef.current;
       if (!el) return;
       const rect = host.getBoundingClientRect();
-      const view = scroller.getBoundingClientRect();
+      // The viewport in client coordinates -- what the scroller's own rect used to supply.
+      const view = { height: window.innerHeight, bottom: window.innerHeight };
       if (!rect.height || !el.clientHeight) return;
       // How far the footer has come into view. The denominator is the smaller of the footer
       // and the viewport, because that is all the entry the page can actually deliver: with
@@ -97,7 +97,7 @@ export default function SiteFooter() {
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(apply);
     };
-    scroller.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
     // Travel is a fraction of the footer's height, which reflows with the viewport -- a
     // rotation or a mobile URL-bar collapse changes it with no scroll event to recompute on.
     window.addEventListener('resize', onScroll, { passive: true });
@@ -107,16 +107,16 @@ export default function SiteFooter() {
     // correct from the first frame -- this one reads the footer's distance down the page, and
     // that keeps moving as the content above it lays out. Measured: the first pass computed
     // progress 1 and wrote translateY(0), then snapped to -39.6px the instant you scrolled.
-    // Observing the scroller's own children rather than a named element keeps this from
-    // depending on SiteLayout's internal structure.
+    // Observing the page's own top-level children rather than a named element keeps this
+    // from depending on SiteLayout's or HomePage's internal structure.
     const ro = new ResizeObserver(onScroll);
-    for (const child of scroller.children) ro.observe(child);
+    for (const child of document.body.children) ro.observe(child);
 
     apply();
     return () => {
       if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
-      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
     };
   }, [shown]);

@@ -545,15 +545,14 @@ export default function AboutBlob({ className = '' }) {
     resize();
 
     // Off-screen the canvas keeps its last frame but stops burning rAF time -- this sits in a
-    // long scrolling page and is usually not on screen. Root is the real scroll ancestor, not
-    // the viewport: html/body are overflow:hidden site-wide (the studio needs a locked
-    // full-bleed canvas), so the homepage scrolls its own div -- the same
-    // closest('.overflow-y-auto') lookup useScrollTriggerReveal and GalleryPage both do.
+    // long scrolling page and is usually not on screen. Root is the viewport (null), which is
+    // correct now that the document scrolls site-wide (see tailwind.css); this used to look
+    // up a `.overflow-y-auto` scroll ancestor because the homepage owned its own scroller.
     const io = new IntersectionObserver(
       entries => {
         visibleRef.current = entries[0]?.isIntersecting ?? true;
       },
-      { root: host.closest('.overflow-y-auto') || null, rootMargin: '120px' }
+      { root: null, rootMargin: '120px' }
     );
     io.observe(host);
 

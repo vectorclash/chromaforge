@@ -336,23 +336,22 @@ export default class DisplayCanvas extends React.Component {
     // `contain: layout` makes the hero section its containing block, so it scrolls with
     // the section and its rect tracks the page normally.)
     if (this.props.compact && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      // The page scrolls inside SiteLayout's own overflow-y viewport, NOT the document
-      // (window.scrollY stays 0 forever -- confirmed live, the first window-scroll
-      // version never moved). Listen on that ancestor instead; scroll events don't
-      // bubble, but they do fire on the scrolling element itself, found by walking up
-      // from this component's root.
-      const scroller = document.querySelector('.display-canvas')?.closest('.overflow-y-auto');
+      // Listens on the window: the document is the scroller site-wide (see tailwind.css).
+      // This used to walk up to a `.overflow-y-auto` ancestor because HomePage kept its own
+      // scroll viewport, which left window.scrollY pinned at 0 -- that is no longer true,
+      // and the old lookup would now find nothing and silently attach no listener at all.
       let raf = 0;
       const apply = () => {
         raf = 0;
         const el = document.querySelector('.image-container');
         const host = this.mount;
-        if (!el || !host || !scroller) return;
+        if (!el || !host) return;
         const rect = host.getBoundingClientRect();
         if (!rect.height) return;
         // 0 while the hero sits at the top of the viewport, 1 once its bottom edge has
-        // passed the top of the scroll viewport (i.e. it has fully left the screen).
-        const scrolled = scroller.getBoundingClientRect().top - rect.top;
+        // passed the top of the viewport (i.e. it has fully left the screen). The viewport's
+        // own top is 0 in client coordinates, which is what the scroller's rect used to give.
+        const scrolled = -rect.top;
         const progress = Math.max(0, Math.min(1, scrolled / rect.height));
         const max = (el.clientHeight * (HERO_PARALLAX_SCALE - 1)) / 2;
         // Positive (downward) offset: the section scrolls up past the viewport while the
@@ -362,8 +361,7 @@ export default class DisplayCanvas extends React.Component {
       this.onHeroParallaxScroll = () => {
         if (!raf) raf = requestAnimationFrame(apply);
       };
-      this.heroParallaxScroller = scroller;
-      scroller?.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
+      window.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
       // The travel distance is a fraction of the hero's height, which is viewport-derived
       // (h-screen) -- so a rotation or a mobile URL-bar collapse changes it with no scroll
       // event to recompute it against.
@@ -376,7 +374,7 @@ export default class DisplayCanvas extends React.Component {
   componentWillUnmount() {
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
-      this.heroParallaxScroller?.removeEventListener('scroll', this.onHeroParallaxScroll);
+      window.removeEventListener('scroll', this.onHeroParallaxScroll);
       window.removeEventListener('resize', this.onHeroParallaxScroll);
     }
     clearTimeout(this.geometryRegenTimer);

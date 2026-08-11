@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DisplayCanvas from '../components/DisplayCanvas';
 import { isMobileDevice } from '../utils/device';
@@ -36,6 +36,17 @@ export default function StudioPage({ compact = true }) {
           path: '/studio'
         }
   );
+  // The one route that still locks page scrolling. Scrolling is otherwise on site-wide so
+  // iOS Safari minimizes its toolbar (see tailwind.css); the standalone studio is the
+  // exception because its canvas is a full-bleed immersive surface with nothing below it.
+  // Compact mode is the homepage hero, which sits at the top of a page that must scroll --
+  // locking there would freeze the whole homepage.
+  useEffect(() => {
+    if (compact) return undefined;
+    document.documentElement.classList.add('no-scroll');
+    return () => document.documentElement.classList.remove('no-scroll');
+  }, [compact]);
+
   const { currentDesign, setCurrentDesign, saveCurrentDesign, isCurrentDesignSaved, savedDesignId } =
     useStudio();
   const { user } = useAuth();

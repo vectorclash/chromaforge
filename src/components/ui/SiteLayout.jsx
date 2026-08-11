@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useRef } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
@@ -6,30 +6,24 @@ import MiniGenerator from './MiniGenerator';
 import PageContainer from './PageContainer';
 
 // Dark site chrome for the store/account/gallery routes -- the same ink base as the studio,
-// using solid surfaces rather than glass (see SolidPanel). Because html/body are
-// `overflow: hidden` (to lock the studio full-screen), this layout is its own scroll
-// viewport rather than relying on the document to scroll.
+// using solid surfaces rather than glass (see SolidPanel).
 //
-// `h-dvh`, NOT `h-screen`: iOS Safari resolves `100vh` against the large viewport (toolbars
-// retracted), so with the URL bar showing this container was taller than the visible area
-// and Safari panned the layout viewport to compensate -- dragging the container's top, and
-// with it SiteHeader's `sticky top-0` bar, up under the toolbar. HomePage never showed this
-// because it renders the header with `overlay` (position: fixed, which resolves against the
-// visual viewport); every route here uses the sticky variant. See also tailwind.css's
-// html/body rule, which needed the same unit for the same reason.
+// This scrolls the DOCUMENT, deliberately: it used to be its own `h-dvh overflow-y-auto`
+// viewport, which is what kept iOS Safari's toolbar permanently expanded (it only minimizes
+// for document scrolling). `min-h-dvh` so short pages still fill the screen -- a height
+// FLOOR, never a fixed height, or the scroller comes back. See tailwind.css.
 export default function SiteLayout() {
-  const scrollRef = useRef(null);
   const { pathname } = useLocation();
 
-  // Because this div (not the document) is the scroll viewport, the browser's own
-  // navigation scroll reset never applies -- without this, scrolling down the shop and
-  // clicking a product opened the product page still scrolled to wherever the list was.
+  // Restores the scroll reset a normal document navigation would give us -- React Router
+  // changes the URL without unloading anything, so without this, scrolling down the shop
+  // and clicking a product opened the product page still scrolled to the list's position.
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, 0);
+    window.scrollTo(0, 0);
   }, [pathname]);
 
   return (
-    <div ref={scrollRef} className="flex h-dvh flex-col overflow-y-auto bg-ink-950 text-text">
+    <div className="flex min-h-dvh flex-col bg-ink-950 text-text">
       <SiteHeader />
       {/* Keyed on the path so navigation replays the enter animation (and remounts the
           page, which is what a route change does anyway for distinct routes). */}

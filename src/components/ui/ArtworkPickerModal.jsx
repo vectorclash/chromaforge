@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
+import useScrollLock from '../../hooks/useScrollLock';
 import { listMyDesigns, listPublicDesigns, countDesigns, getThumbnailUrl } from '../../lib/designs';
 import { useAuth } from '../../context/AuthContext';
 import { authorName } from './AuthorBadge';
@@ -79,6 +80,7 @@ const EMPTY_TAB = { pages: [], pageIndex: 0, total: null, loading: false, error:
 // Backdrop/panel/keyboard handling mirrors GalleryModal/ConfirmDialog.
 export default function ArtworkPickerModal({ open, onClose, onSelect }) {
   const { user } = useAuth();
+  useScrollLock(open);
   // My Designs is the default tab for signed-in users -- picking your own saved artwork is
   // the expected case; Public is the discovery path. Signed out, only Public has content.
   const [tab, setTab] = useState(user ? 'mine' : 'public');

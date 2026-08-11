@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import SiteHeader from '../components/ui/SiteHeader';
 import SiteFooter from '../components/ui/SiteFooter';
 import MiniGenerator from '../components/ui/MiniGenerator';
@@ -32,24 +32,32 @@ const HOME_JSON_LD = {
 
 // The homepage: a vertically scrolling, multi-module page. The hero IS the live studio tool
 // (not a preview -- see components/home/Hero.jsx); about/gallery/shop/footer follow below.
-// Its own scroll container, not the document -- html/body are `overflow: hidden` site-wide
-// to lock the studio's immersive full-bleed canvas, the same reason SiteLayout manages its
-// own scroll viewport for the store routes. The nav lives here (not in SiteLayout) since "/"
-// sits outside that layout.
+// The nav lives here (not in SiteLayout) since "/" sits outside that layout.
+//
+// Scrolls the DOCUMENT. This used to be its own `h-screen overflow-y-auto` viewport, which
+// is why iOS Safari's toolbar never minimized here; see tailwind.css before reintroducing a
+// container scroller. Hero stays `h-screen` (i.e. `lvh`) rather than `dvh` on purpose -- it
+// is the height the hero settles at once that toolbar retracts, and it does not resize
+// mid-scroll the way `dvh` would.
 export default function HomePage() {
   usePageMeta({ path: '/' });
   useJsonLd(HOME_JSON_LD);
-  const scrollRef = useRef(null);
   const [scrolled, setScrolled] = useState(false);
 
-  const onScroll = () => setScrolled((scrollRef.current?.scrollTop ?? 0) > 40);
+  // Drives SiteHeader's transparent -> solid crossfade. On the document now, not a
+  // container's onScroll: scroll events do not bubble, so nothing would reach a React
+  // handler on this div once the document is what moves.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    // The page can already be scrolled on mount (a back-navigation restore, or a reload
+    // partway down), in which case no scroll event is coming to set the initial state.
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className="h-screen w-full overflow-y-auto bg-ink-950 text-text"
-    >
+    <div className="w-full bg-ink-950 text-text">
       <SiteHeader transparent={!scrolled} overlay />
       <Hero />
       <AboutSection />
