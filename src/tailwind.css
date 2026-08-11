@@ -111,6 +111,17 @@
      bouncing would just look like a rendering glitch. */
   --animate-fade-in: fade-in var(--duration-fast) ease-out both;
 
+  /* FadeImage's reveal. An ANIMATION rather than a transition, which is the whole point:
+     FadeImage appends its own classes to whatever the call site passes, and five call sites
+     (every product/design card with a hover zoom) pass `transition-transform duration-300`.
+     Both resolve the SAME two properties, so the winner is decided by generated-CSS order,
+     not class order -- `transition-property` came out as `transform, translate, scale,
+     rotate`, with opacity absent, so the opacity-0 -> opacity-100 flip this component exists
+     to smooth was applied instantly and the image popped in behind the skeleton. The
+     duration collided too: those cards' zoom ran at FadeImage's 0.5s instead of their own
+     300ms. An animation runs on its own channel and cannot collide with either. */
+  --animate-image-reveal: fade-in var(--duration-slow) ease-out both;
+
   /* Carousel page transitions (ArtworkPickerModal's pager) -- the incoming page slides in
      from the side the gesture/chevron implies (next = from the right, prev = from the
      left), continuing the motion of a touch drag-follow. `both` is safe here: the grid is
