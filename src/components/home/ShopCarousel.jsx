@@ -397,11 +397,11 @@ export default function ShopCarousel() {
             onDragStart={e => e.preventDefault()}
           >
             <div
-              className="pointer-events-none absolute inset-y-0 left-0 z-10 bg-gradient-to-r from-ink-950 to-ink-950/0"
+              className="carousel-edge-fade pointer-events-none absolute inset-y-0 left-0 z-10 bg-gradient-to-r from-ink-950 to-ink-950/0"
               style={{ width: peekWidth || undefined }}
             />
             <div
-              className="pointer-events-none absolute inset-y-0 right-0 z-10 bg-gradient-to-l from-ink-950 to-ink-950/0"
+              className="carousel-edge-fade pointer-events-none absolute inset-y-0 right-0 z-10 bg-gradient-to-l from-ink-950 to-ink-950/0"
               style={{ width: peekWidth || undefined }}
             />
 

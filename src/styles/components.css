@@ -240,6 +240,26 @@
   transition: box-shadow 0.2s;
 }
 
+/* ShopCarousel's two edge-fade gradients, held on their own GPU layer permanently.
+   macOS Safari only (Aaron, 2026-08-11 -- after the pointer-events fix below, which was a
+   real but SEPARATE bug found in Chromium): hovering a card runs its image `scale`
+   transition, and Safari promotes that image to a composited layer for the duration. These
+   gradients are z-10 and OVERLAP it, so Safari's overlap testing has to promote them too,
+   then demote them again when the transition finishes. Creating and destroying the overlay's
+   layer twice per hover is what made them flash in and out for a fraction of a second, on
+   whichever side the hovered card was near. `will-change` makes the layer permanent, so
+   there is nothing left to create or destroy; `translateZ(0)` is the same request for older
+   WebKit. Two small static elements, so the memory cost is negligible.
+   Note the sibling `.is-peek` rule does NOT cover this: it stopped the faded peek cards
+   reacting at all, but the three ACTIVE cards still zoom on hover, which is the trigger.
+   Not reproducible in headless WebKit -- it renders in software and so cannot exhibit a GPU
+   compositing bug at all. Verified only that it changes no pixels; the flashing itself has
+   to be confirmed in real Safari. */
+.carousel-edge-fade {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
 /* Cards outside the active window are inert. They sit under the edge-fade gradients at 50%
    opacity, scaled down and clipped by the stage -- presented, deliberately, as off-stage.
    They were still full hover targets, and because the gradients are `pointer-events: none`
