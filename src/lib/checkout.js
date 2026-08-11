@@ -80,6 +80,28 @@ export async function listMyActiveOrders() {
   return data;
 }
 
+// Printful's own generated mockup of each in-flight order, keyed by our order id:
+// { [orderId]: previewUrl }. This is the composite Printful renders from the REAL print
+// files at order-creation time -- not the preview the customer approved at checkout, which
+// is our own capped render and only covers the placements a Flat mockup photo can show.
+// On some products (the mesh shorts, whose catalog has no Flat Back style and no style
+// carrying a label) it is the only view of the finished garment that exists.
+//
+// Active orders only, by design -- see the Edge Function's header. Never throws: an order
+// row renders perfectly well without a picture, so a Printful hiccup here must not take
+// down the orders list with it.
+export async function getActiveOrderPreviews() {
+  try {
+    const { data, error } = await client().functions.invoke('printful-order-preview', {
+      method: 'GET'
+    });
+    if (error || !data?.previews) return {};
+    return Object.fromEntries(data.previews.map(p => [p.orderId, p.previewUrl]));
+  } catch {
+    return {};
+  }
+}
+
 // Resolved orders (failed or canceled, whether by our own checkout/Printful-submission flow
 // or via a later printful-webhook reconciliation -- see that function's header comment) --
 // kept out of the active list so a canceled/failed order doesn't sit on the main account

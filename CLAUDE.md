@@ -1195,6 +1195,46 @@ everyone's saved artwork — not a side effect noticed in production.
   snapshot of the current design correctly matches itself (`true`), and a stale snapshot
   from *before* clicking Generate correctly stops matching once a genuinely new design is
   generated (`false`).
+- **Printful's own order preview on the account page's Active orders** (2026-08-11, built,
+  NOT yet deployed — `printful-order-preview` must be deployed before the frontend ships or
+  the thumbnails simply never appear). v1 `GET /orders/{id}` returns each item's placement
+  files **plus a fifth entry of `type: 'preview'`** — an 800×800 composite of the finished
+  garment that Printful renders from the REAL print files. Three things worth not
+  re-deriving:
+  (1) **It is generated at order-CREATION time, not at fulfillment** — verified against
+  canceled/never-confirmed order 169189293, which carries it. So a free draft order yields
+  one, which makes it a zero-cost verification surface for any placement change (the same
+  "compare against Printful's own render" technique that caught v9).
+  (2) **It is not the mockup the customer approved.** `mockup_image_url` is our own capped
+  render through a mockup task, restricted to the placements a Flat photo can show. On the
+  mesh shorts (693) there is no Flat Back style and no style carrying a label at all, so
+  this preview is the ONLY view of the ordered garment showing the back or either label.
+  (3) The client sends **no order ids** — the function derives the caller's own active
+  orders via the service role, so there is nothing to enumerate. `verify_jwt = true` is only
+  the outer gate (the anon key passes it); the GoTrue `/auth/v1/user` check is what
+  identifies the user, and it is load-bearing here since this reads order data.
+  Active orders only, chained after the rows land (most account views have no active order,
+  and this one leaves our infrastructure). Printful's preview is a full-body model shot, so
+  the thumbnail is 64px — the garment is only ~a quarter of the frame and smaller reads as a
+  blob. The thumbnail slot is **reserved before the URL exists**, predicted from
+  `order.printful_order_id` (the same condition the function selects on), so the image fades
+  into a held box instead of appearing and shoving the text — verified at 0.0px title shift
+  across the arrival.
+- **The order lists don't scroll until their rows have finished animating in** (2026-08-11,
+  Aaron's call, `OrderList` in AccountPage). `fade-slide-up`'s `backwards` fill holds each row
+  16px BELOW its final position for the whole length of its stagger delay, and inside an
+  `overflow-y-auto` box that counts as scrollable overflow — so a list that will never need a
+  scrollbar grew one anyway and then lost it (measured: exactly 16px, t=1360→2000ms on a
+  3-row list; it happens at ANY row count, not just near the 32rem cap, because the container
+  is content-height until then). **Absorbing it with bottom padding was tried first and is
+  worse** — it fixes the short case but pushes a 5-row list past `max-h` into scrolling it
+  didn't previously need. Two load-bearing details: the wait keys off the real
+  `getAnimations()` rather than re-deriving the timing from delay props + `--duration-slow`,
+  and it must filter out the skeleton's INFINITE `animate-pulse` or scrolling would never
+  return; and it settles once and never un-settles, since clamping overflow on an
+  already-scrolled list would jump the user to the top when "Load more" appends rows.
+  Verified: a 3-row list is never scrollable, while 5- and 8-row lists become scrollable only
+  after settling and stay that way.
 - **Order history lists PAID orders only** (2026-07-25). `listMyOrderHistory` filters on
   `stripe_payment_intent_id is not null`, because `canceled` covers two unrelated things: a
   real order Printful later canceled (`printful-webhook`'s `order_canceled`), which the

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import GoogleIcon from '../components/buttons/GoogleIcon';
@@ -16,7 +16,7 @@ import {
 } from '../lib/auth';
 import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../lib/profiles';
 import { getMyDesignStats } from '../lib/designs';
-import { listMyActiveOrders, listMyOrderHistory } from '../lib/checkout';
+import { getActiveOrderPreviews, listMyActiveOrders, listMyOrderHistory } from '../lib/checkout';
 import { generateAvatar } from '../render/generateAvatar';
 import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
@@ -44,28 +44,123 @@ const orderTabClass = active =>
   'cursor-pointer font-quicksand text-xs font-bold uppercase tracking-[0.14em] pb-2 border-b-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
   (active ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text');
 
+// Scrolling container for the order lists -- and it deliberately does NOT scroll until the
+// rows have finished animating in (Aaron's call, 2026-08-11, from a real annoyance).
+//
+// Why: the rows enter with fade-slide-up, whose `backwards` fill holds them 16px BELOW their
+// final position for the whole length of their stagger delay. Inside an overflow-y-auto box
+// that counts as scrollable overflow, so a list that will never need a scrollbar grows one
+// anyway and then loses it -- measured on a 3-row list at exactly 16px, present from
+// t=1360ms to t=2000ms. Absorbing the 16px with bottom padding was tried first and is worse:
+// it fixes the short case but pushes a 5-row list past max-height into scrolling it did not
+// previously need.
+//
+// The wait keys off the REAL animations rather than re-deriving their timing from the delay
+// props and --duration-slow, so it cannot drift if the motion tokens change. Two details
+// that are load-bearing: the skeleton's `animate-pulse` runs forever, so its `finished`
+// promise must be filtered out or scrolling would never come back; and this only ever
+// settles once (`settled` is never set false again), because clamping overflow on a list the
+// user has already scrolled would jump them back to the top when "Load more" appends rows.
+function OrderList({ hasRows, children }) {
+  const ref = useRef(null);
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    if (!hasRows || settled) return;
+    const el = ref.current;
+    if (!el?.getAnimations) {
+      setSettled(true);
+      return;
+    }
+    let cancelled = false;
+    const running = el
+      .getAnimations({ subtree: true })
+      .filter(a => a.effect?.getTiming().iterations !== Infinity);
+    Promise.allSettled(running.map(a => a.finished)).then(() => !cancelled && setSettled(true));
+    // Safety net: a list must never be left permanently unscrollable because an animation
+    // was cancelled or never resolved.
+    const timeout = setTimeout(() => !cancelled && setSettled(true), 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [hasRows, settled]);
+
+  return (
+    <div
+      ref={ref}
+      className={
+        'mt-3 space-y-2 lg:max-h-[32rem] lg:pr-1 ' +
+        (settled ? 'lg:overflow-y-auto' : 'lg:overflow-y-hidden')
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
 // One row, shared by the Active and History lists below.
-function OrderRow({ order, delay }) {
+//
+// `previewUrl` (active orders only) is Printful's own composite of the finished garment,
+// rendered from the real print files -- see getActiveOrderPreviews.
+//
+// The preview arrives on a second, slower request than the order rows, so the slot is
+// RESERVED before the URL exists rather than appearing when it lands -- an image that pops
+// in and shoves the text sideways is the thing this layout is built to avoid. `previewPending`
+// is the caller's prediction that one is coming, and it can be made honestly: it uses the
+// exact condition the Edge Function selects on (an active order with a printful_order_id),
+// so it is right except when Printful itself fails to return a preview for an order that has
+// one. That case collapses the slot once the request resolves, which is the only reflow left
+// and is rare by construction.
+function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
   const item = order.order_items?.[0];
   const status = ORDER_STATUS_DISPLAY[order.status] ?? ORDER_STATUS_DISPLAY.submitted;
+  // A preview URL that 404s (Printful's CDN, not ours) must leave no gap behind -- same
+  // treatment as the gallery's missing thumbnails, which is the established pattern here.
+  const [failed, setFailed] = useState(false);
+  const showSlot = (previewUrl || previewPending) && !failed;
+
   return (
     <div
       style={{ animationDelay: `${delay}ms` }}
-      className="animate-fade-slide-up rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
+      className="animate-fade-slide-up flex items-center gap-3 rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
     >
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="truncate text-text">
-          {item?.product_title}
-          {item?.variant_label ? ` (${item.variant_label})` : ''}
-        </span>
-        <span className="shrink-0 text-text">${(order.total_cents / 100).toFixed(2)}</span>
-      </div>
-      <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-text-secondary">
-        <span>
-          {new Date(order.created_at).toLocaleDateString()}
-          {item ? ` · Qty ${item.quantity}` : ''}
-        </span>
-        <span className={status.className}>{status.label}</span>
+      {showSlot && (
+        // 64px rather than the 48-56 a list row would normally take: Printful's preview is a
+        // full-body model shot, so the garment itself is only about a quarter of the frame
+        // and anything smaller reads as an indistinct blob. `relative` is FadeImage's one
+        // requirement (it positions its skeleton against this box).
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-hairline bg-ink-700">
+          {previewUrl ? (
+            <FadeImage
+              src={previewUrl}
+              alt={`Printful's mockup of ${item?.product_title ?? 'this order'}`}
+              loading="lazy"
+              onError={() => setFailed(true)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            // Same pulsing fill FadeImage uses once a src exists, so the wait for the URL
+            // and the wait for the image decode are visually one continuous state.
+            <div className="absolute inset-0 animate-pulse bg-ink-700" aria-hidden="true" />
+          )}
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="truncate text-text">
+            {item?.product_title}
+            {item?.variant_label ? ` (${item.variant_label})` : ''}
+          </span>
+          <span className="shrink-0 text-text">${(order.total_cents / 100).toFixed(2)}</span>
+        </div>
+        <div className="mt-1 flex items-baseline justify-between gap-3 text-xs text-text-secondary">
+          <span>
+            {new Date(order.created_at).toLocaleDateString()}
+            {item ? ` · Qty ${item.quantity}` : ''}
+          </span>
+          <span className={status.className}>{status.label}</span>
+        </div>
       </div>
     </div>
   );
@@ -108,6 +203,11 @@ export default function AccountPage() {
   const [stats, setStats] = useState(null);
   const [activeOrders, setActiveOrders] = useState([]);
   const [activeOrdersLoading, setActiveOrdersLoading] = useState(true);
+  // { [orderId]: previewUrl } from Printful, fetched alongside (not before) the rows.
+  // previewsResolved flips once that request has finished either way, which is what lets a
+  // row stop reserving space for a preview that turned out not to exist.
+  const [orderPreviews, setOrderPreviews] = useState({});
+  const [previewsResolved, setPreviewsResolved] = useState(false);
   const [orderTab, setOrderTab] = useState('active');
   const [historyOrders, setHistoryOrders] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -154,7 +254,24 @@ export default function AccountPage() {
       .then(s => !cancelled && setStats(s))
       .catch(() => {});
     listMyActiveOrders()
-      .then(rows => !cancelled && setActiveOrders(rows))
+      .then(rows => {
+        if (cancelled) return;
+        setActiveOrders(rows);
+        // Chained rather than fired in parallel, deliberately: this one leaves our own
+        // infrastructure (Edge Function -> Printful, one call per in-flight order), and
+        // most visits to this page have no active orders at all. Waiting on the cheap
+        // local query first means those visits cost nothing. The rows are already on
+        // screen by then; the thumbnails fade in behind them.
+        if (rows.length > 0) {
+          getActiveOrderPreviews().then(previews => {
+            if (cancelled) return;
+            setOrderPreviews(previews);
+            setPreviewsResolved(true);
+          });
+        } else {
+          setPreviewsResolved(true);
+        }
+      })
       .catch(() => {})
       .finally(() => !cancelled && setActiveOrdersLoading(false));
     return () => {
@@ -319,9 +436,15 @@ export default function AccountPage() {
                         disabled={avatarBusy}
                         aria-busy={avatarBusy}
                       >
-                        {avatarBusy ? 'Generating…' : avatarUrl ? 'Regenerate avatar' : 'Generate avatar'}
+                        {avatarBusy
+                          ? 'Generating…'
+                          : avatarUrl
+                            ? 'Regenerate avatar'
+                            : 'Generate avatar'}
                       </Button>
-                      {avatarError && <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>}
+                      {avatarError && (
+                        <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>
+                      )}
                     </div>
                   </div>
                   <Field label="Display name" htmlFor="display-name">
@@ -346,7 +469,9 @@ export default function AccountPage() {
                       placeholder="yourname"
                     />
                   </Field>
-                  {profileError && <p className="animate-pop-in text-sm text-accent">{profileError}</p>}
+                  {profileError && (
+                    <p className="animate-pop-in text-sm text-accent">{profileError}</p>
+                  )}
                   <div className="flex items-center gap-3 pt-1">
                     <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
                       {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
@@ -418,19 +543,30 @@ export default function AccountPage() {
                       page's own scroll is the natural one -- a nested scroller on a phone is
                       worse than a long page. */}
                   {orderTab === 'active' && (
-                    <div className="mt-3 space-y-2 lg:max-h-[32rem] lg:overflow-y-auto lg:pr-1">
-                      {activeOrdersLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                    <OrderList hasRows={activeOrders.length > 0}>
+                      {activeOrdersLoading && (
+                        <p className="text-sm text-text-secondary">Loading…</p>
+                      )}
                       {!activeOrdersLoading && activeOrders.length === 0 && (
                         <p className="text-sm text-text-secondary">No orders in progress.</p>
                       )}
                       {activeOrders.map((order, i) => (
-                        <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
+                        <OrderRow
+                          key={order.id}
+                          order={order}
+                          delay={180 + Math.min(i, 10) * 50}
+                          previewUrl={orderPreviews[order.id] ?? null}
+                          // Reserve the thumbnail slot from the first paint for any order
+                          // that will have one -- same condition printful-order-preview
+                          // selects on, so the row never has to grow one later.
+                          previewPending={!previewsResolved && Boolean(order.printful_order_id)}
+                        />
                       ))}
-                    </div>
+                    </OrderList>
                   )}
 
                   {orderTab === 'history' && (
-                    <div className="mt-3 space-y-2 lg:max-h-[32rem] lg:overflow-y-auto lg:pr-1">
+                    <OrderList hasRows={historyOrders.length > 0}>
                       {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
                       {historyError && <p className="text-sm text-accent">{historyError}</p>}
                       {!historyLoading && historyLoaded && historyOrders.length === 0 && (
@@ -451,7 +587,7 @@ export default function AccountPage() {
                           {historyLoadingMore ? 'Loading…' : 'Load more'}
                         </Button>
                       )}
-                    </div>
+                    </OrderList>
                   )}
                 </div>
               )}
@@ -469,7 +605,11 @@ export default function AccountPage() {
     setMessage(null);
     try {
       if (mode === 'signup') {
-        const { needsConfirmation, alreadyRegistered } = await signUpWithEmail(email, password, captchaToken);
+        const { needsConfirmation, alreadyRegistered } = await signUpWithEmail(
+          email,
+          password,
+          captchaToken
+        );
         if (alreadyRegistered) {
           setMode('signin');
           setError('An account with this email already exists. Sign in instead.');
@@ -515,9 +655,13 @@ export default function AccountPage() {
 
   return (
     <PageContainer
-      title={mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Reset password' : 'Sign in'}
+      title={
+        mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Reset password' : 'Sign in'
+      }
       subtitle={
-        mode === 'forgot' ? "We'll email you a link to choose a new password." : 'Save your designs and order prints.'
+        mode === 'forgot'
+          ? "We'll email you a link to choose a new password."
+          : 'Save your designs and order prints.'
       }
     >
       {/* Prominent, hard-to-miss confirmation/error banner -- placed above the form so
@@ -611,7 +755,11 @@ export default function AccountPage() {
         {mode === 'forgot' ? (
           <>
             Remembered it?{' '}
-            <button type="button" className="cursor-pointer text-accent underline" onClick={() => switchMode('signin')}>
+            <button
+              type="button"
+              className="cursor-pointer text-accent underline"
+              onClick={() => switchMode('signin')}
+            >
               Back to sign in
             </button>
           </>

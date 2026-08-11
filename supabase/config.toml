@@ -473,6 +473,15 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/render-print-file/index.ts"
 
+# Reads the caller's OWN in-flight orders (no ids are accepted from the client) and asks
+# Printful for each one's generated garment preview. Same plain-fetch/no-SDK approach as
+# render-print-file. verify_jwt = true is only the outer gate -- the anon key passes it, so
+# the GoTrue /auth/v1/user check inside the function is what identifies the real user.
+[functions.printful-order-preview]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/printful-order-preview/index.ts"
+
 # Printful-initiated -- carries no Supabase JWT at all, only its own x-pf-webhook-signature
 # header, so Supabase's JWT gate would reject every legitimate delivery, same reasoning as
 # stripe-webhook above. Auth is entirely the HMAC signature check inside the function itself.
