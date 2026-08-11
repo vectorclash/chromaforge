@@ -340,34 +340,57 @@ export default class DisplayCanvas extends React.Component {
       // This used to walk up to a `.overflow-y-auto` ancestor because HomePage kept its own
       // scroll viewport, which left window.scrollY pinned at 0 -- that is no longer true,
       // and the old lookup would now find nothing and silently attach no listener at all.
+      //
+      // Progress is driven by `window.scrollY` against geometry measured ONCE (and re-measured
+      // on resize), not by re-reading the host's rect every frame. Two reasons, both real:
+      // scrollY is exactly the value the user's finger controls, so it cannot disagree with
+      // what the page is doing, whereas a rect measured mid-scroll can (that disagreement is
+      // what made this jerk on iOS Safari); and a rect read inside a rAF forces a synchronous
+      // layout on every scrolled frame, which is worth not doing on a phone.
       let raf = 0;
+      let heroTop = 0;
+      let heroHeight = 0;
+      let maxTravel = 0;
+      // Both heights are viewport-derived (`h-screen`, i.e. the LARGE viewport), so they do
+      // not change as iOS Safari's toolbar retracts -- only on a real resize/rotation.
+      const measure = () => {
+        const el = document.querySelector('.image-container');
+        const host = this.mount;
+        if (!el || !host) return false;
+        const rect = host.getBoundingClientRect();
+        if (!rect.height) return false;
+        heroTop = rect.top + window.scrollY;
+        heroHeight = rect.height;
+        maxTravel = (el.clientHeight * (HERO_PARALLAX_SCALE - 1)) / 2;
+        return true;
+      };
       const apply = () => {
         raf = 0;
         const el = document.querySelector('.image-container');
-        const host = this.mount;
-        if (!el || !host) return;
-        const rect = host.getBoundingClientRect();
-        if (!rect.height) return;
+        if (!el || !heroHeight) return;
         // 0 while the hero sits at the top of the viewport, 1 once its bottom edge has
-        // passed the top of the viewport (i.e. it has fully left the screen). The viewport's
-        // own top is 0 in client coordinates, which is what the scroller's rect used to give.
-        const scrolled = -rect.top;
-        const progress = Math.max(0, Math.min(1, scrolled / rect.height));
-        const max = (el.clientHeight * (HERO_PARALLAX_SCALE - 1)) / 2;
+        // passed the top of the viewport (i.e. it has fully left the screen).
+        const progress = Math.max(0, Math.min(1, (window.scrollY - heroTop) / heroHeight));
         // Positive (downward) offset: the section scrolls up past the viewport while the
         // artwork inside it lags behind, i.e. the background moves slower than the page.
-        el.style.transform = `translateY(${progress * max}px) scale(${HERO_PARALLAX_SCALE})`;
+        el.style.transform = `translateY(${progress * maxTravel}px) scale(${HERO_PARALLAX_SCALE})`;
       };
       this.onHeroParallaxScroll = () => {
         if (!raf) raf = requestAnimationFrame(apply);
       };
-      window.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
       // The travel distance is a fraction of the hero's height, which is viewport-derived
-      // (h-screen) -- so a rotation or a mobile URL-bar collapse changes it with no scroll
-      // event to recompute it against.
-      window.addEventListener('resize', this.onHeroParallaxScroll, { passive: true });
-      // Set the initial oversize before any scroll happens.
-      this.onHeroParallaxScroll();
+      // (h-screen) -- so a rotation changes it with no scroll event to recompute it against.
+      this.onHeroParallaxResize = () => {
+        measure();
+        this.onHeroParallaxScroll();
+      };
+      window.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
+      window.addEventListener('resize', this.onHeroParallaxResize, { passive: true });
+      // Set the initial oversize before any scroll happens. The hero's own height depends on
+      // content above it having laid out, so if it measures as zero here, try again next
+      // frame rather than leaving the parallax permanently inert.
+      if (measure()) this.onHeroParallaxScroll();
+      else requestAnimationFrame(this.onHeroParallaxResize);
     }
   }
 
@@ -375,7 +398,7 @@ export default class DisplayCanvas extends React.Component {
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
       window.removeEventListener('scroll', this.onHeroParallaxScroll);
-      window.removeEventListener('resize', this.onHeroParallaxScroll);
+      window.removeEventListener('resize', this.onHeroParallaxResize);
     }
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);
@@ -2220,7 +2243,19 @@ export default class DisplayCanvas extends React.Component {
         // (the compact homepage hero, nested inside Hero.jsx's section) and standalone at
         // /studio (StudioPage renders this with no wrapping section of its own to carry a
         // background), so it belongs on this root rather than duplicated per-wrapper.
-        className="display-canvas fixed left-0 top-0 flex h-full w-full items-center justify-center overflow-hidden bg-ink-900"
+        // `absolute` when compact, `fixed` only standalone. Both fill the same box -- the
+        // hero section is `relative`, so absolute positioning fills it directly, while
+        // /studio has no wrapping section and needs the viewport. Compact used to be fixed
+        // too, reaching this section via Hero.jsx's `contain: layout` (an ancestor with
+        // layout containment becomes the containing block for fixed descendants). That is a
+        // real behaviour, but it made the hero a compositor-managed fixed layer during
+        // DOCUMENT scrolling, which iOS Safari does not keep in lockstep with the visual
+        // scroll -- the hero's contents visibly jerked up and down as you scrolled (reported
+        // 2026-08-11, right after scrolling moved to the document; it did not happen while
+        // HomePage scrolled its own div, where that fast path never applied). Absolute
+        // positioning is a plain in-flow-relative box with no such path. Don't put `fixed`
+        // back on the compact branch.
+        className={`display-canvas ${compact ? 'absolute' : 'fixed'} left-0 top-0 flex h-full w-full items-center justify-center overflow-hidden bg-ink-900`}
         ref={mount => {
           this.mount = mount;
         }}
