@@ -623,8 +623,12 @@ by `MAX_EXPORT_BYTES` (600MB).
   got burned by. `bitrateMode: 'quantizer'` — the textbook fix for constant quality — reports
   **unsupported** for H.264 there.
 - **Caveat on the headless measurements: they are OpenH264, not what a real desktop uses.**
-  It refuses to initialise at 3840x2160@60 at all, so nothing here measured 60fps reliably;
-  the 24fps numbers are the trustworthy ones.
+  It refuses to initialise at 3840x2160@60 at all, so nothing here measured 60fps.
+  **Closed by a real export (Aaron, 2026-08-12): a 5s 3D 1:1 60fps clip on a real desktop
+  encoder "looks perfect".** That is the highest per-frame budget the pickers can produce
+  (2160x2160 at 60fps = 225Mbps) and it confirms the uncapped path at 60fps. The CAPPED path
+  is still unexercised — the cap only binds at 60fps from 30s up, where the rate falls to
+  168Mbps and then 84Mbps at 60s.
 - **Slowing the render down would not help, asked and checked** (Aaron, same session). The
   export is already a fixed-timestep, non-realtime loop: every frame is fully rendered and
   its `VideoFrame` constructed in the same task before any `await`, and the loop already
@@ -850,6 +854,20 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
   same `${seed}-label` stream, so a design's animation carries the mark its tag would. No
   `LABEL_MARK_GENERATOR_VERSION` bump, no render-service redeploy (label marks are
   client-side), no thumbnail backfill.
+- **The mark's accent needs the design's RESOLVED palette, and the caller has to supply it for
+  3D (2026-08-12).** See the `LABEL_MARK_GENERATOR_VERSION = 6` bullet in the merch-pipeline
+  section for the shared half of this — `design.colors` is a stored identity, empty for every
+  auto-palette design, so both the tag and this overlay were locked to `#d1ff1a`.
+  `generateMarkLines` now resolves it itself, which covers 2D (a frame's config carries its own
+  gradient stops). **3D is the one case it cannot derive**: `tunnelScene` invents its own
+  palette for an auto-palette design, so `logoMarkConfig()` passes an explicit override from
+  `resolveScenePalette` (`animation3d/scenePalette.js`, extracted from tunnelScene so the scene
+  and the mark cannot drift). That helper **takes the rng rather than making one** — the scene
+  passes its own `-3d` stream and an external caller passes a fresh `makeRng(`${seed}-3d`)`,
+  landing on the identical palette without shifting anything downstream in the scene. It lives
+  apart from `tunnelScene.js` only because that file statically imports three.js, which must
+  stay in its own lazy chunk. `logoMarkConfig`'s memo key is now seed **+ palette**, since 3D
+  applies palette edits live against an unchanged seed.
 - **2D is a flat overlay, 3D is a real plane in the tunnel** — Aaron's explicit call that the
   two modes may differ. 2D: a `<canvas>` sibling of the frame stack in `AnimationPreview`,
   painted by **its own** `gsap.ticker` (the speedRamp driver only exists when the ramp is on,
@@ -1670,6 +1688,38 @@ everyone's saved artwork — not a side effect noticed in production.
     label marks are rendered client-side and uploaded directly (see the bypass note above), so
     `generateLabelMark` is not in the Fly bundle at all. Uploads are content-hashed, so changed
     bytes get a new URL and Printful's fetch-by-URL cache is not a hazard here.
+    **The accent comes from the design's RESOLVED palette, not `design.colors` —
+    `LABEL_MARK_GENERATOR_VERSION = 6` (2026-08-12, Aaron: the shorts he ordered came back with
+    the same yellow tag as the video mark).** `design.colors` is a design's stored IDENTITY: it
+    is EMPTY for every auto-palette design and a single entry for a monochrome one. Reading it
+    directly sent the most common case straight to `DEFAULT_BASE_COLOR` (`#ccff00`, Logo.jsx's
+    own fallback), so every auto-palette design printed the identical `#d1ff1a` mark — measured
+    against the live table, **45 of 55 stored designs**. The same bug reached the animation's
+    logo overlay, which is how it was found. Four things worth not re-deriving:
+    (1) **A compact design has no `gradientBackgroundConfig`, so `resolvedPalette` alone is not
+    enough** — and compact is the shape the whole merch pipeline works in.
+    `resolveDesignPalette` (resolvedPalette.js) regenerates the palette from the seed. Safe
+    because the resolved palette is **independent of canvas size AND renderContext**: verified
+    216/216 identical across 9 sizes (320² through the 11250×4350 shorts sheet) × 8 seeds ×
+    auto/user/mono, and 45/45 across includeGeometry/mirrorX/legSymmetry/geometryLayout/
+    sizeFrame. It probes at 320².
+    (2) **It must NOT take `resolvedPalette`'s stored-`colors` fallback** — reasoned wrong first
+    and caught by measuring. That shortcut fires on a MONOCHROME design's single colour, which
+    would print the tag in the base colour while the video mark (which reads a full config, and
+    so gets `expandMonochromePalette`'s expansion) used a companion — breaking the invariant that
+    a design's tag and its animation mark are literally the same mark. Only a real resolved
+    gradient is trusted; anything else regenerates. Verified after: tag == 2D video mark, 24/24.
+    (3) **Consumes the same single `rng()` draw** — `randInt` takes one regardless of the array's
+    length — so which chords survive and the greyscale ink on the ~80% that aren't accented are
+    byte-identical to v5 (80/80 configs across 5 real label sizes × opaque/transparent × 8
+    seeds). Real user-palette designs are **fully** byte-identical; only auto-palette and
+    monochrome ones move.
+    (4) **Reprints of existing designs get the new colour automatically, and that is correct.**
+    The mark is derived, never stored — a design row is only `{ generatorVersion, seed, colors,
+    settings }`. Content-hashed uploads mean a recoloured mark lands at a new URL, so Printful's
+    cache can't serve the old one, and there is no reorder path reusing
+    `orders.print_file_urls` (written once per checkout, read only by `stripe-webhook` for that
+    same order and by `cleanup-storage`'s keep-list).
     **Transparent label_outside + heavier mark (2026-07-15, `LABEL_MARK_GENERATOR_VERSION
     = 4`, Aaron-approved from real track-jacket draft mockups — orders 166996698/166999659):**
     Printful composites label placements OVER the garment's own print (confirmed on a real
