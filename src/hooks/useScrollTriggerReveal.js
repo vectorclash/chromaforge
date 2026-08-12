@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { isScrollLocked, subscribeScrollLock } from './useScrollLock';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -94,6 +95,33 @@ export function useScrollTriggerReveal(deps = []) {
       );
     });
 
+    // Sit out any full-screen overlay's scroll lock. Locking pins the body with
+    // `position: fixed`, which makes the document report scroll 0 (see useScrollLock) --
+    // and a scrub trigger believes it, rewinding every item to its start. That is why
+    // opening and closing a modal used to replay the whole reveal: measured on the
+    // homepage, the visible cards went from opacity 1 to 0.004 the moment the modal
+    // opened, then eased back in over ~600ms once it closed.
+    //
+    // `disable(false, ...)` deliberately does NOT revert -- reverting would snap the items
+    // back to their pre-tween values, which is the same pop by another route -- and
+    // `enable(false, ...)` does not reset progress, so the trigger resumes holding exactly
+    // the value it held before the overlay, against a scroll position that has been
+    // restored to exactly what it was. Nothing to animate, so nothing animates. The one
+    // case that does need a refresh is a section that MOUNTED during a lock (navigating
+    // from an open MobileNav): its start/end were cached against a collapsed document.
+    let cachedWhileLocked = isScrollLocked();
+    const setLocked = locked => {
+      tweens.forEach(tween => {
+        const st = tween.scrollTrigger;
+        if (!st) return;
+        if (locked) st.disable(false, true);
+        else st.enable(false, cachedWhileLocked);
+      });
+      if (!locked) cachedWhileLocked = false;
+    };
+    if (cachedWhileLocked) setLocked(true);
+    const unsubscribeLock = subscribeScrollLock(setLocked);
+
     // Safety net: sections whose real content loads/measures asynchronously (images,
     // ShopCarousel's cardWidth) can still settle into their final layout slightly after
     // the deps below re-run this effect, leaving each trigger's cached start/end
@@ -102,6 +130,7 @@ export function useScrollTriggerReveal(deps = []) {
     const refreshId = requestAnimationFrame(() => ScrollTrigger.refresh());
 
     return () => {
+      unsubscribeLock();
       cancelAnimationFrame(refreshId);
       tweens.forEach(tween => {
         tween.scrollTrigger?.kill();

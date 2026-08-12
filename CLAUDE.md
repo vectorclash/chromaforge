@@ -923,12 +923,26 @@ design carries via StudioContext — no params needed) with a frosted "Shop →"
 hint at the shirt's top-right (an under-the-shirt "Shop this design" caption was
 user-rejected on wording + placement); the hover scale lives on the button, not the mount,
 since GSAP owns the mount's inline transform. The hero artwork parallaxes on scroll (compact only, DisplayCanvas.componentDidMount):
-`.image-container` renders at scale 1.12 and drifts down at 0.15× scroll speed, clamped
-to the 6% the overscale can cover — the listener attaches to SiteLayout's `.overflow-y-auto`
-scroll viewport, NOT window (the document never scrolls; `window.scrollY` stays 0 —
-confirmed live when the first window-scroll version never moved). Transform only, so the
-alpha-only GSAP tweens on `.image-container` don't conflict; skipped under
-prefers-reduced-motion. An ambient `.hero-dot-grid` layer (masked dot pattern, `components.css`) sits behind the
+`.image-container` renders at `HERO_PARALLAX_SCALE` and drifts down across the hero's own
+exit progress, capped at the `(scale - 1) / 2` of height the overscale hides. The listener
+is on **window** — the document is the scroller site-wide as of 2026-08-11; it used to
+attach to a `.overflow-y-auto` ancestor, which today would find nothing and silently attach
+nothing. Transform only, so the alpha-only GSAP tweens on `.image-container` don't conflict;
+skipped under prefers-reduced-motion.
+**The cached geometry must be correctable, and one snapshot at mount is not enough**
+(2026-08-11, real bug: the parallax sat at a wrong offset and only popped right on a later
+scroll). `measure()` guarded on `rect.height` alone, and WebKit runs the mount mid-layout,
+where the host already reports a partial height (534 of its eventual 900) while the artwork
+layer inside it is still **0 tall** — so the guard passed, `maxTravel: 0` and a `heroTop`
+measured against a mid-layout position were cached, the single rAF retry never fired, and
+nothing but a window resize could ever correct it. Measured in Playwright's WebKit: inert
+for the whole session, 40 of 48 readings stale; Chromium settles before the mount and shows
+none of it, which is exactly why this reads as intermittent rather than broken. Fixed by
+requiring BOTH boxes to have a real height and by re-measuring from a `ResizeObserver` on
+each of them (its initial observation covers the normal case, later ones cover settling,
+however many frames it takes) — every re-measure re-applies, so a correction lands
+immediately instead of waiting for the user's next scroll. Verified 0/48 stale in both
+engines, dev and production build, desktop and 390px. An ambient `.hero-dot-grid` layer (masked dot pattern, `components.css`) sits behind the
 compact UI, extending ~110px past it and dissipating with distance via intersecting X/Y
 gradient masks (`mask-composite: intersect` — rectangular falloff, not radial).
 **The hero's loading indicator is a color ripple through that dot grid** (2026-07-18,
@@ -944,6 +958,27 @@ Compact buttons are smaller than the studio's (56/50px vs 80/60) and sit in a ti
 with the "Go to studio" link directly beneath them (`.controls-compact .go-to-studio-btn`
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
+
+### A locked page lies about its scroll position — scroll-driven effects must sit it out
+`useScrollLock` pins the body with `position: fixed` (the only thing that actually stops
+iOS touch-scrolling), which makes the document report **scroll 0** and shifts every element's
+rect by the saved offset. Anything scroll-driven believes it. Found 2026-08-11 from a real
+report: opening and closing any homepage modal replayed the entire entrance cascade, because
+`useScrollTriggerReveal`'s scrub triggers read the lock as "scrolled back to the top" and
+rewound every item — measured, visible cards went opacity 1 → **0.004** the moment the modal
+opened and eased back over ~600ms on close.
+Both consumers now subscribe to the lock (`subscribeScrollLock`, exported from the hook that
+owns the lie) rather than trying to detect it: the reveal triggers `disable(false, true)` /
+`enable(false, …)`, and the hero parallax suppresses both its apply and its re-measure.
+Three things worth not re-deriving:
+- **Don't let `disable` revert.** Reverting snaps items back to their pre-tween values, which
+  is the same pop by another route. Not resetting on `enable` either is what makes the resume
+  silent: the trigger holds the value it held before, against a scroll position restored to
+  exactly what it was, so there is nothing to animate.
+- **A section that MOUNTED during a lock is the one case needing a refresh** (navigating from
+  an open MobileNav) — its start/end were cached against a collapsed document.
+- **Notify order is load-bearing**: on lock, before the body moves; on unlock, after the
+  scroll is restored. Either way round, a listener resumes against the wrong number.
 
 ### ProductPage's hero image slot — one animated layer, and why
 Recorded because getting this wrong cost a long, ugly debugging session (2026-07-29) and every

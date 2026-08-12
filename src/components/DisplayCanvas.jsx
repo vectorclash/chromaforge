@@ -15,6 +15,7 @@ import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/design
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { isMobileDevice } from '../utils/device';
+import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
 import HexagonLoader from './HexagonLoader';
@@ -353,21 +354,41 @@ export default class DisplayCanvas extends React.Component {
       let maxTravel = 0;
       // Both heights are viewport-derived (`h-screen`, i.e. the LARGE viewport), so they do
       // not change as iOS Safari's toolbar retracts -- only on a real resize/rotation.
+      //
+      // Every measurement here has to be a REAL one, not merely non-zero -- and the whole
+      // cache has to stay correctable, because ONE bad snapshot used to be permanent. Both
+      // guards below were added 2026-08-11 after measuring the mount in WebKit: it runs
+      // while layout is still settling, where the host already reports a height (534 of its
+      // eventual 900) but the artwork layer inside it is still 0 tall. The old
+      // `if (!rect.height) return false` accepted exactly that frame, cached `maxTravel: 0`
+      // and a `heroTop` measured against a mid-layout position, and returned true -- so the
+      // one retry below never fired and the parallax stayed inert, or wrongly anchored, for
+      // the entire session. Chromium settles before the mount and never showed it, which is
+      // why this reads as intermittent rather than broken.
       const measure = () => {
-        const el = document.querySelector('.image-container');
         const host = this.mount;
-        if (!el || !host) return false;
+        const el = host && host.querySelector('.image-container');
+        if (!el) return false;
         const rect = host.getBoundingClientRect();
-        if (!rect.height) return false;
+        if (!rect.height || !el.clientHeight) return false;
+        art = el;
         heroTop = rect.top + window.scrollY;
         heroHeight = rect.height;
         maxTravel = (el.clientHeight * (HERO_PARALLAX_SCALE - 1)) / 2;
         return true;
       };
+      let art = null;
+      // A full-screen overlay's scroll lock pins the body with `position: fixed`, which
+      // makes the document report scroll 0 and shifts the hero's own rect by the saved
+      // offset (see useScrollLock). Acting on either would slide the artwork by up to the
+      // full travel and then slide it back on close -- visible through any overlay that
+      // isn't fully opaque -- or cache a `heroTop` measured against the displaced body.
+      // Both are suppressed for the duration, and the resume re-measures.
+      let locked = false;
       const apply = () => {
         raf = 0;
-        const el = document.querySelector('.image-container');
-        if (!el || !heroHeight) return;
+        const el = art;
+        if (!el || !heroHeight || locked) return;
         // 0 while the hero sits at the top of the viewport, 1 once its bottom edge has
         // passed the top of the viewport (i.e. it has fully left the screen).
         const progress = Math.max(0, Math.min(1, (window.scrollY - heroTop) / heroHeight));
@@ -380,17 +401,32 @@ export default class DisplayCanvas extends React.Component {
       };
       // The travel distance is a fraction of the hero's height, which is viewport-derived
       // (h-screen) -- so a rotation changes it with no scroll event to recompute it against.
+      // Re-measuring is always followed by re-applying, so a correction lands immediately
+      // rather than waiting for the user's next scroll to reveal it.
       this.onHeroParallaxResize = () => {
+        if (locked) return;
         measure();
         this.onHeroParallaxScroll();
       };
+      this.unsubscribeHeroParallaxLock = subscribeScrollLock(isLocked => {
+        locked = isLocked;
+        if (!isLocked) this.onHeroParallaxResize();
+      });
       window.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
       window.addEventListener('resize', this.onHeroParallaxResize, { passive: true });
-      // Set the initial oversize before any scroll happens. The hero's own height depends on
-      // content above it having laid out, so if it measures as zero here, try again next
-      // frame rather than leaving the parallax permanently inert.
-      if (measure()) this.onHeroParallaxScroll();
-      else requestAnimationFrame(this.onHeroParallaxResize);
+      // A ResizeObserver rather than a single mount-time snapshot plus one rAF retry: it
+      // fires an initial observation immediately (covering the normal case), fires again
+      // whenever the layout that these numbers are derived from actually changes (covering
+      // the settling case above, however many frames it takes), and needs no guess about
+      // when "settled" is. Both boxes are observed because they can arrive at their real
+      // size on different frames -- the WebKit mount measured the host at a partial height
+      // while the artwork layer was still 0 tall, so watching either one alone can miss the
+      // frame that makes the other correct.
+      this.heroParallaxObserver = new ResizeObserver(this.onHeroParallaxResize);
+      this.heroParallaxObserver.observe(this.mount);
+      const artLayer = this.mount && this.mount.querySelector('.image-container');
+      if (artLayer) this.heroParallaxObserver.observe(artLayer);
+      this.onHeroParallaxResize();
     }
   }
 
@@ -399,6 +435,8 @@ export default class DisplayCanvas extends React.Component {
     if (this.onHeroParallaxScroll) {
       window.removeEventListener('scroll', this.onHeroParallaxScroll);
       window.removeEventListener('resize', this.onHeroParallaxResize);
+      this.heroParallaxObserver?.disconnect();
+      this.unsubscribeHeroParallaxLock?.();
     }
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);

@@ -19,11 +19,29 @@ import { useEffect } from 'react';
 // React StrictMode's deliberate mount/unmount/remount in development, which would otherwise
 // unlock a page that is still covered.
 
+// A locked page reports scroll position 0 (see below), which is a lie that any
+// scroll-driven effect will act on -- ScrollTrigger reads it as "scrolled back to the top"
+// and rewinds every homepage reveal, so closing a modal replayed the whole cascade
+// (measured: opacity 1 -> 0.004 while open, easing back over ~600ms after close). Effects
+// that must sit out a lock subscribe here rather than trying to detect it themselves.
+const listeners = new Set();
+
+export function subscribeScrollLock(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function isScrollLocked() {
+  return lockCount > 0;
+}
+
 let lockCount = 0;
 let savedScrollY = 0;
 
 function lockBody() {
   if (lockCount++ > 0) return;
+  // Before the body moves, so nothing sees the intermediate scroll position.
+  listeners.forEach(fn => fn(true));
   savedScrollY = window.scrollY;
   const { style } = document.body;
   style.position = 'fixed';
@@ -44,6 +62,9 @@ function unlockBody() {
   style.width = '';
   // Instant, not smooth -- this is restoring where the user already was, not a navigation.
   window.scrollTo(0, savedScrollY);
+  // After the restore, so a resuming effect reads the real position rather than the 0 the
+  // fixed body was still reporting a statement ago.
+  listeners.forEach(fn => fn(false));
 }
 
 export function useScrollLock(active) {
