@@ -63,6 +63,41 @@ function GenerateShine() {
   );
 }
 
+// The panel's top edge: the site's spectrum hairline (.cf-spectrum-line, the one under the
+// wordmark) but built from the ACTIVE design's own colours, so the widget carries a trace of
+// the artwork it just made instead of a fixed brand stripe. The last stop repeats the first --
+// the brand line does the same (it opens and closes on #4c00ff), and without it a two- or
+// three-stop palette reads as a hard left-to-right ramp rather than a band of the design.
+//
+// Two stacked copies rather than one whose background is swapped: a CSS gradient cannot be
+// transitioned between arbitrary stop lists, and even where it could, a swap would snap. The
+// old palette stays put while the new one fades in over it, which is the same crossfade (not
+// dip-out) the artwork itself gets.
+function edgeGradient(colors) {
+  if (!colors || colors.length === 0) return null;
+  const stops = colors.length === 1 ? [colors[0], colors[0]] : [...colors, colors[0]];
+  return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
+
+function PaletteEdge({ inset, shownColors, incomingColors, incomingRef }) {
+  const shownBg = edgeGradient(shownColors);
+  if (!shownBg) return null;
+  const incomingBg = edgeGradient(incomingColors);
+  return (
+    <>
+      <span aria-hidden className={`mini-palette-edge ${inset}`} style={{ background: shownBg }} />
+      {incomingBg && (
+        <span
+          ref={incomingRef}
+          aria-hidden
+          className={`mini-palette-edge ${inset}`}
+          style={{ background: incomingBg, opacity: 0 }}
+        />
+      )}
+    </>
+  );
+}
+
 // What the Generate button dims to while a generate is in flight -- the value the
 // `disabled:opacity-30` utility used to supply, kept here because GSAP now owns this
 // property outright (see the tween in MiniGenerator below).
@@ -71,15 +106,49 @@ const DISABLED_OPACITY = 0.3;
 // Ambient presence of the generator: either a floating widget or docked in the footer.
 // The thumbnail and the footer's art band both read the same StudioContext.previewUrl,
 // so regenerating here updates both at once, fading the same way.
-export default function MiniGenerator({ inline = false }) {
-  const { previewUrl, currentDesign, generateRandom, saveCurrentDesign, isCurrentDesignSaved } =
-    useStudio();
+//
+// `style`/`className` exist for ONE reason and it is load-bearing, not convenience: an entrance
+// animation for this widget has to be applied to the glass surface ITSELF, never to a wrapper
+// around it. Any ancestor with opacity < 1 (or a transform/filter) becomes a *backdrop root*,
+// and a backdrop-filter can only sample what is painted inside its own backdrop root -- so a
+// wrapper that contains nothing behind the panel leaves the filter with an empty backdrop and
+// the glass renders inert: the artwork behind shows through sharp and unblurred, then snaps to
+// frosted the instant the animation ends. That was a real bug in MobileNav, which used to put
+// `fade-slide-up` on the padding div around this (Aaron: "doesn't show the artwork correctly
+// behind it at first but then it settles"). Verified in Chromium: an ancestor's opacity kills
+// the blur, the element's OWN opacity does not -- which is why moving the animation down one
+// level is the whole fix, and why the floating variant below can animate its own opacity freely.
+export default function MiniGenerator({ inline = false, className = '', style }) {
+  const {
+    previewUrl,
+    previewPalette,
+    currentDesign,
+    generateRandom,
+    saveCurrentDesign,
+    isCurrentDesignSaved
+  } = useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const visible = useWidgetVisibility();
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(previewUrl);
+
+  // The top edge's colours, kept on the artwork's own beat rather than the design's. The whole
+  // point is that they change WITH the thumbnail, and the two facts arrive at different times:
+  // previewPalette lands with the new preview url, at the START of the reveal (the fade-out),
+  // while `incoming` is set at the instant the fade-in begins. So the palette is held in a ref
+  // and only committed when `incoming` appears -- the same trigger, the same DURATION_SLOW, the
+  // same power2.inOut the hook fades the image with, which is what makes the two read as one
+  // event instead of two things that happen to be near each other. Keying off previewPalette
+  // directly would recolour the edge a full second before the image it belongs to (the artwork
+  // is still fading the PREVIOUS design out at that point), which is the same mistake as
+  // watching currentDesign instead of previewUrl -- see the site-wide rule in CLAUDE.md.
+  const [edgeColors, setEdgeColors] = useState(null);
+  const [edgeIncomingColors, setEdgeIncomingColors] = useState(null);
+  const edgeIncomingRef = useRef(null);
+  const latestPaletteRef = useRef(null);
+  latestPaletteRef.current = previewPalette;
 
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | error
   // Real work happens between clicking Generate and the new preview actually landing:
@@ -129,6 +198,47 @@ export default function MiniGenerator({ inline = false }) {
     });
     return () => tween.kill();
   }, [pending]);
+
+  // First appearance only -- the hook shows the very first preview with no fade at all (there
+  // is nothing to fade from), so the edge has to arrive the same way rather than waiting for an
+  // `incoming` that will never come for that first design.
+  useEffect(() => {
+    if (!previewPalette) return;
+    setEdgeColors(prev => prev ?? previewPalette);
+  }, [previewPalette]);
+
+  // A reveal has reached its fade-in: start the edge's own crossfade on the same frame.
+  // useLayoutEffect, not useEffect: a passive effect commits this a render later, so the edge's
+  // tween started roughly a frame and a half behind the image's and the two curves visibly
+  // separated (measured mid-fade: edge 0.747 against image 0.837). A layout effect's state
+  // update is flushed before paint, so both tweens begin in the same frame.
+  // The palette is snapshotted here rather than read live, so a second generate landing during
+  // this fade-in can't swap the colours mid-crossfade.
+  useLayoutEffect(() => {
+    if (!incoming) return;
+    setEdgeIncomingColors(latestPaletteRef.current);
+  }, [incoming]);
+
+  // Layout effect for the same reason the hook uses one on its incoming image: the new layer
+  // must be at opacity 0 before the browser paints it, or it flashes at full strength for a
+  // frame ahead of the tween.
+  useLayoutEffect(() => {
+    if (!edgeIncomingColors || !edgeIncomingRef.current) return;
+    const el = edgeIncomingRef.current;
+    gsap.set(el, { opacity: 0 });
+    const tween = gsap.to(el, {
+      opacity: 1,
+      duration: DURATION_SLOW,
+      ease: 'power2.inOut',
+      onComplete: () => {
+        // Promote the incoming palette to the resting layer and drop the second one, so the
+        // next reveal starts from a single opaque edge again.
+        setEdgeColors(edgeIncomingColors);
+        setEdgeIncomingColors(null);
+      }
+    });
+    return () => tween.kill();
+  }, [edgeIncomingColors]);
 
   // Clear any stale error state from a previous design's failed save attempt
   useEffect(() => {
@@ -186,7 +296,16 @@ export default function MiniGenerator({ inline = false }) {
   // 1. Inline (Docked in Footer) Version: Horizontal Layout, buttons on left, image on right
   if (inline) {
     return (
-      <div className="inline-flex flex-row items-center gap-4 rounded-2xl bg-black/15 p-4 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)] backdrop-blur-[4px] backdrop-brightness-[0.95]">
+      <div
+        className={`relative inline-flex flex-row items-center gap-4 rounded-2xl border border-white/10 bg-black/15 p-4 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-[4px] backdrop-brightness-[0.95] ${className}`}
+        style={style}
+      >
+        <PaletteEdge
+          inset="left-4 right-4"
+          shownColors={edgeColors}
+          incomingColors={edgeIncomingColors}
+          incomingRef={edgeIncomingRef}
+        />
         {/* Buttons stacked on the left */}
         <div className="flex flex-col gap-3 w-32 shrink-0">
           <button
@@ -267,10 +386,18 @@ export default function MiniGenerator({ inline = false }) {
   return (
     <div
       className={
-        'fixed bottom-6 right-6 z-30 w-44 rounded-2xl bg-black/15 p-3 shadow-[0_4px_40px_rgba(0,0,0,0.4)] backdrop-blur-[4px] backdrop-brightness-[0.95] transition-all duration-300 ' +
-        (visible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0')
+        'fixed bottom-6 right-6 z-30 w-44 rounded-2xl border border-white/10 bg-black/15 p-3 shadow-[0_4px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-[4px] backdrop-brightness-[0.95] transition-all duration-300 ' +
+        (visible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0') +
+        (className ? ' ' + className : '')
       }
+      style={style}
     >
+      <PaletteEdge
+        inset="left-3 right-3"
+        shownColors={edgeColors}
+        incomingColors={edgeIncomingColors}
+        incomingRef={edgeIncomingRef}
+      />
       <button
         type="button"
         onClick={onOpenStudio}

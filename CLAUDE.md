@@ -2346,6 +2346,36 @@ things land).
   The hook's `instant: true` is a documented exception for surfaces hidden while the design
   changed (MobileNav), not a shortcut. TshirtPreview is the one legitimate variant: it sits
   beside the hero and syncs to DisplayCanvas's own `isLoading` via `waiting`.
+  **This extends to a surface's COLOUR, not just its images (2026-08-11, Aaron's ask).** The
+  mini-generator's panel carries a 2px hairline along its top edge — the `.cf-spectrum-line`
+  treatment from under the wordmark, but built from the active design's own palette
+  (`.mini-palette-edge`, `PaletteEdge` in MiniGenerator). Four things worth not re-deriving:
+  (1) **The palette comes from `gradientBackgroundConfig.colors`, never `design.colors`**
+  (`render/resolvedPalette.js`). The stored field is a design's *identity* and is EMPTY for
+  every auto-palette design and a single entry for a monochrome one — reading it directly
+  leaves the most common case with no colours at all.
+  (2) **It rides `previewPalette` (new StudioContext state, set in the same `.then` as
+  `previewUrl`), not `currentDesign`** — the same rule as above, for the same reason: the design
+  changes on click, a full render before the image it belongs to.
+  (3) **The recolour is a real crossfade of two stacked layers**, because a CSS gradient can't
+  be transitioned between arbitrary stop lists. The incoming layer's tween is started from a
+  **layout** effect on the hook's `incoming`, which is what puts it in the same frame as the
+  image's own tween — a passive effect commits a render later and the two curves visibly
+  separate (measured mid-fade: 0.747 against 0.837; after the fix they are identical at every
+  sample, 0.026/0.511/0.974).
+  (4) A `useCrossfadeImage` consumer gets this beat for free by watching `incoming`; anything
+  else has to reproduce it from `motionTokens`.
+- **An entrance animation must never be applied to a WRAPPER around a `backdrop-filter`
+  surface** (2026-08-11, real bug, Aaron: the mini-generator's glass "doesn't show the artwork
+  correctly behind it at first but then it settles"). Any ancestor with `opacity < 1` (or a
+  transform/filter) becomes a **backdrop root**, and a backdrop-filter can only sample what is
+  painted inside its own root — so a wrapper holding nothing behind the panel leaves the filter
+  with an empty backdrop: the artwork shows through sharp and unblurred for the whole animation,
+  then snaps to frosted when it ends. MobileNav put `fade-slide-up` on the padding div around
+  MiniGenerator; it now passes the animation down via the widget's `style` prop. Verified in
+  Chromium: an ancestor's opacity kills the blur, **the element's OWN opacity does not** — which
+  is why moving the animation down one level is the entire fix, and why the floating variant can
+  animate its own opacity freely. The footer was never affected (its wrapper doesn't animate).
 - **Verify every styling/behavior change against a live baseline** — computed-style
   diffs, screenshots, and actual interaction tests (drag, click, toggle), not just "it
   builds." This caught several real bugs (clipped pointer indicators, dead-zone hit

@@ -5,6 +5,7 @@ import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
 import { isSameDesign } from '../render/designSettings';
 import { densityFloorSize } from '../render/scale';
+import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -67,6 +68,13 @@ export function StudioProvider({ children }) {
     generateArtwork(randomSeed(), 1080, 1080, [])
   );
   const [previewUrl, setPreviewUrl] = useState(null);
+  // The palette the CURRENT PREVIEW is painted with -- deliberately updated alongside
+  // previewUrl rather than derived from currentDesign by consumers. currentDesign changes the
+  // instant Generate is clicked, while previewUrl only appears once that design has actually
+  // rendered, so anything reading the design directly gets the new palette a full render ahead
+  // of the image it belongs to. Pairing them here is what lets a surface tint itself with the
+  // artwork it is showing rather than the one it is about to show.
+  const [previewPalette, setPreviewPalette] = useState(null);
   // Mirrors previewUrl so the render effect can revoke the url it is replacing without
   // doing that (a side effect) inside a setState updater, which StrictMode invokes twice.
   const previewUrlRef = useRef(null);
@@ -172,6 +180,9 @@ export function StudioProvider({ children }) {
         const dead = previewUrlRef.current;
         previewUrlRef.current = url;
         setPreviewUrl(url);
+        // `currentDesign` here is the closure's -- the design this blob was rendered FROM,
+        // not whatever happens to be current by the time it resolves.
+        setPreviewPalette(resolvedPalette(currentDesign));
         // The old url is revoked on a DELAY, not immediately. Every consumer of previewUrl
         // reveals it through useCrossfadeImage, which spends ~1.7s fading the old image out,
         // holding, and fading the new one in -- and it preloads mid-reveal. Revoking on the
@@ -243,6 +254,7 @@ export function StudioProvider({ children }) {
     currentDesign,
     setCurrentDesign,
     previewUrl,
+    previewPalette,
     renderDesignBlob,
     generateRandom,
     saveCurrentDesign,

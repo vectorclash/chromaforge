@@ -228,12 +228,17 @@ export default function MobileNav({ open, onClose }) {
           this docked instance -- one generate/save surface instead of two competing for
           the same small screen. Shown here on every route, including "/" -- HomePage's
           hero is the same generator, but scrolled away from it this is the only way back
-          to generate/save on a small screen without also closing the menu first. */}
-      <div
-        className="relative z-10 px-6 pb-10 pt-8"
-        style={{ animation: 'var(--animate-fade-slide-up)', animationDelay: '0.24s' }}
-      >
-        <MiniGenerator inline />
+          to generate/save on a small screen without also closing the menu first.
+
+          The entrance animation goes on the MiniGenerator itself, NOT on this padding wrapper:
+          a wrapper animating opacity is a backdrop root, which left the widget's glass with an
+          empty backdrop to filter for the whole 500ms (unblurred artwork showing straight
+          through, then snapping to frosted). See MiniGenerator's own note. */}
+      <div className="relative z-10 px-6 pb-10 pt-8">
+        <MiniGenerator
+          inline
+          style={{ animation: 'var(--animate-fade-slide-up)', animationDelay: '0.24s' }}
+        />
       </div>
     </div>,
     document.body
