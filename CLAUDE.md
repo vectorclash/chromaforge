@@ -595,6 +595,44 @@ silently. Fast-motion blockiness fixed: `latencyMode: 'quality'` on Constrained 
 (structurally can't B-frame; only the High Profile fallback keeps 'realtime'), mobile
 bitrate 15→25Mbps, keyframes every 2s. Previews (both modes) freeze during export so a
 live scene never competes with the encoder.
+**Export bitrate is DERIVED from the export's size and frame rate, not a flat constant
+(2026-08-12, Aaron: 3D exports go blurry through the fast mid-cycle stretch).** It was
+40Mbps for everything, which is the actual fault — a 3840x2160 60fps export got the same
+budget as a 2160x2160 24fps one. Now `VIDEO_QUALITY_K * sqrt(width * height) * FPS`, capped
+by `MAX_EXPORT_BYTES` (600MB).
+- **The sqrt is measured, not assumed.** Encoding real 3D frames at the ramp's peak and
+  decoding them back through WebCodecs, the same PSNR needed 40Mbps at 1080p24 and 80Mbps at
+  4K24 — 4x the pixels for 2x the bitrate. So the target scales with the square root of area
+  and linearly with frame rate. K is set so 4K24 lands near 120Mbps, at the knee of the
+  curve (4K24 measured 29.5dB mean / 27.3dB worst at 40Mbps, 33.5/30.7 at 80, 35.7/34.0 at
+  120, still climbing at 160). Real gain at 24fps, worst frame at the peak: **+6.2dB (16:9),
+  +5.4 (9:16), +5.4 (1:1)**.
+- **The cap exists because mp4-muxer holds the whole file in RAM** (`ArrayBufferTarget` +
+  `fastStart: 'in-memory'`), so bitrate x duration IS the allocation — uncapped, 60s at 4K60
+  would ask for ~2.2GB. It binds only on long and/or 60fps exports (60s 4K24 → 84Mbps; a
+  default 10s 4K24 is 143MB and untouched). Raising quality further means solving the
+  in-memory muxer first, not raising K.
+- **Mobile deliberately keeps its flat 25Mbps** — phones already OOM-kill on this path (see
+  `ANIM_LIMITS`) and the ask was desktop.
+- **The profile was NOT changed, and the measurement is why.** `avc1.640C34` (Constrained
+  High — High profile with `constraint_set5_flag`, i.e. CABAC and 8x8 transform but
+  structurally no B-frames, so it would keep the Windows reordering fix) is reported
+  supported, but encodes **byte-identically to Constrained Baseline** in headless Chromium:
+  the software encoder (OpenH264) ignores the profile. So there is no evidence it would help,
+  and the only place it could differ is the Windows hardware encoder this codebase already
+  got burned by. `bitrateMode: 'quantizer'` — the textbook fix for constant quality — reports
+  **unsupported** for H.264 there.
+- **Caveat on the headless measurements: they are OpenH264, not what a real desktop uses.**
+  It refuses to initialise at 3840x2160@60 at all, so nothing here measured 60fps reliably;
+  the 24fps numbers are the trustworthy ones.
+- **Slowing the render down would not help, asked and checked** (Aaron, same session). The
+  export is already a fixed-timestep, non-realtime loop: every frame is fully rendered and
+  its `VideoFrame` constructed in the same task before any `await`, and the loop already
+  back-pressures on `encodeQueueSize`. The PSNR figures above compare the decoded output
+  against the exact source frames, so the loss measured is entirely compression, not capture —
+  a partial or torn frame would read as catastrophic PSNR, not 29dB. `latencyMode: 'quality'`
+  is already the "take your time" knob and there is no other.
+
 **Export ratio + frame rate pickers, 2026-07-28** (Aaron, for ad formats): one Video-tab row
 carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840, `1:1`
 2160×2160) and `EXPORT_FPS_OPTIONS` (24/30/60). Export-only state, so switching either is
@@ -780,6 +818,78 @@ Key facts:
   high read pastel, not vivid), opacity 0.85, panel fill rate 0.28 base, wide per-vertex
   palette-phase jitter (±0.3) for strong multi-color gradients; wireframe density rolls
   per ring section (some sections bare, some fully caged) so the scaffold isn't uniform.
+
+### Admin-only logo mark at the animation loop seam (2026-08-12)
+An **Admin** settings tab (a fourth tab beside Color/Geometry/Video, rendered only for
+`profiles.is_admin`) carrying a **Logo** toggle: the design's own vectorclash mark flies
+through the animation's loop seam. Playback/export state only — like Speed Ramp it sets no
+`settingsDirty` and is never persisted, since the mark is derived from the seed.
+- **`profiles.is_admin` already existed in the live DB** with no local migration file and no
+  reference anywhere in `src/` — this only plumbed it (`profiles.js`'s select list →
+  `AuthContext`'s `isAdmin` → StudioPage → DisplayCanvas). Don't conclude from a repo grep
+  that a column doesn't exist; this project applies schema via the Supabase MCP tooling, so
+  `supabase/migrations/` is not a complete record. It is a **UI flag only** (`profiles` is
+  world-readable), and the toggle is re-gated at the point of use (`logoMarkConfig()`), not
+  just at the tab, so state surviving a sign-out can't leak into another account.
+- **The motion is ONE continuous flight through the seam, not two animations.**
+  `src/utils/logoIntro.js` owns a signed parameter `s`: −1 at the start of the return leg, 0
+  at the seam (simultaneously the final frame and frame 1), +1 at the end of the exit leg.
+  Scale (`2 ** (s * LOGO_OCTAVES)` — exponential, so velocity is continuous through the sign
+  change, which a linear ramp would not be), opacity and stroke fraction are all functions of
+  `s`. The loop therefore closes by construction: verified `max delta 0.00e+0` between frame 1
+  and the final frame across four period/fps combinations, and the 3D seam frames render
+  pixel-identical at t=0 and t=duration.
+- **It takes the LINEAR clock and applies its own warp, with its own floor.** Every call site
+  passes the pre-warp clock (2D preview publishes it from the ramp driver into a ref; the
+  exporter and 3D preview already have it). `RAMP_FLOOR_LOGO` exists because at
+  `RAMP_FLOOR_3D = 0.03` a mark warped by the mode's own floor would hang at its frame-1 pose
+  for seconds of wall time. Currently 0.25 — the one value to tune by eye.
+- **`generateLabelMark.js` gained `generateMarkLines()`, extracted from it, and the print
+  path is byte-identical** (60/60 configs across six real label sizes × 5 designs × both ink
+  modes). The video mark and the printed label mark are literally the same code against the
+  same `${seed}-label` stream, so a design's animation carries the mark its tag would. No
+  `LABEL_MARK_GENERATOR_VERSION` bump, no render-service redeploy (label marks are
+  client-side), no thumbnail backfill.
+- **2D is a flat overlay, 3D is a real plane in the tunnel** — Aaron's explicit call that the
+  two modes may differ. 2D: a `<canvas>` sibling of the frame stack in `AnimationPreview`,
+  painted by **its own** `gsap.ticker` (the speedRamp driver only exists when the ramp is on,
+  so it can't be reused) which never touches the timeline. 3D: `tunnelScene`'s optional logo
+  plane, `depthTest: false` + `renderOrder 999` + `fog: false` and deliberately NOT
+  warp-shaded — the camera flies through a continuous bore, so anything depth-tested spends
+  the window behind a ring.
+- **The 3D plane's z is set RELATIVE TO THE CAMERA every frame** (`camZ + LOGO_SEAM_DISTANCE
+  / scale`), which is the whole reason it needs no seam special case: `camZ` wraps modulo `L`
+  but an offset from it has nothing to wrap, so no duplicate copies at ±L are needed.
+  Measured across a real wrap: distance ahead runs 158 → 97 → 60 (seam) → 37 → 23 with the
+  camera jumping 2340 → 0 underneath it. Visibility is gated on `logoState` being non-null,
+  so it appears exactly **once per cycle even when the camera laps** (verified at a 20s
+  duration, laps = 2, 1200 samples).
+- **A scene with the mark off is pixel-identical to one built without the plane at all**, and
+  a `logoMark` prop change rebuilds the 3D scene (cheap — 3D builds are instant, unlike the
+  30s+ 2D frame build). `LOGO_SCREEN_FRACTION` is shared by the 2D preview and the 2D export
+  so the file matches the preview it was approved from; 3D sizes its plane from that same
+  fraction against the vertical FOV at the seam distance.
+- Which seed is "this generation": 3D uses `threeDDesign`, a 2D animation uses its **first
+  frame's** config (the same rule `backfill-thumbnails.mjs` already uses for an animation's
+  identity), otherwise `mainConfig`. Memoized on the seed — `logoMarkConfig()` is called from
+  `render()` and a fresh object would rebuild `AnimationPreview`'s whole GSAP timeline.
+- **`renderLogoMark` fits the mark's VISUAL extent, not its path bounds** (Aaron, 2026-08-12:
+  the ring was cut off on the 3D plane). `bounds` is where the path runs, and a stroke is
+  centered on its path, so fitting bounds flush to the box leaves half a stroke hanging
+  outside. Harmless on the 2D overlay (a huge canvas with nothing at its edge) but the 3D
+  texture's edge IS the plane's edge. Padded by a full `RING_WEIGHT` on every side: half is
+  the actual stroke, half is slack for antialiasing feather, which is what makes it hold at
+  any texture resolution (verified 0 edge pixels across 100 draw fractions at 512/256/128).
+  Costs 2.6% of the mark's size.
+- **A completed ring uses `arc(…, 0, 2*PI)`, not a sweep whose endpoints differ by exactly
+  `2*PI`.** Both are a full circle per spec and both work in browsers, but `@napi-rs/canvas`
+  draws **nothing** for the second form — found while measuring the clipping above. Nothing
+  renders this headlessly today (label marks and this both run client-side), so it is
+  currently latent; it is written this way so correctness isn't a coincidence, same lesson as
+  `GenerateLargeRadialField`'s alpha-as-a-string and the tinycolor objects in single-colour
+  palettes.
+- Inspection artifact (real-pipeline filmstrips, both modes, plus the measurements):
+  https://claude.ai/code/artifact/8be1d244-58a8-4dbd-bb3c-68f1a4c50453
 
 ### Homepage hero: 3D t-shirt preview (2026-07-16)
 **Scope, per Aaron (2026-07-28) — read this before the calibration detail below, and note

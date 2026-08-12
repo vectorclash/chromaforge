@@ -14,6 +14,9 @@ import { toCompactDesign } from '../render/compactDesign';
 import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
+import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
+import { generateLogoMark } from '../render/generateLogoMark';
+import { drawLogoMark } from '../render/renderLogoMark';
 import { isMobileDevice } from '../utils/device';
 import { subscribeScrollLock } from '../hooks/useScrollLock';
 
@@ -261,7 +264,11 @@ export default class DisplayCanvas extends React.Component {
       musicEnabled: false,
       audioExportSupported: true,
       frameCount: 20,
-      cycleDuration: 10,
+      // 5s, the stepper's own minimum (Aaron, 2026-08-12: it's what he reaches for). Nothing
+      // downstream assumed 10 -- 3D still builds one lap of unique content (FLIGHT_SPEED x 5
+      // is under MAX_CONTENT_LENGTH), the logo mark's two half-second windows still fit, and
+      // a 5s export never reaches the bitrate cap, so it always encodes at full quality.
+      cycleDuration: 5,
       starFrameCount: 10,
       // MP4 export framing/frame rate. Export-only (never part of a design, never saved),
       // and applied at export time, so changing either is instant and needs no rebuild.
@@ -282,6 +289,11 @@ export default class DisplayCanvas extends React.Component {
       // added later without a format change (saving is disabled in 3D mode for now).
       threeDMode: false,
       threeDDesign: null,
+      // Admin-only (profiles.is_admin): stamp the design's own vectorclash mark onto the
+      // animation's loop seam -- see utils/logoIntro.js for the motion. Like speedRamp this
+      // is playback/export state, never part of the design: it changes no frame content, so
+      // no settingsDirty, and it is not persisted on save.
+      logoMark: false,
       animationPaused: false,
       settingsTab: 'color',
       animTiming: null,
@@ -591,6 +603,29 @@ export default class DisplayCanvas extends React.Component {
     const starSpacing = cycleDuration / starCount;
     const starFade = starSpacing * (8.0 / 7.0);
     return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
+  }
+
+  // The admin logo mark, re-gated at the point of use rather than trusted from state alone:
+  // the toggle lives behind an isAdmin-only tab, but the state outlives a sign-out, so this
+  // is what actually keeps it out of a non-admin's preview and export.
+  logoMarkConfig() {
+    if (!this.props.isAdmin || !this.state.logoMark) return null;
+    // Which seed is "this generation" differs per mode. 3D has one scene and one seed. A 2D
+    // animation is N independently seeded frames, so it takes the FIRST frame's -- the same
+    // rule the rest of the project already uses for an animation's identity (see
+    // backfill-thumbnails.mjs, which reads an animation row's generatorVersion off frame 1).
+    const design = this.state.threeDMode
+      ? this.state.threeDDesign
+      : this.animationConfigs?.[0] ?? this.mainConfig;
+    if (!design?.seed) return null;
+    // Memoized on the seed because render() calls this every pass and the result is a prop:
+    // a fresh object each time would retrigger AnimationPreview's effect (and rebuild its
+    // whole GSAP timeline) on every unrelated state change.
+    if (this._logoMarkSeed !== design.seed) {
+      this._logoMarkSeed = design.seed;
+      this._logoMark = generateLogoMark(design);
+    }
+    return this._logoMark;
   }
 
   // Whether the picked export ratio differs from the one the 2D frames were baked at (the
@@ -1312,9 +1347,15 @@ export default class DisplayCanvas extends React.Component {
     const muxerAudioCodec = audioCodec === 'mp4a.40.2' ? 'aac' : 'opus';
 
     // Frame source: a 2D canvas compositing the pre-rendered frames, or (3D mode) a WebGL
-    // canvas the tunnel scene renders into per frame. Either way, `drawAt(elapsed)` paints
-    // the exact frame for that timeline moment and `canvas` is what VideoFrame captures --
-    // the encode loop below is fully shared.
+    // canvas the tunnel scene renders into per frame. Either way, `drawAt(elapsed, rush,
+    // logo)` paints the exact frame for that timeline moment and `canvas` is what VideoFrame
+    // captures -- the encode loop below is fully shared.
+    //
+    // `logo` is the admin logo mark's state for this frame (null when off or mid-cycle),
+    // computed once in the loop so both modes are driven by the same curve even though they
+    // draw it completely differently: 2D composites it onto the finished frame, 3D hands it
+    // to the scene, which carries a real textured plane in the tunnel.
+    const logoCfg = this.logoMarkConfig();
     let drawAt;
     let canvas;
     let cleanup3D = null;
@@ -1333,7 +1374,8 @@ export default class DisplayCanvas extends React.Component {
         settings: threeDDesign.settings ?? null,
         duration: CYCLE_DURATION,
         width,
-        height
+        height,
+        logoMark: logoCfg
       });
       canvas = renderer.domElement;
       // Star sprite textures decode async -- without this, the first ~second of encoded
@@ -1341,8 +1383,8 @@ export default class DisplayCanvas extends React.Component {
       await world.ready;
       // setTime is periodic in CYCLE_DURATION, and the VideoFrame is constructed in the
       // same task as the render (no await in between), so no preserveDrawingBuffer needed.
-      drawAt = (elapsed, rush = 0) => {
-        world.setTime(elapsed, rush);
+      drawAt = (elapsed, rush = 0, logo = null) => {
+        world.setTime(elapsed, rush, logo);
         renderer.render(world.scene, world.camera);
       };
       cleanup3D = () => {
@@ -1368,7 +1410,7 @@ export default class DisplayCanvas extends React.Component {
       srcWidth, srcHeight, width, height
     );
 
-    drawAt = elapsed => {
+    drawAt = (elapsed, rush = 0, logo = null) => {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
       images.forEach((img, i) => {
@@ -1423,6 +1465,20 @@ export default class DisplayCanvas extends React.Component {
         });
         ctx.globalCompositeOperation = 'source-over';
       }
+
+      // The mark goes on last, over the finished frame. Sized off the short edge like the
+      // preview's overlay, so the same LOGO_BASE_FRACTION lands identically at any export
+      // ratio or resolution -- the preview and this must agree, or the thing you approved
+      // on screen is not the thing in the file.
+      if (logo && logoCfg) {
+        drawLogoMark(ctx, logoCfg, {
+          cx: width / 2,
+          cy: height / 2,
+          size: Math.min(width, height) * LOGO_SCREEN_FRACTION * logo.scale,
+          draw: logo.draw,
+          alpha: logo.alpha
+        });
+      }
       };
     }
 
@@ -1446,7 +1502,34 @@ export default class DisplayCanvas extends React.Component {
     // 25Mbps mobile (was 15): the fast parts of the animation — the 3D flythrough,
     // and especially the speed ramp's mid-cycle peak — starve the encoder at 15 and
     // came out visibly blocky/pixelated on real phone exports.
-    const bitrate = isMobile ? 25_000_000 : 40_000_000;
+    //
+    // Desktop bitrate is DERIVED from the export's own size and frame rate (2026-08-12,
+    // Aaron: 3D exports go blurry through the fast mid-cycle stretch). It used to be a flat
+    // 40Mbps, which is the actual fault — a 3840x2160 60fps export was handed the same
+    // budget as a 2160x2160 24fps one. Measured at the ramp's peak on a real 3D scene,
+    // encoded and decoded back through WebCodecs: 4K24 scored 29.5dB mean / 27.3dB worst
+    // PSNR at 40Mbps, 33.5/30.7 at 80, 35.7/34.0 at 120, and was still climbing at 160.
+    //
+    // The exponent is measured, not assumed: the same quality needed 40Mbps at 1080p24 and
+    // 80Mbps at 4K24 — four times the pixels for twice the bitrate — so the target scales
+    // with the SQUARE ROOT of area, and linearly with frame rate. K is set so 4K24 lands on
+    // ~120Mbps, near the knee of that curve.
+    //
+    // Then capped by memory, because mp4-muxer holds the entire file in RAM
+    // (ArrayBufferTarget + fastStart: 'in-memory'), so bitrate x duration IS the allocation.
+    // Without the cap a 60s 4K60 export would ask for ~2.2GB. Long exports trade quality for
+    // completing at all, which is the right way round.
+    //
+    // Mobile is deliberately left on its flat 25Mbps: phones already OOM-kill on this path
+    // (see ANIM_LIMITS) and Aaron's ask was specifically desktop.
+    const VIDEO_QUALITY_K = 1736; // bits per (sqrt-pixel x frame)
+    const MAX_EXPORT_BYTES = 600 * 1024 * 1024;
+    const bitrate = isMobile
+      ? 25_000_000
+      : Math.min(
+          Math.round(VIDEO_QUALITY_K * Math.sqrt(width * height) * FPS),
+          Math.floor((MAX_EXPORT_BYTES * 8) / CYCLE_DURATION)
+        );
     // latencyMode: 'quality' gives the encoder real rate control and motion estimation
     // headroom; 'realtime' (used previously) trades that away for encode speed, which is
     // the other half of the fast-motion blockiness. The reordering concern that motivated
@@ -1512,7 +1595,14 @@ export default class DisplayCanvas extends React.Component {
         OFFSET + (speedRamp ? rampTime(linear, PERIOD, is3D ? RAMP_FLOOR_3D : RAMP_FLOOR_2D) : linear);
       // rush only means anything to the 3D drawAt (FOV/warp speed enhancement); the 2D
       // compositor ignores it.
-      drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0);
+      //
+      // The logo mark takes the LINEAR clock, not `elapsed`: logoIntro applies its own warp
+      // with its own floor (3D's 0.03 would leave the mark hanging at the seam for seconds
+      // of wall time). Note the mark is NOT offset by OFFSET -- OFFSET exists to start the
+      // frame crossfades one period in, and the mark's whole job is to sit exactly on the
+      // seam, which `linear` already puts it on at f = 0 and f = TOTAL_FRAMES.
+      const logo = logoCfg ? logoState(linear, PERIOD, speedRamp) : null;
+      drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0, logo);
 
       const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });
       // Keyframe every 2s (was every 1s): forced keyframes are the most expensive frames
@@ -2257,6 +2347,7 @@ export default class DisplayCanvas extends React.Component {
       musicEnabled,
       audioExportSupported,
       speedRamp,
+      logoMark,
       exportAspect,
       exportFps,
       settingsTab,
@@ -2270,6 +2361,7 @@ export default class DisplayCanvas extends React.Component {
 
     // `user` now comes from the auth provider via props (StudioPage), not local state.
     const user = this.props.user;
+    const isAdmin = !!this.props.isAdmin;
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
     const compact = !!this.props.compact;
     const returnTo = this.props.returnTo ?? { path: '/', label: 'Back to home' };
@@ -2325,6 +2417,7 @@ export default class DisplayCanvas extends React.Component {
             starSpacing={starSpacing}
             paused={animationPaused || isExporting}
             speedRamp={speedRamp}
+            logoMark={this.logoMarkConfig()}
           />
         )}
         {/* Both previews freeze while encoding (paused || isExporting) — a second live
@@ -2338,6 +2431,7 @@ export default class DisplayCanvas extends React.Component {
             onClick={this.onCloseButtonClick.bind(this)}
             paused={animationPaused || isExporting}
             speedRamp={speedRamp}
+            logoMark={this.logoMarkConfig()}
             onInitError={() => {
               alert('3D mode needs WebGL, which is unavailable in this browser. Switching back to 2D.');
               this.onThreeDToggle();
@@ -2552,6 +2646,19 @@ export default class DisplayCanvas extends React.Component {
               >
                 Video
               </button>
+              {/* profiles.is_admin. `profiles` is world-readable, so this conceals the tab
+                  rather than protecting anything -- fine, because nothing behind it is
+                  privileged: it only changes what a local export draws. Every consumer of
+                  the settings below re-checks isAdmin at the point of use, so a state left
+                  on by an admin can't survive into another account's session. */}
+              {isAdmin && (
+                <button
+                  className={'settings-tab-btn' + (settingsTab === 'admin' ? ' active' : '')}
+                  onClick={() => this.setState({ settingsTab: 'admin' }, () => this.animateSettingsTab())}
+                >
+                  Admin
+                </button>
+              )}
             </div>
 
             {/* Only the tab BODY scrolls. The tab strip above and the BACK row below stay put
@@ -2891,6 +2998,27 @@ export default class DisplayCanvas extends React.Component {
                     onClick={() => audioExportSupported && this.setState({ musicEnabled: !musicEnabled })}
                     aria-label={!audioExportSupported ? 'Music export not supported in this browser' : musicEnabled ? 'Music on' : 'Music off'}
                     style={!audioExportSupported ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
+              </>
+            )}
+            {settingsTab === 'admin' && isAdmin && (
+              <>
+                {/* Playback/export only, exactly like Speed Ramp: it draws over finished
+                    frames and changes no frame content, so no settingsDirty and no
+                    "regenerate to apply" notice. It is not saved with the design either --
+                    the mark is derived from the seed, so there is nothing to persist. */}
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Logo
+                    <span className="settings-label-note"> flies through the loop seam</span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (logoMark ? ' on' : '')}
+                    onClick={() => this.setState({ logoMark: !logoMark })}
+                    aria-label={logoMark ? 'Logo on' : 'Logo off'}
                   >
                     <span className="settings-toggle-thumb" />
                   </button>

@@ -139,15 +139,21 @@ function legibleAccent(hex) {
 // the dark ink itself, and the light greyscale chords flip to their dark complements;
 // the colored accent spins stay as-is. Used for label_outside; label_inside keeps the
 // dark split-panel (it's a sewn-in tag -- the panel IS the look there).
-export function generateLabelMark(design, width, height, { transparent = false } = {}) {
+// The seeded mark itself -- which chords survive and what ink each carries -- with no
+// layout attached. Extracted so the animation's logo overlay (generateLogoMark.js) is
+// literally the same code rather than a parallel copy that could drift: a design's video
+// mark and its printed label mark are the same mark, because they run this function
+// against the same '-label' stream.
+//
+// Matches Logo.jsx's animateLogo() exactly: each chord independently has a 60% chance to
+// show at all (alphaChance > 0.4); of the ones that show, ~80% render as a random light
+// greyscale value (100-255) and ~20% as a small hue-spin variant of the single chosen
+// accent (colorChance > 0.8, spin -15..+15) -- never one flat color for the whole mark.
+export function generateMarkLines(design, { transparent = false } = {}) {
   const rng = makeRng(`${design.seed}-label`);
   const colors = design.colors?.length ? design.colors : [DEFAULT_BASE_COLOR];
-  const mainColorHex = legibleAccent(colors[randInt(rng, 0, colors.length - 1)]);
+  const accentColor = legibleAccent(colors[randInt(rng, 0, colors.length - 1)]);
 
-  // Matches Logo.jsx's animateLogo() exactly: each chord independently has a 60% chance to
-  // show at all (alphaChance > 0.4); of the ones that show, ~80% render as a random light
-  // greyscale value (100-255) and ~20% as a small hue-spin variant of the single chosen
-  // accent (colorChance > 0.8, spin -15..+15) -- never one flat color for the whole mark.
   const lines = [];
   for (const [x1, y1, x2, y2] of LINES) {
     const alphaChance = rng();
@@ -156,7 +162,7 @@ export function generateLabelMark(design, width, height, { transparent = false }
     const colorChance = rng();
     let color;
     if (colorChance > 0.8) {
-      color = tinycolor(mainColorHex)
+      color = tinycolor(accentColor)
         .spin(-15 + rng() * 30)
         .toHexString();
     } else {
@@ -169,6 +175,18 @@ export function generateLabelMark(design, width, height, { transparent = false }
     }
     lines.push({ x1, y1, x2, y2, color });
   }
+
+  return { lines, accentColor };
+}
+
+// The mark's fixed geometry, exported for non-label consumers (the animation overlay).
+// BOUNDS in particular must not be re-derived from Logo.jsx's viewBox -- see computeBounds.
+export const MARK_BOUNDS = BOUNDS;
+export const MARK_RING = { center: RING_CENTER, radius: RING_RADIUS };
+export const MARK_RING_COLOR = RING_COLOR;
+
+export function generateLabelMark(design, width, height, { transparent = false } = {}) {
+  const { lines, accentColor: mainColorHex } = generateMarkLines(design, { transparent });
 
   // The accent panel uses the un-spun chosen accent itself (the per-line spins above are
   // variations OF this color, so the flat panel reads as their common root). The mark

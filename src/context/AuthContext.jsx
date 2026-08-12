@@ -16,6 +16,10 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [notice, setNotice] = useToastNotice(); // { type: 'success'|'error', message }
   const [avatarUrl, setAvatarUrl] = useState(null);
+  // profiles.is_admin. A UI-only flag -- `profiles` is world-readable, so this conceals
+  // admin-only controls rather than protecting anything. Nothing privileged hangs off it;
+  // anything that ever does must check it server-side instead.
+  const [isAdmin, setIsAdmin] = useState(false);
   // Set once a password-recovery link's session lands (see the hash-parsing effect below).
   // AccountPage reads this to show the set-new-password form instead of the normal
   // signed-in view; cleared once the new password is saved.
@@ -30,11 +34,16 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!user) {
       setAvatarUrl(null);
+      setIsAdmin(false);
       return;
     }
     let cancelled = false;
     getMyProfile()
-      .then(profile => !cancelled && setAvatarUrl(profile.avatar_url || null))
+      .then(profile => {
+        if (cancelled) return;
+        setAvatarUrl(profile.avatar_url || null);
+        setIsAdmin(profile.is_admin === true);
+      })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -85,6 +94,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
+        isAdmin,
         avatarUrl,
         setAvatarUrl,
         recoveryMode,

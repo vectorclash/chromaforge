@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime } from '../utils/speedRamp';
+import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
+import { drawLogoMark } from '../render/renderLogoMark';
 
 const SCALE_END        = 1.45;
 const STAR_SCALE_END   = 1.15;
@@ -30,7 +32,8 @@ export default function AnimationPreview({
   starFade    = DEFAULT_STAR_FADE,
   starSpacing = DEFAULT_STAR_SPACING,
   paused      = false,
-  speedRamp   = false
+  speedRamp   = false,
+  logoMark    = null
 }) {
   const containerRef = useRef(null);
   const imgRefs   = useRef([]);
@@ -40,6 +43,11 @@ export default function AnimationPreview({
   const killRef   = useRef(false);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const logoCanvasRef = useRef(null);
+  // The LINEAR (unwarped) clock. Under speedRamp the timeline's own playhead is already
+  // warped by the 2D floor, and the logo needs its own floor (see utils/logoIntro), so the
+  // driver below publishes the pre-warp clock here rather than the logo re-deriving it.
+  const linearClockRef = useRef(0);
 
   useEffect(() => {
     if (!frames || frames.length === 0) return;
@@ -127,6 +135,7 @@ export default function AnimationPreview({
         const tick = (time, deltaTime) => {
           if (killRef.current || pausedRef.current) return;
           clock += deltaTime / 1000;
+          linearClockRef.current = clock;
           const target = rampTime(clock, period);
           // Walk to the target in <=spacing hops instead of one jump. GSAP clamps
           // tl.time() to the timeline's CURRENT duration, and this timeline only
@@ -173,6 +182,61 @@ export default function AnimationPreview({
     };
   }, [frames, starFrames, fade, spacing, starFade, starSpacing, speedRamp]);
 
+  // The logo mark's own ticker, separate from the speedRamp driver above because it must
+  // run in BOTH modes -- that driver only exists when the ramp is on. It never touches the
+  // timeline; it only reads a clock and paints its own canvas, so the two can't fight over
+  // the playhead.
+  useEffect(() => {
+    const canvas = logoCanvasRef.current;
+    if (!logoMark || !canvas || !frames?.length) return;
+
+    const period = frames.length * spacing;
+    const ctx = canvas.getContext('2d');
+    let lastPainted = null;
+
+    const paint = () => {
+      if (killRef.current || pausedRef.current) return;
+      // Under the ramp the timeline's playhead is warped by the 2D floor; without it the
+      // playhead IS the linear clock. Either way logoIntro applies its own warp from here.
+      const linear = speedRamp ? linearClockRef.current : tlRef.current?.time() ?? 0;
+      const state = logoState(linear, period, speedRamp);
+
+      // Skip repaints once it has been cleared -- the mark is absent for most of a cycle,
+      // and clearing an empty canvas every frame is pure waste.
+      if (!state) {
+        if (lastPainted !== null) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          lastPainted = null;
+        }
+        return;
+      }
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.round(canvas.clientWidth * dpr);
+      const h = Math.round(canvas.clientHeight * dpr);
+      if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawLogoMark(ctx, logoMark, {
+        cx: canvas.width / 2,
+        cy: canvas.height / 2,
+        size: Math.min(canvas.width, canvas.height) * LOGO_SCREEN_FRACTION * state.scale,
+        draw: state.draw,
+        alpha: state.alpha
+      });
+      lastPainted = state.s;
+    };
+
+    gsap.ticker.add(paint);
+    return () => {
+      gsap.ticker.remove(paint);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+  }, [logoMark, frames, spacing, speedRamp]);
+
   useLayoutEffect(() => {
     // With speedRamp on, the ticker driver owns the playhead (the timeline itself
     // stays paused) -- pausing is just the driver skipping ticks, so never play() it.
@@ -208,6 +272,14 @@ export default function AnimationPreview({
           ref={el => (starRefs.current[i] = el)}
         />
       ))}
+      {/* Above the frame stack, and pointer-events-none so the whole preview stays one
+          click target (onClick lives on the container). */}
+      {logoMark && (
+        <canvas
+          ref={logoCanvasRef}
+          className="animation-logo pointer-events-none absolute top-0 left-0 z-[2] h-full w-full"
+        />
+      )}
     </div>
   );
 }

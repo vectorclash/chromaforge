@@ -49,7 +49,7 @@ export default function StudioPage({ compact = true }) {
 
   const { currentDesign, setCurrentDesign, saveCurrentDesign, isCurrentDesignSaved, savedDesignId } =
     useStudio();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const returnTo = getReturnTo(location.state?.from);
@@ -66,6 +66,7 @@ export default function StudioPage({ compact = true }) {
       width={width}
       height={height}
       user={user}
+      isAdmin={isAdmin}
       compact={compact}
       returnTo={returnTo}
       initialDesign={currentDesign}

@@ -25,7 +25,7 @@ export async function getMyProfile() {
 
   const { data, error } = await sb
     .from('profiles')
-    .select('username, display_name, avatar_url')
+    .select('username, display_name, avatar_url, is_admin')
     .eq('id', user.id)
     .single();
   if (error) throw error;

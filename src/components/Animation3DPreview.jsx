@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
+import { logoState } from '../utils/logoIntro';
 
 // 3D animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
 // (src/animation3d/tunnelScene.js) with a single looping GSAP timeline, mirroring
@@ -12,7 +13,7 @@ import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 // The timeline tweens a plain proxy time value and setTime(t) does all the work — the
 // scene has no internal clock, so pausing, scrubbing, and the exporter's fixed-step
 // rendering all agree on what any given t looks like.
-export default function Animation3DPreview({ design, cycleDuration, paused = false, speedRamp = false, onClick, onInitError }) {
+export default function Animation3DPreview({ design, cycleDuration, paused = false, speedRamp = false, logoMark = null, onClick, onInitError }) {
   const containerRef = useRef(null);
   const tlRef = useRef(null);
   const pausedRef = useRef(paused);
@@ -51,7 +52,8 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         settings: design.settings ?? null,
         duration: cycleDuration,
         width: w,
-        height: h
+        height: h,
+        logoMark
       });
 
       // Wait for the star sprite textures to decode so the entrance fade-in shows the
@@ -71,17 +73,23 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
           // RAMP_FLOOR_3D must match what exportAnimationVideo passes for 3D, or the
           // preview and the exported file would ramp differently.
           // rush drives the FOV/vanishing-point speed enhancement, from the same clock.
+          // The logo mark takes the LINEAR clock: logoIntro applies its own warp with its
+          // own floor, because 3D's 0.03 floor would leave the mark hanging at its frame-1
+          // pose for seconds of wall time at the seam.
           world.setTime(
             speedRamp ? rampTime(proxy.t, cycleDuration, RAMP_FLOOR_3D) : proxy.t,
-            speedRamp ? rampRush(proxy.t, cycleDuration) : 0
+            speedRamp ? rampRush(proxy.t, cycleDuration) : 0,
+            logoMark ? logoState(proxy.t, cycleDuration, speedRamp) : null
           );
           renderer.render(world.scene, world.camera);
         }
       });
       tlRef.current = tl;
 
-      // First frame + fade-in (same entrance treatment as the 2D preview)
-      world.setTime(0);
+      // First frame + fade-in (same entrance treatment as the 2D preview). t=0 is the seam,
+      // so the mark must be handed its full-strength state here -- left null the preview
+      // would open on a frame the loop never actually contains.
+      world.setTime(0, 0, logoMark ? logoState(0, cycleDuration, speedRamp) : null);
       renderer.render(world.scene, world.camera);
       setReady(true);
       gsap.fromTo(container, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut' });
@@ -122,7 +130,10 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         renderer.domElement.remove();
       }
     };
-  }, [design, cycleDuration, speedRamp]);
+    // logoMark is a scene-construction input (the plane is added at build time), so toggling
+    // it rebuilds -- which is cheap here: 3D scene builds are instant, unlike the 30s+ 2D
+    // frame build. DisplayCanvas memoizes the config on the seed so this dep is stable.
+  }, [design, cycleDuration, speedRamp, logoMark]);
 
   useLayoutEffect(() => {
     if (paused) {

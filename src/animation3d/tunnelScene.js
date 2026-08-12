@@ -3,6 +3,8 @@ import tinycolor from 'tinycolor2';
 import { nLerp, valueNoise } from '../render/valueNoise';
 import { makeRng, randomPalette } from '../render/prng';
 import { getGeometrySettings } from '../render/designSettings';
+import { LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
+import { drawLogoMark } from '../render/renderLogoMark';
 // The -3d sprites are the sound-generator example's INVERTED variants (bright core on
 // transparent, built for additive blending) -- not the 2D pipeline's star sprites, which
 // are authored for the createjs canvas compositing and read wrong as additive points.
@@ -877,7 +879,20 @@ function makeNebulaTexture() {
 // ─── Scene factory ────────────────────────────────────────────────────────────────────────
 // createTunnelScene({ seed, colors, settings, duration, width, height }) →
 //   { scene, camera, setSize, setTime, dispose }
-export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height }) {
+// Where the logo mark sits, in world units ahead of the camera, at the loop seam. Its plane
+// is then sized so that at exactly this distance it covers LOGO_SCREEN_FRACTION of the
+// vertical FOV -- i.e. the same share of the short edge the 2D overlay uses, so the two
+// modes agree at the one moment that matters (frame 1). Everything else about the flight
+// differs by design.
+const LOGO_SEAM_DISTANCE = 60;
+const LOGO_PLANE_SIZE =
+  LOGO_SCREEN_FRACTION * 2 * LOGO_SEAM_DISTANCE * Math.tan((BASE_FOV * Math.PI) / 360);
+// Texture resolution for the mark. It is line art on a plane that never fills more than
+// about a third of the frame, so 512 is ample and keeps the per-frame redraw (needed for
+// the stroke build) cheap.
+const LOGO_TEXTURE_SIZE = 512;
+
+export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null }) {
   // A separate rng stream from the 2D artwork's ('-3d' suffix, same convention as the
   // label mark's '-label') so 3D mode can never perturb 2D determinism.
   const rng = makeRng(`${seed}-3d`);
@@ -1182,7 +1197,43 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // ramped cycle FEELS faster. Callers derive it from the same linear clock as the
   // warped `seconds`, so it's as deterministic as everything else here; rush is 0 at
   // the loop seam, so setTime(0) and setTime(duration) still produce identical frames.
-  function setTime(seconds, rush = 0) {
+  // ─── Logo mark (admin-only) ──────────────────────────────────────────────────────────
+  // A real plane in the tunnel rather than a flat overlay, so the mark takes the scene's own
+  // perspective as it flies past. Its z is set RELATIVE TO THE CAMERA every frame, which is
+  // what makes it wrap-safe for free: camZ jumps back by L at the seam, but an offset from
+  // camZ has nothing to wrap, so the loop needs no special case and no duplicate copies at
+  // ±L (which is what a fixed world position would have required).
+  //
+  // depthTest off + a high renderOrder: the camera flies through a continuous lattice bore,
+  // so anything depth-tested spends most of the window behind a ring. That trades away some
+  // depth realism for the mark being legible at all, which is the whole point of it.
+  // fog off for the same reason -- at 158 units on the return leg the fog would eat it.
+  let logo = null;
+  if (logoMark) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = LOGO_TEXTURE_SIZE;
+    const ctx = canvas.getContext('2d');
+    const tex = new THREE.CanvasTexture(canvas);
+    const geo = new THREE.PlaneGeometry(LOGO_PLANE_SIZE, LOGO_PLANE_SIZE);
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+      side: THREE.DoubleSide
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 999;
+    mesh.visible = false;
+    // Not patched with applyWarpShader on purpose: the warp exists to hide pop-in for
+    // content born at the fog line, and this mark is authored to be read, not hidden.
+    scene.add(mesh);
+    disposables.push(geo, mat, tex);
+    logo = { ctx, tex, mat, mesh, lastDraw: -1 };
+  }
+
+  function setTime(seconds, rush = 0, logoState = null) {
     const progress = ((seconds / duration) % 1 + 1) % 1;
     const a = progress * TWO_PI;
 
@@ -1236,6 +1287,29 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       }
     }
 
+    // Logo mark. Absent for most of a cycle (logoState is null outside its two windows), so
+    // the texture redraw -- the only real cost here -- is confined to the seam.
+    if (logo) {
+      logo.mesh.visible = !!logoState;
+      if (logoState) {
+        logo.mesh.position.set(0, 0, camZ + LOGO_SEAM_DISTANCE / logoState.scale);
+        logo.mat.opacity = logoState.alpha;
+        // Redraw only when the build fraction actually moved. Quantized because the stroke
+        // geometry can't resolve finer than this and the texture upload is the expensive part.
+        const draw = Math.round(logoState.draw * 200) / 200;
+        if (draw !== logo.lastDraw) {
+          logo.lastDraw = draw;
+          logo.ctx.clearRect(0, 0, LOGO_TEXTURE_SIZE, LOGO_TEXTURE_SIZE);
+          drawLogoMark(logo.ctx, logoMark, {
+            cx: LOGO_TEXTURE_SIZE / 2,
+            cy: LOGO_TEXTURE_SIZE / 2,
+            size: LOGO_TEXTURE_SIZE,
+            draw
+          });
+          logo.tex.needsUpdate = true;
+        }
+      }
+    }
   }
 
   function setSize(w, h) {

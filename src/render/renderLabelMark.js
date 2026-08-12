@@ -2,6 +2,21 @@
 // GSAP, no SVG, no DOM query), so it runs unmodified in a real browser via
 // document.createElement (same convention as renderAvatar.js).
 
+// Scale/center the mark's real bounding box (see generateLabelMark's computeBounds) into an
+// arbitrary box, returning { scale, toCanvas }. Exported because the animation's logo
+// overlay (renderLogoMark.js) must center the mark exactly the same way -- centering
+// against Logo.jsx's declared viewBox instead is what made earlier renders look off-center.
+export function markFitTransform(bounds, box, margin) {
+  const scale = Math.min(box.w / bounds.width, box.h / bounds.height) * margin;
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  const toCanvas = (x, y) => [
+    box.x + box.w / 2 + (x - centerX) * scale,
+    box.y + box.h / 2 + (y - centerY) * scale
+  ];
+  return { scale, toCanvas };
+}
+
 export default function renderLabelMark(config) {
   const canvas = document.createElement('canvas');
   canvas.width = config.width;
@@ -27,18 +42,10 @@ export default function renderLabelMark(config) {
   // Scale/center against the mark's real bounding box (see generateLabelMark's
   // computeBounds), not the panel's own dims -- centers the true geometry regardless of
   // how short/wide or square the panel is.
-  const { bounds } = config;
   // 0.82 -> 0.697 (-15%) and heavier strokes below (3->5.5, 4.5->8), v4: tuned on real
   // track-jacket draft mockups (orders 166996698 vs 166999659) -- the thinner full-size
   // mark read spindly printed over a busy composition.
-  const margin = 0.697;
-  const scale = Math.min(markPanel.w / bounds.width, markPanel.h / bounds.height) * margin;
-  const centerX = (bounds.minX + bounds.maxX) / 2;
-  const centerY = (bounds.minY + bounds.maxY) / 2;
-  const toCanvas = (x, y) => [
-    markPanel.x + markPanel.w / 2 + (x - centerX) * scale,
-    markPanel.y + markPanel.h / 2 + (y - centerY) * scale
-  ];
+  const { scale, toCanvas } = markFitTransform(config.bounds, markPanel, 0.697);
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
