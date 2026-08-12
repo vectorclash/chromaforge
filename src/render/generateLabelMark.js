@@ -14,11 +14,17 @@
 
 import tinycolor from 'tinycolor2';
 import { makeRng, randInt } from './prng';
+import { resolveDesignPalette } from './resolvedPalette';
 
 // v5 (2026-07-30): the split-panel aspect threshold was removed -- see the layout-rule
 // comment below. Only the bucket hat's `label_inside` changes output; every other label in
 // the catalogue is byte-identical (verified by PNG hash across all six real sizes).
-export const LABEL_MARK_GENERATOR_VERSION = 5;
+//
+// v6 (2026-08-12): the accent is taken from the design's RESOLVED palette instead of its
+// stored `colors` -- see generateMarkLines. Before this, every auto-palette design (the
+// majority) printed the same yellow-green mark, on the tag AND in the animation overlay.
+// User-palette designs are byte-identical; auto-palette and monochrome ones are recoloured.
+export const LABEL_MARK_GENERATOR_VERSION = 6;
 
 // Layout rule (Aaron, 2026-07-30): **the mark gets a square, and whatever is left over is
 // accent.** A square dark panel holds the mark; the remaining rectangle is filled flat with
@@ -149,9 +155,26 @@ function legibleAccent(hex) {
 // show at all (alphaChance > 0.4); of the ones that show, ~80% render as a random light
 // greyscale value (100-255) and ~20% as a small hue-spin variant of the single chosen
 // accent (colorChance > 0.8, spin -15..+15) -- never one flat color for the whole mark.
-export function generateMarkLines(design, { transparent = false } = {}) {
+//
+// THE ACCENT COMES FROM THE DESIGN'S RESOLVED PALETTE, NOT `design.colors` (v6, 2026-08-12,
+// Aaron: the shorts he ordered came back with the same yellow tag). `design.colors` is a
+// design's stored IDENTITY, and it is EMPTY for every auto-palette design and a single entry
+// for a monochrome one (see resolvedPalette.js) -- so reading it directly sent the most common
+// case straight to DEFAULT_BASE_COLOR, and every auto-palette design in the catalogue printed
+// the identical yellow-green (#d1ff1a after legibleAccent) mark. resolveDesignPalette
+// regenerates the real palette when handed a compact design, which is the shape the whole
+// merch pipeline works in.
+//
+// `palette` is an explicit override for a caller whose palette this function cannot derive --
+// the 3D animation overlay, whose tunnel scene invents its own (see animation3d/scenePalette).
+//
+// Either route consumes the SAME single rng() draw: randInt takes one regardless of the array's
+// length. So WHICH chords survive, and the greyscale ink on the ~80% of them that aren't
+// accented, are byte-identical to v5 -- only the accented chords and the accent panel move.
+export function generateMarkLines(design, { transparent = false, palette = null } = {}) {
   const rng = makeRng(`${design.seed}-label`);
-  const colors = design.colors?.length ? design.colors : [DEFAULT_BASE_COLOR];
+  const source = palette?.length ? palette : resolveDesignPalette(design);
+  const colors = source?.length ? source : [DEFAULT_BASE_COLOR];
   const accentColor = legibleAccent(colors[randInt(rng, 0, colors.length - 1)]);
 
   const lines = [];

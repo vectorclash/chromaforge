@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import tinycolor from 'tinycolor2';
 import { nLerp, valueNoise } from '../render/valueNoise';
 import { makeRng, randomPalette } from '../render/prng';
+import { resolveScenePalette } from './scenePalette';
 import { getGeometrySettings } from '../render/designSettings';
 import { LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { drawLogoMark } from '../render/renderLogoMark';
@@ -897,9 +898,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // label mark's '-label') so 3D mode can never perturb 2D determinism.
   const rng = makeRng(`${seed}-3d`);
   const geometry = getGeometrySettings(settings);
-  // Same auto-palette fallback the 2D generator concept uses: no user colors → a seeded
-  // random palette, so the scene is still fully colored and still deterministic.
-  const palette = colors.length > 0 ? colors.slice(0, 6) : randomPalette(rng, 5);
+  const palette = resolveScenePalette(rng, colors);
   const paletteHsl = palette.map(toHsl);
 
   const scene = new THREE.Scene();

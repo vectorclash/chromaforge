@@ -10,8 +10,15 @@
 
 import { generateMarkLines, MARK_BOUNDS, MARK_RING, MARK_RING_COLOR } from './generateLabelMark';
 
-export function generateLogoMark(design) {
-  const { lines, accentColor } = generateMarkLines(design, { transparent: false });
+// `palette` is the design's actually-rendered colours, which the caller has to resolve because
+// it differs per mode (2D: the artwork's own gradient stops; 3D: the tunnel scene's). Passing
+// it is what keeps the mark's accent on the design instead of on generateLabelMark's
+// DEFAULT_BASE_COLOR -- `design.colors` is empty for every auto-palette design, so without
+// this the accent chords come out the same yellow-green (#ccff00) on the majority of designs.
+// It shifts no rng() draws, so the surviving chords are the printed tag's exactly; only the
+// ~20% of them that carry the accent are recoloured.
+export function generateLogoMark(design, { palette = null } = {}) {
+  const { lines, accentColor } = generateMarkLines(design, { transparent: false, palette });
   return {
     lines,
     accentColor,

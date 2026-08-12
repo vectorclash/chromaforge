@@ -7,7 +7,11 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { generateAudioBuffer } from '../audio/generateAudioBuffer';
 import { getDesignIdFromUrl, getShareUrlPrefix, buildShareUrl } from '../utils/urlConfig';
 import { getDesign } from '../lib/designs';
-import { randomSeed, meanLuminance } from '../render/prng';
+import { randomSeed, meanLuminance, makeRng } from '../render/prng';
+import { resolvedPalette } from '../render/resolvedPalette';
+// Palette resolution only -- deliberately NOT tunnelScene itself, which statically imports
+// three.js and must stay in its own lazy chunk.
+import { resolveScenePalette } from '../animation3d/scenePalette';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
@@ -618,12 +622,23 @@ export default class DisplayCanvas extends React.Component {
       ? this.state.threeDDesign
       : this.animationConfigs?.[0] ?? this.mainConfig;
     if (!design?.seed) return null;
-    // Memoized on the seed because render() calls this every pass and the result is a prop:
-    // a fresh object each time would retrigger AnimationPreview's effect (and rebuild its
-    // whole GSAP timeline) on every unrelated state change.
-    if (this._logoMarkSeed !== design.seed) {
-      this._logoMarkSeed = design.seed;
-      this._logoMark = generateLogoMark(design);
+    // The palette the mark's accent spins from has to be the one the animation ACTUALLY
+    // renders with, and `design.colors` is not that -- it's the stored identity, empty for
+    // every auto-palette design, which sent the accent to generateLabelMark's fallback
+    // (#ccff00) and made the mark come out yellow-green on most designs. 3D resolves it the
+    // way the scene itself does (a fresh `-3d` stream lands on the same palette without
+    // touching the scene's); 2D reads the artwork's own resolved gradient stops.
+    const palette = this.state.threeDMode
+      ? resolveScenePalette(makeRng(`${design.seed}-3d`), design.colors || [])
+      : resolvedPalette(design);
+    // Memoized because render() calls this every pass and the result is a prop: a fresh object
+    // each time would retrigger AnimationPreview's effect (and rebuild its whole GSAP
+    // timeline) on every unrelated state change. Keyed on the palette too, not the seed alone
+    // -- 3D applies palette edits live against an unchanged seed.
+    const key = `${design.seed}|${palette.join(',')}`;
+    if (this._logoMarkSeed !== key) {
+      this._logoMarkSeed = key;
+      this._logoMark = generateLogoMark(design, { palette });
     }
     return this._logoMark;
   }
