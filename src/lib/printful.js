@@ -76,7 +76,7 @@ export async function getCatalogProduct(productId) {
   );
   return {
     ...data.result,
-    variants: sortVariantsBySize(data.result.variants),
+    variants: sortVariantsBySize(data.result.variants, productId),
     // Store-wide purchasing kill switch (see supabase/functions/_shared/storeStatus.ts) --
     // defaults to enabled if the field is ever missing, matching the Edge Function's own
     // fail-open default.
@@ -93,16 +93,34 @@ const SIZE_ORDER = ['2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'
 
 
 function sizeRank(size) {
-  const idx = SIZE_ORDER.indexOf(String(size).toUpperCase().trim());
+  const name = String(size).toUpperCase().trim();
+  const idx = SIZE_ORDER.indexOf(name);
   if (idx !== -1) return idx;
+  // Ranged sizes -- the bucket hat (654) stocks 'XS', 'S/M' and 'L/XL'. Both halves are
+  // ordinary named sizes, so rank the range by the midpoint of its two ends: S/M lands at
+  // 2.5 and L/XL at 4.5, which slots them between the plain sizes rather than after every
+  // one of them. Without this both fall through to Infinity and keep Printful's own
+  // arbitrary order (which really does list L/XL before S/M).
+  const parts = name.split('/').map(p => SIZE_ORDER.indexOf(p.trim()));
+  if (parts.length > 1 && parts.every(i => i !== -1)) {
+    return parts.reduce((sum, i) => sum + i, 0) / parts.length;
+  }
   // Non-letter sizes (e.g. pillow dimensions like '18"×18"', waist measurements) -- sort by
   // their leading number, after all named sizes.
   const num = parseFloat(size);
   return Number.isNaN(num) ? Infinity : SIZE_ORDER.length + num;
 }
 
-function sortVariantsBySize(variants) {
+function sortVariantsBySize(variants, productId) {
+  // Colours otherwise run in the order Printful happens to list them, and the first one ends
+  // up as the page's initial variant (ProductPage takes variants[0]). `defaultColor` lets a
+  // product name the one that should lead -- see the windbreaker (615), the only entry that
+  // sets it.
+  const defaultColor = PRODUCT_MOCKUP_CONFIG[productId]?.defaultColor;
   const colorOrder = new Map();
+  if (defaultColor && variants.some(v => v.color === defaultColor)) {
+    colorOrder.set(defaultColor, 0);
+  }
   variants.forEach(v => {
     if (!colorOrder.has(v.color)) colorOrder.set(v.color, colorOrder.size);
   });

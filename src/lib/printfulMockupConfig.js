@@ -280,6 +280,12 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // white either way and fully covered by the customer's artwork regardless.
     colorLabel: 'Stitching',
     colorHint: 'Both options are the same white jacket — this picks the zipper and seam stitching color.',
+    // Printful lists Black first, so without this the ONE product whose "colour" is really a
+    // finish detail was also the one product not defaulting to White -- and the mockup it
+    // previews is generated with stitch_color 'white' below regardless, so the default
+    // contradicted the preview. Sorts White's variants to the front, which is what picks the
+    // initial variant (ProductPage takes variants[0]).
+    defaultColor: 'White',
     // v1 GET /products/615 does NOT list stitch_color in result.product.options at all --
     // but v2 mockup-tasks rejects the task outright without it ("The required product
     // option: `stitch_color` is missing"), and v2 GET /catalog-products/615 DOES list it
