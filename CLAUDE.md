@@ -823,18 +823,36 @@ Key facts:
   palette-phase jitter (±0.3) for strong multi-color gradients; wireframe density rolls
   per ring section (some sections bare, some fully caged) so the scaffold isn't uniform.
 
-### Admin-only logo mark at the animation loop seam (2026-08-12)
-An **Admin** settings tab (a fourth tab beside Color/Geometry/Video, rendered only for
-`profiles.is_admin`) carrying a **Logo** toggle: the design's own vectorclash mark flies
+### Logo mark at the animation loop seam (2026-08-12)
+A **Logo** toggle in the studio's Video settings tab: the design's own vectorclash mark flies
 through the animation's loop seam. Playback/export state only — like Speed Ramp it sets no
 `settingsDirty` and is never persisted, since the mark is derived from the seed.
+- **Built admin-only, opened to everyone the same day.** It shipped behind a fourth **Admin**
+  settings tab gated on `profiles.is_admin`; that tab is gone. Two reasons, and the first is
+  the one that forced the question: **four tabs do not fit the strip.** Measured in real
+  Quicksand 700 at the tab's own metrics (10px, 2px letter-spacing, `0 18px` padding), the four
+  labels total **338.7px** against 310px of inner width at a 390px phone (280px at 360px) and
+  336px on desktop — so it overflowed the rounded panel at every width, worst on mobile, and
+  the active tab's underline painted outside the glass. Three tabs total 260.9px and fit
+  everywhere. The strip has no `overflow`, so nothing clipped it. Second reason: the tab held
+  exactly one control, and it is playback/export state exactly like Speed Ramp, which already
+  lived in Video. It sits at the end of the SCENE group (not the export group) because both
+  previews draw it — it is not something only the file gets.
+  **If a control is ever added back to a fourth tab, the strip needs its metrics tightened
+  first** (letter-spacing 2px → 1px and padding `0 18px` → `0 10px` under 480px brings four
+  tabs to 251.7px, which fits at 360px with headroom).
+- **The gate is gone entirely, including `logoMarkConfig()`'s re-check.** That check existed
+  only because the toggle's state outlived a sign-out; with no gate there is nothing to leak.
+  The mark is derived from the design's own seed and resolved palette — the same mark that
+  design's printed tag carries — so it identifies the piece rather than watermarking it, which
+  is the argument for giving it to everyone.
 - **`profiles.is_admin` already existed in the live DB** with no local migration file and no
-  reference anywhere in `src/` — this only plumbed it (`profiles.js`'s select list →
-  `AuthContext`'s `isAdmin` → StudioPage → DisplayCanvas). Don't conclude from a repo grep
-  that a column doesn't exist; this project applies schema via the Supabase MCP tooling, so
-  `supabase/migrations/` is not a complete record. It is a **UI flag only** (`profiles` is
-  world-readable), and the toggle is re-gated at the point of use (`logoMarkConfig()`), not
-  just at the tab, so state surviving a sign-out can't leak into another account.
+  reference anywhere in `src/`. Don't conclude from a repo grep that a column doesn't exist;
+  this project applies schema via the Supabase MCP tooling, so `supabase/migrations/` is not a
+  complete record. It is a **UI flag only** (`profiles` is world-readable) and anything
+  privileged must check it server-side. `profiles.js`'s select list and `AuthContext`'s
+  `isAdmin` are still wired but are **currently unconsumed** — deliberately kept for the next
+  admin-only control; StudioPage no longer passes it to DisplayCanvas.
 - **The motion is ONE continuous flight through the seam, not two animations.**
   `src/utils/logoIntro.js` owns a signed parameter `s`: −1 at the start of the return leg, 0
   at the seam (simultaneously the final frame and frame 1), +1 at the end of the exit leg.

@@ -19,6 +19,9 @@ export function AuthProvider({ children }) {
   // profiles.is_admin. A UI-only flag -- `profiles` is world-readable, so this conceals
   // admin-only controls rather than protecting anything. Nothing privileged hangs off it;
   // anything that ever does must check it server-side instead.
+  // Currently UNCONSUMED: its one reader was the studio's Admin settings tab, whose only
+  // control (the loop-seam logo mark) was opened to everyone and moved into the Video tab.
+  // Kept wired up because the column exists live and the next admin-only control will want it.
   const [isAdmin, setIsAdmin] = useState(false);
   // Set once a password-recovery link's session lands (see the hash-parsing effect below).
   // AccountPage reads this to show the set-new-password form instead of the normal

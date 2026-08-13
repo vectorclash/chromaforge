@@ -293,8 +293,8 @@ export default class DisplayCanvas extends React.Component {
       // added later without a format change (saving is disabled in 3D mode for now).
       threeDMode: false,
       threeDDesign: null,
-      // Admin-only (profiles.is_admin): stamp the design's own vectorclash mark onto the
-      // animation's loop seam -- see utils/logoIntro.js for the motion. Like speedRamp this
+      // Stamp the design's own vectorclash mark onto the animation's loop seam -- see
+      // utils/logoIntro.js for the motion. Like speedRamp this
       // is playback/export state, never part of the design: it changes no frame content, so
       // no settingsDirty, and it is not persisted on save.
       logoMark: false,
@@ -609,11 +609,11 @@ export default class DisplayCanvas extends React.Component {
     return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
   }
 
-  // The admin logo mark, re-gated at the point of use rather than trusted from state alone:
-  // the toggle lives behind an isAdmin-only tab, but the state outlives a sign-out, so this
-  // is what actually keeps it out of a non-admin's preview and export.
+  // The mark that flies through the animation's loop seam. Opt-in for everyone: it is
+  // derived from the design's own seed and resolved palette (the same mark that design's
+  // printed tag carries), so it identifies the piece rather than watermarking it.
   logoMarkConfig() {
-    if (!this.props.isAdmin || !this.state.logoMark) return null;
+    if (!this.state.logoMark) return null;
     // Which seed is "this generation" differs per mode. 3D has one scene and one seed. A 2D
     // animation is N independently seeded frames, so it takes the FIRST frame's -- the same
     // rule the rest of the project already uses for an animation's identity (see
@@ -2376,7 +2376,6 @@ export default class DisplayCanvas extends React.Component {
 
     // `user` now comes from the auth provider via props (StudioPage), not local state.
     const user = this.props.user;
-    const isAdmin = !!this.props.isAdmin;
     const { spacing, fade, starSpacing, starFade } = animTiming ?? this.getAnimTiming();
     const compact = !!this.props.compact;
     const returnTo = this.props.returnTo ?? { path: '/', label: 'Back to home' };
@@ -2661,19 +2660,6 @@ export default class DisplayCanvas extends React.Component {
               >
                 Video
               </button>
-              {/* profiles.is_admin. `profiles` is world-readable, so this conceals the tab
-                  rather than protecting anything -- fine, because nothing behind it is
-                  privileged: it only changes what a local export draws. Every consumer of
-                  the settings below re-checks isAdmin at the point of use, so a state left
-                  on by an admin can't survive into another account's session. */}
-              {isAdmin && (
-                <button
-                  className={'settings-tab-btn' + (settingsTab === 'admin' ? ' active' : '')}
-                  onClick={() => this.setState({ settingsTab: 'admin' }, () => this.animateSettingsTab())}
-                >
-                  Admin
-                </button>
-              )}
             </div>
 
             {/* Only the tab BODY scrolls. The tab strip above and the BACK row below stay put
@@ -2953,6 +2939,25 @@ export default class DisplayCanvas extends React.Component {
                     <span className="settings-toggle-thumb" />
                   </button>
                 </div>
+                {/* Playback/export only, exactly like Speed Ramp: it draws over finished
+                    frames and changes no frame content, so no settingsDirty and no
+                    "regenerate to apply" notice. It is not saved with the design either --
+                    the mark is derived from the seed, so there is nothing to persist.
+                    In the SCENE group rather than the export group below, because both
+                    previews draw it -- it is not something only the file gets. */}
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Logo
+                    <span className="settings-label-note"> flies through the loop seam</span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (logoMark ? ' on' : '')}
+                    onClick={() => this.setState({ logoMark: !logoMark })}
+                    aria-label={logoMark ? 'Logo on' : 'Logo off'}
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
                 {/* ── Export group ─────────────────────────────────────────────────────
                     Everything above this point describes the animation itself (what the
                     scene is, how long a loop runs, how it's paced); everything below only
@@ -3013,27 +3018,6 @@ export default class DisplayCanvas extends React.Component {
                     onClick={() => audioExportSupported && this.setState({ musicEnabled: !musicEnabled })}
                     aria-label={!audioExportSupported ? 'Music export not supported in this browser' : musicEnabled ? 'Music on' : 'Music off'}
                     style={!audioExportSupported ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
-                  >
-                    <span className="settings-toggle-thumb" />
-                  </button>
-                </div>
-              </>
-            )}
-            {settingsTab === 'admin' && isAdmin && (
-              <>
-                {/* Playback/export only, exactly like Speed Ramp: it draws over finished
-                    frames and changes no frame content, so no settingsDirty and no
-                    "regenerate to apply" notice. It is not saved with the design either --
-                    the mark is derived from the seed, so there is nothing to persist. */}
-                <div className="settings-field">
-                  <span className="settings-label">
-                    Logo
-                    <span className="settings-label-note"> flies through the loop seam</span>
-                  </span>
-                  <button
-                    className={'settings-toggle' + (logoMark ? ' on' : '')}
-                    onClick={() => this.setState({ logoMark: !logoMark })}
-                    aria-label={logoMark ? 'Logo on' : 'Logo off'}
                   >
                     <span className="settings-toggle-thumb" />
                   </button>
