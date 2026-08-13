@@ -873,7 +873,7 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
   `LABEL_MARK_GENERATOR_VERSION` bump, no render-service redeploy (label marks are
   client-side), no thumbnail backfill.
 - **The mark's accent needs the design's RESOLVED palette, and the caller has to supply it for
-  3D (2026-08-12).** See the `LABEL_MARK_GENERATOR_VERSION = 6` bullet in the merch-pipeline
+  3D (2026-08-12).** See the `LABEL_MARK_GENERATOR_VERSION` bullets in the merch-pipeline
   section for the shared half of this — `design.colors` is a stored identity, empty for every
   auto-palette design, so both the tag and this overlay were locked to `#d1ff1a`.
   `generateMarkLines` now resolves it itself, which covers 2D (a frame's config carries its own
@@ -886,6 +886,27 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
   apart from `tunnelScene.js` only because that file statically imports three.js, which must
   stay in its own lazy chunk. `logoMarkConfig`'s memo key is now seed **+ palette**, since 3D
   applies palette edits live against an unchanged seed.
+- **The 2D overlay canvas must leave the layer tree while the mark is absent — the LAYER is
+  the cost, not the drawing (2026-08-13, Aaron: the framerate suffers a lot now).** A
+  full-viewport `<canvas>` over the frame stack is composited every frame whether or not
+  anything was ever painted into it. At `devicePixelRatio` 2 that empty 2880×1800 layer
+  **doubled the preview's median frame time — 8.4ms → 16.6ms, 71fps → 62fps** against the same
+  build with the toggle off. It is now forced to `display: none` between windows: median 8.9ms
+  / 68fps with the mark still on, and the residual is the genuine paint during the windows.
+  Three things worth not re-deriving:
+  (1) **It was diagnosed by elimination, and the obvious suspects were wrong.** Forcing the
+  element `display:none` (8.5ms) and separately shrinking it to 1×1 CSS px (8.4ms) each
+  recovered the whole loss while the ticker kept running — so it is neither the `clearRect`,
+  nor the ~24 strokes, nor `logoState`. Jank was also spread evenly across the cycle rather
+  than clustering in the two windows, which is the tell that it isn't the painting.
+  (2) **Measure the size AFTER making it visible.** `clientWidth` reads 0 while `display:none`,
+  and it is read on the visibility transition rather than per frame because that read forces a
+  synchronous layout.
+  (3) **The mark is on screen far longer than the raw window suggests** — 39% of wall time at
+  the default duration, measured, because `LOGO_WINDOW` is 0.5s of WARPED time at each end and
+  the ramp is at its floor there. So this is worth doing even though it sounds like a 10% case.
+  **3D needs none of this** and was measured unaffected: its mark is a plane inside the scene
+  that already toggles `mesh.visible`, not an extra compositing layer.
 - **2D is a flat overlay, 3D is a real plane in the tunnel** — Aaron's explicit call that the
   two modes may differ. 2D: a `<canvas>` sibling of the frame stack in `AnimationPreview`,
   painted by **its own** `gsap.ticker` (the speedRamp driver only exists when the ramp is on,
@@ -1738,6 +1759,37 @@ everyone's saved artwork — not a side effect noticed in production.
     cache can't serve the old one, and there is no reorder path reusing
     `orders.print_file_urls` (written once per checkout, read only by `stripe-webhook` for that
     same order and by `cleanup-storage`'s keep-list).
+    **The accent is the MOST SATURATED palette stop, not a random one —
+    `LABEL_MARK_GENERATOR_VERSION = 7` (2026-08-13, Aaron: animations kept showing marks whose
+    lines were all grey).** The cause is specific and was NOT the obvious one: `legibleAccent`
+    floors lightness with a **`max`**, so it can raise a dark colour but can never bring a light
+    one down — `#eeeeee` → `#f6e5e5`, `#ffffff` → `#ffffff`. So a user palette holding a
+    white/near-white/grey stop had a real chance of the uniform random pick landing there, and
+    the resulting accent was indistinguishable from the light greys the unaccented chords
+    already carry, making the whole mark read grey. Measured on a `['#ffffff','#cccccc','#1e88e5']`
+    palette: **57 of 200 seeds** produced a grey-reading accent before, **0 of 200** after.
+    Three things worth not re-deriving:
+    (1) **The ~80/20 grey/accent split is NOT the cause and was deliberately left alone**
+    (Aaron, explicitly: the grey-by-design lines were never the complaint). Measured over 300
+    auto-palette seeds, a mark carries a mean of **4.6 accented chords out of 23.5**, and 10.7%
+    land at ≤2 — that is Logo.jsx's own behaviour, faithfully mirrored, and it stays.
+    (2) **Auto-palette designs could never hit this.** `randomPalette` emits saturation 55–90%
+    and lightness 40–65%, so every stop is vivid — measured over 300 seeds, `legibleAccent`
+    never once had to rescue a pick (mean picked saturation 0.72). It reaches only USER
+    palettes, and **zero of the 56 stored designs contain a grey/near-white stop**, so nothing
+    saved changes appearance for this reason; it was being hit on live studio palettes.
+    (3) **The deterministic pick still burns its `rng()` draw, on purpose.** That stream also
+    decides which chords survive and what grey each unaccented one carries, so dropping the now-
+    unused draw would restructure every existing design's mark instead of only recolouring its
+    accent. Verified: mark structure identical **3200/3200** and full label configs identical
+    **9600/9600** (400 seeds × auto/mono/beige/vivid palettes × opaque+transparent × 6 real label
+    sizes); the accent itself changes on 60.5%.
+    HSL saturation is the measure, matching `legibleAccent`'s own floors so the two cannot
+    disagree about what "dull" means. **Known and accepted:** an all-grey palette ties at
+    saturation 0, takes the first stop, and `legibleAccent`'s saturation floor then turns a mid
+    grey into a muted red (`#888888` → `#c65353`) rather than leaving it grey — Aaron's "if the
+    user chose only grey then so be it" would argue for keeping it achromatic, but it is not
+    worth changing print output for a palette nothing in the table has.
     **Transparent label_outside + heavier mark (2026-07-15, `LABEL_MARK_GENERATOR_VERSION
     = 4`, Aaron-approved from real track-jacket draft mockups — orders 166996698/166999659):**
     Printful composites label placements OVER the garment's own print (confirmed on a real

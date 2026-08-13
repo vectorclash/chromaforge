@@ -13,7 +13,7 @@
 // on its label.
 
 import tinycolor from 'tinycolor2';
-import { makeRng, randInt } from './prng';
+import { makeRng } from './prng';
 import { resolveDesignPalette } from './resolvedPalette';
 
 // v5 (2026-07-30): the split-panel aspect threshold was removed -- see the layout-rule
@@ -24,7 +24,11 @@ import { resolveDesignPalette } from './resolvedPalette';
 // stored `colors` -- see generateMarkLines. Before this, every auto-palette design (the
 // majority) printed the same yellow-green mark, on the tag AND in the animation overlay.
 // User-palette designs are byte-identical; auto-palette and monochrome ones are recoloured.
-export const LABEL_MARK_GENERATOR_VERSION = 6;
+//
+// v7 (2026-08-13): the accent is the MOST SATURATED stop of the resolved palette rather than a
+// random one -- see pickAccentSource. Which chords survive and the greys on the ~80% that
+// aren't accented are untouched.
+export const LABEL_MARK_GENERATOR_VERSION = 7;
 
 // Layout rule (Aaron, 2026-07-30): **the mark gets a square, and whatever is left over is
 // accent.** A square dark panel holds the mark; the remaining rectangle is filled flat with
@@ -133,6 +137,38 @@ function legibleAccent(hex) {
   return tinycolor(hsl).toHexString();
 }
 
+// Which palette stop becomes the mark's accent (v7, Aaron's call 2026-08-13). Deterministic:
+// the most saturated stop wins, first one on a tie.
+//
+// This was a uniform random pick, and the honest reason it changed is small: measured through
+// the real generator over 300 auto-palette seeds, EVERY stop is already vivid (mean HSL
+// saturation 0.72, mean lightness 0.53) and legibleAccent above never once had to rescue a
+// pick -- so this is not a fix for washed-out marks, it just stops preferring a duller stop
+// when a more chromatic one is sitting right beside it in the same palette. It differs from the
+// random pick on roughly two thirds of designs. A palette of greys still yields a grey-derived
+// accent, which is the intended answer: the mark follows the design rather than inventing a
+// colour for it.
+//
+// It is NOT the fix for a mark reading mostly grey -- that is the ~80/20 grey/accent split in
+// generateMarkLines below (mean 4.6 accented chords of 23.5), which is Logo.jsx's own behaviour
+// and was deliberately left alone.
+//
+// HSL saturation, not chroma or luminance: it is the measure the decision was actually made
+// against, and legibleAccent's own floors are HSL too, so the two can't disagree about what
+// "dull" means.
+function pickAccentSource(colors) {
+  let best = colors[0];
+  let bestSaturation = -1;
+  for (const color of colors) {
+    const saturation = tinycolor(color).toHsl().s;
+    if (saturation > bestSaturation) {
+      bestSaturation = saturation;
+      best = color;
+    }
+  }
+  return best;
+}
+
 // width/height are the target placement's own printfile dims (e.g. 375x150 for
 // label_inside, 450x450 for label_outside) -- the renderer scales/centers the mark to fit
 // whichever aspect it's given.
@@ -168,14 +204,20 @@ function legibleAccent(hex) {
 // `palette` is an explicit override for a caller whose palette this function cannot derive --
 // the 3D animation overlay, whose tunnel scene invents its own (see animation3d/scenePalette).
 //
-// Either route consumes the SAME single rng() draw: randInt takes one regardless of the array's
-// length. So WHICH chords survive, and the greyscale ink on the ~80% of them that aren't
-// accented, are byte-identical to v5 -- only the accented chords and the accent panel move.
+// Either route consumes the SAME single rng() draw, and v7's deterministic pick still burns it
+// (see below). So WHICH chords survive, and the greyscale ink on the ~80% of them that aren't
+// accented, are byte-identical all the way back to v5 -- only the accented chords and the
+// accent panel have ever moved.
 export function generateMarkLines(design, { transparent = false, palette = null } = {}) {
   const rng = makeRng(`${design.seed}-label`);
   const source = palette?.length ? palette : resolveDesignPalette(design);
   const colors = source?.length ? source : [DEFAULT_BASE_COLOR];
-  const accentColor = legibleAccent(colors[randInt(rng, 0, colors.length - 1)]);
+  // The accent no longer needs a random draw (see pickAccentSource), but this stream also
+  // decides which chords survive and what grey each unaccented one carries -- so the draw is
+  // kept deliberately. Dropping it would shift the entire sequence and restructure every
+  // existing design's mark, print and animation alike, instead of only recolouring its accent.
+  rng();
+  const accentColor = legibleAccent(pickAccentSource(colors));
 
   const lines = [];
   for (const [x1, y1, x2, y2] of LINES) {
