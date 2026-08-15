@@ -66,11 +66,14 @@ export default function AboutSection() {
           Art, computed from a single seed
         </h2>
         {/* Capped independently of the section: body copy set across the full 976px would run
-            past a comfortable line length, which the eyebrow and heading above it do not. */}
+            past a comfortable line length, which the eyebrow and heading above it do not.
+            Deliberately short: it names the two things and then hands each one to a row
+            below. The seed explanation used to live here, which left the "How it works"
+            eyebrow carried entirely by the header while both rows did something else --
+            it now sits with AboutBlob, the visual it actually describes. */}
         <p className="mt-5 max-w-2xl font-quicksand text-text-secondary">
-          Chromaforge generates original artwork live in your browser. Each design is just a
-          seed -- a handful of numbers that rebuilds the identical composition at any size.
-          Save the ones you like, share them, or print one on a garment.
+          Chromaforge generates original artwork live in your browser. Save the ones you like,
+          share them, or print one on a garment.
         </p>
       </div>
 
@@ -93,11 +96,16 @@ export default function AboutSection() {
         <AboutBlob
           className={`reveal-item ${IMAGE_SIZE} -mt-[13.48%] -mb-[8.87%] lg:order-2 lg:mt-0 lg:mb-0`}
         />
+        {/* The closing sentence claims INFLUENCE, not lineage. An earlier version ("the
+            procedurally generated universes of games like No Man's Sky are somewhere
+            underneath it") read as though that game's technology were part of this, which is
+            not true and was never the intent -- keep any future rewording on the side of
+            what inspired the project rather than what powers it. */}
         <p className="reveal-item font-quicksand text-text-secondary lg:order-1">
-          It started as a few tools I was building to make art with. I wanted to see whether I
-          could make my work directly in code, and one thing led to another until it was a full
-          generative art builder. The procedurally generated universes of games like No
-          Man&rsquo;s Sky are somewhere underneath it.
+          Each design is just a seed &mdash; a handful of numbers that rebuilds the identical
+          composition at any size. It started as a few tools for making my own work directly in
+          code, and one thing led to another until it was a full generative art builder.
+          Somewhere in the back of it is the wonder I got from games like No Man&rsquo;s Sky.
         </p>
       </div>
 
@@ -127,7 +135,7 @@ export default function AboutSection() {
               again, prefer <span className="whitespace-nowrap"> on the last two words over an
               &nbsp;, since a real element with a style survives any text processing. */}
           <p className="reveal-item font-quicksand text-text-secondary">
-            It rewards digging in, though. Feed it your own colors, work the geometry sliders,
+            It rewards digging in. Feed it your own colors, work the geometry sliders,
             and you&rsquo;ll end up with something that prints far better on a garment than the
             first thing the generator happened to hand you.
           </p>
