@@ -55,7 +55,30 @@ export function drawLogoMark(ctx, config, { cx, cy, size, draw = 1, alpha = 1, m
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Ring first and underneath, completing at RING_LEAD of the build.
+  ctx.lineWidth = Math.max(1, LINE_WEIGHT * scale);
+  const n = config.lines.length;
+  const span = n > 1 ? STAGGER_SPAN : 0;
+  for (let i = 0; i < n; i++) {
+    const { x1, y1, x2, y2, color } = config.lines[i];
+    const start = n > 1 ? (i / (n - 1)) * span : 0;
+    const local = clamp01((draw - start) / (1 - span));
+    if (local <= 0) continue;
+
+    const [ax, ay] = toCanvas(x1, y1);
+    const [bx, by] = toCanvas(x2, y2);
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax + (bx - ax) * local, ay + (by - ay) * local);
+    ctx.stroke();
+  }
+
+  // Ring LAST, so it sits over every chord. That is the mark's real stacking order -- the
+  // ring <path> is the final element in Logo.jsx's SVG, and renderLabelMark has always
+  // stroked it after its lines. This drew it first until 2026-08-15, which put the chords
+  // over the ring in both animation modes (the printed tag was never affected).
+  // Order is independent of the build timing below: the ring still COMPLETES early
+  // (RING_LEAD) so the chords appear to fill in inside an already-established ring.
   const ringDraw = clamp01(draw / RING_LEAD);
   if (ringDraw > 0) {
     ctx.lineWidth = Math.max(1, RING_WEIGHT * scale);
@@ -74,24 +97,6 @@ export function drawLogoMark(ctx, config, { cx, cy, size, draw = 1, alpha = 1, m
     } else {
       ctx.arc(rcx, rcy, config.ring.radius * scale, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ringDraw);
     }
-    ctx.stroke();
-  }
-
-  ctx.lineWidth = Math.max(1, LINE_WEIGHT * scale);
-  const n = config.lines.length;
-  const span = n > 1 ? STAGGER_SPAN : 0;
-  for (let i = 0; i < n; i++) {
-    const { x1, y1, x2, y2, color } = config.lines[i];
-    const start = n > 1 ? (i / (n - 1)) * span : 0;
-    const local = clamp01((draw - start) / (1 - span));
-    if (local <= 0) continue;
-
-    const [ax, ay] = toCanvas(x1, y1);
-    const [bx, by] = toCanvas(x2, y2);
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ax + (bx - ax) * local, ay + (by - ay) * local);
     ctx.stroke();
   }
 
