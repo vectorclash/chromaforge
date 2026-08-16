@@ -1265,6 +1265,25 @@
      content size -- the panel would keep growing past max-height and nothing would scroll. */
   min-height: 0;
   overflow-y: auto;
+  /* Horizontal breathing room for INK that paints outside its own box. A range thumb's
+     drop shadow, and its 1.15x hover scale, both overhang the input -- and a slider sits
+     flush against this scroller's right content edge, so both were being sliced off (worst
+     on a thumb dragged to the far right, but the shadow was clipped at rest too).
+
+     `overflow-x: visible` is NOT available as the fix, and declaring it would look like it
+     worked while doing nothing: per CSS Overflow, when one axis is a scrolling value the
+     other computes `visible` to `auto`. So the only lever is where the clip edge sits.
+     Padding pushes it outward, the matching negative margin pulls the layout back, and
+     nothing on screen moves -- the content box, and therefore every row inside, is exactly
+     where it was.
+
+     10px covers the worst case: a 26px thumb at 1.15x overhangs ~2px per side and its
+     6px-blur shadow scales along with it, ~9px in total. It stays inside the panel's own
+     32px padding (20px at <=480px), so the slack lands on panel background rather than
+     past its edge, and the scrollbar gutter is subtracted to the RIGHT of the padding, so
+     it doesn't eat the slack back. */
+  padding-inline: 10px;
+  margin-inline: -10px;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(250, 250, 250, 0.25) transparent;
