@@ -1776,7 +1776,10 @@ export default class DisplayCanvas extends React.Component {
   // StudioContext on the next Generate click -- meaning navigating away from the Studio and
   // back silently dropped an unsaved palette edit while a geometry-slider edit survived.
   queueColorRegen() {
-    if (this.state.animationMode || this.state.isExporting) return;
+    if (this.state.animationMode || this.state.isExporting) {
+      this.markColorsDirtyForAnimation();
+      return;
+    }
     const wasSaved = this.state.isSaved;
     this.setState(s => ({
       isSaved: false,
@@ -1800,7 +1803,10 @@ export default class DisplayCanvas extends React.Component {
   // a drag don't each trigger a read/setState/regenerate.
   onColorSwatchEdit() {
     this.syncThreeDColors();
-    if (this.state.animationMode || this.state.isExporting) return;
+    if (this.state.animationMode || this.state.isExporting) {
+      this.markColorsDirtyForAnimation();
+      return;
+    }
     const wasSaved = this.state.isSaved;
     clearTimeout(this.geometryRegenTimer);
     this.geometryRegenTimer = setTimeout(() => {
@@ -1815,6 +1821,26 @@ export default class DisplayCanvas extends React.Component {
         showBranchNotice: s.showBranchNotice || wasSaved
       }), () => this.regenerateCurrentSeed());
     }, 350);
+  }
+
+  // A color edit in 2D animation mode changes nothing on screen -- the frames are already
+  // baked, and rebuilding them is a 30s+ job -- so it takes the same regenerate-to-apply
+  // treatment the Frames/Star Frames/Duration steppers and the geometry sliders already get.
+  // Without this the edit was silently swallowed: the color reaches the next Generate (the
+  // settings panel's close handler syncs the swatch DOM back into state via updateColors),
+  // but nothing told you a Generate was needed, while a geometry slider in the very same mode
+  // said so. That asymmetry was the whole bug.
+  //
+  // 2D only. In 3D the palette applies live through syncThreeDColors, so there is nothing to
+  // regenerate -- the same reason the Duration stepper uses `settingsDirty: !threeDMode`.
+  //
+  // Deliberately does NOT touch isSaved or showBranchNotice, which is what separates this from
+  // the image-mode paths above. Until the frames are rebuilt the saved design still matches
+  // what is on screen, so it is genuinely still saved; Generate flips isSaved itself. Marking
+  // it unsaved here would claim an edit had been applied when it hasn't.
+  markColorsDirtyForAnimation() {
+    if (!this.state.animationMode || this.state.threeDMode) return;
+    this.setState({ settingsDirty: true });
   }
 
   onDismissBranchNotice() {
