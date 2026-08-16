@@ -1612,7 +1612,16 @@ export default function ProductPage() {
                     <div className="animate-reveal-quick" style={{ animationDelay: '0ms' }}>
                       <HexagonLoader />
                     </div>
-                    <p className="animate-reveal-quick text-sm font-bold" style={{ animationDelay: '60ms' }}>
+                    {/* The three text rows below carry `relative z-[2]` for one reason:
+                        HexagonLoader's wrapper is `relative z-[1]` and its `.hexagon-glow`
+                        is a 150px box blurred by 42px with nothing clipping it, so the
+                        glow's tail spills well past the 12px gap and, being in a
+                        positioned layer, paints ON TOP of these unpositioned siblings.
+                        Lifting them to z-2 keeps the glow as a backdrop behind the copy
+                        instead of a veil over it. Don't move the z-index onto the loader
+                        instead -- its `z-[1]` is load-bearing in DisplayCanvas and
+                        CheckoutSuccessPage, where it lifts the loader over the artwork. */}
+                    <p className="relative z-[2] animate-reveal-quick text-sm font-bold" style={{ animationDelay: '60ms' }}>
                       {STATUS_LABEL[status]}
                     </p>
                     {/* Height is reserved for the tallest narration line this box can hold, so a
@@ -1625,7 +1634,7 @@ export default function ProductPage() {
                         so it is 292px at a 390px viewport -- where one STATUS_TIMELINE line needs
                         THREE rows -- and 320px from sm up, where two always suffice. */}
                     <div
-                      className="flex min-h-12 max-w-xs animate-reveal-quick items-center justify-center sm:min-h-8"
+                      className="relative z-[2] flex min-h-12 max-w-xs animate-reveal-quick items-center justify-center sm:min-h-8"
                       style={{ animationDelay: '120ms' }}
                     >
                       {status === 'queued' ? (
@@ -1647,7 +1656,7 @@ export default function ProductPage() {
                       )}
                     </div>
                     {status !== 'queued' && (
-                      <p className="animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
+                      <p className="relative z-[2] animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
                         {elapsedSeconds}s elapsed
                       </p>
                     )}
