@@ -1058,54 +1058,66 @@ export default class DisplayCanvas extends React.Component {
         if (!imageContainer) return;
         imageContainer.style.backgroundImage = 'url(' + url + ')';
 
-        // Animate backdrop-filter from 0 alongside the image fade. Because GSAP updates
-        // the inline value every frame, iOS re-composites each frame rather than caching
-        // a stale snapshot — so we can run both animations in parallel safely.
-        // Compact (homepage hero) has no glass panel at all (.controls-compact) -- animating
-        // an inline backdrop-filter onto it painted a visible blur/brightness rectangle
-        // over the artwork for the duration of the tween, a ghost of the removed glass.
-        const panel = this.props.compact ? null : document.querySelector('#controls-main');
-        if (panel) {
-          const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(panel);
-          panel.style.backdropFilter = 'none';
-          const f = { blur: 0, brightness: 1 };
-          gsap.to(f, {
-            blur: cssBlur, brightness: cssBrightness,
-            duration: DURATION_SLOW,
-            ease: 'power2.inOut',
-            onUpdate: () => { panel.style.backdropFilter = `blur(${f.blur}px) brightness(${f.brightness})`; },
-            onComplete: () => { panel.style.backdropFilter = ''; }
-          });
-        }
-
-        // The compact Save button (.controls-compact .button-small) carries its own
-        // permanent backdrop-filter (components.css) -- unlike the panel above, which has
-        // none in compact mode, so this one has no "ghost of removed glass" risk. Same iOS
-        // staleness bug as the panel though: it needs a per-frame inline write to force a
-        // recomposite once the artwork behind it changes, or it stays dark until the next
-        // scroll. Only the panel is skipped for compact; this button still needs the nudge.
-        const saveBtn = this.props.compact ? document.querySelector('.controls-compact .button-small') : null;
-        if (saveBtn) {
-          saveBtn.style.backdropFilter = 'none';
-          const b = { blur: 0 };
-          gsap.to(b, {
-            blur: 4,
-            duration: DURATION_SLOW,
-            ease: 'power2.inOut',
-            onUpdate: () => { saveBtn.style.backdropFilter = `blur(${b.blur}px)`; },
-            onComplete: () => { saveBtn.style.backdropFilter = ''; }
-          });
-        }
-
-        gsap.to('.image-container', {
-          duration: DURATION_SLOW,
-          alpha: 1,
-          ease: 'power2.inOut'
-        });
-
+        // Everything below runs in the setState CALLBACK, which is the whole point: this
+        // code executes inside GSAP's ticker (a rAF callback), and dropping the panel's
+        // backdrop-filter here synchronously would take effect a frame before React removes
+        // the loader. A default-priority setState from a rAF callback is committed in a
+        // LATER macrotask, i.e. after this frame paints -- so the browser painted exactly one
+        // frame (measured) showing the hexagon loader at full opacity, suddenly unblurred,
+        // through clear glass with the artwork still at alpha 0. Reported 2026-08-15 as a
+        // flash of the loader as the panel animates.
+        // A setState callback fires after React has mutated the DOM and before the browser
+        // paints that commit, so the loader's removal, the unblur and the image's fade all
+        // land in one frame. flushSync would also work but forces a synchronous re-render of
+        // this whole tree mid-rAF, which is a real jank risk right at the end of a generate.
         this.setState({
           generateDisabled: false,
           isLoading: false,
+        }, () => {
+          // Animate backdrop-filter from 0 alongside the image fade. Because GSAP updates
+          // the inline value every frame, iOS re-composites each frame rather than caching
+          // a stale snapshot — so we can run both animations in parallel safely.
+          // Compact (homepage hero) has no glass panel at all (.controls-compact) -- animating
+          // an inline backdrop-filter onto it painted a visible blur/brightness rectangle
+          // over the artwork for the duration of the tween, a ghost of the removed glass.
+          const panel = this.props.compact ? null : document.querySelector('#controls-main');
+          if (panel) {
+            const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(panel);
+            panel.style.backdropFilter = 'none';
+            const f = { blur: 0, brightness: 1 };
+            gsap.to(f, {
+              blur: cssBlur, brightness: cssBrightness,
+              duration: DURATION_SLOW,
+              ease: 'power2.inOut',
+              onUpdate: () => { panel.style.backdropFilter = `blur(${f.blur}px) brightness(${f.brightness})`; },
+              onComplete: () => { panel.style.backdropFilter = ''; }
+            });
+          }
+
+          // The compact Save button (.controls-compact .button-small) carries its own
+          // permanent backdrop-filter (components.css) -- unlike the panel above, which has
+          // none in compact mode, so this one has no "ghost of removed glass" risk. Same iOS
+          // staleness bug as the panel though: it needs a per-frame inline write to force a
+          // recomposite once the artwork behind it changes, or it stays dark until the next
+          // scroll. Only the panel is skipped for compact; this button still needs the nudge.
+          const saveBtn = this.props.compact ? document.querySelector('.controls-compact .button-small') : null;
+          if (saveBtn) {
+            saveBtn.style.backdropFilter = 'none';
+            const b = { blur: 0 };
+            gsap.to(b, {
+              blur: 4,
+              duration: DURATION_SLOW,
+              ease: 'power2.inOut',
+              onUpdate: () => { saveBtn.style.backdropFilter = `blur(${b.blur}px)`; },
+              onComplete: () => { saveBtn.style.backdropFilter = ''; }
+            });
+          }
+
+          gsap.to('.image-container', {
+            duration: DURATION_SLOW,
+            alpha: 1,
+            ease: 'power2.inOut'
+          });
         });
       });
     });
