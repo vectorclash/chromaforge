@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { gsap, TextPlugin } from 'gsap/all';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import FadeImage from '../components/ui/FadeImage';
@@ -34,8 +33,7 @@ import BuyNowModal from '../components/ui/BuyNowModal';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useJsonLd } from '../hooks/useJsonLd';
 import SizeGuideModal from '../components/ui/SizeGuideModal';
-
-gsap.registerPlugin(TextPlugin);
+import TerminalText from '../components/ui/TerminalText';
 
 // How long the hero's mockup layer takes to fade OUT -- must stay in step with the
 // duration-200 class on it. Only used to keep the <img> mounted long enough to animate
@@ -241,53 +239,6 @@ const CHECKOUT_TIMELINE = [
     ]
   }
 ];
-
-// Decodes each STATUS_TIMELINE line in via GSAP's ScrambleTextPlugin instead of an instant
-// swap -- kept short (0.45s) and letters-only (no symbols) so it reads as a terminal
-// readout rather than a glitch effect across a wait that can run a couple of minutes.
-// Skips the animation on first mount (nothing to transition from) and on unrelated
-// re-renders where `text` hasn't actually changed (this re-renders every second via
-// elapsedSeconds even though the line only changes at STATUS_TIMELINE thresholds).
-function ScrambleText({ text, className, style }) {
-  const ref = useRef(null);
-  const prevText = useRef(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // First mount: nothing to transition from -- just set the text directly.
-    if (prevText.current === null) {
-      el.textContent = text;
-      prevText.current = text;
-      return;
-    }
-    if (prevText.current === text) return;
-    prevText.current = text;
-    gsap.to(el, {
-      duration: 1,
-      ease: 'none',
-      text: text,
-      // TextPlugin's own final render silently collapses the non-breaking space (U+00A0)
-      // preventOrphan() glues the last two words with -- confirmed live via a char-code
-      // dump of el.textContent after the tween: it types the string through an
-      // innerHTML/whitespace-normalizing path that turns U+00A0 back into a plain U+0020,
-      // so the orphan guard was never actually surviving this tween -- only the very first
-      // line ever shown (set via direct textContent assignment above, not this tween) had
-      // it. Forcing the exact source string back on once the tween settles guarantees the
-      // steady-state text matches what preventOrphan produced.
-      onComplete: () => {
-        el.textContent = text;
-      }
-    });
-    return () => gsap.killTweensOf(el);
-  }, [text]);
-
-  // Deliberately no {text} child here -- TextPlugin needs the DOM's current
-  // textContent to still hold the *previous* line when the tween starts, so it has
-  // something to interpolate away from. Rendering {text} in JSX would let React
-  // commit the new string first, making the tween a same-to-same no-op.
-  return <p ref={ref} className={className} style={style} />;
-}
 
 export default function ProductPage() {
   const { productId } = useParams();
@@ -1664,15 +1615,37 @@ export default function ProductPage() {
                     <p className="animate-reveal-quick text-sm font-bold" style={{ animationDelay: '60ms' }}>
                       {STATUS_LABEL[status]}
                     </p>
-                    <ScrambleText
-                      text={
-                        status === 'queued'
-                          ? `Printful's preview service is busy. Retrying automatically in ${retryWaitSeconds ?? '…'}s.`
-                          : statusNarration(elapsedSeconds, narrationPicksRef.current)
-                      }
-                      className="max-w-xs animate-reveal-quick text-xs text-text-secondary"
+                    {/* Height is reserved for the tallest narration line this box can hold, so a
+                        one-line line giving way to a two-line one never moves the loader above
+                        it or the counter below. TerminalText additionally keeps the wrap fixed
+                        for the whole sweep -- between them, nothing in this column moves during
+                        a transition.
+                        Responsive because the worst case is, measured through the real component
+                        rather than reasoned about: this box is shrink-to-fit capped at max-w-xs,
+                        so it is 292px at a 390px viewport -- where one STATUS_TIMELINE line needs
+                        THREE rows -- and 320px from sm up, where two always suffice. */}
+                    <div
+                      className="flex min-h-12 max-w-xs animate-reveal-quick items-center justify-center sm:min-h-8"
                       style={{ animationDelay: '120ms' }}
-                    />
+                    >
+                      {status === 'queued' ? (
+                        /* Deliberately NOT animated: useMockup ticks retryWaitSeconds down
+                           once a second, so this string changes every second. Retyping the
+                           whole sentence each tick would never settle, and the countdown --
+                           the one number the customer actually wants -- would spend most of
+                           its life mid-sweep as an underscore or a block. Static sentence,
+                           live number. */
+                        <p className="font-mono text-[11px] leading-4 text-text-secondary">
+                          Printful's preview service is busy. Retrying automatically in{' '}
+                          <span className="tabular-nums">{retryWaitSeconds ?? '…'}</span>s.
+                        </p>
+                      ) : (
+                        <TerminalText
+                          text={statusNarration(elapsedSeconds, narrationPicksRef.current)}
+                          className="font-mono text-[11px] leading-4 text-text-secondary"
+                        />
+                      )}
+                    </div>
                     {status !== 'queued' && (
                       <p className="animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
                         {elapsedSeconds}s elapsed
@@ -1881,9 +1854,9 @@ export default function ProductPage() {
         }}
         errorMessage={checkoutNotice}
         narration={
-          <ScrambleText
+          <TerminalText
             text={statusNarration(checkoutElapsed, checkoutNarrationPicksRef.current, CHECKOUT_TIMELINE)}
-            className="text-xs text-text-secondary"
+            className="font-mono text-[11px] leading-4 text-text-secondary"
           />
         }
         progress={checkoutProgress}

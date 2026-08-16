@@ -1173,6 +1173,53 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
 
+### The mockup-wait narration retypes itself (`TerminalText`, 2026-08-16)
+`components/ui/TerminalText.jsx` replaced a GSAP `TextPlugin` tween on ProductPage's two
+narration lines (the mockup scrim and BuyNowModal's checkout wait). Aaron's report: going from
+one line to two "pops into place". Two real causes, and the second is a bug the old comment
+block in ProductPage described while getting its own conclusion wrong:
+- **The wrap moved mid-tween.** TextPlugin typed the whole string in one flow, so the
+  line-count change landed wherever the typing happened to cross the wrap boundary and snapped
+  the loader above and the `Ns elapsed` counter below with it.
+- **The orphan guard never survived the tween.** TextPlugin normalizes U+00A0 away while
+  typing; the old code knew this and re-slammed the glued string in `onComplete`, which
+  re-wrapped the line *after* the motion had settled — the visible pop, reintroduced by the fix
+  for it.
+Now: each cell runs old char -> `_` -> blank -> block -> new char, staggered so a ragged head
+sweeps the line, as **two passes** (erase in the OLD string's grid, then print in the new one).
+Five things worth not re-deriving:
+1. **Monospace is load-bearing, not a style choice.** Every phase must occupy exactly the width
+   of the character it replaces. In proportional type that needs a measured, locked cell per
+   character — the frozen-line-box fragility that got the SplitText reveal removed. Callers must
+   keep `font-mono` on the element.
+2. **Two passes exist so the wrap can only change while the line is blank.** Verified: the wrap
+   changes on a frame with **0 visible glyphs**, and the counter below holds Y=331 across all
+   338 frames of a transition. A single-pass morph was built first and rejected from its own
+   captured frames — it must index the old string into the NEW string's grid, which punctures
+   the old text wherever the new string has a space and re-wraps it on frame 1, reading as
+   garbled fragments rather than a line being cleared.
+3. **The block is a CSS background, not a U+2588 glyph** — a real block char can fall out of the
+   monospace stack into a fallback face with a different advance width, reflowing the line on
+   every frame the head touches a cell. Same browsers-are-lenient class as
+   `GenerateLargeRadialField`'s alpha-as-a-string.
+4. **The head reads as a RUN of blocks (per-word), not a single block (per-character), and that
+   is accepted** (Aaron, 2026-08-16, having compared it against the CLI animation it came from).
+   It is not a separate design choice — run length is block-phase duration / head speed, and the
+   sweep's total travel is fixed, so it falls out of string length: a 67-cell sentence advances
+   one cell per 7.9ms with each block lit 65ms (~8 lit at once), while the same constants on a
+   9-letter word give exactly one. Forcing per-character on sentence-length copy is bounded by
+   the display, not taste — a block needs ~3 frames to register, so the sweep would run **~3.3s**
+   per line change (4x today, worse at 30fps), and the fast alternative shows each block for one
+   frame, i.e. a flicker. Don't "fix" this without redoing that arithmetic.
+5. **The reserved height is responsive because the worst case is** (`min-h-12 sm:min-h-8`).
+   Measured through the real component: the narration box is **292px** at a 390px viewport,
+   where one `STATUS_TIMELINE` line needs three rows; from `sm` up it is capped at `max-w-xs`
+   (320px) and two always suffice. Don't "simplify" it to one value.
+6. **The `queued` line is deliberately NOT animated.** `useMockup` ticks its retry countdown
+   once a second, so that string changes every second — retyping it each tick would never
+   settle and the countdown would spend its life as an underscore. Static sentence, live number.
+Frames + measurements: https://claude.ai/code/artifact/73cfce43-9e68-4131-86cf-84d29551ec6a
+
 ### MANDATORY before any renderer change goes live: `scripts/check-render-regression.mjs`
 
 ```

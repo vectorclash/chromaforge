@@ -88,7 +88,12 @@ export default function BuyNowModal({
                   aria-hidden
                   className="h-8 w-8 shrink-0 animate-spin rounded-full border-[3px] border-white/15 border-t-interactive"
                 />
-                <div className="flex min-h-[2.4em] flex-1 items-center">{narration}</div>
+                {/* Two lines at the narration's own leading-4, which is the measured worst
+                    case for every CHECKOUT_TIMELINE string at this modal's inner width --
+                    reserved so a one-to-two-line change can't shove the progress bar below
+                    it. Was 2.4em, which resolved against THIS element's inherited font size
+                    rather than the narration's own, so it only happened to be about right. */}
+                <div className="flex min-h-8 flex-1 items-center">{narration}</div>
               </div>
               <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
                 <div

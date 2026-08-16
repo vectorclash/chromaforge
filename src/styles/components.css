@@ -1692,3 +1692,24 @@
   z-index: 100;
   fill: white;
 }
+
+/* TerminalText's write head (see that component for the whole mechanism).
+
+   The block is painted as a BACKGROUND on the character cell rather than substituted in as a
+   U+2588 glyph, and that is a correctness decision, not a style one: a real block character
+   can fall out of the monospace stack into a fallback face with a different advance width,
+   which would reflow the line on every frame the head touched a cell. A background is exactly
+   the cell's own width whatever the font resolves to. The incoming character stays in the box
+   (so the cell keeps its metrics) and is hidden with a transparent colour -- which is also why
+   the fill can't use currentColor and takes an explicit token instead.
+
+   Sized to roughly cap height and sitting on the baseline, matching a terminal cursor block:
+   deliberately taller than the lowercase it replaces, so the head reads as a solid mark
+   sweeping the line rather than a letter that happens to be filled in. */
+.terminal-text__cell--block {
+  color: transparent;
+  background-image: linear-gradient(var(--color-text-secondary), var(--color-text-secondary));
+  background-repeat: no-repeat;
+  background-size: 100% 0.72em;
+  background-position: 0 0.14em;
+}
