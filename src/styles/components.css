@@ -822,11 +822,17 @@
 }
 
 /* In compact the studio link sits inside the button column (under Save), not absolutely
-   centered below the whole panel like the full studio's return link. */
+   centered below the whole panel like the full studio's return link. It carries the same
+   hit-area padding (see the base rule), cancelled out by negative margins so it still
+   occupies exactly the 8px-gap-plus-text-height it did in the flow -- compact has no
+   background-click-to-close (onCloseButtonClick returns early), so the padding here is
+   only a bigger tap target, never a fix for a misclick. */
 .display-canvas .controls-inner.controls-compact .go-to-studio-btn {
   position: static;
   transform: none;
-  margin-top: 8px;
+  padding: 10px 16px;
+  margin-top: -2px;
+  margin-bottom: -10px;
   align-self: center;
 }
 
@@ -1023,13 +1029,20 @@
    secondary action below the Generate/Save panel, not a third panel action. top: 100%
    tracks the panel's real height automatically, which matters because #controls-main is
    GSAP-animated (gsap.to('#controls-main', ...) elsewhere in DisplayCanvas.jsx) -- this
-   only adds a non-flow child, it doesn't touch the panel's own position/transform. */
+   only adds a non-flow child, it doesn't touch the panel's own position/transform.
+
+   The padding is a HIT AREA, not spacing, and the margin is reduced by exactly its top
+   value so the text does not move: at 13px with no padding the only clickable pixels were
+   the glyphs themselves, and every miss -- the 20px gap above it most of all -- landed on
+   .controls-background-click, which closes the whole panel (DisplayCanvas's
+   onCloseButtonClick). Keep `padding-top + margin-top` at 20px if either is retuned. */
 .display-canvas .controls-inner .go-to-studio-btn {
   position: absolute;
   left: 50%;
   top: 100%;
   transform: translateX(-50%);
-  margin-top: 20px;
+  margin-top: 0;
+  padding: 20px 28px 16px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
