@@ -9,11 +9,17 @@ import { usePageMeta } from '../hooks/usePageMeta';
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back to this page
 
-// Statuses that mean "stop polling, the outcome is known". 'fulfilled' cannot realistically
-// be reached inside this page's ~30s window (Printful takes days to ship), but it is a
-// terminal status and enumerating the terminal set without it is the kind of omission that
-// bites later -- reachable today only by revisiting this URL for a long-since-shipped order,
-// which would otherwise poll to a needless timeout.
+// Statuses that mean "stop polling" -- deliberately NOT every terminal status, which is the
+// trap here. Below, only 'failed' gets its own screen: anything else that resolves falls
+// through to "Order confirmed -- your order is on its way to production", so adding 'canceled'
+// or 'refunded' to this set would render a dead order as a confirmed one. They stay out and
+// keep the existing poll-then-timeout behaviour, which says "still confirming" and offers the
+// order history -- vague, but never false.
+//
+// 'fulfilled' is safe to include (it IS confirmed, just further along) and 'on_hold' is
+// correctly absent anyway: a hold is a pause, not an outcome. In practice none of these are
+// reachable in this page's ~30s window -- Printful takes days -- and the order id is
+// read-then-deleted from sessionStorage, so the page is effectively single-use.
 const RESOLVED_STATUSES = new Set(['submitted', 'fulfilled', 'failed']);
 
 // Lands here from Stripe's success_url. The webhook that actually confirms payment and

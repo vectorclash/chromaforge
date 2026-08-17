@@ -75,11 +75,19 @@ export async function getOrder(orderId) {
 // was added (2026-08-17) the enum only described how an order could END BADLY, so `submitted`
 // was terminal in practice and a produced-and-shipped order sat here forever reading
 // "In production". Two real completed orders were doing exactly that.
+//
+// 'on_hold' IS active, deliberately: Printful has paused the order, but it is still in flight
+// and the hold can be lifted (order_remove_hold returns it to 'submitted'). It just isn't
+// progressing, which is the label's job to say rather than this filter's.
+//
+// Keep this set in sync with printful-order-preview's own `status=in.(...)` filter -- it
+// derives the same list server-side to fetch each one's Printful preview, and a status in one
+// but not the other silently loses the thumbnail.
 export async function listMyActiveOrders() {
   const { data, error } = await client()
     .from('orders')
     .select('*, order_items(*)')
-    .in('status', ['paid', 'submitted'])
+    .in('status', ['paid', 'submitted', 'on_hold'])
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data;
@@ -107,7 +115,7 @@ export async function getActiveOrderPreviews() {
   }
 }
 
-// Resolved orders -- fulfilled, failed or canceled, whether by our own
+// Resolved orders -- fulfilled, refunded, failed or canceled, whether by our own
 // checkout/Printful-submission flow or via a later printful-webhook reconciliation (see that
 // function's header comment) -- kept out of the active list so a finished order doesn't sit
 // on the main account view forever. Cursor-paginated on created_at, same keyset pattern as
@@ -118,7 +126,7 @@ export async function listMyOrderHistory({ limit = 20, before = null } = {}) {
   let query = client()
     .from('orders')
     .select('*, order_items(*)')
-    .in('status', ['fulfilled', 'failed', 'canceled'])
+    .in('status', ['fulfilled', 'refunded', 'failed', 'canceled'])
     // Only orders that were actually PAID for. 'canceled' covers two very different things:
     // a real order Printful later canceled (printful-webhook's order_canceled), which the
     // customer paid for and absolutely belongs here -- and a checkout that was started and

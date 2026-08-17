@@ -23,7 +23,20 @@
 // from returning its own "ok" response.
 import nodemailer from "npm:nodemailer@^9";
 
-export async function sendOrderFailureAlert(orderId: string, message: string) {
+// `action` is what the human should actually DO about it. It defaults to the submission-failure
+// advice this started as, so stripe-webhook's calls are unchanged -- printful-webhook passes a
+// per-status line instead, because the right action genuinely differs (a hold is cleared in
+// Printful's dashboard, a Printful-side refund may need a matching Stripe refund, a failure may
+// just be resubmittable) and one fixed line would be wrong for most of them.
+const DEFAULT_ACTION =
+  "This customer is NOT auto-refunded -- check whether the order is fixable and " +
+  "resubmittable, or refund via the Stripe dashboard.";
+
+export async function sendOrderFailureAlert(
+  orderId: string,
+  message: string,
+  action: string = DEFAULT_ACTION
+) {
   const host = Deno.env.get("ORDER_ALERT_SMTP_HOST");
   const port = Deno.env.get("ORDER_ALERT_SMTP_PORT");
   const user = Deno.env.get("ORDER_ALERT_SMTP_USER");
@@ -50,8 +63,7 @@ export async function sendOrderFailureAlert(orderId: string, message: string) {
           text:
             `A customer has already paid for order ${orderId}, but it now needs attention.\n\n` +
             `Details: ${message}\n\n` +
-            `This customer is NOT auto-refunded -- check whether the order is fixable and ` +
-            `resubmittable, or refund via the Stripe dashboard.`
+            action
         },
         err => (err ? reject(err) : resolve())
       );

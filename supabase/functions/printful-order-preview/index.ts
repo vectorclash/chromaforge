@@ -79,9 +79,15 @@ Deno.serve(async req => {
   // Printful submission hasn't landed yet has no printful_order_id, and therefore no
   // preview to fetch -- it is simply absent from the response, which the UI reads as
   // "not available yet" rather than an error.
+  //
+  // This status set MUST match listMyActiveOrders() in src/lib/checkout.js -- that query
+  // decides which orders the account page renders, this one decides which get a thumbnail,
+  // and a status in one but not the other silently leaves a visible row with a permanently
+  // empty image slot. 'on_hold' is here for exactly that reason: a held order still shows in
+  // Active, so it still needs its preview.
   const ordersRes = await fetch(
     `${supabaseUrl}/rest/v1/orders?select=id,printful_order_id` +
-      `&user_id=eq.${userId}&status=in.(paid,submitted)&printful_order_id=not.is.null` +
+      `&user_id=eq.${userId}&status=in.(paid,submitted,on_hold)&printful_order_id=not.is.null` +
       `&order=created_at.desc&limit=${MAX_ORDERS}`,
     { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } }
   );

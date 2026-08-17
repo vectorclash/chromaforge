@@ -39,29 +39,75 @@ import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
 // to close). Both target values already exist in the orders.status enum and already mean
 // "this order did not end up produced," so this is a legitimate transition into an existing
 // value, not a new concept.
-type TerminalStatus = "canceled" | "failed" | "fulfilled";
+type OrderStatus = "submitted" | "on_hold" | "fulfilled" | "refunded" | "failed" | "canceled";
 
-const TERMINAL_EVENT_STATUS: Record<string, TerminalStatus> = {
+// Events whose meaning is unambiguous from the TYPE alone -- no status string needed, which
+// is what makes the hold/refund mappings evidence-based rather than a guess at Printful's
+// vocabulary (their docs do not publish the full status enum anywhere we could find).
+const EVENT_STATUS: Record<string, OrderStatus> = {
   order_canceled: "canceled",
-  order_failed: "failed"
+  order_failed: "failed",
+  order_refunded: "refunded",
+  order_put_hold: "on_hold",
+  order_put_hold_approval: "on_hold",
+  // The only mapping that moves an order BACKWARD into an active state. Holds are the one
+  // reversible thing Printful reports -- everything else here is one-way.
+  order_remove_hold: "submitted"
 };
-const TERMINAL_PRINTFUL_STATUS: Record<string, TerminalStatus> = {
+
+// ...and the same real-world changes as they arrive via a plain order_updated instead.
+// Confirmed live: deleting an unconfirmed draft in the dashboard delivers order_updated with
+// status "archived", not a dedicated cancel event, so keying off event.type alone would let a
+// real cancellation pass as "just an update" -- the exact bug this function exists to close.
+//
+// Every key here has been OBSERVED in this store's own orders.printful_status column, rather
+// than taken from documentation: archived (11), fulfilled (2), canceled (1), onhold (1).
+// Printful's other statuses (draft/pending/inprocess/partial) are deliberately unmapped --
+// our `submitted` already means "in production", so they would be no-ops, and an unmapped
+// status is safe by construction: it falls through to the mirror-only branch below.
+const PRINTFUL_STATUS_STATUS: Record<string, OrderStatus> = {
   canceled: "canceled",
   archived: "canceled",
   failed: "failed",
-  // The one terminal status that is GOOD news, arriving (like `archived` above) as a plain
-  // order_updated rather than an event type of its own -- Printful publishes no
-  // "order_fulfilled" event. Without this the happy path had no terminal value at all, so a
-  // produced-and-shipped order stayed `submitted` and sat in the account page's Active list
-  // reading "In production" indefinitely. Note this branch is reached only via the status
-  // value, never via TERMINAL_EVENT_STATUS, which is why that map stays failure-only.
+  onhold: "on_hold",
+  // The one terminal status that is GOOD news, and it arrives ONLY this way -- Printful
+  // publishes no "order_fulfilled" event type. Without it the happy path had no terminal
+  // value at all, so a produced-and-shipped order stayed `submitted` and sat in the account
+  // page's Active list reading "In production" indefinitely.
   fulfilled: "fulfilled"
 };
 
-// Not every terminal status is a failure, so the two must not be conflated: only these write
-// a failure_reason and raise an alert email. Getting this wrong would stamp a perfectly good
-// order with "Failed via Printful" and page a human about a successful delivery.
-const FAILURE_STATUSES = new Set<TerminalStatus>(["canceled", "failed"]);
+// Once an order reaches one of these, Printful has nothing left to tell us that should move
+// it -- so a late or out-of-order delivery can never resurrect a finished order into the
+// customer's Active list. `refunded` is exempt as a TARGET (see canTransition): a fulfilled
+// order can be returned and a canceled one can still be refunded, and money moving is the
+// more authoritative fact.
+const TERMINAL_STATUSES = new Set<OrderStatus>(["fulfilled", "refunded", "failed", "canceled"]);
+
+// Not every terminal status is a failure, and conflating the two would stamp a perfectly good
+// order with "Failed via Printful" and page a human about a successful delivery. Only these
+// write a failure_reason.
+const FAILURE_STATUSES = new Set<OrderStatus>(["canceled", "failed"]);
+
+// Which transitions are worth waking a human for, and what that human should actually DO --
+// the action differs enough that one fixed line of advice would be wrong for most of them.
+// `fulfilled` and `submitted` (a hold being lifted) are absent on purpose: both are good news
+// and need nobody.
+const ALERT_ACTION: Partial<Record<OrderStatus, string>> = {
+  failed:
+    "This customer is NOT auto-refunded -- check whether the order is fixable and " +
+    "resubmittable, or refund via the Stripe dashboard.",
+  canceled:
+    "This customer is NOT auto-refunded -- check whether the order is fixable and " +
+    "resubmittable, or refund via the Stripe dashboard.",
+  on_hold:
+    "Printful has paused this order and will not produce it until the hold is cleared. " +
+    "Resolve it in the Printful dashboard -- holds are usually an address or payment issue.",
+  refunded:
+    "Printful has refunded this order on their side. The customer's own Stripe payment is " +
+    "unaffected and is NOT refunded automatically -- refund it via the Stripe dashboard if " +
+    "the customer is not receiving the goods."
+};
 
 const RECOGNIZED_EVENTS = new Set([
   "order_canceled",
@@ -177,13 +223,21 @@ Deno.serve(async req => {
   }
 
   const printfulStatus = event.data?.order?.status ?? null;
-  const terminalStatus =
-    TERMINAL_EVENT_STATUS[event.type] ?? (printfulStatus ? TERMINAL_PRINTFUL_STATUS[printfulStatus] : undefined);
+  const mapped =
+    EVENT_STATUS[event.type] ?? (printfulStatus ? PRINTFUL_STATUS_STATUS[printfulStatus] : undefined);
+  // A finished order stays finished: a late, retried or out-of-order delivery must never
+  // resurrect one into the customer's Active list. Money moving is the exception -- a
+  // fulfilled order can be returned and a canceled one can still be refunded.
+  const targetStatus =
+    mapped && (mapped === "refunded" || !TERMINAL_STATUSES.has(order.status as OrderStatus))
+      ? mapped
+      : undefined;
 
-  if (!terminalStatus) {
-    // Genuinely ambiguous (order_refunded/hold events, or an order_updated whose status
-    // isn't one of the known terminal values) -- mirror Printful's own status for visibility
-    // without guessing at our own status enum.
+  if (!targetStatus) {
+    // Either genuinely ambiguous (an order_updated whose status isn't one we map -- see
+    // PRINTFUL_STATUS_STATUS for why draft/pending/inprocess/partial are left out) or a
+    // change we are deliberately refusing to apply to an already-finished order. Either way,
+    // mirror Printful's own status for visibility without touching our own lifecycle.
     const { error: mirrorError } = await supabase
       .from("orders")
       .update({ printful_status: printfulStatus, printful_status_at: new Date().toISOString() })
@@ -196,34 +250,41 @@ Deno.serve(async req => {
   }
 
   // .select() so we know whether this delivery is the one that actually changed the status --
-  // Printful retries deliveries (the payload carries a `retries` count), so the same
-  // order_canceled/order_failed event can arrive more than once. Guarding the update on
-  // `status <> terminalStatus` means a repeat delivery is a no-op here too, and in particular
-  // never sends a second alert email for the same real-world event.
-  const isFailure = FAILURE_STATUSES.has(terminalStatus);
+  // Printful retries deliveries (the payload carries a `retries` count), so the same event can
+  // arrive more than once. Guarding the update on `status <> targetStatus` means a repeat
+  // delivery is a no-op here too, and in particular never sends a second alert email for the
+  // same real-world event.
+  //
+  // failure_reason is written only for the two genuine failures, exactly as before. It is an
+  // ops-only column (nothing in the frontend renders it) and printful_status already records
+  // Printful's own vocabulary precisely, so inventing text for holds and refunds would only
+  // create a value that goes stale the moment a hold is lifted.
+  const isFailure = FAILURE_STATUSES.has(targetStatus);
   const { data: updatedRows, error: updateError } = await supabase
     .from("orders")
     .update({
-      status: terminalStatus,
+      status: targetStatus,
       ...(isFailure
-        ? { failure_reason: terminalStatus === "canceled" ? "Canceled via Printful" : "Failed via Printful" }
+        ? { failure_reason: targetStatus === "canceled" ? "Canceled via Printful" : "Failed via Printful" }
         : {}),
       printful_status: printfulStatus,
       printful_status_at: new Date().toISOString()
     })
     .eq("id", order.id)
-    .neq("status", terminalStatus)
+    .neq("status", targetStatus)
     .select("id");
   if (updateError) {
     console.error("printful-webhook: failed to update order status", updateError);
     return new Response("Update failed", { status: 500 });
   }
 
-  if (isFailure && updatedRows && updatedRows.length > 0) {
+  const alertAction = ALERT_ACTION[targetStatus];
+  if (alertAction && updatedRows && updatedRows.length > 0) {
     await sendOrderFailureAlert(
       order.id,
-      `Printful ${terminalStatus === "canceled" ? "canceled" : "failed"} this order after it was submitted ` +
-        `(printful_order_id ${printfulOrderId}).`
+      `Printful moved this order to "${targetStatus}"${printfulStatus ? ` (their status: ${printfulStatus})` : ""} ` +
+        `after it was submitted (printful_order_id ${printfulOrderId}).`,
+      alertAction
     );
   }
 

@@ -1571,12 +1571,46 @@ load for an unrelated reason and every count is meaningless.
   filters in sync.** Labelled **"Shipped"**, not "Delivered": Printful's `fulfilled` means the
   items left the facility, and no tracking/delivery signal exists anywhere in this app to back
   the stronger claim.
-  **Still open, same bug class:** `order_refunded` is subscribed and recognized but maps to no
-  status, so a refunded order also sits in Active as "In production" forever. Left alone
-  deliberately — there is no `refunded` enum value, refunds are handled by hand via the Stripe
-  dashboard (see `_shared/orderAlert.ts`), and partial refunds make "is this order over?" a
-  real decision rather than a mapping. Same for `onhold`, which stays `submitted` — arguably
-  correct, since a held order genuinely is still active, but it reads as "In production".
+  **The rest of the gap closed the same day (`0017`), so the enum now answers everything
+  Printful can report:** `on_hold` and `refunded`. The status set is
+  `pending | paid | submitted | on_hold | fulfilled | refunded | failed | canceled`, with
+  **Active = `paid`/`submitted`/`on_hold`** and **History = `fulfilled`/`refunded`/`failed`/
+  `canceled`**. Six things worth not re-deriving:
+  (1) **`on_hold` is ACTIVE, not history, and it is the only reversible thing Printful
+  reports.** A held order really is still in flight — it just isn't progressing —
+  and `order_remove_hold` returns it to `submitted`. It is the one active status carrying the
+  accent treatment, so it doesn't read like normal production. Labelled "On hold" rather than
+  `failed`'s "Needs attention", because a hold is usually Printful's to clear (address or
+  payment check) and not something the customer can act on.
+  (2) **Hold and refund are driven off the EVENT TYPE, not the status string** — Printful
+  publishes no complete status enum anywhere findable (checked; their docs don't list it), so
+  `order_put_hold`/`order_put_hold_approval`/`order_remove_hold`/`order_refunded` are
+  unambiguous by type and need no guessing. Every key in `PRINTFUL_STATUS_STATUS` was instead
+  taken from statuses **observed in this store's own `printful_status` column** — `archived`
+  (11), `fulfilled` (2), `canceled` (1), `onhold` (1). `draft`/`pending`/`inprocess`/`partial`
+  are deliberately unmapped: `submitted` already means "in production", and an unmapped status
+  is safe by construction (it falls through to the mirror-only branch).
+  (3) **A finished order stays finished.** `TERMINAL_STATUSES` blocks any transition out of
+  `fulfilled`/`refunded`/`failed`/`canceled`, so a late, retried or out-of-order delivery can
+  never resurrect a dead order into someone's Active list. **`refunded` is exempt as a
+  target** — a fulfilled order can be returned and a canceled one can still be refunded, and
+  money moving is the more authoritative fact.
+  (4) **`sendOrderFailureAlert` now takes an `action`**, defaulting to the submission-failure
+  advice it started as (so `stripe-webhook` is unchanged and did **not** need redeploying — the
+  default string is byte-identical to the text it used to hardcode). `printful-webhook` passes
+  a per-status line, because the right action genuinely differs: a hold is cleared in
+  Printful's dashboard, a Printful-side refund may need a *separate* Stripe refund (their
+  refund does not touch the customer's payment to us), a failure may just be resubmittable.
+  Alerts fire for `failed`/`canceled`/`on_hold`/`refunded` — not `fulfilled` or a lifted hold.
+  (5) **`failure_reason` is still written only for `failed`/`canceled`.** It is ops-only
+  (nothing in the frontend renders it) and `printful_status` already records Printful's
+  vocabulary precisely, so inventing text for a hold would just go stale when the hold lifts.
+  (6) **`CheckoutSuccessPage`'s `RESOLVED_STATUSES` is deliberately NOT the terminal set** —
+  the trap that nearly shipped. Only `failed` gets its own screen there; anything else that
+  resolves falls through to "Order confirmed — your order is on its way to production", so
+  adding `canceled`/`refunded` would render a dead order as a confirmed one. It holds
+  `submitted`/`fulfilled`/`failed` only; the others keep the poll-then-timeout path, which is
+  vague but never false.
 - **Size guide on the product page** (2026-07-25): Printful publishes a per-product size
   guide (`GET /products/{id}/sizes`), surfaced via a "Size guide" link beside the size picker
   → `components/ui/SizeGuideModal.jsx`. Reached the codebase as the honest answer to "which

@@ -36,11 +36,20 @@ const AVATAR_SIZE = 256;
 //
 // Labelled "Shipped", not "Delivered": Printful's `fulfilled` means every item has left the
 // facility, which is not the same claim as arrival, and there is no tracking/delivery signal
-// anywhere in this app to back the stronger word.
+// anywhere in this app to back the stronger word. Same discipline as the Stripe checkout copy,
+// which deliberately promises no shipping time.
+//
+// 'on_hold' is the only ACTIVE status that isn't progressing, so it takes the accent treatment
+// to stand out from the two that are -- the whole point of showing it rather than leaving it
+// looking like normal production. Worded as a plain statement of what is happening rather than
+// 'failed''s "Needs attention", because a hold is usually Printful's to clear (an address or
+// payment check) and not something the customer can act on.
 const ORDER_STATUS_DISPLAY = {
   paid: { label: 'Processing', className: 'text-text-secondary' },
   submitted: { label: 'In production', className: 'text-text-secondary' },
+  on_hold: { label: 'On hold', className: 'text-accent' },
   fulfilled: { label: 'Shipped', className: 'text-text-secondary' },
+  refunded: { label: 'Refunded', className: 'text-text-muted' },
   failed: { label: 'Needs attention', className: 'text-accent' },
   canceled: { label: 'Canceled', className: 'text-text-muted' }
 };
