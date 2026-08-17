@@ -1262,6 +1262,49 @@ anywhere shifts every layer generated after it. If a change genuinely must touch
 stream, this check will fail, and that has to be an explicit, stated decision to rewrite
 everyone's saved artwork — not a side effect noticed in production.
 
+### The studio canvas is the one active-artwork surface with no staleness guard of its own
+Every OTHER surface showing the active design is protected against a late async result —
+StudioContext's render effect has a `cancelled` flag, `useCrossfadeImage` an epoch counter,
+`TshirtPreview` its own `cancelled`. So those can only ever agree with each other, and when
+one surface disagrees with the rest **it is almost always the canvas**, whose display is
+simply whatever `DisplayCanvas.setImage` last wrote to `.image-container`.
+
+That path had no guard at all until 2026-08-16, when Aaron caught it live with a screenshot
+(hero green, shirt/About/mini/footer/nav all blue) after suspecting it once before and
+assuming he'd imagined it — which is what a coin-flip race looks like from the outside.
+Three things worth not re-deriving:
+- **Two full-size builds could genuinely coexist.** The three `MiniGenerator` instances on the
+  homepage (floating, footer, mobile nav) each change the design while the hero is mid-build,
+  and their own Generate lock ends when the **480px** preview lands — long before the hero's
+  2160px+ render and quality-0.98 JPEG encode finish. Nothing promises two `canvas.toBlob()`
+  calls resolve in the order they were made, so the older encode landing last left the canvas
+  on a different design from everything else, permanently.
+- **`canvas.toBlob` returning null is real**, not defensive programming — WebKit gives up at
+  these canvas sizes under memory pressure. It used to throw at `URL.createObjectURL(null)`
+  straight out of a detached callback: on its own that strands the loader, but *overlapping an
+  earlier build that had already cleared `isLoading`* it looks like nothing is wrong at all —
+  no loader, Generate live, canvas quietly holding a design everything else has left behind.
+  Same browsers-are-lenient family as `GenerateLargeRadialField`'s alpha-as-a-string.
+- **`onModeToggle`'s animation→image restore is the one place `mainConfig` is set without
+  going through `buildConfig`**, so it is the one place that has to call `onDesignChange` by
+  hand. It didn't, and `buildAnimationFrames` calls `buildConfig` once per frame — so leaving
+  animation mode left `currentDesign` on the LAST ANIMATION FRAME while the canvas showed the
+  restored still. A guaranteed desync, no race required.
+Now: `buildImage` stamps each build with `++this.buildToken` and `setImage` re-checks it at
+entry, after the decode, and inside the `DURATION_HOLD` delayed call (all three, because a
+newer build can start anywhere in that span); `adoptInitialDesign` defers behind an in-flight
+build instead of starting a parallel one, re-reading the newest design on each retry, the same
+shape `regenerateCurrentSeed` already used for the sliders; and a null/undecodable blob fades
+the previous artwork back in and re-enables the controls. **Keep both the token and the
+deferral** — the token makes a race correct, the deferral makes it rare, and two simultaneous
+full-size renders on a phone are exactly the memory pressure that produces the null blob.
+
+`scripts/check-hero-build-race.mjs` forces the race deterministically (it holds `toBlob`
+callbacks and picks the landing order) and is the thing to run after touching the build/paint
+path. Verified to fail 4/11 checks on the pre-fix commit and pass on the fix. **Run it against
+the production build** — dev StrictMode double-mounts DisplayCanvas, so two builds exist at
+load for an unrelated reason and every count is meaningless.
+
 ### Backend: Supabase, seed-first schema
 - `supabase/migrations/0001_initial_schema.sql` — `profiles` (1:1 auth.users, trigger
   auto-created on signup), `designs` (`data` jsonb = `{ generatorVersion, seed, colors,
@@ -2658,6 +2701,9 @@ things land).
   The hook's `instant: true` is a documented exception for surfaces hidden while the design
   changed (MobileNav), not a shortcut. TshirtPreview is the one legitimate variant: it sits
   beside the hero and syncs to DisplayCanvas's own `isLoading` via `waiting`.
+  When these surfaces genuinely disagree in the wild, suspect the CANVAS first — it is the only
+  one of them not guarded against a stale async result; see "The studio canvas is the one
+  active-artwork surface with no staleness guard of its own" above.
   **This extends to a surface's COLOUR, not just its images (2026-08-11, Aaron's ask).** The
   mini-generator's panel carries a 2px hairline along its top edge — the `.cf-spectrum-line`
   treatment from under the wordmark, but built from the active design's own palette

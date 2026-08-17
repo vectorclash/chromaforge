@@ -318,6 +318,23 @@ export default class DisplayCanvas extends React.Component {
       showBranchNotice: false,
     };
     this.nextColorId = 0;
+    // Bumped by every buildImage. setImage captures the value its own build started under
+    // and drops the blob if it no longer matches, so a build that resolves out of order can
+    // never paint over a newer one.
+    //
+    // This is not theoretical: the hero is the ONLY surface showing the active artwork that
+    // isn't driven by StudioContext's previewUrl/currentDesign (which are both guarded
+    // against stale results -- see StudioContext's render effect, useCrossfadeImage's epoch
+    // counter and TshirtPreview's own cancelled flag). Two full-size builds can genuinely be
+    // in flight at once, because the three MiniGenerator instances on the homepage (floating,
+    // footer, mobile nav) can each change the design while the hero is mid-build and their
+    // own Generate lock ends on the 480px preview landing, long before the hero's 2160px+
+    // render and quality-0.98 JPEG encode finish. Nothing promises two canvas.toBlob() calls
+    // resolve in the order they were made, so without this the older encode could land last
+    // and leave the hero on a different design from every other surface, permanently --
+    // reported live 2026-08-16 (hero disagreeing with the shirt, About blob, mini generator,
+    // footer and mobile nav, all of which agreed with each other).
+    this.buildToken = 0;
   }
 
   componentDidMount() {
@@ -456,6 +473,7 @@ export default class DisplayCanvas extends React.Component {
     }
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);
+    clearTimeout(this.adoptDesignTimer);
   }
 
   componentDidUpdate(prevProps) {
@@ -464,36 +482,57 @@ export default class DisplayCanvas extends React.Component {
       this.props.initialDesign !== prevProps.initialDesign &&
       this.props.initialDesign !== this.mainConfig
     ) {
-      // The design being handed off may already be saved (e.g. saved once via the
-      // mini-generator widget, then opened into the Studio from its thumbnail) -- StudioPage
-      // passes StudioContext's own isCurrentDesignSaved/savedDesignId fact down as
-      // isDesignSaved/savedDesignId so this continuity path doesn't have to guess "false"
-      // and produce a duplicate save. See init()'s initialDesign branch below for the same
-      // logic and the bug this fixes.
-      const alreadySaved = !!this.props.isDesignSaved;
-      this.shareUrl = alreadySaved && this.props.savedDesignId ? buildShareUrl(this.props.savedDesignId) : null;
-      this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
-      // Unlike init()'s own initialDesign branch (first mount -- nothing on screen yet to
-      // fade), this path replaces an image that's already showing at full opacity. Without
-      // this fade-out (which onGenerateButtonClick's own Generate click already does), the
-      // hexagon loader spun over the OLD, still fully-opaque artwork, and the swap to the
-      // new one at the end was a hard pop -- there was nothing for setImage's later
-      // gsap.to(alpha: 1) to visibly fade FROM, since alpha never left 1. This is why
-      // generating from the mini-generator widget while the hero was still on screen never
-      // looked like it animated, even though the hero's data (seed/colors) genuinely updated.
-      gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
-      this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
-      this.adoptDesignSettings(this.props.initialDesign.settings);
-      this.adoptDesignColors(this.props.initialDesign.colors);
-      const built = this.buildConfig(
-        this.props.initialDesign.seed,
-        this.props.width,
-        this.props.height,
-        this.props.initialDesign.colors,
-        this.props.initialDesign.settings ?? null
-      );
-      this.buildImage(built);
+      this.adoptInitialDesign();
     }
+  }
+
+  // Render whatever StudioContext now says is the active design. Called whenever the
+  // initialDesign prop changes under us -- i.e. someone generated from one of the three
+  // MiniGenerator instances (floating, footer, mobile nav) while this canvas was mounted.
+  //
+  // Defers rather than starting a parallel build, the same way regenerateCurrentSeed does for
+  // the geometry sliders. The build token in setImage is what makes a race *correct* (the
+  // newest build always wins); this is what stops two full-size renders existing at once in
+  // the first place, which on a phone is exactly the memory pressure that makes canvas.toBlob
+  // return null. The newest design is re-read from props on each retry, so a burst of
+  // generates collapses to one build of the latest one instead of a queue of stale ones.
+  adoptInitialDesign() {
+    clearTimeout(this.adoptDesignTimer);
+    const design = this.props.initialDesign;
+    if (!design || design === this.mainConfig) return;
+    if (this.state.generateDisabled) {
+      this.adoptDesignTimer = setTimeout(() => this.adoptInitialDesign(), 350);
+      return;
+    }
+    // The design being handed off may already be saved (e.g. saved once via the
+    // mini-generator widget, then opened into the Studio from its thumbnail) -- StudioPage
+    // passes StudioContext's own isCurrentDesignSaved/savedDesignId fact down as
+    // isDesignSaved/savedDesignId so this continuity path doesn't have to guess "false"
+    // and produce a duplicate save. See init()'s initialDesign branch below for the same
+    // logic and the bug this fixes.
+    const alreadySaved = !!this.props.isDesignSaved;
+    this.shareUrl = alreadySaved && this.props.savedDesignId ? buildShareUrl(this.props.savedDesignId) : null;
+    this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
+    // Unlike init()'s own initialDesign branch (first mount -- nothing on screen yet to
+    // fade), this path replaces an image that's already showing at full opacity. Without
+    // this fade-out (which onGenerateButtonClick's own Generate click already does), the
+    // hexagon loader spun over the OLD, still fully-opaque artwork, and the swap to the
+    // new one at the end was a hard pop -- there was nothing for setImage's later
+    // gsap.to(alpha: 1) to visibly fade FROM, since alpha never left 1. This is why
+    // generating from the mini-generator widget while the hero was still on screen never
+    // looked like it animated, even though the hero's data (seed/colors) genuinely updated.
+    gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+    this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
+    this.adoptDesignSettings(design.settings);
+    this.adoptDesignColors(design.colors);
+    const built = this.buildConfig(
+      design.seed,
+      this.props.width,
+      this.props.height,
+      design.colors,
+      design.settings ?? null
+    );
+    this.buildImage(built);
   }
 
   async checkAudioExportSupport() {
@@ -725,8 +764,9 @@ export default class DisplayCanvas extends React.Component {
     // change buttons to match backgroundImage
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
+    const token = ++this.buildToken;
     const canvas = renderArtwork(config, this.queue);
-    canvas.toBlob(this.setImage.bind(this), 'image/jpeg', 0.98);
+    canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
     this.clearElement(canvas);
   }
 
@@ -1041,15 +1081,51 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  setImage(blob) {
+  // A build that can't produce a usable image: put the artwork that's already on screen back
+  // (every build path fades .image-container out before starting, so without this the user is
+  // left staring at a blank canvas) and hand the controls back. Guarded on the token like
+  // everything else -- a failed build that has already been superseded should do nothing at
+  // all, since the newer one owns the screen.
+  recoverFromFailedBuild(token) {
+    if (token !== this.buildToken) return;
+    gsap.to('.image-container', { duration: DURATION_FAST, alpha: 1, ease: 'power2.inOut' });
+    this.setState({ isLoading: false, generateDisabled: false });
+  }
+
+  // `token` is the buildImage generation this blob belongs to (see this.buildToken). Every
+  // step below re-checks it, not just the entry: this method spans an encode, an image decode
+  // and a DURATION_HOLD delayed call, and a newer build can start at any point in that span.
+  setImage(blob, token) {
+    if (token !== this.buildToken) return;
+
+    // A null blob is a real WebKit behaviour (canvas.toBlob giving up under memory pressure at
+    // these canvas sizes), not a can't-happen. It used to throw straight out of the toBlob
+    // callback at URL.createObjectURL(null), unhandled -- so the artwork silently never
+    // updated. On its own that stranded the loader, but overlapping an earlier build whose
+    // callback had already cleared isLoading it looked like nothing was wrong at all: no
+    // loader, Generate live, hero holding a design every other surface had moved on from.
+    // Same for a decode failure below. Neither is recoverable by retrying the same encode, so
+    // both fall back to putting the previous artwork back on screen and re-enabling Generate.
+    if (!blob) {
+      console.error('Artwork encode failed (canvas.toBlob returned null).');
+      this.recoverFromFailedBuild(token);
+      return;
+    }
+
     this.blob = blob;
     let url = URL.createObjectURL(blob);
     this.imageBlobUrl = url;
     let imageLoader = document.createElement('img');
+    imageLoader.addEventListener('error', () => {
+      console.error('Artwork blob failed to decode.');
+      this.recoverFromFailedBuild(token);
+    });
     imageLoader.src = url;
 
     imageLoader.addEventListener('load', () => {
+      if (token !== this.buildToken) return;
       gsap.delayedCall(DURATION_HOLD, () => {
+        if (token !== this.buildToken) return;
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
         // route has changed away from whatever page mounted this DisplayCanvas (e.g. a
@@ -2037,6 +2113,16 @@ export default class DisplayCanvas extends React.Component {
         this.shareUrl = shareUrl || null;
         this.shareDesignId = shareDesignId || null;
         this.changeGradient(config.gradientBackgroundConfig.colors);
+        // This is the one place mainConfig is restored without going through buildConfig, so
+        // it is also the one place that has to mirror the design into StudioContext by hand.
+        // Without it the canvas showed the restored still image while every previewUrl-driven
+        // surface stayed on the LAST ANIMATION FRAME (buildAnimationFrames calls buildConfig
+        // once per frame, so currentDesign ends up on frame N) -- a guaranteed desync, no race
+        // needed, lasting until something else regenerated. Also bump the build token: the
+        // artwork on screen is now this restored blob, so any build still in flight from
+        // before the mode switch must not paint over it.
+        this.buildToken++;
+        this.props.onDesignChange?.(config);
 
         const imageContainer = document.querySelector('.image-container');
         if (imageContainer) {
