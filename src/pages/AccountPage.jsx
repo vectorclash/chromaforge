@@ -29,9 +29,18 @@ const AVATAR_SIZE = 256;
 // ever return it (see lib/checkout.js), it's an implementation detail of checkout, not a
 // customer-visible state. 'failed' gets the same accent-color treatment as form errors
 // elsewhere on this page, so it doesn't blend in with a normal completed order.
+//
+// 'fulfilled' is the one history status that is GOOD news, so it keeps the same
+// text-secondary weight the in-flight statuses use rather than 'canceled''s muted grey --
+// a completed order should not read as the faded-out end of the list.
+//
+// Labelled "Shipped", not "Delivered": Printful's `fulfilled` means every item has left the
+// facility, which is not the same claim as arrival, and there is no tracking/delivery signal
+// anywhere in this app to back the stronger word.
 const ORDER_STATUS_DISPLAY = {
   paid: { label: 'Processing', className: 'text-text-secondary' },
   submitted: { label: 'In production', className: 'text-text-secondary' },
+  fulfilled: { label: 'Shipped', className: 'text-text-secondary' },
   failed: { label: 'Needs attention', className: 'text-accent' },
   canceled: { label: 'Canceled', className: 'text-text-muted' }
 };

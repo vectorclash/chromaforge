@@ -39,15 +39,29 @@ import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
 // to close). Both target values already exist in the orders.status enum and already mean
 // "this order did not end up produced," so this is a legitimate transition into an existing
 // value, not a new concept.
-const TERMINAL_EVENT_STATUS: Record<string, "canceled" | "failed"> = {
+type TerminalStatus = "canceled" | "failed" | "fulfilled";
+
+const TERMINAL_EVENT_STATUS: Record<string, TerminalStatus> = {
   order_canceled: "canceled",
   order_failed: "failed"
 };
-const TERMINAL_PRINTFUL_STATUS: Record<string, "canceled" | "failed"> = {
+const TERMINAL_PRINTFUL_STATUS: Record<string, TerminalStatus> = {
   canceled: "canceled",
   archived: "canceled",
-  failed: "failed"
+  failed: "failed",
+  // The one terminal status that is GOOD news, arriving (like `archived` above) as a plain
+  // order_updated rather than an event type of its own -- Printful publishes no
+  // "order_fulfilled" event. Without this the happy path had no terminal value at all, so a
+  // produced-and-shipped order stayed `submitted` and sat in the account page's Active list
+  // reading "In production" indefinitely. Note this branch is reached only via the status
+  // value, never via TERMINAL_EVENT_STATUS, which is why that map stays failure-only.
+  fulfilled: "fulfilled"
 };
+
+// Not every terminal status is a failure, so the two must not be conflated: only these write
+// a failure_reason and raise an alert email. Getting this wrong would stamp a perfectly good
+// order with "Failed via Printful" and page a human about a successful delivery.
+const FAILURE_STATUSES = new Set<TerminalStatus>(["canceled", "failed"]);
 
 const RECOGNIZED_EVENTS = new Set([
   "order_canceled",
@@ -186,11 +200,14 @@ Deno.serve(async req => {
   // order_canceled/order_failed event can arrive more than once. Guarding the update on
   // `status <> terminalStatus` means a repeat delivery is a no-op here too, and in particular
   // never sends a second alert email for the same real-world event.
+  const isFailure = FAILURE_STATUSES.has(terminalStatus);
   const { data: updatedRows, error: updateError } = await supabase
     .from("orders")
     .update({
       status: terminalStatus,
-      failure_reason: terminalStatus === "canceled" ? "Canceled via Printful" : "Failed via Printful",
+      ...(isFailure
+        ? { failure_reason: terminalStatus === "canceled" ? "Canceled via Printful" : "Failed via Printful" }
+        : {}),
       printful_status: printfulStatus,
       printful_status_at: new Date().toISOString()
     })
@@ -202,7 +219,7 @@ Deno.serve(async req => {
     return new Response("Update failed", { status: 500 });
   }
 
-  if (updatedRows && updatedRows.length > 0) {
+  if (isFailure && updatedRows && updatedRows.length > 0) {
     await sendOrderFailureAlert(
       order.id,
       `Printful ${terminalStatus === "canceled" ? "canceled" : "failed"} this order after it was submitted ` +

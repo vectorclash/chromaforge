@@ -1541,6 +1541,42 @@ load for an unrelated reason and every count is meaningless.
   width it sits beside a short side column and an unbounded list strands the profile/stats
   cards against a wall of orders; below `lg` it's one column and the page's own scroll is
   the natural one.
+- **`fulfilled` is a real order status, added 2026-08-17 — before it, the enum only described
+  how an order could end BADLY.** `orders.status` was `pending | paid | submitted | failed |
+  canceled`, and `listMyActiveOrders` selects `paid`/`submitted`, so **`submitted` was terminal
+  in practice**: an order Printful produced and shipped sat in the account page's Active list
+  forever reading "In production". Found from two real completed orders (`c15d1c8d` /
+  `169226286`, `89c38987` / `168535177`). `printful-webhook` was NOT the gap it looked like —
+  it exists to reconcile Printful's state back to ours, but only ever mapped
+  `order_canceled`/`order_failed`, and its own header called shipment events a not-yet-built
+  feature. Four things worth not re-deriving:
+  (1) **No Printful webhook re-registration was needed, and this is the useful part.** The
+  existing `order_updated` subscription already delivers status `fulfilled`; the webhook had
+  already verified and recorded both events into `printful_status` (2026-07-30 and 2026-08-05)
+  — it just had no enum value to act on, so they fell through its "genuinely ambiguous" branch.
+  **The data was already sitting in the table**, which is what the backfill in
+  `0016_orders_fulfilled_status.sql` reads (driven off `printful_status`, scoped to
+  `status = 'submitted'` so it can't resurrect a later-canceled row). Printful publishes no
+  `order_fulfilled` event type, so this arrives by STATUS VALUE only — same as `archived`,
+  which is why `TERMINAL_EVENT_STATUS` stays failure-only.
+  (2) **Terminal and terminal-BAD are now separate sets** (`FAILURE_STATUSES`). The update
+  block wrote `failure_reason` unconditionally and fired `sendOrderFailureAlert` for any
+  terminal transition — unguarded, a successful order would be stamped "Failed via Printful"
+  and page a human about a delivery that went fine.
+  (3) **Migration BEFORE the function deploy.** The reverse order makes the webhook write a
+  value the check constraint rejects, so every `order_updated` on a shipping order 500s and
+  Printful retries it indefinitely.
+  (4) `printful-order-preview` filters `status=in.(paid,submitted)`, mirroring the active list
+  exactly, so it stopped fetching previews for fulfilled orders on its own — **keep those two
+  filters in sync.** Labelled **"Shipped"**, not "Delivered": Printful's `fulfilled` means the
+  items left the facility, and no tracking/delivery signal exists anywhere in this app to back
+  the stronger claim.
+  **Still open, same bug class:** `order_refunded` is subscribed and recognized but maps to no
+  status, so a refunded order also sits in Active as "In production" forever. Left alone
+  deliberately — there is no `refunded` enum value, refunds are handled by hand via the Stripe
+  dashboard (see `_shared/orderAlert.ts`), and partial refunds make "is this order over?" a
+  real decision rather than a mapping. Same for `onhold`, which stays `submitted` — arguably
+  correct, since a held order genuinely is still active, but it reads as "In production".
 - **Size guide on the product page** (2026-07-25): Printful publishes a per-product size
   guide (`GET /products/{id}/sizes`), surfaced via a "Size guide" link beside the size picker
   → `components/ui/SizeGuideModal.jsx`. Reached the codebase as the honest answer to "which

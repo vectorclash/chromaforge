@@ -9,6 +9,13 @@ import { usePageMeta } from '../hooks/usePageMeta';
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back to this page
 
+// Statuses that mean "stop polling, the outcome is known". 'fulfilled' cannot realistically
+// be reached inside this page's ~30s window (Printful takes days to ship), but it is a
+// terminal status and enumerating the terminal set without it is the kind of omission that
+// bites later -- reachable today only by revisiting this URL for a long-since-shipped order,
+// which would otherwise poll to a needless timeout.
+const RESOLVED_STATUSES = new Set(['submitted', 'fulfilled', 'failed']);
+
 // Lands here from Stripe's success_url. The webhook that actually confirms payment and
 // submits the Printful order runs server-side and may not have finished by the time the
 // browser redirect does -- this polls until it has (or times out without claiming failure,
@@ -46,7 +53,7 @@ export default function CheckoutSuccessPage() {
         const row = await getOrder(orderId);
         if (cancelled) return;
         setOrder(row);
-        if (row.status === 'submitted' || row.status === 'failed') return;
+        if (RESOLVED_STATUSES.has(row.status)) return;
       } catch {
         // Keep polling -- the order row may not exist for an instant if this page loads
         // before create-checkout-session's insert has propagated, though that's already
@@ -77,7 +84,7 @@ export default function CheckoutSuccessPage() {
     );
   }
 
-  const resolved = order && (order.status === 'submitted' || order.status === 'failed');
+  const resolved = order && RESOLVED_STATUSES.has(order.status);
 
   if (!resolved) {
     return (
