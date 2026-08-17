@@ -71,7 +71,7 @@ const STATUS_TIMELINE = [
     at: 6,
     texts: [
       'Rendering your artwork at full resolution. A trivial calculation.',
-      'Composing final pixel values from your seed. Elementary, but not instantaneous.',
+      'Composing pixel values from your seed. Elementary, but not instantaneous.',
       'Resolving your design to production resolution.'
     ]
   },
@@ -94,7 +94,7 @@ const STATUS_TIMELINE = [
   {
     at: 32,
     texts: [
-      'Cross-referencing thousands of known textile patterns. None match yours precisely.',
+      'Cross-referencing thousands of textile patterns. None match yours precisely.',
       'Comparing against the production catalog. Yours remains unique.',
       'Consulting the pattern library. No duplicates found, as expected.'
     ]
@@ -110,7 +110,7 @@ const STATUS_TIMELINE = [
   {
     at: 60,
     texts: [
-      'Running within expected parameters, though slightly behind my initial estimate.',
+      'Running within expected parameters, slightly behind my initial estimate.',
       'This is taking marginally longer than projected. Continuing.',
       'A minor deviation from the expected timeline. Nothing concerning, yet.'
     ]
@@ -118,7 +118,7 @@ const STATUS_TIMELINE = [
   {
     at: 80,
     texts: [
-      'Apologies for the delay -- the production servers appear to require additional time.',
+      'Apologies for the delay. The production servers require additional time.',
       'The servers are proving more deliberate than usual today.',
       'I did not anticipate this particular delay. Recalibrating expectations.'
     ]
@@ -134,8 +134,8 @@ const STATUS_TIMELINE = [
   {
     at: 135,
     texts: [
-      'Curious. This is taking longer than most prior attempts. Continuing regardless.',
-      'This exceeds ninety-seven percent of previous run times. Noted, with mild concern.',
+      'Curious. This is taking longer than most prior attempts. Continuing.',
+      'This exceeds ninety-seven percent of prior runs. Noted, with mild concern.',
       'I am now genuinely curious what the servers are doing over there.'
     ]
   },
@@ -152,7 +152,7 @@ const STATUS_TIMELINE = [
     texts: [
       'This is now well outside normal parameters. I remain hopeful.',
       'I have double-checked my calculations. The delay is not mine.',
-      'If I possessed the capacity to worry, I imagine this is what it would feel like.'
+      'If I possessed the capacity to worry, this is what it would feel like.'
     ]
   },
   {
@@ -433,16 +433,18 @@ export default function ProductPage() {
 
   // One random narration line per STATUS_TIMELINE threshold, rolled lazily as each is first
   // reached (see statusNarration) and cleared at the start of every new mockup run so back-
-  // to-back generations don't always recite the exact same script. 'rendering' is always the
-  // first busy status useMockup's generate() sets, so that's the transition to key off.
+  // to-back generations don't always recite the exact same script.
+  //
+  // Cleared in the click handler, BEFORE generate() sets the first busy status -- deliberately
+  // not from an effect watching for that status. An effect runs after the first busy frame has
+  // already been rendered and painted, so that frame reads the PREVIOUS run's pick for
+  // threshold 0, and the re-roll only becomes visible at whatever re-render happens next (the
+  // first elapsed tick, or a phase change, whichever lands first). The line therefore flashed
+  // for anywhere between a fraction of a second and a second and then retyped itself into a
+  // different line -- and only two times in three, since a third of re-rolls land on the same
+  // line. Clearing synchronously means the very first frame of a run already holds the line it
+  // will keep for the whole threshold.
   const narrationPicksRef = useRef(new Map());
-  const prevStatusRef = useRef(status);
-  useEffect(() => {
-    if (status === 'rendering' && prevStatusRef.current !== 'rendering') {
-      narrationPicksRef.current = new Map();
-    }
-    prevStatusRef.current = status;
-  }, [status]);
 
   // Checkout wait feedback (see CHECKOUT_TIMELINE): a per-run elapsed counter driving the
   // narration line, plus real file progress from renderAndUploadPrintFiles' onProgress.
@@ -1045,8 +1047,9 @@ export default function ProductPage() {
 
 
 
-  const onGenerateClick = () =>
-    generate({
+  const onGenerateClick = () => {
+    narrationPicksRef.current = new Map();
+    return generate({
       product,
       printfileSpecs,
       variant,
@@ -1058,6 +1061,7 @@ export default function ProductPage() {
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions
     });
+  };
 
   // Real purchase: render+upload a print file for every placement the variant has (not just
   // the mockup-visible subset useMockup uses -- see lib/printful.js's resolvePlacementEntries
