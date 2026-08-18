@@ -2192,7 +2192,10 @@ export default class DisplayCanvas extends React.Component {
         this.setState({ controlsAreOpen: false });
 
         gsap.to('#copyright', { duration: DURATION_BASE, alpha: 0.2, scale: 0.9, ease: 'power2.inOut' });
-        gsap.to('.row, .logo, .panel-tabs, .go-to-studio-btn', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+        // The two notices are conditionally rendered, so they're usually absent -- GSAP
+        // no-ops on a selector that matches nothing. Left out of this group they simply
+        // stayed put at full opacity while every row around them faded.
+        gsap.to('.row, .logo, .panel-tabs, .settings-dirty-notice, .branch-notice, .go-to-studio-btn', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
 
         const el = document.querySelector('.controls-inner');
         const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(el);
@@ -2259,7 +2262,7 @@ export default class DisplayCanvas extends React.Component {
         // fromTo keeps it all one stagger, one duration, same as before this ever needed a
         // fix -- the button just lands in the correct position within it now.
         gsap.fromTo(
-          [...gsap.utils.toArray('.row, .logo, .panel-tabs'), ...gsap.utils.toArray('.go-to-studio-btn')],
+          [...gsap.utils.toArray('.row, .logo, .panel-tabs, .settings-dirty-notice, .branch-notice'), ...gsap.utils.toArray('.go-to-studio-btn')],
           { alpha: 0, y: 42 },
           { duration: DURATION_SLOW, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' }
         );
