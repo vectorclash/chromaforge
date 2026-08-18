@@ -2994,6 +2994,41 @@ export default class DisplayCanvas extends React.Component {
                     }
                   />
                 </div>
+                {/* Last in the tab because it's the only row here that doesn't shape the
+                    geometry itself -- it decides where the finished layer sits in the
+                    stack. Named for the mechanism rather than a promised look ("Stars in
+                    front", not "More visible stars"): a large figure under a darkening
+                    thirdBlend can still dim them, this only stops them being covered.
+                    Goes through onGeometrySettingChange like the sliders, so it debounces
+                    and regenerates the current seed the same way.
+
+                    NO settings-label-note, deliberately, and it carried one ("over the
+                    geometry layer") until it was measured. Two reasons. (1) In THIS tab the
+                    note slot is a value readout -- 40%, 3-12, 0%, 100% -- not prose; the
+                    Video tab uses it for prose, but here the toggle already is the value.
+                    (2) It was the longest label in the panel and the only one to wrap where
+                    a comparable row doesn't: at a 360px viewport (300px scroller) it went to
+                    two lines at 234px, while Video's longest note, "Speed Ramp ease in and
+                    out each loop", fits at 222px. Bare, it is 116px and fits at every width
+                    down to 320px, where every OTHER Geometry row already wraps. Sitting
+                    among Chance/Points/Coherence/Size/Density, "in front" has only one
+                    possible referent; the aria-label spells it out for screen readers. */}
+                <div className="settings-field">
+                  <span className="settings-label">Stars in front</span>
+                  <button
+                    className={'settings-toggle' + (geometrySettings.starsOnTop ? ' on' : '')}
+                    onClick={() =>
+                      this.onGeometrySettingChange({ starsOnTop: !geometrySettings.starsOnTop })
+                    }
+                    aria-label={
+                      geometrySettings.starsOnTop
+                        ? 'Stars in front of geometry'
+                        : 'Stars behind geometry'
+                    }
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
               </>
             )}
 

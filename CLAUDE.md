@@ -166,6 +166,54 @@ the actual print, generated the same deterministic way.
   frontend that can send `density` while Fly still runs the old bundle means the mockup
   shows sparse and the print comes back dense — the exact mockup/print divergence v7 fixed,
   and with no `generatorVersion` change there is no mismatch check to catch it.
+- **`starsOnTop` — the star/geometry layer-order setting (2026-08-18, Aaron: geometric
+  artworks rarely show the stars).** `settings.geometry.starsOnTop` (boolean, default false)
+  swaps the star and geometry layers' compositing order in `renderArtwork`. Default order is
+  background → radial field → stars → geometry → overlay; on, the middle pair swaps and the
+  overlay still sits on top. Surfaced as a **Stars in front** toggle at the end of the studio's
+  Geometry tab, deliberately with **no `settings-label-note`** (it carried "over the geometry
+  layer" until it was measured): in this tab the note slot is a value readout — 40%, 3–12, 0%,
+  100% — not prose the way the Video tab uses it, and the toggle already is the value. It was
+  also the longest label in the panel and the only row to wrap where a comparable one doesn't,
+  going to two lines at a 360px viewport (234px against a 300px scroller) while Video's longest
+  note, "Speed Ramp ease in and out each loop", fits at 222px. Bare it is 116px and fits at
+  every width down to 320px, where four other Geometry rows already wrap. The aria-label spells
+  out the referent for screen readers. (Unrelated and pre-existing, found while measuring: at
+  320px the `settings-range` sliders overflow this tab's scroller horizontally by 23px — the
+  sliders, measured, not any label.)
+  Kept opt-in because the default reads well while the figure is small — the
+  complaint is specifically about large/high-coherence geometry, where `latticeCells()` is a
+  near-complete fill of overlapping cells and buries the layer beneath it.
+  Five things worth not re-deriving:
+  (1) **It consumes zero `rng()` and changes no layer generation** — verified the whole config
+  object is identical apart from the flag, across 4 seeds × 3 sizes incl. the 11250×4350 shorts
+  sheet. So no `GENERATOR_VERSION` bump, and `check-render-regression.mjs` passes clean on all
+  **70** stored designs × 3 sizes (0 changed, 0 geometry lost/gained).
+  (2) **It lives under `settings.geometry` rather than a new `settings.layers` block**, which is
+  the pragmatic call, not the conceptually pure one: `compactSettings` and `isSameSettings` both
+  iterate `DEFAULT_GEOMETRY_SETTINGS`'s keys, so a key there is free while a second top-level
+  block means generalising both. It only has meaning when geometry exists anyway.
+  (3) **It IS part of a design's identity** — persisted, compared by `isSameDesign` — unlike
+  `mirrorX`/`legSymmetry`/`geometryLayout`, which are per-order render context. Verified: it
+  compacts away at the default, persists when set, is idempotent, and flips `isSameDesign`.
+  (4) **Deploy render-service BEFORE the frontend.** It ignores an unknown setting and would
+  render stars-behind while the mockup showed stars-in-front, and with no version bump there is
+  no mismatch check to catch it — the same hazard as `density`, `mirrorX` and `legSymmetry`.
+  (5) **`starBlendMode`'s premise weakens slightly when this is on, and that is known and
+  accepted.** It picks `config.secondBlend` from the BACKGROUND gradient's mean luminance, on
+  the assumption the backdrop the stars land on is that gradient; with the stars on top they
+  composite against the geometry layer instead. It survives because `source-over` takes three of
+  the four biased slots and is backdrop-agnostic — only the 10% unbiased tail and the
+  `lighten`/`darken` slot reason about a backdrop no longer directly underneath.
+  **Still open, and it is the other half of the same complaint:** `config.thirdBlend` (the
+  geometry layer's own blend) is still a uniform pick from all eight `BLEND_MODES`, so a
+  `multiply`/`darken` roll dims everything below it — exactly the failure `starBlendMode` was
+  introduced to fix for the star layer and never applied to the layer sitting on top of it.
+  Reordering stops the stars being COVERED; it does not stop them being dimmed.
+  Verified behaviourally: output differs at every coherence (chaotic / mid lattice / full
+  lattice) across 3 seeds × 3 sizes, and is **byte-identical** when the design has no geometry
+  layer at all (9/9), which is the invariant that proves it moves nothing else.
+
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was

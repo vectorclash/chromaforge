@@ -353,7 +353,27 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // runs shapeNum times unconditionally regardless of this value, so rng() consumption is
   // untouched and no GENERATOR_VERSION bump is needed (same reasoning as the original
   // settings block; verified by PNG hash across several seeds and sizes).
-  density: 1
+  density: 1,
+  // Whether the star field composites ABOVE the geometry layer instead of below it.
+  // false (default) keeps the original order: background -> radial field -> stars ->
+  // geometry -> overlay. true swaps the middle pair only; the overlay stays on top either
+  // way.
+  //
+  // Added 2026-08-18 at Aaron's request. The default order looks right while the geometry
+  // is small, but a large or high-coherence figure covers most of the canvas -- the lattice
+  // at coherence 1 is a near-complete fill of overlapping cells, not a sparse scatter -- so
+  // the stars underneath are lost entirely. That is worst when the layer's own blend
+  // (config.thirdBlend, still a uniform pick from all eight modes) happens to be a
+  // darkening one, which is exactly the failure starBlendMode was introduced to fix for the
+  // star layer itself and has never been applied to the layer sitting on top of it.
+  //
+  // Purely a compositing order, consumed by renderArtwork -- it consumes ZERO rng() and
+  // touches no layer generation, so every layer's geometry, colours and blend modes are
+  // byte-identical either way and default false is byte-identical to pre-setting output.
+  // Hence no GENERATOR_VERSION bump. Unlike mirrorX/legSymmetry (render context, per-order)
+  // this IS part of a design's identity: it changes how the design itself reads, so it is
+  // persisted and compared by isSameDesign.
+  starsOnTop: false
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.
@@ -590,6 +610,7 @@ function starBlendMode(rng, backgroundLuminance) {
 function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null, legSymmetry = false } = {}) {
   const rng = makeRng(seed);
   const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
+  const geometry = getGeometrySettings(settings);
   const config = {
     generatorVersion: GENERATOR_VERSION,
     seed,
@@ -603,6 +624,11 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     // consuming no rng() and touching no layer generation. Opt-in, so default output is
     // untouched and this needed no GENERATOR_VERSION bump.
     legSymmetry,
+    // A design SETTING (see designSettings.js), not render context like the two above --
+    // it is persisted and part of a design's identity. Sits on the config alongside them
+    // because renderArtwork is the one place it takes effect: it swaps the star and
+    // geometry layers' compositing order and nothing else. Consumes no rng().
+    starsOnTop: geometry.starsOnTop,
     colors: colorValues.slice()
   };
   const compactedSettings = compactSettings(settings);
@@ -638,7 +664,6 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     seed
   );
   let geometryChance = rng();
-  const geometry = getGeometrySettings(settings);
   if (geometryChance >= 1 - geometry.chance) {
     config.thirdBlend = randomBlendMode(rng);
     let shapeNum = 10 + Math.round(rng() * 30);
@@ -866,15 +891,25 @@ function renderArtwork(config, images) {
     ctx.drawImage(radialField, 0, 0);
     clearElement(radialField);
   }
-  ctx.globalCompositeOperation = config.secondBlend;
-  const starField = StarField(config.starFieldConfig, images);
-  ctx.drawImage(starField, 0, 0);
-  clearElement(starField);
-  if (config.geometryConfig) {
+  const drawStars = () => {
+    ctx.globalCompositeOperation = config.secondBlend;
+    const starField = StarField(config.starFieldConfig, images);
+    ctx.drawImage(starField, 0, 0);
+    clearElement(starField);
+  };
+  const drawGeometry = () => {
+    if (!config.geometryConfig) return;
     ctx.globalCompositeOperation = config.thirdBlend;
     const geometry = GeometricShape(config.geometryConfig);
     ctx.drawImage(geometry, 0, 0);
     clearElement(geometry);
+  };
+  if (config.starsOnTop) {
+    drawGeometry();
+    drawStars();
+  } else {
+    drawStars();
+    drawGeometry();
   }
   if (config.overlayConfig) {
     ctx.globalCompositeOperation = config.overlayBlend;

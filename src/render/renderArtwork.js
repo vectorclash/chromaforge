@@ -49,16 +49,41 @@ export default function renderArtwork(config, images) {
     clearElement(radialField);
   }
 
-  ctx.globalCompositeOperation = config.secondBlend;
-  const starField = StarField(config.starFieldConfig, images);
-  ctx.drawImage(starField, 0, 0);
-  clearElement(starField);
+  // config.starsOnTop (a design SETTING -- see designSettings.js -- unlike mirrorX above,
+  // which is per-render context) swaps these two layers' compositing order. The default
+  // false draws stars first and geometry over them; true puts the star field above the
+  // geometry so a large or high-coherence figure doesn't bury it. The overlay stays on top
+  // either way, and nothing else moves: both layers are generated identically and keep
+  // their own blend modes, so this is purely the order they are composited in.
+  //
+  // Worth knowing if the star treatment is ever revisited: starBlendMode picks
+  // config.secondBlend from the BACKGROUND gradient's mean luminance, on the assumption the
+  // backdrop the stars land on is that gradient. Under starsOnTop the stars composite
+  // against the geometry layer instead, so that assumption no longer strictly holds. It
+  // survives in practice because 'source-over' takes three of the four biased slots and is
+  // backdrop-agnostic, but the 10% unbiased tail and the lighten/darken slot are reasoning
+  // about a backdrop that is no longer directly underneath.
+  const drawStars = () => {
+    ctx.globalCompositeOperation = config.secondBlend;
+    const starField = StarField(config.starFieldConfig, images);
+    ctx.drawImage(starField, 0, 0);
+    clearElement(starField);
+  };
 
-  if (config.geometryConfig) {
+  const drawGeometry = () => {
+    if (!config.geometryConfig) return;
     ctx.globalCompositeOperation = config.thirdBlend;
     const geometry = GeometricShape(config.geometryConfig);
     ctx.drawImage(geometry, 0, 0);
     clearElement(geometry);
+  };
+
+  if (config.starsOnTop) {
+    drawGeometry();
+    drawStars();
+  } else {
+    drawStars();
+    drawGeometry();
   }
 
   if (config.overlayConfig) {

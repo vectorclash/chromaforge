@@ -54,7 +54,27 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // runs shapeNum times unconditionally regardless of this value, so rng() consumption is
   // untouched and no GENERATOR_VERSION bump is needed (same reasoning as the original
   // settings block; verified by PNG hash across several seeds and sizes).
-  density: 1
+  density: 1,
+  // Whether the star field composites ABOVE the geometry layer instead of below it.
+  // false (default) keeps the original order: background -> radial field -> stars ->
+  // geometry -> overlay. true swaps the middle pair only; the overlay stays on top either
+  // way.
+  //
+  // Added 2026-08-18 at Aaron's request. The default order looks right while the geometry
+  // is small, but a large or high-coherence figure covers most of the canvas -- the lattice
+  // at coherence 1 is a near-complete fill of overlapping cells, not a sparse scatter -- so
+  // the stars underneath are lost entirely. That is worst when the layer's own blend
+  // (config.thirdBlend, still a uniform pick from all eight modes) happens to be a
+  // darkening one, which is exactly the failure starBlendMode was introduced to fix for the
+  // star layer itself and has never been applied to the layer sitting on top of it.
+  //
+  // Purely a compositing order, consumed by renderArtwork -- it consumes ZERO rng() and
+  // touches no layer generation, so every layer's geometry, colours and blend modes are
+  // byte-identical either way and default false is byte-identical to pre-setting output.
+  // Hence no GENERATOR_VERSION bump. Unlike mirrorX/legSymmetry (render context, per-order)
+  // this IS part of a design's identity: it changes how the design itself reads, so it is
+  // persisted and compared by isSameDesign.
+  starsOnTop: false
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.

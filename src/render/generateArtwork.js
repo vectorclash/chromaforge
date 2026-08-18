@@ -247,6 +247,11 @@ export function generateArtwork(
       ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`))
       : colorValues;
 
+  // Resolved once here rather than at the geometry block below, because config.starsOnTop
+  // is needed while the config literal is built. Pure -- consumes no rng() -- so hoisting it
+  // cannot shift the sequence.
+  const geometry = getGeometrySettings(settings);
+
   const config = {
     generatorVersion: GENERATOR_VERSION,
     seed,
@@ -260,6 +265,11 @@ export function generateArtwork(
     // consuming no rng() and touching no layer generation. Opt-in, so default output is
     // untouched and this needed no GENERATOR_VERSION bump.
     legSymmetry,
+    // A design SETTING (see designSettings.js), not render context like the two above --
+    // it is persisted and part of a design's identity. Sits on the config alongside them
+    // because renderArtwork is the one place it takes effect: it swaps the star and
+    // geometry layers' compositing order and nothing else. Consumes no rng().
+    starsOnTop: geometry.starsOnTop,
     colors: colorValues.slice()
   };
 
@@ -323,7 +333,6 @@ export function generateArtwork(
   // chance 1 -> threshold 0 (always passes); chance 0 -> threshold 1 (never passes, since
   // the PRNG's range is [0, 1)).
   let geometryChance = rng();
-  const geometry = getGeometrySettings(settings);
 
   if (geometryChance >= 1 - geometry.chance) {
     config.thirdBlend = randomBlendMode(rng);
