@@ -11,7 +11,7 @@ tracks what's true now, not history.
       `pending` forever.** Store was off 05:43–14:40 UTC (~9h). **Recovered upstream on its
       own; we changed nothing.** Order path re-verified before re-enabling
       (`check-printful-draft-orders.mjs --file <real Storage URL>`, products 257/630/717,
-      17 files all `ok`). Full write-up: `INCIDENT-2026-08-19-printful-storage.md`.
+      17 files all `ok`). Full write-up: `docs/incidents/2026-08-19-printful-storage.md`.
       **Gateway logs pulled and analysed (incident log §16): the cause is NOT on our
       side and NOT the Supabase JWT incident.** Across the whole project in the failure
       window there were zero 401/403/5xx to anyone but my own probes, and Printful's
