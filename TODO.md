@@ -5,6 +5,29 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
+## Closed incident, with two open follow-ups (2026-08-19)
+
+- [x] **Printful could not fetch our Supabase Storage URLs — every mockup task hung
+      `pending` forever.** Store was off 05:43–14:40 UTC (~9h). **Recovered upstream on its
+      own; we changed nothing.** Order path re-verified before re-enabling
+      (`check-printful-draft-orders.mjs --file <real Storage URL>`, products 257/630/717,
+      17 files all `ok`). Full write-up: `INCIDENT-2026-08-19-printful-storage.md`.
+      **Gateway logs pulled and analysed (incident log §16): the cause is NOT on our
+      side and NOT the Supabase JWT incident.** Across the whole project in the failure
+      window there were zero 401/403/5xx to anyone but my own probes, and Printful's
+      fetcher demonstrably reached our storage — 7 HEADs per upload, **all 200**. The fault
+      is inside Printful, after a successful fetch. **It can recur.**
+- [ ] **Ask Printful why tasks `959089343` / `959089912` / `959090827` never completed
+      despite their fetcher receiving HTTP 200.** Exact wording is in incident log §16.5 —
+      lead with the access-log evidence (7 HEADs, all 200) rather than asking whether they
+      could fetch it, which the logs already answer. The tasks are still `pending` and
+      still queryable, so the evidence is live.
+- [ ] **Consider a mockup canary + faster failure** (incident log §15). A scheduled task
+      against a known Storage URL that alerts if still `pending` after ~60s would have
+      caught this before Aaron did. Related: our poll burns 180s then retries the whole
+      thing (~6 min) before the customer sees anything, even though a stuck task provably
+      never recovers.
+
 ## Blocking launch — dashboard/ops (Aaron, no code)
 
 - [x] **RESOLVED 2026-07-15: the `label_inside` failures were specific to Printful's
