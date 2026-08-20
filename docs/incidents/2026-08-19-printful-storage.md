@@ -148,7 +148,15 @@ Fastest first:
   2026-08-19.** Printful now returns `x-ratelimit-limit: 10` on `POST /v2/mockup-tasks`;
   `printful-mockup`'s `GLOBAL_RATE_LIMIT` was `2` per 60s, measured live back when that was
   their real cap, so it capped the whole store at 2 mockups a minute across all users.
-  Raised to `10`; **needs `npx supabase functions deploy printful-mockup` to take effect.**
+  Raised to `10` and **deployed (function version 62) and verified live the same day**: a
+  13-request burst from a real signed-in session passed exactly 10 (each reaching Printful
+  and coming back `400` on the payload's own merits) and 429'd from 11 on, with the window
+  recovering ~60s later. Printful themselves never 429'd across those 10 in ~8s, which is
+  the independent confirmation that their cap really is at least 10. Technique worth
+  reusing: burst with a deliberately invalid `productId`/empty `placements` — a rejected
+  request still counts against Printful's limit, so the gate is measurable without spending
+  render quota or leaving tasks hanging. Costs the store-wide budget for ~50s, so don't run
+  it during real traffic.
   The client side needed no change — `useMockup`'s `queued`/retry path handles both our own
   gate and a real passthrough 429 identically. Re-read the header if the account's plan ever
   changes; the gate must stay at or below whatever they advertise.
