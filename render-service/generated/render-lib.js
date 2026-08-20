@@ -209,6 +209,35 @@ var GenerateLargeRadialField = class {
   }
 };
 
+// ../src/render/valueNoise.js
+function nHash(x, y, z) {
+  const n = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+function nLerp(a, b, t) {
+  return a + (b - a) * t;
+}
+function nSmooth(t) {
+  return t * t * (3 - 2 * t);
+}
+function valueNoise(x, y, z) {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  const fx = nSmooth(x - ix), fy = nSmooth(y - iy), fz = nSmooth(z - iz);
+  return nLerp(
+    nLerp(
+      nLerp(nHash(ix, iy, iz), nHash(ix + 1, iy, iz), fx),
+      nLerp(nHash(ix, iy + 1, iz), nHash(ix + 1, iy + 1, iz), fx),
+      fy
+    ),
+    nLerp(
+      nLerp(nHash(ix, iy, iz + 1), nHash(ix + 1, iy, iz + 1), fx),
+      nLerp(nHash(ix, iy + 1, iz + 1), nHash(ix + 1, iy + 1, iz + 1), fx),
+      fy
+    ),
+    fz
+  );
+}
+
 // ../src/components/Canvas/GenerateStarField.js
 var XL_BASE = 5;
 var XL_TOTAL = 7;
@@ -216,6 +245,17 @@ var LARGE_BASE = 50;
 var LARGE_TOTAL = 90;
 var MEDIUM_BASE = 200;
 var MEDIUM_TOTAL = 450;
+var FINE_SIZE_DIVISOR = 300;
+var FINE_FIELD = { freqLarge: 4.5, freqMid: 11.3, freqFine: 29.2, ampLarge: 0.6, ampMid: 0.28, ampFine: 0.12 };
+var FIELD_LO = 0.286;
+var FIELD_SPAN = 0.48;
+var FIELD_JITTER = 0.42;
+var FINE_SKEW = 1.4;
+function fineFieldAt(u, v, offset) {
+  const n = valueNoise(u * FINE_FIELD.freqLarge + offset, v * FINE_FIELD.freqLarge + offset, offset) * FINE_FIELD.ampLarge + valueNoise(u * FINE_FIELD.freqMid + offset, v * FINE_FIELD.freqMid + offset, offset * 2) * FINE_FIELD.ampMid + valueNoise(u * FINE_FIELD.freqFine + offset, v * FINE_FIELD.freqFine + offset, offset * 3) * FINE_FIELD.ampFine;
+  const unit = n / (FINE_FIELD.ampLarge + FINE_FIELD.ampMid + FINE_FIELD.ampFine);
+  return Math.min(1, Math.max(0, (unit - FIELD_LO) / FIELD_SPAN));
+}
 var GenerateStarField = class {
   constructor(width, height, colors = [], rng = Math.random, backgroundHue = null, sizeFrame = null, backgroundLuminance = 0.5, seed = "") {
     let config = {};
@@ -293,12 +333,16 @@ var GenerateStarField = class {
     }
     config.smallStarAmount = Math.max(1, Math.round(smallStarAmount * countScale));
     let smallStars = [];
-    let smallStarSizeMax = sizeScale / 500;
+    let smallStarSizeMax = sizeScale / FINE_SIZE_DIVISOR;
     let smallStarSizeMin = sizeScale / 5e3;
+    const fieldOffset = starRng() * 1e3;
     for (let i = 0; i < smallStarAmount; i++) {
-      let ranSize = smallStarSizeMin + rng() * smallStarSizeMax;
+      let sizeRoll = rng();
       let ranX = -100 + rng() * width + 100;
       let ranY = -100 + rng() * height + 100;
+      const field = fineFieldAt(ranX / width, ranY / height, fieldOffset);
+      const t = field * (1 - FIELD_JITTER) + sizeRoll * FIELD_JITTER;
+      let ranSize = smallStarSizeMin + Math.pow(t, FINE_SKEW) * smallStarSizeMax;
       smallStars.push({ x: ranX, y: ranY, size: ranSize });
     }
     config.smallStars = smallStars.slice(0, config.smallStarAmount);
@@ -580,7 +624,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 10;
+var GENERATOR_VERSION = 11;
 var BLEND_MODES = [
   "screen",
   "overlay",
@@ -765,6 +809,119 @@ function LargeRadialField(config) {
   return canvas;
 }
 
+// ../src/render/starSprite.js
+var STAR_SHAPE = {
+  // Opaque centre.
+  coreR: 0.17,
+  // Inner halo: a flat semi-transparent disc with the "very small stroke" at its rim that
+  // gives the original its lens-element look.
+  haloR: 0.34,
+  haloAlpha: 0.62,
+  haloStrokeAlpha: 0.82,
+  haloStrokeW: 0.012,
+  // Outer glow, reaching the arm tips.
+  glowR: 0.88,
+  glowAlpha: 0.42,
+  // Diffraction spikes. `alpha` is the arm's own opacity where it leaves the core -- it
+  // tapers to nothing at the tip. Raised well above the raster's effective 0.49 ceiling:
+  // this is the value that decides whether a star reads as a cross or a ball.
+  spikeR: 0.89,
+  spikeW: 0.026,
+  spikeAlpha: 0.9,
+  // An arm narrower than this many device pixels is widened to it (and dimmed in
+  // proportion, so it keeps the same total light rather than getting heavier as it
+  // shrinks). Just over one pixel: enough that antialiasing always has something to
+  // resolve, small enough that a big star's arm is still a hairline.
+  spikeMinPx: 1.25
+};
+function drawStarSprite(ctx, cx, cy, size, shape = STAR_SHAPE) {
+  const R = size / 2;
+  if (!(R > 0)) return;
+  const prevAlpha = ctx.globalAlpha;
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#fff";
+  const glowR = R * shape.glowR;
+  if (glowR > 0.5) {
+    const g = ctx.createRadialGradient(cx, cy, R * shape.haloR * 0.6, cx, cy, glowR);
+    g.addColorStop(0, `rgba(255,255,255,${shape.glowAlpha})`);
+    g.addColorStop(0.35, `rgba(255,255,255,${shape.glowAlpha * 0.62})`);
+    g.addColorStop(0.7, `rgba(255,255,255,${shape.glowAlpha * 0.22})`);
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+  }
+  const haloR = R * shape.haloR;
+  if (haloR > 0.5) {
+    ctx.globalAlpha = shape.haloAlpha;
+    ctx.beginPath();
+    ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+    ctx.fill();
+    const sw = R * shape.haloStrokeW;
+    if (sw > 0.35) {
+      ctx.globalAlpha = shape.haloStrokeAlpha;
+      ctx.lineWidth = sw;
+      ctx.beginPath();
+      ctx.arc(cx, cy, haloR - sw / 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  const spikeR = R * shape.spikeR;
+  let halfW = R * shape.spikeW / 2;
+  let spikeAlpha = shape.spikeAlpha;
+  const minHalf = shape.spikeMinPx / 2;
+  if (halfW < minHalf) {
+    spikeAlpha *= halfW / minHalf;
+    halfW = minHalf;
+  }
+  if (spikeR > 1 && spikeAlpha > 4e-3) {
+    const inner = R * shape.coreR * 0.5;
+    for (let i = 0; i < 4; i++) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(i * Math.PI / 2);
+      const g = ctx.createLinearGradient(inner, 0, spikeR, 0);
+      g.addColorStop(0, `rgba(255,255,255,${spikeAlpha})`);
+      g.addColorStop(0.5, `rgba(255,255,255,${spikeAlpha * 0.86})`);
+      g.addColorStop(0.82, `rgba(255,255,255,${spikeAlpha * 0.42})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(inner, -halfW);
+      ctx.lineTo(spikeR, -halfW * 0.32);
+      ctx.lineTo(spikeR, halfW * 0.32);
+      ctx.lineTo(inner, halfW);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = "#fff";
+  }
+  const coreR = R * shape.coreR;
+  if (coreR > 0.35) {
+    ctx.globalAlpha = 1;
+    const g = ctx.createRadialGradient(cx, cy, coreR * 0.72, cx, cy, coreR);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.75, "rgba(255,255,255,1)");
+    g.addColorStop(1, `rgba(255,255,255,${shape.haloAlpha})`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+  } else {
+    ctx.globalAlpha = Math.min(1, Math.max(0.5, coreR / 0.35));
+    ctx.beginPath();
+    ctx.arc(cx, cy, 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = prevAlpha;
+}
+
 // ../src/components/Canvas/StarField.js
 function StarField(config, images) {
   let canvas = document.createElement("canvas");
@@ -779,15 +936,14 @@ function StarField(config, images) {
   starCanvas.width = config.width;
   starCanvas.height = config.height;
   for (let i = 0; i < config.stars.length; i++) {
-    let starImage = images.getResult(config.stars[i].image);
+    const star = config.stars[i];
+    if (star.image === "star-large") {
+      drawStarSprite(starContext, star.x + star.size / 2, star.y + star.size / 2, star.size);
+      continue;
+    }
+    let starImage = images.getResult(star.image);
     if (starImage) {
-      starContext.drawImage(
-        starImage,
-        config.stars[i].x,
-        config.stars[i].y,
-        config.stars[i].size,
-        config.stars[i].size
-      );
+      starContext.drawImage(starImage, star.x, star.y, star.size, star.size);
     }
   }
   let smallStars = config.smallStars;

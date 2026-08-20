@@ -1,6 +1,7 @@
 import GenerateLinearGradient from './GenerateLinearGradient';
 import { getCountScale, getElementSizeScale } from '../../render/scale';
 import { contrastPalette, makeRng } from '../../render/prng';
+import { valueNoise } from '../../render/valueNoise';
 
 // _BASE = how many stars v9 generated from the shared rng; _TOTAL = how many v10 draws in all.
 // The BASE values must never change -- they are the shape of v9's main-stream consumption, and
@@ -8,6 +9,70 @@ import { contrastPalette, makeRng } from '../../render/prng';
 const XL_BASE = 5, XL_TOTAL = 7;
 const LARGE_BASE = 50, LARGE_TOTAL = 90;
 const MEDIUM_BASE = 200, MEDIUM_TOTAL = 450;
+
+// FINE STAR FIELD (the 5k-105k speck layer). Two changes, 2026-08-20, Aaron's ask.
+//
+// (1) A wider size range. The ceiling was sizeScale/500 -- 4.3px at the studio's own
+//     3840x2160 -- which put the whole layer within a hair of uniform, so it read as even
+//     grain rather than a depth of field. sizeScale/300 lifts the largest specks to ~7px
+//     while the floor is untouched, so the layer gains a top end without getting coarse.
+//
+// (2) Scale comes from a NOISE FIELD, not a flat random draw -- the same clustering idea the
+//     3D tunnel uses for star placement (see animation3d/tunnelScene's clusterDensity), and
+//     the same shared render/valueNoise module. Three octaves sampled at the star's own
+//     normalised position give the layer regions of systematically brighter, larger specks
+//     with quieter dust between them, which is what a real plate looks like; FIELD_JITTER
+//     keeps a per-star component so neighbours aren't identical.
+//
+// The noise is sampled in NORMALISED canvas coordinates (0..1), never pixels. That is a hard
+// requirement, not a tidiness point: x/width is exactly the raw rng draw, so the field is
+// identical at every render size and a print cannot disagree with its mockup about which
+// specks are large. Sampling in pixels would make the whole layer resolution-dependent.
+//
+// valueNoise consumes no rng() at all -- it is a pure function of its coordinates -- so this
+// costs the shared sequence nothing. Only the per-design offset needs randomness, and it
+// comes from starRng, drawn immediately before the loop so it shifts nothing above it.
+const FINE_SIZE_DIVISOR = 300;
+// Frequencies are cycles across the whole canvas, so they set how big a cluster is relative
+// to the picture rather than in pixels -- which is what keeps the field size-independent.
+// 4.5 was picked by measuring, not by eye: at 2.1 the largest octave fits barely twice across
+// the canvas, so a whole DESIGN could sit in one lobe and the layer's overall brightness
+// became a per-design lottery (median speck 1.89px to 4.42px across 24 offsets). At 4.5 the
+// canvas averages over enough cells to hold that to 2.47..3.49 while the within-image spread
+// is at its widest -- field p10..p90 of 0.09..0.86, i.e. genuinely dense knots and genuinely
+// empty voids inside one picture, which is the structure this exists for.
+const FINE_FIELD = { freqLarge: 4.5, freqMid: 11.3, freqFine: 29.2, ampLarge: 0.6, ampMid: 0.28, ampFine: 0.12 };
+// STRETCH THE FIELD BEFORE USING IT. Summed value noise is nothing like uniform -- measured
+// over 40,000 samples of this exact octave mix, it spans only 0.25..0.79 with the middle 80%
+// inside 0.37..0.65. Fed in raw it barely varies, and any skew applied on top of that
+// collapses the whole layer toward its floor (the first version of this did exactly that and
+// made the field visibly SPARSER than the flat random one it replaced). These are the
+// measured 1st and 99th percentiles, so the remap clips ~1% at each end -- which is wanted:
+// those clipped tails are the dense cores and the empty voids.
+const FIELD_LO = 0.286;
+const FIELD_SPAN = 0.48;
+// How much of a speck's size comes from its own draw rather than the field. Low enough that
+// the clustering is legible, high enough that a cluster isn't a patch of identical dots.
+const FIELD_JITTER = 0.42;
+// The same rng()-reshaping trick the tiers above use -- skews toward small without changing
+// the maximum reachable or costing a draw. Solved, not guessed: at this jitter and remap the
+// combined value has a median of 0.424, so 1.4 puts the median speck back on the size the
+// flat-random field produced. The layer therefore gains a top end and spatial structure
+// without getting brighter or coarser overall.
+const FINE_SKEW = 1.4;
+
+// 0..1 after the remap above.
+function fineFieldAt(u, v, offset) {
+  const n =
+    valueNoise(u * FINE_FIELD.freqLarge + offset, v * FINE_FIELD.freqLarge + offset, offset) *
+      FINE_FIELD.ampLarge +
+    valueNoise(u * FINE_FIELD.freqMid + offset, v * FINE_FIELD.freqMid + offset, offset * 2) *
+      FINE_FIELD.ampMid +
+    valueNoise(u * FINE_FIELD.freqFine + offset, v * FINE_FIELD.freqFine + offset, offset * 3) *
+      FINE_FIELD.ampFine;
+  const unit = n / (FINE_FIELD.ampLarge + FINE_FIELD.ampMid + FINE_FIELD.ampFine);
+  return Math.min(1, Math.max(0, (unit - FIELD_LO) / FIELD_SPAN));
+}
 
 export default class GenerateStarField {
   constructor(
@@ -223,13 +288,27 @@ export default class GenerateStarField {
     // the same design render differently every time. Now seeded and resolved here so the
     // whole composition is fully deterministic from the seed (and matches at print time).
     let smallStars = [];
-    let smallStarSizeMax = sizeScale / 500;
+    let smallStarSizeMax = sizeScale / FINE_SIZE_DIVISOR;
     let smallStarSizeMin = sizeScale / 5000;
+    // Per-design offset into the noise field, so every design clusters differently rather
+    // than every one of them clumping in the same places. From starRng -- see the
+    // side-stream note at the top -- and drawn here, after every other starRng consumer, so
+    // it cannot shift the tiers above.
+    const fieldOffset = starRng() * 1000;
 
     for (let i = 0; i < smallStarAmount; i++) {
-      let ranSize = smallStarSizeMin + rng() * smallStarSizeMax;
+      // EXACTLY three rng() draws per speck, in the original order, with the original value
+      // going to the original role. That is the whole constraint here: this loop runs up to
+      // 105,000 times off the SHARED sequence, so adding, removing or reordering a draw
+      // would shift every downstream layer for every saved design. The size draw is taken
+      // first as before and simply held until x and y are known, since the field is sampled
+      // at the speck's own position -- deferring arithmetic costs the sequence nothing.
+      let sizeRoll = rng();
       let ranX = -100 + rng() * width + 100;
       let ranY = -100 + rng() * height + 100;
+      const field = fineFieldAt(ranX / width, ranY / height, fieldOffset);
+      const t = field * (1 - FIELD_JITTER) + sizeRoll * FIELD_JITTER;
+      let ranSize = smallStarSizeMin + Math.pow(t, FINE_SKEW) * smallStarSizeMax;
       smallStars.push({ x: ranX, y: ranY, size: ranSize });
     }
 

@@ -214,6 +214,86 @@ the actual print, generated the same deterministic way.
   lattice) across 3 seeds × 3 sizes, and is **byte-identical** when the design has no geometry
   layer at all (9/9), which is the invariant that proves it moves nothing else.
 
+- **Diffraction spikes: the large star is now DRAWN, not a scaled raster — `GENERATOR_VERSION
+  = 11` (2026-08-20, Aaron: the large stars "lose their diffraction spikes quite a lot
+  sometimes... it's odd because sometimes smaller ones will have them and larger ones will lose
+  them").** `render/starSprite.js` draws the xl/large tiers' star as vector paths at each star's
+  real pixel size — core, four tapering arms, a semi-transparent halo disc with a hairline rim
+  stroke, and an outer glow to the arm tips, all measured off the original raster (core edge
+  0.17 of the half-width, halo 0.34, glow 0.86, arms 0.89) so it reads as the same object.
+  **FOUR causes were measured, and only the first is the sprite** — a fix aimed at any one alone
+  leaves the complaint standing:
+  (1) **The two tiers use structurally different sprites, and this is the whole asymmetry.**
+  `star-sprite-small.png` (the 450-strong fine tier) is a SOLID four-point star — the points are
+  the silhouette, so they survive any downscale. `star-sprite-large.png` was a glowing ball with
+  a cross **4px wide in a 648px sheet (0.62%)** peaking at alpha **125/255 above its own halo**
+  against a 255 core. So the cross could never carry more than ~half the star's tint-vs-backdrop
+  contrast while the core carried all of it. That is exactly "small ones have them, large ones
+  don't". The fine tier is untouched and still uses its PNG.
+  (2) **A real mockup-vs-print divergence, previously unrecorded.** At the median drawn size of
+  **58px** the arm covered a THIRD of a pixel, and the engines disagreed about how much survived:
+  Chromium mipmaps and kept a weak line, `@napi-rs/canvas` (`imageSmoothingQuality` defaults to
+  `'low'`) **erased it outright below ~140px**. Measured at 100px: **alpha 47 in the browser
+  against 3 on Fly**. 70% of these stars are under 100px, so most of them carried a cross in the
+  studio and none in the print file. `check-render-regression.mjs` runs napi-rs at BOTH ends and
+  so could never have seen this — a cross-engine check is a different instrument.
+  Now within **0.7–11.3%** across 40–500px, with a real arm in both.
+  (3) **Backdrop luminance.** Spike contrast against the local backdrop ranged **0.1 → 88** over
+  50 designs, tracking `|starTint − backdrop|`. Because the background is a gradient this varies
+  WITHIN one design — seed `s8` shows the same cyan star blazing on dark magenta and invisible on
+  yellow. Raising the arm's authored alpha helps here but does not remove it.
+  (4) **The geometry layer draws on top.** Genuinely size-dependent: a 300px star is far more
+  likely to be covered than a 50px one. This is the still-open `config.thirdBlend` half of the
+  `starsOnTop` note above, and a second reason to do it.
+  Things worth not re-deriving:
+  - **The `-3d` sprite variants are a pure no-op here, don't try them.** Their alpha channels are
+    **byte-identical** to the originals (0 differing pixels of 419,904, both pairs) and `StarField`
+    composites through `destination-atop`, which reads only alpha. Verified end to end: 8/8
+    identical PNG hashes across 4 seeds × 2 sizes. Only their RGB is inverted, which is what the
+    three.js tunnel needs and this path discards.
+  - **An SVG asset solves neither problem**, and this was checked rather than assumed: it
+    rasterizes at its intrinsic size and scales like any other bitmap. A 4/648 hairline in an SVG
+    measured alpha **31** at a 40px draw in Chromium — no better than the PNG. The fix is drawing
+    at the star's own size with a floor on arm width (`spikeMinPx`, 1.25 device px, dimmed in
+    proportion when it binds so an arm carries the same total light at every size), not a format
+    change. `@napi-rs/canvas` does load SVG, so the option exists; it just buys nothing.
+  - **Arms are `spikeW` 0.026 of the half-width, ~4x the raster's 0.0062** (Aaron: "we can make
+    the spikes thicker to help matters at least"), chosen from a rendered size × width matrix.
+  - Cost is **~5%** per render (131→138ms at 3840×2160, 592→603ms on the shorts sheet).
+- **Fine star field: wider range and noise-clustered scale (same bump).** `smallStars`' ceiling
+  goes `sizeScale/500` → `/300` (~4.3px → ~7.2px at the studio default) and scale now comes from a
+  three-octave `render/valueNoise` field sampled at each speck's own position — the same
+  clustering idea `animation3d/tunnelScene`'s `clusterDensity` uses for star PLACEMENT, applied
+  here to size. The layer gains knots and voids instead of reading as uniform grain.
+  Four things worth not re-deriving:
+  (1) **It consumes EXACTLY the same three `rng()` draws per speck, in the same order, with the
+  same value in the same role.** This loop runs up to **105,000** times off the SHARED sequence,
+  so a single added or reordered draw would shift every downstream layer for every saved design.
+  The size draw is taken first as before and simply HELD until x and y are known, so the field can
+  be sampled at the speck's position — deferring arithmetic costs the sequence nothing.
+  `valueNoise` consumes no randomness at all; only the per-design offset does, and it comes from
+  `starRng`, drawn after every other `starRng` consumer so it shifts nothing above it.
+  (2) **The field is sampled in NORMALISED (0..1) canvas coordinates, never pixels.** `x/width` is
+  exactly the raw rng draw, so the field is identical at every render size — verified to
+  **4e-16** across 5 sizes including print and square. Sampling in pixels would make the whole
+  layer resolution-dependent, i.e. a print that disagrees with its mockup about which specks are
+  large.
+  (3) **Summed value noise is nothing like uniform, and ignoring that inverted the feature.**
+  Measured over 40,000 samples this octave mix spans only **0.25–0.79**, middle 80% inside
+  0.37–0.65. The first version fed it in raw and applied a skew on top, which collapsed the layer
+  toward its floor and rendered it visibly SPARSER than the flat-random field it replaced.
+  `FIELD_LO`/`FIELD_SPAN` are the measured 1st/99th percentiles and stretch it to 0..1, clipping
+  ~1% at each end deliberately — those tails are the dense cores and the empty voids.
+  (4) **`freqLarge` was solved, not eyeballed.** At 2.1 the largest octave fits barely twice
+  across the canvas, so a whole DESIGN could sit in one lobe and the layer's brightness became a
+  per-design lottery (median speck **1.89px to 4.42px** over 24 offsets). At **4.5** that holds to
+  2.47–3.49 while the within-image spread is widest — field p10–p90 of **0.09–0.86**. `FINE_SKEW`
+  1.4 then puts the median speck back where the flat-random field had it, so the layer gains a top
+  end and structure without getting brighter or coarser.
+  **Verified against all 74 stored designs × 3 sizes** (`check-render-regression.mjs --allow-stars`):
+  74 composition unchanged, 0 changed, 0 geometry lost or gained, star field changed on 74.
+  **Both follow-ups are required, same as v9 and v10**: redeploy render-service, and re-run
+  `backfill-thumbnails.mjs` with NO `--generator-version` filter.
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was

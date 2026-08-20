@@ -133,7 +133,36 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 //   - re-run the thumbnail backfill with NO --generator-version filter
 //     (node render-service/backfill-thumbnails.mjs), since this alters every stored design
 //     regardless of what version it was saved under -- same reasoning as v9.
-export const GENERATOR_VERSION = 10;
+// v10 -> v11 (2026-08-20): the large stars' diffraction spikes (Aaron: they "lose their
+// diffraction spikes quite a lot sometimes... it's odd because sometimes smaller ones will
+// have them and larger ones will lose them"), plus a reworked fine-star field.
+// The xl/large tiers no longer scale star-sprite-large.png down -- render/starSprite.js draws
+// the star as vector paths at its real pixel size, with the arm width floored just above a
+// device pixel and every element's alpha authored rather than baked in. That closes a REAL
+// mockup-vs-print divergence: the raster's arm was 0.62% of the sprite, so at the median
+// drawn size of 58px it covered a third of a pixel, and the two canvas engines disagreed
+// about how much survived -- Chromium kept a weak line while @napi-rs/canvas (which Fly runs)
+// erased it entirely below ~140px. Measured at 100px: alpha 47 in the browser against 3 on
+// Fly. Now within 0.7-11.3% at every size, with a real arm in both.
+// The fine speck layer gains a wider size ceiling (sizeScale/500 -> /300) and takes its scale
+// from a value-noise field instead of a flat draw, so it clusters into knots and voids the way
+// the 3D tunnel clusters its stars. It consumes EXACTLY the same three rng() draws per speck,
+// in the same order, with the same value in the same role -- the size draw is simply held
+// until x and y are known so the field can be sampled at the speck's own position.
+// So the shared sequence is untouched and composition is unchanged: verified against all 74
+// stored designs x 3 sizes via check-render-regression.mjs -- 74 unchanged, 0 changed, 0
+// geometry lost or gained, star field changed on 74 (intended, --allow-stars).
+// It bumps anyway because output for a given seed genuinely moves, and because the bump is
+// what forces the render-service redeploy below -- without it, a browser on new code and a Fly
+// machine on old code would silently disagree about star sizes, which is the exact class of
+// failure the mismatch check exists to catch.
+// Operationally this bump needs BOTH follow-ups, same as v9 and v10:
+//   - redeploy render-service (flyctl deploy --config render-service/fly.toml, from the repo
+//     root) or every Buy Now fails the generatorVersion mismatch check;
+//   - re-run the thumbnail backfill with NO --generator-version filter
+//     (node render-service/backfill-thumbnails.mjs), since this alters the star field of every
+//     stored design regardless of what version it was saved under.
+export const GENERATOR_VERSION = 11;
 
 const BLEND_MODES = [
   'screen',
