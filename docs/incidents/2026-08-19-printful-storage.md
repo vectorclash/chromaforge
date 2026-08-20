@@ -144,11 +144,14 @@ Fastest first:
 
 ## 8. Two unrelated findings, worth noting but not urgent
 
-- **Our global mockup rate limit is 5× stricter than Printful's actual one.** Printful now
-  returns `x-ratelimit-limit: 10` on `POST /v2/mockup-tasks`; `printful-mockup`'s
-  `GLOBAL_RATE_LIMIT` is `2` per 60s, measured live back when that was their real cap.
-  Worth relaxing once this incident clears — it currently caps the whole store at 2 mockups
-  a minute across all users.
+- **Our global mockup rate limit was 5× stricter than Printful's actual one — FIXED
+  2026-08-19.** Printful now returns `x-ratelimit-limit: 10` on `POST /v2/mockup-tasks`;
+  `printful-mockup`'s `GLOBAL_RATE_LIMIT` was `2` per 60s, measured live back when that was
+  their real cap, so it capped the whole store at 2 mockups a minute across all users.
+  Raised to `10`; **needs `npx supabase functions deploy printful-mockup` to take effect.**
+  The client side needed no change — `useMockup`'s `queued`/retry path handles both our own
+  gate and a real passthrough 429 identically. Re-read the header if the account's plan ever
+  changes; the gate must stay at or below whatever they advertise.
 - **`npx supabase storage rm` silently no-ops.** It returned `{"deleted":[]}` for a path
   that `ls -r` had just listed, across several path forms. The Storage REST API
   (`DELETE /storage/v1/object/<bucket>/<path>` with the service role key) worked first try.

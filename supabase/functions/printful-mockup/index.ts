@@ -24,14 +24,18 @@ const STORE_ID = "18363066";
 const RATE_LIMIT = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 
-// Printful's REAL constraint on POST /v2/mockup-tasks, measured live off their own
-// x-ratelimit-* headers (undocumented): 2 requests/60s, shared across every user of the
-// app, not per-user -- our own RATE_LIMIT above is far looser and was never the binding
-// one (see TODO.md). GLOBAL_USER_ID is a fixed sentinel (not a real user) so this reuses
+// Printful's REAL constraint on POST /v2/mockup-tasks, read live off their own
+// x-ratelimit-* headers (undocumented): shared across every user of the app, not
+// per-user -- our own RATE_LIMIT above is far looser and was never the binding one
+// (see TODO.md). GLOBAL_USER_ID is a fixed sentinel (not a real user) so this reuses
 // the existing per-(user_id, action) rate_limits table/RPC as a store-wide counter
 // without a schema change -- rate_limits.user_id has no FK to auth.users.
+// The number tracks whatever they currently advertise: it was 2/60s when this gate was
+// built (2026-07-17) and is 10/60s as of 2026-08-19 (x-ratelimit-limit: 10). Keep it at
+// or below their header value -- the passthrough-429 path below is the safety net if
+// they lower it again, not a substitute for this gate.
 const GLOBAL_USER_ID = "00000000-0000-0000-0000-000000000000";
-const GLOBAL_RATE_LIMIT = 2;
+const GLOBAL_RATE_LIMIT = 10;
 const GLOBAL_RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const corsHeaders = {

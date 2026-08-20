@@ -224,7 +224,8 @@ tracks what's true now, not history.
          list to default to the customer's likely region instead of always showing
          US-first; the customer can still override it manually, which is exactly how
          the UK test above was driven.
-       - **Printful global mockup rate limit (2 req/60s store-wide), real 429 test**:
+       - **Printful global mockup rate limit (2 req/60s store-wide at the time; raised
+         to 10 on 2026-08-19), real 429 test**:
          confirmed live via `printful-mockup`'s edge-function logs — a real 429 fired
          on a rapid second mockup request, `queued` status kicked in, and the retry
          countdown displayed correctly. Not just a contract-level check anymore (see
@@ -315,11 +316,12 @@ tracks what's true now, not history.
       `PRINTFUL_API_KEY` repo secret added and a manual dispatch ran green (Aaron,
       2026-07-16) — the cron is fully operational.
       Graceful 429 handling — BUILT 2026-07-17. `printful-mockup` now enforces a second,
-      store-wide rate limit (`GLOBAL_RATE_LIMIT = 2`/60s, keyed on a fixed sentinel user id
+      store-wide rate limit (`GLOBAL_RATE_LIMIT`, keyed on a fixed sentinel user id
       so it reuses the existing per-user `rate_limits` table with no schema change beyond a
       new `check_rate_limit_verbose` RPC that also reports retry-after seconds) ahead of the
-      per-user one, since the global cap is the one that actually binds — matches Printful's
-      measured limit exactly. Also normalizes a real passthrough 429 from Printful itself
+      per-user one, since the global cap is the one that actually binds — set to whatever
+      Printful's own `x-ratelimit-limit` currently advertises (2/60s when built; **raised to
+      10/60s on 2026-08-19**, when they were found to have relaxed it). Also normalizes a real passthrough 429 from Printful itself
       (best-effort `Retry-After` header parse, since Printful doesn't document this
       endpoint's 429 body shape). `useMockup.js` auto-retries on either, via a new `queued`
       status (added to `BUSY_STATUSES`) that counts down `retryAfterSeconds` and resumes,
@@ -356,7 +358,8 @@ tracks what's true now, not history.
       error body on non-2xx so `get_logs` shows *why*, not just "POST | 400".
       **Related constraint, measured live 2026-07-12 (from Printful's own
       `x-ratelimit-*` headers — not documented anywhere)**: `POST /v2/mockup-tasks` is
-      limited to **2 requests per 60s per API key** (even rejected/400 requests count;
+      limited to **2 requests per 60s per API key** (**re-read 2026-08-19: now 10** — see
+      `docs/incidents/2026-08-19-printful-storage.md`; even rejected/400 requests count;
       polling GETs are on the general 120/60s bucket). That's shared across ALL app
       users, so our edge function's 20/user/min limit is not the binding one — two users
       previewing in the same minute already exhausts it. At any real traffic the mockup
