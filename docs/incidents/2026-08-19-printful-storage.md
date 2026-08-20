@@ -151,8 +151,16 @@ Fastest first:
   Raised to `10` and **deployed (function version 62) and verified live the same day**: a
   13-request burst from a real signed-in session passed exactly 10 (each reaching Printful
   and coming back `400` on the payload's own merits) and 429'd from 11 on, with the window
-  recovering ~60s later. Printful themselves never 429'd across those 10 in ~8s, which is
-  the independent confirmation that their cap really is at least 10. Technique worth
+  recovering ~60s later. Printful themselves never 429'd across those 10 in ~8s. Their cap
+  is **exactly 10**, not merely at least 10 — read straight off a direct call to
+  `POST /v2/mockup-tasks` (`x-ratelimit-limit: 10`, `x-ratelimit-remaining: 9`,
+  `x-ratelimit-reset: 60`); a burst through our own function can never show this, since our
+  gate stops the 11th before it leaves. Note our gate now sits exactly ON their number
+  rather than below it, and the two fixed windows have independent boundaries, so the
+  passthrough-429 path is now genuinely reachable under sustained load instead of
+  theoretical. That is what it is for (the client queues and retries identically), but it
+  is the reason to leave that path alone. The same call re-confirmed that rejected requests
+  count: it was a 400 and `remaining` still dropped. Technique worth
   reusing: burst with a deliberately invalid `productId`/empty `placements` — a rejected
   request still counts against Printful's limit, so the gate is measurable without spending
   render quota or leaving tasks hanging. Costs the store-wide budget for ~50s, so don't run
