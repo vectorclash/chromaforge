@@ -73,16 +73,26 @@ const PLACEMENT_LABELS = {
 };
 function normalise(result) {
   const byUrl = new Map();
-  const nameCounts = new Map();
-  const add = (url, rawName) => {
-    if (!url || byUrl.has(url)) return;
-    const seen = (nameCounts.get(rawName) ?? 0) + 1;
-    nameCounts.set(rawName, seen);
-    byUrl.set(url, { mockup_url: url, display_name: seen > 1 ? `${rawName} ${seen}` : rawName });
+  const raw = [];
+  const seenUrls = new Set();
+  const push = (url, name) => {
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    raw.push({ url, name });
   };
   for (const m of result.mockups ?? []) {
-    add(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
-    for (const e of m.extra ?? []) add(e.url, e.title);
+    push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+    for (const e of m.extra ?? []) push(e.url, e.title);
+  }
+  const reserved = new Set(raw.map(r => r.name));
+  const taken = new Set();
+  for (const { url, name } of raw) {
+    let final = name;
+    if (taken.has(final)) {
+      for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
+    }
+    taken.add(final);
+    byUrl.set(url, { mockup_url: url, display_name: final });
   }
   return { status: result.status, error: result.error ?? null, mockups: [...byUrl.values()] };
 }
@@ -92,11 +102,29 @@ async function pf(path, init) {
   return { res, body: await res.json() };
 }
 
+// Serialised through a promise chain, NOT a shared timestamp. The first version read
+// `lastCreate` and awaited a sleep before writing it back, so three concurrent workers could all
+// read the same value and fire together -- which produced 76 spurious 429s on the first full run
+// and no real signal. Awaiting the previous caller's turn before taking your own is what makes
+// the spacing hold under concurrency.
+let createChain = Promise.resolve();
 let lastCreate = 0;
-async function throttleCreate() {
-  const wait = lastCreate + CREATE_SPACING_MS - Date.now();
-  if (wait > 0) await sleep(wait);
-  lastCreate = Date.now();
+function throttleCreate() {
+  createChain = createChain.then(async () => {
+    const wait = lastCreate + CREATE_SPACING_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastCreate = Date.now();
+  });
+  return createChain;
+}
+
+// Printful's 429 body states how long to wait ("Please try again after 14 seconds"). A rate limit
+// is not a product fault, so it is waited out and retried rather than reported as a failure --
+// otherwise the check's own pacing becomes indistinguishable from a broken placement config.
+function retryAfterSeconds(body) {
+  const text = typeof body?.result === 'string' ? body.result : body?.error?.message ?? '';
+  const match = /after (\d+) second/i.exec(text);
+  return match ? Number(match[1]) : 15;
 }
 
 async function checkVariant(productId, cfg, specs, variant) {
@@ -124,24 +152,29 @@ async function checkVariant(productId, cfg, specs, variant) {
     ? Object.fromEntries(cfg.productOptions.map(o => [o.name, o.value]))
     : cfg.productOptions;
 
-  await throttleCreate();
-  const { res, body } = await pf(`/mockup-generator/create-task/${productId}`, {
-    method: 'POST',
-    body: JSON.stringify({
-      variant_ids: [variant.id],
-      format: 'jpg',
-      files,
-      ...(options && Object.keys(options).length ? { product_options: options } : {})
-    })
+  const payload = JSON.stringify({
+    variant_ids: [variant.id],
+    format: 'jpg',
+    files,
+    ...(options && Object.keys(options).length ? { product_options: options } : {})
   });
-  if (!res.ok || !body.result?.task_key) {
-    return fail(`create ${res.status}: ${JSON.stringify(body.result ?? body.error ?? body).slice(0, 140)}`);
+  let created = null;
+  for (let attempt = 1; attempt <= 4 && !created; attempt++) {
+    await throttleCreate();
+    const { res, body } = await pf(`/mockup-generator/create-task/${productId}`, { method: 'POST', body: payload });
+    if (res.ok && body.result?.task_key) {
+      created = body.result.task_key;
+    } else if (res.status === 429 && attempt < 4) {
+      await sleep((retryAfterSeconds(body) + 2) * 1000);
+    } else {
+      return fail(`create ${res.status}: ${JSON.stringify(body.result ?? body.error ?? body).slice(0, 140)}`);
+    }
   }
 
   let result = null;
   for (let i = 0; i < POLL_TRIES && !result; i++) {
     await sleep(POLL_MS);
-    const polled = await pf(`/mockup-generator/task?task_key=${body.result.task_key}`);
+    const polled = await pf(`/mockup-generator/task?task_key=${created}`);
     if (polled.body.result?.status !== 'pending') result = polled.body.result;
   }
   if (!result) return fail(`still pending after ${(POLL_TRIES * POLL_MS) / 1000}s`);

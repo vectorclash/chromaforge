@@ -311,16 +311,37 @@ Deno.serve(async req => {
     // Labels can legitimately repeat across DIFFERENT photos -- the mesh shorts return two
     // distinct images both called "Front" -- so names are made unique for the filmstrip's
     // tooltips. Deduping by name instead would throw a real photo away.
-    const nameCounts = new Map<string, number>();
-    const add = (mockupUrl: string | undefined, rawName: string) => {
-      if (!mockupUrl || byUrl.has(mockupUrl)) return;
-      const seen = (nameCounts.get(rawName) ?? 0) + 1;
-      nameCounts.set(rawName, seen);
-      byUrl.set(mockupUrl, { mockup_url: mockupUrl, display_name: seen > 1 ? `${rawName} ${seen}` : rawName });
+    // Counting occurrences of a name is not enough on its own, because Printful's OWN titles
+    // already contain numbers: the windbreaker returns a `front` placement plus extras titled
+    // "Front" AND "Front 2", so appending "2" to the second "Front" collided with the real
+    // "Front 2" -- on all 14 of its variants. Found by scripts/check-printful-mockups.mjs, which
+    // is the sort of thing hand-testing sees as "looks fine" because it is only a tooltip. The
+    // suffix now advances until the result is genuinely unused.
+    // Collected first, named second. Naming as we go produced "Front 2 2" on the windbreaker:
+    // it returns a `front` placement plus extras titled "Front" AND "Front 2", so the second
+    // "Front" took the suffix 2 and Printful's real "Front 2" then had to take "2 2". Reserving
+    // every name Printful actually uses before handing out any suffix means a generated one can
+    // never land on a real one -- that list gives Front / Front 3 / Front 2.
+    const raw: Array<{ url: string; name: string }> = [];
+    const seenUrls = new Set<string>();
+    const push = (url: string | undefined, name: string) => {
+      if (!url || seenUrls.has(url)) return;
+      seenUrls.add(url);
+      raw.push({ url, name });
     };
     for (const m of result.mockups ?? []) {
-      add(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
-      for (const e of m.extra ?? []) add(e.url, e.title);
+      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+      for (const e of m.extra ?? []) push(e.url, e.title);
+    }
+    const reserved = new Set(raw.map(r => r.name));
+    const taken = new Set<string>();
+    for (const { url, name } of raw) {
+      let final = name;
+      if (taken.has(final)) {
+        for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
+      }
+      taken.add(final);
+      byUrl.set(url, { mockup_url: url, display_name: final });
     }
     const mockups = [...byUrl.values()];
     // As with the POST above, `data: [...]` mirrors the list under v2's envelope so a
