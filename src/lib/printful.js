@@ -1,6 +1,18 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { cachedFetch } from './catalogCache';
 import { isSameDesign } from '../render/designSettings';
+import {
+  resolvePlacementEntries,
+  buildMockupFiles,
+  hideUnsubmittedViews
+} from './printfulPlacements';
+
+// resolvePlacementEntries/buildMockupFiles/hideUnsubmittedViews live in printfulPlacements.js and
+// are re-exported here so every existing import site is unchanged. They moved for the same reason
+// PRODUCT_MOCKUP_CONFIG did: this module imports the Supabase client, so nothing in it can run
+// from a plain-Node script -- and scripts/check-printful-mockups.mjs has to exercise the REAL
+// helpers, not a copy that drifts from the code it exists to protect.
+export { resolvePlacementEntries, buildMockupFiles, hideUnsubmittedViews };
 import { generateLabelMark } from '../render/generateLabelMark';
 import renderLabelMark from '../render/renderLabelMark';
 import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
@@ -265,19 +277,6 @@ export function getLegPanel(cfg) {
   return cfg?.legPanel || null;
 }
 
-// Placement -> printfile id for a given variant, optionally restricted to a subset of
-// placements. Mockup previews (useMockup.js) restrict this to cfg.placements -- only what's
-// visible in the requested Front/Back camera-angle photos (see PRODUCT_MOCKUP_CONFIG above).
-// A real Printful order needs every placement regardless of visibility (placements left out
-// of a real order render as blank/undecorated fabric on the actual garment, unlike a preview
-// photo that simply doesn't show them) -- checkout flows call this with no filter.
-export function resolvePlacementEntries(printfileSpecs, variant, placementFilter) {
-  const variantPrintfiles = printfileSpecs.variant_printfiles.find(v => v.variant_id === variant.id);
-  if (!variantPrintfiles) return null;
-  return Object.entries(variantPrintfiles.placements).filter(
-    ([key]) => !placementFilter || placementFilter.includes(key)
-  );
-}
 
 // Mockups are previews, not the final print file -- cap render size well below Printful's
 // real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
@@ -851,37 +850,6 @@ export async function unwrapFunctionsError(error) {
   }
 }
 
-// The `files` array for a v1 mockup task: one entry per placement, each carrying the artwork
-// URL and the print area it fills. `position` is REQUIRED by v1 (the task 400s with "Position
-// field is missing" without it) and is built here rather than in the Edge Function because
-// `printfileSpecs` is already in the browser's hands -- it was fetched to render the artwork
-// in the first place, so deriving it server-side would mean a second Printful round trip for
-// numbers we hold.
-//
-// The window is always the FULL print area (top/left 0, width/height = the printfile's own
-// dimensions). That is the same "fill the whole printfile" rule the real order path uses, and
-// it is what keeps a preview honest: the mockup and the print file are then framed alike.
-// `entries` is resolvePlacementEntries' [placementKey, printfileId] pairs.
-export function buildMockupFiles(entries, printfileSpecs, urlsByPlacement) {
-  return entries
-    .filter(([placementKey]) => urlsByPlacement[placementKey])
-    .map(([placementKey, printfileId]) => {
-      const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
-      if (!spec) throw new Error(`No printfile ${printfileId} for placement ${placementKey}`);
-      return {
-        placement: placementKey,
-        image_url: urlsByPlacement[placementKey],
-        position: {
-          area_width: spec.width,
-          area_height: spec.height,
-          width: spec.width,
-          height: spec.height,
-          top: 0,
-          left: 0
-        }
-      };
-    });
-}
 
 // Creates a Printful v1 mockup-generation task (see printful-mockup/index.ts's header for why
 // v1 rather than the v2 beta). `files` comes from buildMockupFiles above. There is no style

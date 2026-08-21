@@ -5,6 +5,7 @@ import {
   getMockupConfigForProduct,
   getSecondaryDesignConfig,
   buildMockupFiles,
+  hideUnsubmittedViews,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   capRenderStrategy,
@@ -146,28 +147,6 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   return `${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
 }
 
-// See the call site in `generate`. Splits a placement key or a view title into lowercase words
-// ("outside_front" and "Right Front Outside" both yield outside/front), so a view can be matched
-// against the placements it depicts without hardcoding Printful's title strings.
-function placementWords(text) {
-  return String(text).toLowerCase().split(/[^a-z]+/).filter(Boolean);
-}
-
-export function hideUnsubmittedViews(views, entries, printfileSpecs) {
-  const submitted = new Set(entries.flatMap(([placement]) => placementWords(placement)));
-  const all = Object.keys(printfileSpecs?.available_placements || {});
-  const submittedKeys = new Set(entries.map(([placement]) => placement));
-  const hidden = new Set();
-  for (const placement of all) {
-    if (submittedKeys.has(placement)) continue;
-    for (const word of placementWords(placement)) if (!submitted.has(word)) hidden.add(word);
-  }
-  if (!hidden.size) return views;
-  const kept = views.filter(v => !placementWords(v.display_name).some(w => hidden.has(w)));
-  // Never hand back nothing: if the rule somehow matched every view, a blank filmstrip is worse
-  // than a wrong-looking one, and the customer still needs something to approve.
-  return kept.length ? kept : views;
-}
 
 export function useMockup() {
   const { renderDesignBlob } = useStudio();
