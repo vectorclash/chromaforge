@@ -786,10 +786,46 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   shared infrastructure). **Newly possible because of it:** the mesh shorts' `back` panel and the
   track jacket's `details` strip, which v2 cannot express at all — both left as follow-ups, since
   they change what customers see.
-  **Deploying it is a BREAKING contract change in both directions** — the function and the
-  frontend must land together (old frontend + new function reads `data.data[0]` off `{id,status}`;
-  new frontend + old function sends `files` where `placements` is expected). Pause the store for
-  the window, same playbook as a `GENERATOR_VERSION` bump.
+  **Deploying it was a BREAKING contract change in both directions**, and the way out is worth
+  remembering: rather than land the function and the frontend in the same instant (impossible when
+  the frontend ships via a GitHub Action), the function was taught to speak BOTH shapes for one
+  deploy cycle — legacy `placements` converted server-side, and both responses carrying the
+  normalized shape plus the old `data: [...]` envelope. **That shim was removed 2026-08-21 once
+  the new bundle was live** and is gone from the function; the technique is the reusable part.
+  **Five follow-ups landed the same day, all found by Aaron testing by hand or by the new checker:**
+  (1) **The bucket hat submits all four faces now**, not just the two outside ones. v1 returns every
+  camera angle a product has, so the four inside views came back as blank white hats — and the
+  exclusion's original justification had expired, since v2's inside styles returned images
+  byte-identical to the outside ones. `secondaryDesign` is threaded into the mockup, its cache key
+  and the sync effect, so **picking a second artwork now changes the preview** (it previously
+  changed no pixel). Nearly free: all four faces share printfile 410, so one design resolves to one
+  cached render. With a single design the inside views are suppressed as duplicates — 4 thumbnails,
+  not 8.
+  (2) **`hideUnsubmittedViews`** drops views of placements we sent no artwork for, derived from the
+  product's own placement list rather than hardcoded titles.
+  (3) **The mockup cache key carries the variant COLOUR** (not its id — sizes are meant to share a
+  photo). Both windbreaker colours share printfile ids, so they collided on one key and switching
+  colour silently restored the previous photo. Worst there because that product's two "colours" ARE
+  the stitching choice, so the control looked completely inert. Pre-existing, not migration-caused.
+  (4) **View labels are collected first and named second**, with every name Printful uses reserved
+  before any suffix is handed out. Counting occurrences collided with Printful's own numbered
+  titles ("Front", "Front 2") and produced "Front 2 2" on all 14 windbreaker variants.
+  (5) **The filmstrip is `components/ui/ScrollStrip.jsx`** — one row, a fade on whichever edge is
+  actually hiding something, and a **draggable** scrollbar (4px visual inside a 26px grab zone).
+  A non-interactive progress bar was prototyped and rejected because Aaron went to grab it: if it
+  looks like a scrollbar it has to be one. `flex-wrap` was tried first and rejected too — 8 wraps
+  to a tidy 4+4 at 360px, but 5 orphans one and 8 at 390px breaks a ragged 5+3.
+  **`scripts/check-printful-mockups.mjs` exists because of all of this** — it generates a real
+  mockup for **every variant of every product (114)** and asserts the pipeline end to end. Run it
+  after any `PRODUCT_MOCKUP_CONFIG` change; ~18 min, needs only `PRINTFUL_API_KEY`. It found (4),
+  which hand-testing had passed over. Two things about it: it imports the REAL helpers (which is
+  why `resolvePlacementEntries`/`buildMockupFiles`/`hideUnsubmittedViews` moved to
+  `src/lib/printfulPlacements.js` — `lib/printful.js` imports the Supabase client and so cannot run
+  in plain Node), and it must MIRROR the Edge Function's response normalisation, which runs in Deno
+  and cannot be imported — same discipline as `_shared/compactDesign.ts`.
+  **Full pass, 2026-08-21, all green:** catalog drift 15/15, mockups **114/114 variants**, draft
+  orders 15/15 with every placement `ok`. What none of it covers: our artwork render, the Supabase
+  upload, the Edge Function's auth/rate-limit gates, and all browser UI.
   v1 gotcha handled in the port: v1 hard-rejects some products without their required
   item option (zip hoodie needs explicit `stitch_color`) where v2 silently defaulted it —
   the webhook maps `order_items.product_options` `{name,value}` → v1 `options`
