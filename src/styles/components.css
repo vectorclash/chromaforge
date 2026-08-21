@@ -1782,3 +1782,84 @@
   background-size: 100% 0.72em;
   background-position: 0 0.14em;
 }
+
+/* ScrollStrip -- see components/ui/ScrollStrip.jsx for why the filmstrip scrolls rather than
+   wraps. Only the parts utilities can't express live here: a mask driven by CSS variables the
+   component writes per scroll frame, and a scrollbar whose grab area is far larger than its
+   visual. */
+.scroll-strip-viewport {
+  /* The fade belongs to whichever edge is hiding something. --fade-l/--fade-r are written by
+     the component and are 0 whenever the content fits, which makes the mask a no-op rather
+     than something that has to be conditionally removed. */
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--fade-l, 0px),
+    #000 calc(100% - var(--fade-r, 0px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--fade-l, 0px),
+    #000 calc(100% - var(--fade-r, 0px)),
+    transparent 100%
+  );
+}
+.scroll-strip-rail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.scroll-strip-rail::-webkit-scrollbar {
+  display: none;
+}
+.scroll-strip-rail > * {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+}
+/* 4px of visible bar inside a 26px grab zone. The padding IS the feature: a 4px pointer target
+   is unhittable, and this was going to be dragged -- it reads as a scrollbar, so it has to be
+   one. touch-action: none so a drag on it scrolls the strip instead of panning the page. */
+.scroll-strip-track {
+  position: relative;
+  margin-top: 2px;
+  padding: 11px 0;
+  cursor: grab;
+  touch-action: none;
+}
+.scroll-strip-track:active {
+  cursor: grabbing;
+}
+.scroll-strip-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(250, 250, 250, 0.14);
+}
+.scroll-strip-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-interactive, #00e5ff);
+  transition: height 0.12s ease;
+}
+.scroll-strip-track:hover .scroll-strip-thumb,
+.scroll-strip-track:active .scroll-strip-thumb {
+  height: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-strip-thumb {
+    transition: none;
+  }
+}

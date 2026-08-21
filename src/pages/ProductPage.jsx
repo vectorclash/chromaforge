@@ -33,6 +33,7 @@ import BuyNowModal from '../components/ui/BuyNowModal';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { useJsonLd } from '../hooks/useJsonLd';
 import SizeGuideModal from '../components/ui/SizeGuideModal';
+import ScrollStrip from '../components/ui/ScrollStrip';
 import TerminalText from '../components/ui/TerminalText';
 
 // How long the hero's mockup layer takes to fade OUT -- must stay in step with the
@@ -1705,14 +1706,11 @@ export default function ProductPage() {
 
           </div>
 
-          {/* The filmstrip WRAPS rather than scrolling. It was a horizontal scroll strip with
-              .no-scrollbar, which hides the scrollbar and with it any hint that more thumbnails
-              exist -- fine at the 2-4 views most products return, but the reversible hat can
-              return 8 (both faces, four angles each) and a 360px phone showed only 4, cut off
-              mid-thumbnail with no affordance at all. Wrapping needs nothing to discover, and
-              costs a second row only when a strip is genuinely too long for the width. */}
+          {/* One scrolling row, via ScrollStrip -- see that component for why this is neither
+              a bare .no-scrollbar strip (nothing tells you more exists) nor flex-wrap (5 views
+              leave an orphan on row two, 8 at 390px break a ragged 5+3). */}
           {showMockup && images.length > 1 && thumbsPreloaded && (
-            <div className="mt-3 flex flex-wrap gap-2 px-0.5 pb-1">
+            <ScrollStrip className="mt-3" railClassName="px-0.5">
               {images.map((m, i) => (
                 <button
                   key={m.mockup_url}
@@ -1741,7 +1739,7 @@ export default function ProductPage() {
                   />
                 </button>
               ))}
-            </div>
+            </ScrollStrip>
           )}
         </div>
 
