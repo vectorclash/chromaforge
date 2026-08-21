@@ -1290,11 +1290,17 @@
      nothing on screen moves -- the content box, and therefore every row inside, is exactly
      where it was.
 
-     10px covers the worst case: a 26px thumb at 1.15x overhangs ~2px per side and its
-     6px-blur shadow scales along with it, ~9px in total. It stays inside the panel's own
-     32px padding (20px at <=480px), so the slack lands on panel background rather than
-     past its edge, and the scrollbar gutter is subtracted to the RIGHT of the padding, so
-     it doesn't eat the slack back. */
+     This is NOT where the thumb's ink slack comes from any more -- see the padding-right
+     on .settings-field below, which reserves it inside the CONTENT box instead. This 10px
+     is just breathing room and nothing depends on it being exactly right.
+     Why it moved: the note here used to claim the scrollbar gutter is subtracted to the
+     RIGHT of this padding so it can't eat the slack back. That is false in WebKit -- Safari
+     lays a classic scrollbar over the RIGHTMOST ~15px of it, making the real slack
+     `padding - scrollbarWidth`, i.e. negative at 10px (measured in a real WebKit against a
+     flat backdrop: the shadow cut dead 1px past the thumb's edge). But raising this to 16px
+     and then 26px changed NOTHING in Aaron's Safari, which is the tell that his clip is not
+     at the padding edge either. Padding is the wrong lever; content-box space is a lever
+     that works whatever the engine clips at. */
   padding-inline: 10px;
   margin-inline: -10px;
   overscroll-behavior: contain;
@@ -1368,12 +1374,27 @@
 }
 
 /* Settings fields (the labeled rows in the Video tab) */
+/* padding-right is the thumb's shadow room, and it is deliberately HERE rather than on the
+   scroller. A range thumb's drop shadow, and its 1.15x hover scale, overhang the input by
+   ~9px, and every control in this panel sits flush against the scroller's content edge --
+   so that ink had to paint into the scroller's own padding, where it is at the mercy of
+   whatever the engine decides to clip at. Safari clips it (Aaron, 2026-08-21: cut off on
+   the right, whole again while hovered); raising the scroller's padding 10 -> 16 -> 26px
+   did not move it at all, which is what proves the padding edge is not his clip edge.
+   Reserving the space inside the CONTENT box is immune to that question entirely: the
+   shadow now finishes ~1px short of where content ends, so there is nothing overhanging for
+   an ancestor -- or a classic scrollbar laid over the padding -- to cut. Costs every control
+   10px of width, uniformly, which is why it is on the row and not on the sliders alone
+   (moving only the sliders would misalign them against the toggles and selects). */
 .display-canvas .controls-inner .settings-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   width: 100%;
-  padding: 10px 0;
+  /* Right padding is the shadow room (see the note above). It must live in the shorthand:
+     a separate padding-right ABOVE this line is silently wiped out by it. */
+  padding: 10px 10px 10px 0;
   border-bottom: 1px solid rgba(250, 250, 250, 0.06);
 }
 /* No rule under the LAST field of a tab -- it fences the settings off from the BACK button
@@ -1570,10 +1591,26 @@
    a much taller box (--slider-touch-height) with the thin track/thumb vertically centered
    in it -- browsers center a style-reset range thumb within its element's box height by
    default, so this widens the hit area without changing the visual weight of the control. */
+/* 190px is the width these want, not a width they're guaranteed. They used to be
+   flex-shrink: 0, which at a 320px viewport overflowed this tab's scroller horizontally by
+   23px -- the sliders themselves, not any label: the panel is calc(100% - 40px) with 20px
+   of padding there, so a .settings-field is 240px, and 190px of unshrinkable slider left
+   only 50px for a label whose longest word ("Coherence") measures 82.6px. Worst row
+   overhung its own field by 32.6px, of which the scroller's ink padding absorbed part and
+   the remaining 23px became real scroll.
+   Shrinking rather than stacking the row: every other field in the panel reads label-left /
+   control-right, and panel HEIGHT is the scarce axis here (see the max-height note above --
+   the 2D Video tab already needs 584px against an iPhone's ~636px), so dropping five
+   sliders onto their own lines spends the constrained axis to fix the roomy one.
+   min-width is a guard rail, not a working value: at 320px the widest label leaves 145px,
+   so the floor doesn't bind on any label in the panel today. The gap on .settings-field is
+   what keeps a shrunk slider off its label -- space-between alone lets them touch once the
+   slack is gone, and it is a no-op at every width where slack remains. */
 .display-canvas .controls-inner .settings-range,
 .display-canvas .controls-inner .settings-range-dual {
   width: 190px;
-  flex-shrink: 0;
+  min-width: 130px;
+  flex-shrink: 1;
   --slider-touch-height: 40px;
   --slider-track-height: 4px;
   --slider-thumb-size: 26px;

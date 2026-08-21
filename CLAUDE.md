@@ -178,9 +178,54 @@ the actual print, generated the same deterministic way.
   going to two lines at a 360px viewport (234px against a 300px scroller) while Video's longest
   note, "Speed Ramp ease in and out each loop", fits at 222px. Bare it is 116px and fits at
   every width down to 320px, where four other Geometry rows already wrap. The aria-label spells
-  out the referent for screen readers. (Unrelated and pre-existing, found while measuring: at
-  320px the `settings-range` sliders overflow this tab's scroller horizontally by 23px — the
-  sliders, measured, not any label.)
+  out the referent for screen readers.
+  (**Fixed 2026-08-21**, having been found while measuring the above: at 320px the
+  `settings-range` sliders overflowed this tab's scroller horizontally by 23px — the sliders,
+  measured, not any label. They were `flex-shrink: 0` at a fixed 190px, leaving 50px of a
+  240px field for a label whose longest word, "Coherence", measures 82.6px; the worst row
+  overhung its own field by 32.6px. They now shrink against a 130px floor that binds on
+  nothing in the panel today, with an 8px `gap` keeping a shrunk slider off its label.
+  **Shrinking rather than stacking the rows, because panel HEIGHT is the scarce axis here** —
+  the 2D Video tab already needs 584px against an iPhone's ~636px, so five sliders on their
+  own lines would spend the constrained axis to fix the roomy one. Verified by dumping every
+  element's geometry across 6 widths × all 3 tabs: **nothing moves at all at 390px and up**,
+  scroll heights are identical everywhere, and only the Geometry tab at 360/320 changes.
+  Aaron separately reported the thumb's shadow cut off on the right — a **different bug with
+  a different cause**, also fixed. The thumb's drop shadow and its 1.15x hover scale overhang
+  the input by ~9px, and every control in the panel sits flush against the scroller's content
+  edge, so that ink had to paint into the scroller's own `padding-inline` — where it is at
+  the mercy of whatever the engine clips at. **It is now reserved inside the CONTENT box
+  instead** (`padding-right: 10px` on `.settings-field`), which is immune to that question:
+  the shadow finishes ~1px short of where content ends, so nothing overhangs for any ancestor
+  to cut. Costs every control 10px of width, uniformly — on the row, not the sliders alone,
+  which would misalign them against the toggles and selects.
+  **The 10px does not cost mobile anything, measured on real phone viewports** (320x568 /
+  360x640 / 375x635 / 390x664 / 430x741, all three tabs): the panel still fits the viewport
+  at every size, horizontal overflow is 0 everywhere, and sliders keep their full 190px on
+  iPhone 15 and Pro Max. The only cost lands where slack already existed — the Video tab
+  already scrolled on the three smallest phones (the panel caps at `100dvh - 32px` by
+  design), and the hidden amount grows 7px at 320 and 360 from one extra wrapped label line.
+  **Diagnosis, which took several wrong turns worth not repeating:**
+  (1) It is **asymmetric — right side only** (Aaron: not cut on the left), and **immune to the
+  scroller's padding**: raising it 10 → 16 → 26px changed nothing for him. Together those say
+  the clip on the scrollbar side sits at the CONTENT edge while the left still clips at the
+  padding edge, so padding was simply the wrong lever.
+  (2) **None of it reproduces in Playwright's WebKit**, which clips correctly at the padding
+  box and reports scrollbar width 0 — so a headless WebKit is not a stand-in for Safari here,
+  and the only decisive evidence came from Aaron's own browser.
+  (3) **The input does not clip its own thumb**: a thumb at max renders byte-identically to
+  the same thumb mid-track, both engines. The clip was always an ancestor.
+  (4) **A transform does not let the thumb escape an ancestor clip** — rest and 1.15x clip at
+  the identical pixel. Hover looks whole for an unrelated reason: a 1.15x shadow is still
+  strong where a resting one has faded to nothing (darkness 29 vs 11), so the same cut reads
+  as a hard edge on one and is invisible on the other.
+  (5) **Diffing "clip edge near" against "clip edge far" cannot see a clip both captures
+  share**, which is why the first few measurements came back clean. The control that works is
+  the same thumb mid-track, where nothing can clip it.
+  (6) A real WebKit finding, true but NOT his bug: a classic (non-overlay) scrollbar is laid
+  over the RIGHTMOST ~15px of the scroller's padding, making the real slack
+  `padding − scrollbarWidth`. That is why the scroller's padding is no longer load-bearing
+  and is back at its original 10px.)
   Kept opt-in because the default reads well while the figure is small — the
   complaint is specifically about large/high-coherence geometry, where `latticeCells()` is a
   near-complete fill of overlapping cells and buries the layer beneath it.
