@@ -169,7 +169,59 @@ Deno.serve(async req => {
     // -- the array shape is what PRODUCT_MOCKUP_CONFIG carries and what the v1 ORDER path also
     // consumes, so it stays the one representation everything else speaks.
     const body = await req.json();
-    const { productId, variantIds, files, format = "jpg", productOptions } = body;
+    const { productId, variantIds, format = "jpg", productOptions } = body;
+    let files = body.files;
+
+    // BACKWARD COMPATIBILITY with the pre-v1-migration client, which sent v2-shaped
+    // `placements` ([{ placement, technique, layers: [{ type: 'file', url }] }]) and no
+    // `files`. Without this the migration is a breaking change in BOTH directions and the
+    // function and the frontend have to land in the same instant -- which for a
+    // GitHub-Actions deploy is minutes, during which every mockup on the live site fails.
+    // With it, this function can ship on its own and keep serving whatever bundle a browser
+    // is still holding (index.html is no-cache, so that is short-lived, but a long-open tab
+    // is real). Costs one extra Printful GET, and only on the legacy path.
+    // SAFE TO DELETE once no browser can still be running a bundle from before 2026-08-21.
+    if (!files && Array.isArray(body.placements)) {
+      const specsRes = await fetch(
+        `${PRINTFUL_API_BASE}/mockup-generator/printfiles/${encodeURIComponent(productId)}`,
+        { headers: printfulHeaders }
+      );
+      const specs = (await specsRes.json())?.result;
+      const variantPrintfiles = specs?.variant_printfiles?.find(
+        (v: { variant_id: number }) => v.variant_id === variantIds?.[0]
+      );
+      if (!variantPrintfiles) {
+        return Response.json(
+          { error: "Could not resolve print areas for this variant" },
+          { status: 502, headers: corsHeaders }
+        );
+      }
+      files = body.placements
+        .map((pl: { placement: string; layers?: { url?: string }[] }) => {
+          const printfileId = variantPrintfiles.placements[pl.placement];
+          const spec = specs.printfiles.find(
+            (f: { printfile_id: number }) => f.printfile_id === printfileId
+          );
+          const url = pl.layers?.[0]?.url;
+          if (!spec || !url) return null;
+          return {
+            placement: pl.placement,
+            image_url: url,
+            position: {
+              area_width: spec.width, area_height: spec.height,
+              width: spec.width, height: spec.height, top: 0, left: 0
+            }
+          };
+        })
+        .filter(Boolean);
+    }
+
+    if (!files?.length) {
+      return Response.json(
+        { error: "files (or legacy placements) is required" },
+        { status: 400, headers: corsHeaders }
+      );
+    }
 
     const productOptionsObject = Array.isArray(productOptions)
       ? Object.fromEntries(productOptions.map((o: { name: string; value: unknown }) => [o.name, o.value]))
@@ -216,8 +268,16 @@ Deno.serve(async req => {
       );
     }
     // Normalized to { id, status } so the client never learns v1 calls this a task_key.
+    // `data: [...]` is the same object again under v2's envelope, purely so a pre-migration
+    // bundle's `data.data[0]` keeps working -- delete it with the legacy request path above.
     return Response.json(
-      printfulRes.ok ? { id: data.result?.task_key, status: data.result?.status } : data,
+      printfulRes.ok
+        ? {
+            id: data.result?.task_key,
+            status: data.result?.status,
+            data: [{ id: data.result?.task_key, status: data.result?.status }]
+          }
+        : data,
       { status: printfulRes.status, headers: corsHeaders }
     );
   }
@@ -262,8 +322,30 @@ Deno.serve(async req => {
       add(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
       for (const e of m.extra ?? []) add(e.url, e.title);
     }
+    const mockups = [...byUrl.values()];
+    // As with the POST above, `data: [...]` mirrors the list under v2's envelope so a
+    // pre-migration bundle keeps rendering. Its dedupe key was `style_id`, so one is
+    // synthesized per photo -- the photos are already unique here, so sequential ids are
+    // exactly right. Its sort (indexOf against the style ids it requested) finds none of
+    // them, returns -1 for every entry, and therefore leaves this order untouched.
+    // Delete alongside the legacy request path above.
     return Response.json(
-      { id: taskId, status: result.status, error: result.error ?? null, mockups: [...byUrl.values()] },
+      {
+        id: taskId,
+        status: result.status,
+        error: result.error ?? null,
+        mockups,
+        data: [
+          {
+            id: taskId,
+            status: result.status,
+            failure_reasons: result.error ? [{ type: "error", detail: result.error }] : [],
+            catalog_variant_mockups: [
+              { mockups: mockups.map((m, i) => ({ ...m, style_id: i + 1 })) }
+            ]
+          }
+        ]
+      },
       { status: 200, headers: corsHeaders }
     );
   }
