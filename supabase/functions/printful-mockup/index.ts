@@ -4,27 +4,50 @@
 // charge anything; it's a free preview render. Still gated behind verify_jwt so only
 // signed-in app users can spend Printful's (rate-limited) mockup quota.
 //
-// Uses the v2 Mockup Generator API (/v2/mockup-tasks), not v1
-// (/mockup-generator/create-task). v1 returned a task_key and accepted the task but every
-// actual render came back "Internal Server Error" for our all-over-print products -- v1's
-// mockup generator predates AOP/cut-and-sew construction. v2 models a placement as
-// { placement, technique, layers: [{ type: 'file', url }] } instead of v1's flat
-// { placement, image_url, position }, and requires the X-PF-Store-Id header v1 doesn't use.
+// Uses the STABLE v1 Mockup Generator API (/mockup-generator/create-task), migrated off v2
+// on 2026-08-21. The header here used to say v1 "returned a task_key and accepted the task but
+// every actual render came back Internal Server Error for our all-over-print products".
+// **That is no longer true** -- re-tested against all 15 products, every one renders, and v1
+// covers every placement we use plus two v2 cannot express at all (the mesh shorts' `back`
+// panel and the track jacket's `details` strip). Reasons for moving:
+//   - v2 is an unsupported beta with no published end date; v1 is stable, and orders already
+//     run on v1 (ported 2026-07-15 when v2's order pipeline failed on `label_inside`).
+//   - Speed. Measured, three repeats each, create -> completed: t-shirt 6.6s vs 17.0s,
+//     zip hoodie 8.9s vs 32.9s, mesh shorts 4.6s vs 17.6s. v1 barely scales with placement
+//     count (4 -> 6 placements costs it 2.3s and cost v2 16s) and its variance is +/-0.09s
+//     where v2 swung 28.6-35.1s on the same request.
+//   - No more mockup style ids. v2 needed a hand-maintained style id per product, and per
+//     VARIANT on the pillow and bandana -- the mechanism that silently broke every pillow
+//     size except 18"x18" when Printful restricted those styles. v1 has no such concept.
+// Shape differences that matter:
+//   - A placement is flat { placement, image_url, position } instead of v2's
+//     { placement, technique, layers: [...] }. `position` is REQUIRED (400 "Position field
+//     is missing" without it); the client builds it from printfile specs it already holds.
+//   - `product_options` must be a JSON OBJECT ({ stitch_color: "white" }), not v2's array of
+//     { name, value }. Sending the array 400s. (`options` is a different thing entirely -- a
+//     filter over mockup variants -- and sending stitch_color there fails with "No variants
+//     to generate".)
+//   - No X-PF-Store-Id header.
+//   - Polling is by `task_key`, and the result is normalized here (see GET) so the client
+//     never sees v1's mockups/extra split.
+// Deliberately NOT sending `option_groups`: v1's default output is four on-model angles
+// (front, back, both three-quarters) at no extra time cost -- measured 6.6s either way --
+// and the three-quarter views are the only ones that ever show a customer their sleeve
+// artwork. Passing option_groups: ["Flat"] reproduces v2's old flat lay near-exactly
+// (RMSE 2.72) if that is ever wanted back.
 //
 // Deploy with: npx supabase functions deploy printful-mockup
 
 import { checkRateLimitVerbose } from "../_shared/rateLimit.ts";
 
-const PRINTFUL_API_BASE = "https://api.printful.com/v2";
+const PRINTFUL_API_BASE = "https://api.printful.com";
 
-// Not a secret -- store IDs are just account identifiers, same sensitivity as a username.
-const STORE_ID = "18363066";
 // Only gates task creation (POST) -- that's the action that actually spends Printful's
 // mockup quota; polling an already-created task (GET) doesn't.
 const RATE_LIMIT = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 
-// Printful's REAL constraint on POST /v2/mockup-tasks, read live off their own
+// Printful's REAL constraint on create-task, read live off their own
 // x-ratelimit-* headers (undocumented): shared across every user of the app, not
 // per-user -- our own RATE_LIMIT above is far looser and was never the binding one
 // (see TODO.md). GLOBAL_USER_ID is a fixed sentinel (not a real user) so this reuses
@@ -34,6 +57,18 @@ const RATE_LIMIT_WINDOW_SECONDS = 60;
 // built (2026-07-17) and is 10/60s as of 2026-08-19 (x-ratelimit-limit: 10). Keep it at
 // or below their header value -- the passthrough-429 path below is the safety net if
 // they lower it again, not a substitute for this gate.
+// Human labels for the filmstrip's tooltips. v1 names a photo after the PLACEMENT that
+// produced it, which is an implementation detail and occasionally a lie about what you are
+// looking at -- the photo for `sleeve_left` on a t-shirt is a three-quarter shot of the whole
+// garment, not a sleeve close-up. Anything unmapped falls through to Printful's own string.
+const PLACEMENT_LABELS: Record<string, string> = {
+  default: "Front", front: "Front", back: "Back",
+  sleeve_left: "Left", sleeve_right: "Right",
+  hood: "Hood", pocket: "Pocket", details: "Details",
+  outside_front: "Front", outside_back: "Back",
+  inside_front: "Inside front", inside_back: "Inside back"
+};
+
 const GLOBAL_USER_ID = "00000000-0000-0000-0000-000000000000";
 const GLOBAL_RATE_LIMIT = 10;
 const GLOBAL_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -117,7 +152,6 @@ Deno.serve(async req => {
 
   const printfulHeaders = {
     Authorization: `Bearer ${apiKey}`,
-    "X-PF-Store-Id": STORE_ID,
     "Content-Type": "application/json"
   };
 
@@ -125,34 +159,37 @@ Deno.serve(async req => {
 
   if (req.method === "POST") {
     // Create a mockup task.
-    // Body: { productId, variantIds, placements: [{ placement, technique, layers: [{ type, url }] }],
-    //         format, productOptions?, mockupStyleIds? } -- productOptions covers per-product
-    //         config some catalog items require (e.g. this hoodie's stitch_color), surfaced by
-    //         GET /products/{id} -> result.product.options. mockupStyleIds picks which
-    //         photographed camera angles to render (Flat Front, Flat Back, etc.) -- surfaced by
-    //         GET /v2/catalog-products/{id}/mockup-styles. Without it Printful silently defaults
-    //         to a single style no matter how many `placements` are submitted; placements alone
-    //         only supply the artwork, they don't control how many preview photos come back.
+    // Body: { productId, variantIds, files: [{ placement, image_url, position }], format,
+    //         productOptions? } -- `files` arrives already in v1 shape because the client is
+    //         the side that holds the printfile specs `position` is computed from (it fetches
+    //         them to render the artwork in the first place), so building it here would mean a
+    //         second round trip to Printful for numbers we already have.
+    // productOptions is our own [{ name, value }] config shape (e.g. the zip hoodie's required
+    // stitch_color); v1 wants a JSON object, so it is converted here rather than in the client
+    // -- the array shape is what PRODUCT_MOCKUP_CONFIG carries and what the v1 ORDER path also
+    // consumes, so it stays the one representation everything else speaks.
     const body = await req.json();
-    const { productId, variantIds, placements, format = "jpg", productOptions, mockupStyleIds } = body;
+    const { productId, variantIds, files, format = "jpg", productOptions } = body;
 
-    const printfulRes = await fetch(`${PRINTFUL_API_BASE}/mockup-tasks`, {
-      method: "POST",
-      headers: printfulHeaders,
-      body: JSON.stringify({
-        format,
-        products: [
-          {
-            source: "catalog",
-            catalog_product_id: productId,
-            catalog_variant_ids: variantIds,
-            placements,
-            ...(productOptions ? { product_options: productOptions } : {}),
-            ...(mockupStyleIds ? { mockup_style_ids: mockupStyleIds } : {})
-          }
-        ]
-      })
-    });
+    const productOptionsObject = Array.isArray(productOptions)
+      ? Object.fromEntries(productOptions.map((o: { name: string; value: unknown }) => [o.name, o.value]))
+      : productOptions;
+
+    const printfulRes = await fetch(
+      `${PRINTFUL_API_BASE}/mockup-generator/create-task/${encodeURIComponent(productId)}`,
+      {
+        method: "POST",
+        headers: printfulHeaders,
+        body: JSON.stringify({
+          variant_ids: variantIds,
+          format,
+          files,
+          ...(productOptionsObject && Object.keys(productOptionsObject).length
+            ? { product_options: productOptionsObject }
+            : {})
+        })
+      }
+    );
     const data = await printfulRes.json();
     if (!printfulRes.ok) {
       // Without this, get_logs only shows "POST | 400" with no indication of WHY
@@ -178,22 +215,57 @@ Deno.serve(async req => {
         { status: 429, headers: corsHeaders }
       );
     }
-    return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
+    // Normalized to { id, status } so the client never learns v1 calls this a task_key.
+    return Response.json(
+      printfulRes.ok ? { id: data.result?.task_key, status: data.result?.status } : data,
+      { status: printfulRes.status, headers: corsHeaders }
+    );
   }
 
   if (req.method === "GET") {
-    // Poll a task: /printful-mockup?id=xxx
+    // Poll a task: /printful-mockup?id=xxx  (the id is v1's task_key)
     const taskId = url.searchParams.get("id");
     if (!taskId) {
       return Response.json({ error: "id is required" }, { status: 400, headers: corsHeaders });
     }
 
     const printfulRes = await fetch(
-      `${PRINTFUL_API_BASE}/mockup-tasks?id=${encodeURIComponent(taskId)}`,
+      `${PRINTFUL_API_BASE}/mockup-generator/task?task_key=${encodeURIComponent(taskId)}`,
       { headers: printfulHeaders }
     );
     const data = await printfulRes.json();
-    return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
+    if (!printfulRes.ok) {
+      return Response.json(data, { status: printfulRes.status, headers: corsHeaders });
+    }
+
+    // Flatten v1's two-level result into one ordered, de-duplicated list of preview photos.
+    // Two things make that necessary. v1 splits a render across `mockups[]` (one entry per
+    // submitted placement) and each entry's `extra[]` (the other camera angles of that same
+    // garment) -- the client only ever wants "the photos", not which placement produced them.
+    // And several placements routinely resolve to the SAME photo (on the zip hoodie all six
+    // collapse onto just two), so the list must be de-duped by URL or the filmstrip fills with
+    // identical thumbnails. Insertion order is preserved, which puts the front view first
+    // because the front placement is submitted first.
+    const result = data.result ?? {};
+    const byUrl = new Map<string, { mockup_url: string; display_name: string }>();
+    // Labels can legitimately repeat across DIFFERENT photos -- the mesh shorts return two
+    // distinct images both called "Front" -- so names are made unique for the filmstrip's
+    // tooltips. Deduping by name instead would throw a real photo away.
+    const nameCounts = new Map<string, number>();
+    const add = (mockupUrl: string | undefined, rawName: string) => {
+      if (!mockupUrl || byUrl.has(mockupUrl)) return;
+      const seen = (nameCounts.get(rawName) ?? 0) + 1;
+      nameCounts.set(rawName, seen);
+      byUrl.set(mockupUrl, { mockup_url: mockupUrl, display_name: seen > 1 ? `${rawName} ${seen}` : rawName });
+    };
+    for (const m of result.mockups ?? []) {
+      add(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+      for (const e of m.extra ?? []) add(e.url, e.title);
+    }
+    return Response.json(
+      { id: taskId, status: result.status, error: result.error ?? null, mockups: [...byUrl.values()] },
+      { status: 200, headers: corsHeaders }
+    );
   }
 
   return Response.json({ error: "Method not allowed" }, { status: 405, headers: corsHeaders });

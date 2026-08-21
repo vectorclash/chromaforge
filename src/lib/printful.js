@@ -181,12 +181,6 @@ export function getMockupConfigForProduct(productId) {
   return PRODUCT_MOCKUP_CONFIG[productId] || { technique: 'cut-sew' };
 }
 
-// Some products (the pillow, 83) restrict each mockup style to specific variants, so the
-// style pair to request depends on which variant is selected -- see 83's config comment.
-export function resolveMockupStyleIds(cfg, variantId) {
-  return cfg.mockupStyleIdsByVariant?.[variantId] || cfg.mockupStyleIds;
-}
-
 // Printful's real per-product valid values for the stitch_color option (GET /products/:id
 // -> result.product.options, already reaching the browser unfiltered via getCatalogProduct's
 // `...data.result` spread -- see printful-catalog/index.ts's pass-through). Confirmed live for
@@ -857,26 +851,52 @@ export async function unwrapFunctionsError(error) {
   }
 }
 
-// Creates a Printful v2 mockup-generation task. `placements` is
-// [{ placement, technique, layers: [{ type: 'file', url }] }, ...] -- one entry per
-// placement the chosen variant needs (see getPrintfileSpecs' variant_printfiles).
-// `mockupStyleIds` picks which photographed camera angles to render those placements
-// into (see PRODUCT_MOCKUP_CONFIG above) -- without it Printful defaults to a single style.
-export async function createMockupTask({
-  productId,
-  variantIds,
-  placements,
-  productOptions,
-  mockupStyleIds
-}) {
+// The `files` array for a v1 mockup task: one entry per placement, each carrying the artwork
+// URL and the print area it fills. `position` is REQUIRED by v1 (the task 400s with "Position
+// field is missing" without it) and is built here rather than in the Edge Function because
+// `printfileSpecs` is already in the browser's hands -- it was fetched to render the artwork
+// in the first place, so deriving it server-side would mean a second Printful round trip for
+// numbers we hold.
+//
+// The window is always the FULL print area (top/left 0, width/height = the printfile's own
+// dimensions). That is the same "fill the whole printfile" rule the real order path uses, and
+// it is what keeps a preview honest: the mockup and the print file are then framed alike.
+// `entries` is resolvePlacementEntries' [placementKey, printfileId] pairs.
+export function buildMockupFiles(entries, printfileSpecs, urlsByPlacement) {
+  return entries
+    .filter(([placementKey]) => urlsByPlacement[placementKey])
+    .map(([placementKey, printfileId]) => {
+      const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
+      if (!spec) throw new Error(`No printfile ${printfileId} for placement ${placementKey}`);
+      return {
+        placement: placementKey,
+        image_url: urlsByPlacement[placementKey],
+        position: {
+          area_width: spec.width,
+          area_height: spec.height,
+          width: spec.width,
+          height: spec.height,
+          top: 0,
+          left: 0
+        }
+      };
+    });
+}
+
+// Creates a Printful v1 mockup-generation task (see printful-mockup/index.ts's header for why
+// v1 rather than the v2 beta). `files` comes from buildMockupFiles above. There is no style
+// parameter: v1 chooses the camera angles itself and returns four on-model views at no extra
+// time cost, which is exactly why the per-product (and per-variant) style-id tables v2 needed
+// are gone.
+export async function createMockupTask({ productId, variantIds, files, productOptions }) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.functions.invoke('printful-mockup', {
     method: 'POST',
-    body: { productId, variantIds, placements, productOptions, mockupStyleIds, format: 'jpg' }
+    body: { productId, variantIds, files, productOptions, format: 'jpg' }
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Mockup task creation failed');
-  return data.data[0]; // { id, status, ... }
+  return data; // { id, status }
 }
 
 export async function getMockupTask(taskId) {
@@ -886,5 +906,6 @@ export async function getMockupTask(taskId) {
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Mockup task lookup failed');
-  return data.data[0]; // { id, status, catalog_variant_mockups, failure_reasons }
+  return data; // { id, status, error, mockups: [{ mockup_url, display_name }] } -- flattened
+               // and de-duplicated by the Edge Function, front view first.
 }

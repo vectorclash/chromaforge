@@ -1705,7 +1705,7 @@ export default function ProductPage() {
             <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
               {images.map((m, i) => (
                 <button
-                  key={m.style_id}
+                  key={m.mockup_url}
                   type="button"
                   onClick={() => setActiveImageIndex(i)}
                   aria-pressed={i === activeImageIndex}

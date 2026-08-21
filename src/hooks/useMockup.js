@@ -3,7 +3,7 @@ import {
   createMockupTask,
   getMockupTask,
   getMockupConfigForProduct,
-  resolveMockupStyleIds,
+  buildMockupFiles,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   capRenderStrategy,
@@ -11,7 +11,7 @@ import {
 } from '../lib/printful';
 import { useStudio } from '../context/StudioContext';
 
-// Drives a Printful v2 mockup-generation task for the current design on a chosen product
+// Drives a Printful v1 mockup-generation task for the current design on a chosen product
 // variant. Ported out of DisplayCanvas: render each unique printfile size from the design
 // (off-canvas via StudioContext.renderDesignBlob), upload, create the task, poll, dedupe.
 // The render+upload step (renderAndUploadPrintFiles) is shared with the real checkout flow
@@ -25,7 +25,9 @@ const POLL_MAX_TRIES = 45;
 export const BUSY_STATUSES = ['rendering', 'creating', 'polling', 'queued'];
 
 // Printful's mockup-task creation endpoint has a hard, undocumented, STORE-WIDE cap --
-// measured live at 2 POST /v2/mockup-tasks per 60s, shared across every user of the app
+// measured live at 10 create-task calls per 60s, shared across every user of the app -- and
+// shared between BOTH API versions, verified 2026-08-21 by alternating v1 and v2 creates
+// inside one window and watching a single counter decrement
 // (see TODO.md), not per-user -- our own edge function's per-user limiter was never the
 // binding constraint. printful-mockup now enforces a matching global gate and reports
 // `retryAfterSeconds` on either its own 429 or a real one passed through from Printful
@@ -88,11 +90,12 @@ function persistMockup(key, images) {
   }
 }
 
-// failure_reasons is an array of { type, detail, source, valid_values } objects, not
-// strings -- joining it directly (as this used to) renders as "[object Object]".
-function describeFailure(reasons) {
-  const detail = reasons?.map(r => r.detail || r.type).filter(Boolean).join('; ');
-  return detail || 'Mockup generation failed.';
+// v1 reports a failed task as a single `error` string (v2 used an array of
+// { type, detail, source, valid_values } objects, which is why this used to do more work --
+// joining those directly rendered as "[object Object]"). Kept as a function so a null/blank
+// error still produces something a customer can read.
+function describeFailure(error) {
+  return (typeof error === 'string' && error.trim()) || 'Mockup generation failed.';
 }
 
 // `geometryPlacements` (a Set of placement keys, or null for "everywhere") is the
@@ -102,7 +105,7 @@ function describeFailure(reasons) {
 // different selection. `geometryLayout` (see printful.js's renderAndUploadPrintFiles) is
 // the same idea for the two-leg-canvas layout toggle. `productOptions` (e.g. stitch color,
 // see ProductPage.jsx's stitch-color picker) doesn't change the print file at all, but it
-// IS submitted to Printful's mockup-tasks endpoint and does change the returned photo (the
+// IS submitted to Printful's create-task endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
 function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry) {
@@ -243,18 +246,14 @@ export function useMockup() {
           legSymmetry
         });
 
-        const placements = entries.map(([placementKey]) => ({
-          placement: placementKey,
-          technique: cfg.technique,
-          layers: [{ type: 'file', url: urls[placementKey] }]
-        }));
+        const files = buildMockupFiles(entries, printfileSpecs, urls);
 
-        // Printful's v2 mockup-tasks endpoint has been confirmed live to occasionally
-        // return a bare "Internal Server Error" failure for some all-over-print products
-        // (the track jacket, 801) that then succeeds immediately on a second attempt with
-        // the exact same inputs -- a transient flake on their end, not anything wrong with
-        // what we sent. One automatic retry before surfacing a failure to the user.
-        const mockupStyleIds = resolveMockupStyleIds(cfg, variant.id);
+        // Printful's mockup generator has been confirmed live to occasionally return a bare
+        // "Internal Server Error" failure for some all-over-print products (the track jacket,
+        // 801) that then succeeds immediately on a second attempt with the exact same inputs
+        // -- a transient flake on their end, not anything wrong with what we sent. One
+        // automatic retry before surfacing a failure to the user. (Observed on v2; kept after
+        // the v1 migration because nothing suggests the render backend behind it changed.)
         let task2 = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           task2 = null;
@@ -263,9 +262,8 @@ export function useMockup() {
             {
               productId: product.id,
               variantIds: [variant.id],
-              placements,
-              productOptions: productOptions || cfg.productOptions,
-              mockupStyleIds
+              files,
+              productOptions: productOptions || cfg.productOptions
             },
             onWait
           );
@@ -281,25 +279,14 @@ export function useMockup() {
           }
           if (!task2) throw new Error('Mockup generation timed out.');
           if (task2.status === 'completed') break;
-          if (attempt === 1) throw new Error(describeFailure(task2.failure_reasons));
+          if (attempt === 1) throw new Error(describeFailure(task2.error));
         }
 
-        const mockups = task2.catalog_variant_mockups?.[0]?.mockups || [];
-        // Placements sharing a camera angle render pixel-identical images at distinct
-        // throwaway URLs -- dedupe by style_id (the photo angle), not mockup_url.
-        const seen = new Set();
-        const unique = mockups.filter(m => {
-          if (seen.has(m.style_id)) return false;
-          seen.add(m.style_id);
-          return true;
-        });
-        // Printful doesn't guarantee the response order matches the requested
-        // mockupStyleIds order (confirmed live: the track jacket comes back back-then-front
-        // even though front is requested first) -- re-sort by the requested style ids so
-        // front is always images[0] regardless of what Printful hands back.
-        unique.sort(
-          (a, b) => mockupStyleIds.indexOf(a.style_id) - mockupStyleIds.indexOf(b.style_id)
-        );
+        // Already flattened, de-duplicated by URL and ordered front-first by the Edge
+        // Function (see its GET handler) -- v1's mockups/extra split and the fact that several
+        // placements routinely resolve to the same photo are both handled there, so nothing is
+        // left to do here but take the list.
+        const unique = task2.mockups || [];
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --

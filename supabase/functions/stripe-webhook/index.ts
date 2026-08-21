@@ -7,7 +7,8 @@
 // is entirely the signature check below, not Supabase's JWT gate.
 //
 // Printful order API: this function deliberately uses the STABLE v1 orders API, not the
-// v2 beta the mockup pipeline uses. Ported from v2 on 2026-07-15 after live-proving that
+// v2 beta. (The mockup pipeline followed it onto v1 on 2026-08-21, so nothing customer-facing
+// depends on the beta any more.) Ported from v2 on 2026-07-15 after live-proving that
 // v2's order pipeline fails any order containing the label_inside placement (~10-40s
 // after creation, via async file processing, placements silently emptied) while v1
 // processes the exact same product/placements/files cleanly -- verified with real draft

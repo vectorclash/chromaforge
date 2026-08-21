@@ -3,7 +3,8 @@
 // Why this exists: Printful's v2 API is still beta and has already changed catalog data
 // under us silently once -- the pillow (83) grew per-variant restrictions on its Default
 // Front/Back mockup styles when 14"/16" sizes were added, breaking mockups for every size
-// except 18"x18" with no signal anywhere (2026-07-12, fixed with mockupStyleIdsByVariant).
+// except 18"x18" with no signal anywhere (2026-07-12; that whole failure mode went away
+// with the v1 mockup migration on 2026-08-21 -- see the note on checks 5 and 6 below).
 // This script re-asserts, for every product in PRODUCT_MOCKUP_CONFIG, that the live
 // catalog still matches what the app hardcodes. Read-only GETs only (~3 per product, on
 // the general 120/60s rate bucket -- nowhere near the limit, and zero mockup quota).
@@ -17,13 +18,13 @@
 //     changes invalidate pocketCrop math and print-render sizing, so they must be
 //     reviewed by a human, then the baseline regenerated deliberately:
 //       node scripts/check-printful-catalog.mjs --write-baseline
-//  5. Every configured mockup style id (mockupStyleIds + mockupStyleIdsByVariant) still
-//     exists (v2 GET /catalog-products/{id}/mockup-styles).
-//  6. For every catalog variant, the style pair the app would resolve for it
-//     (mockupStyleIdsByVariant[variant] ?? mockupStyleIds, mirroring
-//     resolveMockupStyleIds) is not restricted away from that variant -- the exact
-//     failure mode the pillow hit. A NEW variant Printful adds later fails here too if
-//     the fallback pair doesn't cover it, which is precisely when a human should look.
+// Checks 5 and 6 are GONE as of 2026-08-21, and nothing replaces them. They asserted that
+// every configured mockup style id still existed, and that the pair a given variant resolved
+// to was not restricted away from it -- the pillow failure mode. The move to the v1 mockup
+// generator removed style ids from the app entirely (v1 chooses its own camera angles), so
+// there is no longer any configuration for that drift to invalidate. This is the good kind of
+// deletion: the check is unnecessary because the failure is now unrepresentable, not because
+// it stopped mattering.
 //
 // Exit code is non-zero on any finding, so the GitHub Actions cron fails loudly (GitHub's
 // own failed-workflow email is the alert channel).
@@ -57,20 +58,6 @@ async function pf(path) {
   return res.json();
 }
 
-// v2 list endpoints paginate; walk offsets until a page comes back short.
-async function pfV2AllPages(path) {
-  const limit = 100;
-  let offset = 0;
-  const all = [];
-  for (;;) {
-    const page = await pf(`${path}?limit=${limit}&offset=${offset}`);
-    const data = page.data ?? [];
-    all.push(...data);
-    if (data.length < limit) return all;
-    offset += limit;
-  }
-}
-
 const baseline = WRITE_BASELINE ? {} : JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
 const newBaseline = {};
 
@@ -82,6 +69,9 @@ for (const [idStr, cfg] of Object.entries(PRODUCT_MOCKUP_CONFIG)) {
   const { result: productResult } = await pf(`/products/${id}`);
   const product = productResult.product;
   if (product.is_discontinued) fail(`product ${id}: is_discontinued is true`);
+  // NOTE: this is the last place anything in the repo calls v2, and it is a read-only
+  // fallback in a cron-run check rather than something a customer touches. If Printful ever
+  // retires the beta, this check fails loudly, which is the correct outcome.
   // v1 and v2 disagree about which options a product has: the windbreaker (615) omits
   // stitch_color from v1's list entirely while v2 requires it on every mockup task (see
   // that product's PRODUCT_MOCKUP_CONFIG entry). So a v1 miss falls back to v2's own
@@ -131,41 +121,6 @@ for (const [idStr, cfg] of Object.entries(PRODUCT_MOCKUP_CONFIG)) {
         if (dims[pfId] !== size) {
           fail(`product ${id}: printfile ${pfId} dimensions changed ${size} -> ${dims[pfId] ?? 'GONE'}`);
         }
-      }
-    }
-  }
-
-  // 5+6: mockup style existence + per-variant coverage (v2)
-  const stylesByPlacement = await pfV2AllPages(`/v2/catalog-products/${id}/mockup-styles`);
-  // Style ids repeat across placement groupings; merge restriction lists (null = open).
-  const styleRestrictions = new Map();
-  for (const group of stylesByPlacement) {
-    for (const style of group.mockup_styles ?? []) {
-      const restricted = style.restricted_to_variants?.length ? style.restricted_to_variants : null;
-      if (!styleRestrictions.has(style.id)) {
-        styleRestrictions.set(style.id, restricted);
-      } else {
-        const prev = styleRestrictions.get(style.id);
-        styleRestrictions.set(style.id, prev && restricted ? [...new Set([...prev, ...restricted])] : null);
-      }
-    }
-  }
-  const configuredStyleIds = new Set([
-    ...(cfg.mockupStyleIds ?? []),
-    ...Object.values(cfg.mockupStyleIdsByVariant ?? {}).flat()
-  ]);
-  for (const styleId of configuredStyleIds) {
-    if (!styleRestrictions.has(styleId)) fail(`product ${id}: mockup style ${styleId} no longer exists`);
-  }
-  for (const variant of productResult.variants ?? []) {
-    const resolved = cfg.mockupStyleIdsByVariant?.[variant.id] ?? cfg.mockupStyleIds ?? [];
-    for (const styleId of resolved) {
-      const restricted = styleRestrictions.get(styleId);
-      if (restricted && !restricted.includes(variant.id)) {
-        fail(
-          `product ${id}: variant ${variant.id} (${variant.name}) resolves style ${styleId}, ` +
-            `which is restricted to variants [${restricted.join(', ')}] -- the pillow failure mode`
-        );
       }
     }
   }

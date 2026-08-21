@@ -15,12 +15,13 @@
 // There's no generic way to detect "required" from either response, so this is a small
 // hand-verified map rather than something derived.
 //
-// `mockupStyleIds` picks which photographed camera angles come back (GET
-// /v2/catalog-products/{id}/mockup-styles lists the options -- each product has dozens:
-// Flat Front/Back, Men's/Women's on-model, Lifestyle, Ghost, etc.). Every entry below
-// requests the catalog's "Flat Front" + "Flat Back" style pair, confirmed live to return
-// two distinct images. Omitting mockup_style_ids entirely makes Printful silently default
-// to one single style no matter how many placements are submitted.
+// There is deliberately NO mockup-style field here any more. It was removed 2026-08-21 with
+// the move to the v1 mockup generator, which picks its own camera angles and returns four
+// on-model views at no extra time cost. v2 required a style-id pair per product -- and per
+// VARIANT on the pillow and bandana, because Printful restricts individual styles to
+// individual variants and silently rejects the task for the rest. That is exactly how every
+// pillow size except 18"x18" broke with no signal anywhere (2026-07-12), and it is a whole
+// class of catalog drift that simply cannot happen now.
 //
 // `placements` is a DIFFERENT axis: it's which panels of the garment have artwork on them
 // *within* a single photo, not how many photos come back. A "Front" style photo of a hoodie
@@ -92,14 +93,12 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['default', 'back', 'sleeve_left', 'sleeve_right'],
-    mockupStyleIds: [15714, 15715],
     mirrorPlacements: ['back']
   }, // men's t-shirt
   388: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
-    mockupStyleIds: [20169, 20170],
     mirrorPlacements: ['back'],
 
     // The kangaroo pocket's physical region within the FRONT placement's own canvas, as a
@@ -131,14 +130,12 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right'],
-    mockupStyleIds: [18428, 18429],
     mirrorPlacements: ['back']
   }, // sweatshirt
   261: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['default', 'back', 'sleeve_left', 'sleeve_right'],
-    mockupStyleIds: [15777, 15778],
     mirrorPlacements: ['back']
   }, // women's t-shirt
   274: {
@@ -149,28 +146,17 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // the Front and Back styles without needing a second placement. 'pocket' is an inside
     // pocket, not visible in either style, but harmless to include for completeness.
     placements: ['default', 'pocket'],
-    mockupStyleIds: [16394, 16395]
   }, // tote bag
   83: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back'],
-    // Unlike every other product, the pillow's Default Front/Back style ids are
-    // restricted_to_variants per SIZE (each size is photographed separately), so a single
-    // mockupStyleIds pair only works for one variant -- Printful rejects the task for the
-    // rest. mockupStyleIdsByVariant (checked first, see resolveMockupStyleIds) maps each
-    // catalog variant id to its own Default Front/Back pair, pulled live from
-    // GET /v2/catalog-products/83/mockup-styles. mockupStyleIds stays as the 18"x18"
-    // fallback for any variant Printful adds later.
-    mockupStyleIds: [12675, 12676],
+    // Under v2 this product needed a per-VARIANT style map: its Default Front/Back style ids
+    // are restricted_to_variants per SIZE (each size is photographed separately), so one style
+    // pair worked for a single variant and Printful rejected the task for every other -- which
+    // is how all sizes but 18"x18" broke silently in 2026-07. v1 needs none of it; verified
+    // 2026-08-21 that all 5 variants render front and back with no style parameters at all.
     mirrorPlacements: ['back'],
-    mockupStyleIdsByVariant: {
-      49853: [31042, 31050], // 14"x14"
-      49854: [31049, 31051], // 16"x16"
-      4532: [12675, 12676], // 18"x18"
-      9513: [12677, 12678], // 20"x12"
-      11075: [12673, 12674] // 22"x22"
-    }
   }, // pillow
   693: {
     technique: 'cut-sew',
@@ -178,7 +164,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // No "Flat Back" style exists in this product's mockup-styles catalog (just Front,
     // on-model, and lifestyle angles) -- front is the only flat preview available.
     placements: ['front'],
-    mockupStyleIds: [8603],
     // ...but the shorts DO have a real, printed 'back' panel -- it just can't be previewed.
     // Without this override the geometry checkboxes would be derived from `placements` above
     // and offer Front only, which leaves 'back' out of ProductPage's selection Set, and
@@ -204,7 +189,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
-    mockupStyleIds: [257, 265],
     mirrorPlacements: ['back'],
 
     // This product's FRONT is two separate zip panels side by side in one canvas (split
@@ -236,7 +220,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back'],
-    mockupStyleIds: [22595, 22596],
     // Enabled 2026-07-29 alongside the shorts (693) -- same seam analysis, see
     // mirrorPlacements' comment above. This product's own measurement: leg panels at
     // x 0.147-0.492 / 0.507-0.852, own-flip IoU 0.996.
@@ -255,7 +238,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // 'details' omitted -- confirmed live to fail the task when combined with the sleeve
     // placements (see comment above). This set already covers every visible panel.
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'pocket'],
-    mockupStyleIds: [23286, 23287],
     mirrorPlacements: ['back']
     // No pocketCrop here, deliberately: checked this product's 'pocket' placement against
     // its mockup-generator templates (printful-catalog?id=801&templates=1, template
@@ -267,7 +249,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'black' }],
     placements: ['front', 'back', 'pocket', 'details'],
-    mockupStyleIds: [21376, 21377],
     mirrorPlacements: ['back']
   }, // crossbody bag
   615: {
@@ -287,7 +268,7 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // initial variant (ProductPage takes variants[0]).
     defaultColor: 'White',
     // v1 GET /products/615 does NOT list stitch_color in result.product.options at all --
-    // but v2 mockup-tasks rejects the task outright without it ("The required product
+    // but v2 mockup-tasks rejected the task outright without it ("The required product
     // option: `stitch_color` is missing"), and v2 GET /catalog-products/615 DOES list it
     // (white/clear/black). Confirmed live both ways, 2026-07-25. Two consequences:
     // getStitchColorOption reads the v1 list, so this product shows no stitch-color picker
@@ -300,7 +281,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // Front/Back photo (same treatment as the sweatshirt's interior panels). A real order
     // still fills them -- resolvePlacementEntries runs unfiltered at checkout.
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood'],
-    mockupStyleIds: [3963, 3972],
     mirrorPlacements: ['back']
   }, // windbreaker
   390: {
@@ -315,7 +295,6 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // same variant). 801 has that same gap in its preview today and can't close it for as
     // long as Printful rejects the combination there.
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'details'],
-    mockupStyleIds: [3033, 3034],
     mirrorPlacements: ['back']
   }, // bomber jacket
   654: {
@@ -328,12 +307,12 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // counterparts (4863/4864), verified by md5 on a real 4-style task; and submitting only
     // the outside placements produces byte-identical photos to submitting all four, so the
     // inside placements contribute nothing to any preview. So the mockup set is the two
-    // outside placements only (including the inside ones would just burn renders, and the
-    // duplicate style ids would show the customer the same photo twice -- useMockup dedupes
-    // by style_id, which can't catch two ids serving one image). The inside panels are
-    // still really printed: checkout submits every placement unfiltered.
+    // outside placements only -- including the inside ones would just burn renders. (Under
+    // v2 they would also have shown the customer the same photo twice, since dedupe was by
+    // style id and two ids served one image; the v1 path dedupes by URL, so it would catch
+    // that on its own.) The inside panels are still really printed: checkout submits every
+    // placement unfiltered.
     placements: ['outside_front', 'outside_back'],
-    mockupStyleIds: [4863, 4864],
     // The printed-but-unphotographed inside panels above are exactly why this override
     // exists -- see getGeometryPlacementOptions in printful.js.
     geometryPlacementKeys: ['outside_front', 'outside_back', 'inside_front', 'inside_back'],
@@ -388,21 +367,13 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // checkout, which is also why the draft-order check (scripts/check-printful-draft-orders.mjs,
     // run 2026-07-27) matters more here than the passing mockup does.
     placements: ['front'],
-    // No "Flat Back" style exists, so this is the only product whose second view isn't the
-    // Flat Front/Back pair: it's the catalog's "Product details" macro shot, a real close-up
-    // of the customer's own artwork on the fabric with the hemmed edge. The three Lifestyle
-    // styles are deliberately skipped -- they photograph the bandana knotted in hair or on a
-    // bag handle, which shows a twisted sliver of the design rather than the design.
-    // Every style on this product is restricted_to_variants a SINGLE size, so one shared pair
-    // would fail for two of the three sizes -- the pillow's (83) failure mode, handled the
-    // same way. mockupStyleIds is the S fallback for any variant Printful adds later;
-    // check-printful-catalog.mjs fails loudly if it ever actually resolves for one.
-    mockupStyleIds: [4350, 4356],
-    mockupStyleIdsByVariant: {
-      16031: [4350, 4356], // S
-      16032: [4353, 4357], // M
-      16033: [4355, 4358] // L
-    }
+    // This product has no "Flat Back" style at all, and under v2 that made it the awkward
+    // one: its second view had to be the catalog's "Product details" macro shot, every style
+    // was restricted_to_variants a SINGLE size (so one shared pair failed for two of the three
+    // sizes, the pillow's failure mode), and the three Lifestyle styles had to be avoided
+    // because they photograph the bandana knotted in hair or on a bag handle. v1 resolves all
+    // of that by itself -- verified 2026-08-21 that all three sizes return two views, the
+    // second being that same "Product details" close-up, with no configuration.
     // No mirrorPlacements: there's no 'back' placement to mirror (same as the tote, 274).
     // The single square has no seam for a pattern to restart at.
   } // bandana

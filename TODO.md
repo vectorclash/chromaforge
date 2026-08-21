@@ -5,7 +5,7 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
-## Closed incident, with two open follow-ups (2026-08-19)
+## Closed incident, both follow-ups deferred (2026-08-19)
 
 - [x] **Printful could not fetch our Supabase Storage URLs — every mockup task hung
       `pending` forever.** Store was off 05:43–14:40 UTC (~9h). **Recovered upstream on its
@@ -17,21 +17,31 @@ tracks what's true now, not history.
       window there were zero 401/403/5xx to anyone but my own probes, and Printful's
       fetcher demonstrably reached our storage — 7 HEADs per upload, **all 200**. The fault
       is inside Printful, after a successful fetch. **It can recur.**
-- [ ] **Ask Printful why tasks `959089343` / `959089912` / `959090827` never completed
-      despite their fetcher receiving HTTP 200.** **The message is written and ready to
-      send: `docs/incidents/2026-08-19-printful-support-question.md`.** It assembles §16.5's
-      wording with two things that pointer alone misses — §3's paired control (byte-identical
-      file, only the host differs: external completed in 9s, Supabase hung) and §20's
-      Cloudflare-challenge question, which is the single most diagnostic thing they can
-      answer from their side. Lead with the access-log evidence (7 HEADs, all 200) rather
-      than asking whether they could fetch it, which the logs already answer.
+- [~] **Ask Printful why tasks `959089343` / `959089912` / `959090827` never completed
+      despite their fetcher receiving HTTP 200 — DEFERRED 2026-08-21, Aaron's call.** Their
+      support "is not at all helpful", so the expected value of sending it is low. **The
+      message is written and ready to send** if this ever recurs:
+      `docs/incidents/2026-08-19-printful-support-question.md`. It assembles §16.5's wording
+      with §3's paired control (byte-identical file, only the host differs: external
+      completed in 9s, Supabase hung) and §20's Cloudflare-challenge question, which is the
+      one thing only they can answer. Lead with the access-log evidence (7 HEADs, all 200),
+      never with "can you fetch our URL" — the logs already answer that.
       Re-verified 2026-08-21: all three still `pending` with empty `failure_reasons`, still
-      queryable — the evidence is live, two days on.
-- [ ] **Consider a mockup canary + faster failure** (incident log §15). A scheduled task
-      against a known Storage URL that alerts if still `pending` after ~60s would have
-      caught this before Aaron did. Related: our poll burns 180s then retries the whole
-      thing (~6 min) before the customer sees anything, even though a stuck task provably
-      never recovers.
+      queryable. Unknown how long Printful keeps a stalled task, so the evidence may not
+      keep indefinitely.
+- [~] **Mockup canary + faster failure — DEFERRED 2026-08-21, Aaron's call.** "This may never
+      happen again"; build it only if it recurs. Costed first: Supabase was never the
+      constraint (hourly = 720 invocations, 0.14% of the free tier's 500K, and ~72MB of a
+      5GB egress allowance). The real cost is that **every run adds a file to Printful's
+      library permanently — they expose no delete or list API** (see the deferred item on
+      that), so it is unbounded accumulation on someone else's system.
+      Two design constraints worth keeping if it is ever built: a cheap "can Printful fetch
+      our file" probe would NOT have caught this outage (their fetcher reached us and got
+      200 every time — only a task that never completes is observable), so the canary must
+      create a real mockup task; and `cleanup-storage` would delete its source file after
+      3 days without a keep rule. Hourly caps exposure at ~1h against the 9h this ran.
+      Still true regardless: our poll burns 180s then retries the whole thing (~6 min)
+      before the customer sees anything, even though a stuck task provably never recovers.
 
 ## Blocking launch — dashboard/ops (Aaron, no code)
 

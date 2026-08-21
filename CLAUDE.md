@@ -749,7 +749,47 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   on v1 — proven via controlled v1 draft orders (166981022: all 8 zip-hoodie placements
   incl. the real label mark, all `ok`) and a full live e2e checkout through the ported
   webhook (166989163). Labels are submitted normally again; no placement filtering.
-  Mockups deliberately stay on v2 (`printful-mockup`/`useMockup` — works fine there).
+  **Mockups moved to v1 too, 2026-08-21 — nothing customer-facing depends on the beta any
+  more.** They had stayed on v2 only because they worked there, and the code's stated reason
+  for choosing it ("every v1 render came back Internal Server Error for our all-over-print
+  products — v1's mockup generator predates AOP/cut-and-sew") was **re-tested and is no longer
+  true**: all 15 products render on v1. Things worth not re-deriving:
+  (1) **v1 is 1.4–3.9× faster, and far steadier.** Three repeats each, create→completed:
+  t-shirt 6.6s vs 17.0s, zip hoodie 8.9s vs 32.9s, mesh shorts 4.6s vs 17.6s, pillow 6.7s vs
+  9.0s. **v1 barely scales with placement count** (4→6 placements costs it 2.3s and cost v2
+  16s) and varies ±0.09s where v2 swung 28.6–35.1s on the identical request.
+  (2) **Mockup style ids are GONE, and with them a whole class of silent drift.** v2 needed a
+  hand-maintained style pair per product and per VARIANT on the pillow and bandana, because
+  Printful restricts styles to variants — exactly how every pillow size but 18″×18″ broke in
+  2026-07. v1 picks its own camera angles. `check-printful-catalog.mjs`'s checks 5 and 6 were
+  deleted for the good reason: the failure is now unrepresentable, not merely unchecked.
+  (3) **Default output is four ON-MODEL views** (front, back, both three-quarters) at no extra
+  time cost — 6.6s either way, measured. Aaron's call. `option_groups: ["Flat"]` reproduces v2's
+  old flat lay near-exactly (**RMSE 2.72**, 0.29% of pixels differing by >25) if it's ever
+  wanted back. The three-quarter views are the only ones that ever show a customer their
+  **sleeve** artwork, which no flat style photographs.
+  (4) **Shape differences that bite.** `position` is REQUIRED (400 "Position field is missing"
+  without it) — built client-side by `buildMockupFiles` from printfile specs the browser already
+  holds, so it costs no extra round trip. `product_options` must be a JSON **object**
+  (`{stitch_color:"white"}`); v2's array of `{name,value}` 400s, and `options` is a different
+  thing entirely (a variant filter — sending stitch_color there fails with "No variants to
+  generate"). No `X-PF-Store-Id`. Polling is by `task_key`.
+  (5) **The Edge Function normalizes the response** so the client never sees v1's
+  `mockups[]`/`extra[]` split: one ordered list, **de-duplicated by URL** (on the zip hoodie all
+  six placements collapse onto two photos), front first, with labels made unique because
+  different photos can share a name (the shorts return two distinct "Front" images).
+  (6) **Rate limits are identical AND SHARED** — 10/60s on create for both versions, verified by
+  alternating v1 and v2 creates inside one window and watching a single counter go 7→6→5. So the
+  migration buys no headroom, `GLOBAL_RATE_LIMIT = 10` stays correct, and a phased dual-run
+  would compete with real customers.
+  (7) **Not fixed by this:** the 2026-08-19 Storage-fetch hang (the file fetch is very likely
+  shared infrastructure). **Newly possible because of it:** the mesh shorts' `back` panel and the
+  track jacket's `details` strip, which v2 cannot express at all — both left as follow-ups, since
+  they change what customers see.
+  **Deploying it is a BREAKING contract change in both directions** — the function and the
+  frontend must land together (old frontend + new function reads `data.data[0]` off `{id,status}`;
+  new frontend + old function sends `files` where `placements` is expected). Pause the store for
+  the window, same playbook as a `GENERATOR_VERSION` bump.
   v1 gotcha handled in the port: v1 hard-rejects some products without their required
   item option (zip hoodie needs explicit `stitch_color`) where v2 silently defaulted it —
   the webhook maps `order_items.product_options` `{name,value}` → v1 `options`
