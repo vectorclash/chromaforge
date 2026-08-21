@@ -260,6 +260,97 @@ the actual print, generated the same deterministic way.
   - **Arms are `spikeW` 0.026 of the half-width, ~4x the raster's 0.0062** (Aaron: "we can make
     the spikes thicker to help matters at least"), chosen from a rendered size × width matrix.
   - Cost is **~5%** per render (131→138ms at 3840×2160, 592→603ms on the shorts sheet).
+- **Star shape revisions + the small star is procedural too — `GENERATOR_VERSION = 12`
+  (2026-08-20, after Aaron reviewed v11 live).** Four rounds of feedback, and three of them
+  turned up something worth not re-deriving. Note the bump is for a DRAWING change only: it
+  consumes no rng() and touches no config, so `check-render-regression.mjs` reports 74 designs
+  unchanged with 0 star fields changed — which is correct but is **not** reassurance, since that
+  check compares generated configs and is blind to this by construction. The bump exists to stop
+  a browser on new code rendering mockups against a Fly machine on old code:
+  (1) **"The new stars feel a bit more pixelated" was NOT resolution, and higher res is not a
+  lever that exists.** The star is drawn as paths at the exact output size — there is no raster
+  to enlarge. What changed is edge HARDNESS: the old sprite was a 648px sheet being *upscaled*,
+  i.e. blurred, which hid its own antialiasing, while a filled arc lands full contrast inside
+  one pixel. At 3x zoom both have identical 1px AA on the halo rim; only the new one had the
+  contrast to make the steps read. It also matters that the studio renders at 3840x2160 and
+  displays far smaller — a hard edge is high-frequency content that aliases on the downscale.
+  Fixed with `featherR`/`featherMinPx` ramps on the core and halo rims. Measured, largest
+  single-pixel alpha jump across the rim: **128→83 at 120px, 115→43 at 300px, 125→22 at
+  600px**. The gain scales with size, matching the complaint being about the large stars; at
+  60px the rim is inherently ~1px wide either way and is unchanged.
+  (2) **The fat halo rim was a coupling bug, not a bad number.** The rim highlight was being
+  widened by the same `feather` that softens the halo's OUTER edge, so asking for a soft edge
+  necessarily produced a wide bright band — about 9px on a 300px star. `haloStrokeW` /
+  `rimFeatherR` are now independent of `featherR`. Also added `haloOuterFalloff`: the halo
+  drops to 55% of the disc alpha immediately past the rim, which is what the original raster
+  does (disc 167, rim peak 203, then straight down to 74) and what makes a rim read as a lit
+  edge rather than a gradient shoulder. Rebuild measures **rim peak 205 / disc 173**.
+  (3) Arms: `spikeR` 0.89 → **1.335** (50% past the old sprite box — `spikeR > 1` is fine,
+  nothing is frame-bounded any more, so `size` is the core-and-halo diameter and arms reach
+  beyond it), `spikeW` **0.03**, and **constant width with only the opacity tapering**
+  (`spikeHold`) — a diffraction spike is a streak that fades, not a wedge. Glow pulled back
+  hard, `glowR` 0.88 → 0.62 and `glowAlpha` 0.42 → 0.20.
+  (4) **The small four-point star is now generated too (`buildSmallStarSprite`), but BUILT ONCE
+  AND BLITTED rather than drawn per-star.** That split is deliberate and measured, not an
+  inconsistency: the large star needed per-star drawing because its hairline went sub-pixel and
+  the engines disagreed about whether it survived at all; this shape is SOLID and has no such
+  problem (cross-engine ink agrees to 0.4–1.6% from 12px up, and it never vanishes). Meanwhile
+  the fine field runs to **103,375 specks**, where drawing each as a path with its own glow
+  gradient measured **+290ms** against ~600ms for a whole shorts-sheet render. So the
+  *authoring* is consistent and the blit is an implementation detail the count justifies.
+  The soft edge is a real Gaussian via `ctx.filter`, which both engines support and agree on
+  closely (54/28/11 vs 54/26/10 across a blurred edge).
+  **Three traps in that one, all found by measuring:**
+  - **`SMALL_SPRITE_PX` must be a FIXED CONSTANT, never derived from the canvas.** A 3px speck
+    blitted from a 64px sprite carries 466 ink against 885 from a 512px one — a **47% swing**.
+    Deriving it from render size would make a print's fine field brighter than its own mockup,
+    the exact divergence class v11 existed to remove. The old PNG was safe from this only by
+    accident, being a fixed 648. It is 256, which is also what the shape numbers were fitted
+    against, so the two must move together.
+  - **The generated sprite MUST be flattened before it is blitted from.** Left as built it
+    still carries its recorded draw ops (gradient, blur, two paths) and *every* `drawImage`
+    from it re-runs them: **297ms against 14ms** on a real 23,693-speck field, which showed up
+    as a ~350ms whole-render regression. `ctx.putImageData(ctx.getImageData(...))` fixes it,
+    is lossless (0 differing subpixels) and is portable, unlike `toBuffer()`. A bare
+    `getImageData` does NOT work — reading without writing back left blits at 298ms, and
+    reading the whole surface was worse at 639ms. After the fix the whole render is within
+    1–2% of v11 at every size (137→140ms studio, 610→616ms shorts sheet).
+  - **The shape was fitted to INK AT REAL SPECK SIZES, not to the raster's alpha profile.**
+    Fitting the profile weights every radius equally and gave a sprite **43% dimmer at 3px**,
+    which is the median speck size — total ink at small sizes is dominated by area, so outer
+    radii matter far more. Refitting against ink over 3–24px landed at 3.4% mean error with 3px
+    exact. Cross-engine ink at real sizes is **0.3–1.1%**, better than the PNG's own 27%/12.5%
+    outliers at 5 and 8px. (The generated sprite differs 10.5% subpixel-wise between engines at
+    256px, but that is edge antialiasing which averages out entirely on downscale — judge this
+    at use size, never at sprite size.)
+  **The whole star-sprite loading path is gone (same session).** `renderArtwork` and `StarField`
+  no longer take an `images` argument, `StudioContext` and `DisplayCanvas` no longer build a
+  createjs `LoadQueue`, and `queueReady` is removed from the context and its five consumers
+  (`TshirtPreview`, `SiteFooter`, `MobileNav`, `GalleryModal`, `AboutBlob`). The render pipeline
+  is now fully synchronous and asset-free, so a preview surface renders the instant a config
+  exists instead of waiting on a PNG. `DisplayCanvas.init()` used to be the LoadQueue's
+  `complete` callback and is now called directly from `componentDidMount` — safe because it only
+  queries an already-mounted element, reads the URL and kicks off a build, and `buildImage` is
+  token-guarded against overlap anyway. render-service's `loadStarImages`/`ASSETS_DIR` are gone
+  and the Dockerfile no longer copies the PNGs.
+  Three things this does NOT remove, deliberately:
+  (1) **The two 2D PNGs stay in `src/assets/images/`** — `AboutBlob` (flares) and `AboutShirts`
+  (via `aboutBackground.js` / `aboutShirtFill.js`) still import them directly for their own
+  decorative layers. They are no longer used by the artwork pipeline at all. Migrating those two
+  to `drawStarSprite`/`buildSmallStarSprite` is the remaining step if the assets are ever to go.
+  (2) **The `-3d` variants stay** and are still the only sprites the three.js tunnel uses.
+  (3) **createjs stays everywhere** — `index.html`'s script tag, `shim.js`, and the Dockerfile's
+  `createjs.min.js` copy. `GeometricShape.js` uses EaselJS `Shape`/`Container`/`Stage`; only the
+  `LoadQueue` usage was ever about star sprites.
+  Verified: all four main routes render in headless Chromium with **zero console errors and zero
+  failed requests**, and — the check that matters for the Dockerfile, since a local build runs
+  inside the full checkout and cannot see a missing COPY (exactly how the `COPY
+  src/components/Canvas` gap was found originally) — a **real `docker build`** of
+  `render-service/Dockerfile` from the repo root, then the real server run inside that image:
+  `/warmup` 204, a v11 render 200 with valid PNG bytes **byte-identical to the host run**
+  (266806 / 76400 for the plain and pocket-crop `regions` paths), a v10 request correctly 422
+  with the mismatch message, and no key correctly 401. Confirmed the image contains no
+  `star-sprite*` files and no `/app/src` at all.
 - **Fine star field: wider range and noise-clustered scale (same bump).** `smallStars`' ceiling
   goes `sizeScale/500` → `/300` (~4.3px → ~7.2px at the studio default) and scale now comes from a
   three-octave `render/valueNoise` field sampled at each speck's own position — the same

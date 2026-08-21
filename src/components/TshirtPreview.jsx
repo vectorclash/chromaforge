@@ -222,7 +222,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
   // that fires on release doesn't ALSO navigate to the shop (see the button's onClick).
   const dragSuppressClickRef = useRef(false);
   const [failed, setFailed] = useState(false);
-  const { currentDesign, renderDesignBlob, queueReady } = useStudio();
+  const { currentDesign, renderDesignBlob } = useStudio();
 
   stateRef.current.waiting = waiting;
 
@@ -759,10 +759,10 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
     };
   }, [size]);
 
-  // Re-render the texture whenever the design changes. queueReady gates the star-sprite
-  // queue renderDesignBlob depends on -- same guard StudioContext's own preview effect uses.
+  // Re-render the texture whenever the design changes. renderDesignBlob needs nothing
+  // preloaded now that both star shapes are drawn from code, so there is no readiness gate.
   useEffect(() => {
-    if (!queueReady || failed) return undefined;
+    if (failed) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -836,7 +836,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
     return () => {
       cancelled = true;
     };
-  }, [currentDesign, queueReady, renderDesignBlob, failed]);
+  }, [currentDesign, renderDesignBlob, failed]);
 
   if (failed) return null;
 

@@ -9,8 +9,6 @@ import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
-import s1 from '../assets/images/star-sprite-large.png';
-import s2 from '../assets/images/star-sprite-small.png';
 
 // Shared "studio" state: the current design, a live small preview of it, and the ability to
 // render/save it -- lifted out of DisplayCanvas so commerce routes (product mockups, the
@@ -22,8 +20,11 @@ import s2 from '../assets/images/star-sprite-small.png';
 // reconstruct the artwork at any size. The studio writes it via setCurrentDesign on every
 // generate/load; pages read it.
 //
-// The star-sprite queue is the one piece renderArtwork needs that isn't pure -- it's loaded
-// once here (mirroring DisplayCanvas's own load) so the render pipeline works off-canvas.
+// The render pipeline is now fully synchronous and asset-free: both star shapes are drawn
+// from code (render/starSprite.js), so there is nothing to preload before a render can run.
+// This used to hold a createjs LoadQueue of the two star PNGs, and a `queueReady` flag that
+// every preview surface had to wait on -- all of that is gone. (createjs itself is still
+// required: GeometricShape.js uses EaselJS.)
 
 const PREVIEW_SIZE = 480;
 // How long a replaced preview url stays alive before being revoked -- comfortably longer
@@ -59,8 +60,6 @@ export function StudioProvider({ children }) {
   // state directly here rather than threading `user` through every caller of saveCurrentDesign.
   const { user } = useAuth();
 
-  const queueRef = useRef(null);
-  const [queueReady, setQueueReady] = useState(false);
   // Seed a random default so the store always has something to preview even on a cold
   // deep-link to /shop (no Studio visit). The studio overwrites this via setCurrentDesign
   // on its first generate. Empty colors -> the seeded RNG picks a palette, deterministically.
@@ -98,20 +97,9 @@ export function StudioProvider({ children }) {
   // mini-generator/footer show elsewhere, since those represent the studio's live work.
   const [printQueueDesign, setPrintQueueDesign] = useState(null);
 
-  useEffect(() => {
-    if (queueRef.current) return; // guard against StrictMode double-invoke
-    const queue = new window.createjs.LoadQueue(true, '');
-    queueRef.current = queue;
-    queue.on('complete', () => setQueueReady(true));
-    queue.loadManifest([
-      { id: 'star-large', src: s1 },
-      { id: 'star-small', src: s2 }
-    ]);
-  }, []);
-
-  // Render any design config to a JPEG blob at the given size, off-canvas, using the shared
-  // star-sprite queue. Generalized from DisplayCanvas.renderArtworkBlobAt -- recompose per
-  // ratio (regenerate from seed/colors), not a downscaled screenshot. `includeGeometry`
+  // Render any design config to a JPEG blob at the given size, off-canvas. Generalized from
+  // DisplayCanvas.renderArtworkBlobAt -- recompose per ratio (regenerate from seed/colors),
+  // not a downscaled screenshot. `includeGeometry`
   // (default true) and `geometryLayout` (default null) are render context, not part of the
   // design -- only merch placement rendering (lib/printful.js's capRenderStrategy) ever
   // passes these, driven by ProductPage.jsx's per-placement geometry checkboxes and
@@ -136,7 +124,6 @@ export function StudioProvider({ children }) {
       height,
       { includeGeometry = true, geometryLayout = null, mirrorX = false, highDensity = false, sizeFrame = null, legSymmetry = false } = {}
     ) => {
-      if (!queueRef.current) throw new Error('Render assets are still loading.');
       const { width: genWidth, height: genHeight } = highDensity
         ? densityFloorSize(width, height)
         : { width, height };
@@ -147,7 +134,7 @@ export function StudioProvider({ children }) {
         sizeFrame,
         legSymmetry
       });
-      const canvas = renderArtwork(built, queueRef.current);
+      const canvas = renderArtwork(built);
       let outputCanvas = canvas;
       if (genWidth !== width || genHeight !== height) {
         outputCanvas = document.createElement('canvas');
@@ -171,7 +158,6 @@ export function StudioProvider({ children }) {
   // widget and the footer art band read, so regenerating once updates both at once instead of
   // each consumer rendering its own copy.
   useEffect(() => {
-    if (!queueReady) return;
     let cancelled = false;
     renderDesignBlob(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
       .then(blob => {
@@ -195,7 +181,7 @@ export function StudioProvider({ children }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDesign, queueReady, renderDesignBlob]);
+  }, [currentDesign, renderDesignBlob]);
 
   // Fresh seed, but keeps the CURRENT palette/geometry settings -- what "Generate" means
   // everywhere else in the app (DisplayCanvas.onGenerateButtonClick's buildConfig() defaults
@@ -268,7 +254,6 @@ export function StudioProvider({ children }) {
     // the actual identity of a design (seed + colors) instead of by object reference.
     isCurrentDesignSaved: isSameDesign(savedDesign, currentDesign),
     savedDesignId,
-    queueReady,
     printQueueDesign,
     setPrintQueueDesign
   };

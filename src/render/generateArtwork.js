@@ -162,7 +162,20 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 //   - re-run the thumbnail backfill with NO --generator-version filter
 //     (node render-service/backfill-thumbnails.mjs), since this alters the star field of every
 //     stored design regardless of what version it was saved under.
-export const GENERATOR_VERSION = 11;
+// v11 -> v12 (2026-08-20, same day): star SHAPE revisions after Aaron reviewed v11 live, plus
+// the small four-point star becoming procedural too. No change to generation -- every one of
+// these is a drawing change, consuming no rng() and touching no config, so
+// check-render-regression.mjs reports 74 designs unchanged with 0 star fields changed. That
+// clean result is NOT reassurance on its own here: that check compares generated configs, and
+// this bump only changes how the stars are DRAWN, so it is blind to it by construction.
+// The bump exists for the other reason a bump exists -- output for a given seed moves, and the
+// version check is what stops a browser on new code rendering mockups against a Fly machine on
+// old code. See CLAUDE.md's star-shape bullet for the four rounds of feedback and the three
+// traps (edge hardness is not resolution; the fat rim was a coupling bug; a generated sprite
+// must be flattened before it is blitted from, and its resolution must be a fixed constant).
+// Operationally: redeploy render-service, and re-run backfill-thumbnails.mjs with NO
+// --generator-version filter -- same as v9, v10 and v11.
+export const GENERATOR_VERSION = 12;
 
 const BLEND_MODES = [
   'screen',

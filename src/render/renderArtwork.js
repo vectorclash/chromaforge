@@ -2,8 +2,9 @@
 // canvas at config.width x config.height. The lone browser dependency is `document`
 // (createElement) and the layer renderers; isolating it here means the same pipeline can
 // be pointed at a screen-size, a thumbnail, or a 4200x5400 print canvas with no other
-// changes. `images` supplies the star sprites via getResult(id) (a createjs LoadQueue in
-// the app, or any { getResult } shim).
+// changes. It takes no assets: both star shapes are drawn from code (render/starSprite.js),
+// so a render needs nothing preloaded and can run the instant a config exists. This used to
+// take an `images` argument carrying the two star PNGs through a createjs LoadQueue.
 
 import LinearGradient from '../components/Canvas/LinearGradient';
 import LargeRadialField from '../components/Canvas/LargeRadialField';
@@ -15,7 +16,7 @@ function clearElement(el) {
   el.height = 0;
 }
 
-export default function renderArtwork(config, images) {
+export default function renderArtwork(config) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   canvas.width = config.width;
@@ -65,7 +66,7 @@ export default function renderArtwork(config, images) {
   // about a backdrop that is no longer directly underneath.
   const drawStars = () => {
     ctx.globalCompositeOperation = config.secondBlend;
-    const starField = StarField(config.starFieldConfig, images);
+    const starField = StarField(config.starFieldConfig);
     ctx.drawImage(starField, 0, 0);
     clearElement(starField);
   };

@@ -194,7 +194,7 @@ function discsAt(t, amount, W, H) {
 }
 
 export default function AboutBlob({ className = '' }) {
-  const { currentDesign, previewUrl, queueReady, renderDesignBlob } = useStudio();
+  const { currentDesign, previewUrl, renderDesignBlob } = useStudio();
   const hostRef = useRef(null);
   const canvasRef = useRef(null);
   const artRef = useRef(null);
@@ -347,7 +347,7 @@ export default function AboutBlob({ className = '' }) {
   // the mistake. At 1100px wide the composition is still denser than the shared 480px preview
   // the footer and mini generator display, so nothing here looks sparser than its neighbours.
   useEffect(() => {
-    if (!queueReady || !currentDesign) return;
+    if (!currentDesign) return;
     let cancelled = false;
     let url = null;
     // Generated at the CANVAS's aspect, not the blob's. The discs extend a little past the
@@ -382,7 +382,7 @@ export default function AboutBlob({ className = '' }) {
     return () => {
       cancelled = true;
     };
-  }, [currentDesign, queueReady, renderDesignBlob, startReveal]);
+  }, [currentDesign, renderDesignBlob, startReveal]);
 
   useEffect(() => {
     const host = hostRef.current;

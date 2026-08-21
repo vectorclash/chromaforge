@@ -69,7 +69,7 @@ function CloseIcon() {
 // (the one other modal in the app) -- flat fade on the backdrop, bouncy pop-in reserved
 // for the panel itself (see tailwind.css's animate-fade-in comment).
 export default function GalleryModal({ design, liked, canDelete, onClose, onToggleLike, onPrint, onDelete, onOpenStudio }) {
-  const { renderDesignBlob, queueReady } = useStudio();
+  const { renderDesignBlob } = useStudio();
   useScrollLock(Boolean(design));
   const [fullSrc, setFullSrc] = useState(null);
   const [fullLoaded, setFullLoaded] = useState(false);
@@ -105,7 +105,7 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
   useEffect(() => {
     // Animations don't have a single { seed, colors } config to recompose from (their
     // `data` is { animation: true, frames: [...] }) -- the thumbnail is all there is.
-    if (!design || design.kind === 'animation' || !queueReady) return;
+    if (!design || design.kind === 'animation') return;
     if (design.id === renderedIdRef.current) return;
     let cancelled = false;
     renderDesignBlob(design.data, MODAL_RENDER_SIZE, MODAL_RENDER_SIZE, { highDensity: true })
@@ -122,7 +122,7 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
     // same design gets (e.g. a like-count bump) would refetch and re-flash the image for
     // no reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [design?.id, queueReady, renderDesignBlob]);
+  }, [design?.id, renderDesignBlob]);
 
   // Blob URLs are otherwise kept alive across close/reopen (see above) -- only unmounting
   // the whole modal actually discards one.

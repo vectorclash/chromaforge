@@ -1,7 +1,8 @@
 # Build context is the repo root (not render-service/) -- this service imports the real
-# ../src/render files directly (see build.js/entry.js) and needs ../src/assets/images's star
-# sprites plus ../public/createjs.min.js at runtime (see render.js/shim.js), all of which live
-# outside render-service/. Deploy from repo root:
+# ../src/render files directly (see build.js/entry.js) and needs ../public/createjs.min.js at
+# runtime (shim.js loads it for GeometricShape's EaselJS use), which lives outside
+# render-service/. It no longer needs the star sprite PNGs: both star shapes are drawn from
+# code (src/render/starSprite.js). Deploy from repo root:
 #   flyctl deploy . --config render-service/fly.toml --dockerfile render-service/Dockerfile
 #
 # node:20-slim is glibc (Debian), matching the prebuilt @napi-rs/canvas-linux-x64-gnu binary
@@ -22,7 +23,6 @@ COPY render-service/package.json render-service/package-lock.json ./render-servi
 RUN cd render-service && npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/render-service/generated ./render-service/generated
 COPY render-service/server.js render-service/render.js render-service/shim.js ./render-service/
-COPY src/assets/images/star-sprite-large.png src/assets/images/star-sprite-small.png ./src/assets/images/
 COPY public/createjs.min.js ./public/createjs.min.js
 
 ENV PORT=8080

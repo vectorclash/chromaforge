@@ -1,7 +1,18 @@
 import LinearGradient from './LinearGradient';
-import { drawStarSprite } from '../../render/starSprite';
+import { buildSmallStarSprite, drawStarSprite } from '../../render/starSprite';
 
-export default function StarField(config, images) {
+// Resolution of the generated four-point sprite. A FIXED CONSTANT, never derived from the
+// canvas -- and that is load-bearing, not tidiness. Measured: a 3px speck blitted from a
+// 64px sprite carries 466 ink against 885 from a 512px one, a 47% swing. Deriving the
+// resolution from the render size would therefore make a print's fine field brighter than
+// its own mockup, which is the exact mockup-vs-print divergence the large star was rebuilt
+// to remove. The old PNG was safe from this only by accident, being a fixed 648.
+// 256 is also what SMALL_STAR_SHAPE's numbers were fitted against, so the two must move
+// together; the largest star this sprite ever draws is 35px (the mesh-shorts sheet), leaving
+// 7x of headroom.
+const SMALL_SPRITE_PX = 256;
+
+export default function StarField(config) {
   let canvas = document.createElement('canvas');
   let context = canvas.getContext('2d');
 
@@ -19,6 +30,15 @@ export default function StarField(config, images) {
   starCanvas.width = config.width;
   starCanvas.height = config.height;
 
+  // Built once and then blitted, unlike the large star which is drawn per-star. That split is
+  // deliberate and measured -- see buildSmallStarSprite's header.
+  const smallSprite = buildSmallStarSprite(SMALL_SPRITE_PX, (w, h) => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    return c;
+  });
+
   for (let i = 0; i < config.stars.length; i++) {
     const star = config.stars[i];
     if (star.image === 'star-large') {
@@ -29,13 +49,7 @@ export default function StarField(config, images) {
       drawStarSprite(starContext, star.x + star.size / 2, star.y + star.size / 2, star.size);
       continue;
     }
-    // The fine tier keeps star-sprite-small.png: it is a SOLID four-point star, so its
-    // points are the silhouette rather than a hairline over a halo and they survive any
-    // amount of downscaling. Nothing to fix there.
-    let starImage = images.getResult(star.image);
-    if (starImage) {
-      starContext.drawImage(starImage, star.x, star.y, star.size, star.size);
-    }
+    starContext.drawImage(smallSprite, star.x, star.y, star.size, star.size);
   }
 
   // Fine star layer is now pre-resolved (and seeded) in GenerateStarField, so the same
@@ -56,17 +70,14 @@ export default function StarField(config, images) {
   }
 
   if (smallStars) {
-    let smallStarImage = images.getResult('star-small');
-    if (smallStarImage) {
-      for (let i = 0; i < smallStars.length; i++) {
-        starContext.drawImage(
-          smallStarImage,
-          smallStars[i].x,
-          smallStars[i].y,
-          smallStars[i].size,
-          smallStars[i].size
-        );
-      }
+    for (let i = 0; i < smallStars.length; i++) {
+      starContext.drawImage(
+        smallSprite,
+        smallStars[i].x,
+        smallStars[i].y,
+        smallStars[i].size,
+        smallStars[i].size
+      );
     }
   }
 

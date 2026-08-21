@@ -41,8 +41,6 @@ import ShirtIcon from './buttons/ShirtIcon';
 import ArrowIcon from './buttons/ArrowIcon';
 import ColorField from './ColorField';
 
-import s1 from '../assets/images/star-sprite-large.png';
-import s2 from '../assets/images/star-sprite-small.png';
 import { StudioWordmark } from './ui/Wordmark';
 
 gsap.registerPlugin(TextPlugin);
@@ -338,14 +336,12 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentDidMount() {
-    let queueItems = [
-      { id: 'star-large', src: s1 },
-      { id: 'star-small', src: s2 }
-    ];
-
-    this.queue = new window.createjs.LoadQueue(true, '');
-    this.queue.on('complete', this.init, this);
-    this.queue.loadManifest(queueItems);
+    // init() used to be the createjs LoadQueue's 'complete' callback, waiting on the two
+    // star PNGs. Both star shapes are drawn from code now (render/starSprite.js), so the
+    // render pipeline needs nothing preloaded and this runs straight away. Nothing in init
+    // depends on settled layout -- it queries an already-mounted element, reads the URL, and
+    // kicks off a build, and buildImage is token-guarded against overlap either way.
+    this.init();
 
     this.checkAudioExportSupport();
 
@@ -765,7 +761,7 @@ export default class DisplayCanvas extends React.Component {
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
     const token = ++this.buildToken;
-    const canvas = renderArtwork(config, this.queue);
+    const canvas = renderArtwork(config);
     canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
     this.clearElement(canvas);
   }
@@ -781,7 +777,7 @@ export default class DisplayCanvas extends React.Component {
     // between animation frames (the per-frame breathe() in the callers spaces them out).
     await new Promise(r => setTimeout(r, 0));
 
-    const canvas = renderArtwork(config, this.queue);
+    const canvas = renderArtwork(config);
     // Generated at full studio size (density depends on canvas area), stored smaller on
     // phones — see MOBILE_ANIM_RASTER. `out === canvas` on desktop.
     const out = rasterizeAnimationFrame(canvas);
@@ -804,7 +800,7 @@ export default class DisplayCanvas extends React.Component {
       canvas.width = this.props.width;
       canvas.height = this.props.height;
 
-      let starField = StarField(starFieldConfig, this.queue);
+      let starField = StarField(starFieldConfig);
       context.drawImage(starField, 0, 0);
 
       // Same treatment as the main frames: full-size generation, phone-sized raster.

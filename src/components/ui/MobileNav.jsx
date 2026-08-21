@@ -51,7 +51,7 @@ const itemClass = ({ isActive }) =>
 // stagger is simpler and matches everywhere else in the app that staggers a list in.
 export default function MobileNav({ open, onClose }) {
   const { user, avatarUrl } = useAuth();
-  const { currentDesign, renderDesignBlob, queueReady } = useStudio();
+  const { currentDesign, renderDesignBlob } = useStudio();
   // Keyed on `open`, not `mounted`: the page unfreezes as the close tween starts rather
   // than after it, and on a navigation the unlock's scroll restore lands before
   // SiteLayout's own route-change scroll-to-top (cleanups run before effects in a commit),
@@ -92,7 +92,7 @@ export default function MobileNav({ open, onClose }) {
   // every time the nav was reopened (user-reported: the loading pulse played even when
   // nothing was generating).
   useEffect(() => {
-    if (!mounted || !queueReady) return;
+    if (!mounted) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
     let cancelled = false;
     renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
@@ -117,7 +117,7 @@ export default function MobileNav({ open, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [mounted, currentDesign, queueReady, renderDesignBlob]);
+  }, [mounted, currentDesign, renderDesignBlob]);
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl, {
     instant: bgInstant

@@ -23,14 +23,13 @@ const PARALLAX_SCALE = 1.24;
 const STALE_BG_REVOKE_MS = 5000;
 
 export default function SiteFooter() {
-  const { currentDesign, renderDesignBlob, queueReady } = useStudio();
+  const { currentDesign, renderDesignBlob } = useStudio();
   const [bgUrl, setBgUrl] = useState(null);
   const bgUrlRef = useRef(null);
   const footerRef = useRef(null);
   const artRef = useRef(null);
 
   useEffect(() => {
-    if (!queueReady) return;
     let cancelled = false;
     renderDesignBlob(currentDesign, RENDER_WIDTH, RENDER_HEIGHT)
       .then(blob => {
@@ -48,7 +47,7 @@ export default function SiteFooter() {
     return () => {
       cancelled = true;
     };
-  }, [currentDesign, queueReady, renderDesignBlob]);
+  }, [currentDesign, renderDesignBlob]);
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
 

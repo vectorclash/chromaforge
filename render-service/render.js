@@ -5,30 +5,14 @@
 // pipeline runnable outside a real browser. Run `npm run build` before starting this
 // service (or after any change to ../src/render) to regenerate generated/render-lib.js.
 import './shim.js';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { createCanvas } from '@napi-rs/canvas';
 import { generateArtwork, GENERATOR_VERSION, renderArtwork } from './generated/render-lib.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ASSETS_DIR = path.join(__dirname, '..', 'src', 'assets', 'images');
-
-// Mirrors StudioContext.jsx's LoadQueue -- but renderArtwork only ever calls
-// images.getResult(id), so a plain object satisfying that one method is enough; no need
-// for createjs's real (browser-XHR-based) LoadQueue here.
-let imagesPromise = null;
-function loadStarImages() {
-  if (!imagesPromise) {
-    imagesPromise = Promise.all([
-      loadImage(fs.readFileSync(path.join(ASSETS_DIR, 'star-sprite-large.png'))),
-      loadImage(fs.readFileSync(path.join(ASSETS_DIR, 'star-sprite-small.png')))
-    ]).then(([large, small]) => ({
-      getResult: id => (id === 'star-large' ? large : id === 'star-small' ? small : null)
-    }));
-  }
-  return imagesPromise;
-}
+// This used to load the two star sprite PNGs off disk and hand renderArtwork a { getResult }
+// shim standing in for StudioContext's createjs LoadQueue. Both star shapes are drawn from
+// code now (src/render/starSprite.js), so the pipeline takes no assets at all and the
+// Dockerfile no longer copies them. shim.js still loads createjs itself -- GeometricShape.js
+// uses EaselJS -- so that is unrelated and stays.
 
 // design = { seed, colors, settings?, generatorVersion }. Caller (server.js) is responsible
 // for checking generatorVersion against GENERATOR_VERSION before calling this -- this
@@ -69,7 +53,6 @@ export async function renderDesign({
   sourceWidth = null,
   sourceHeight = null
 }) {
-  const images = await loadStarImages();
   if (!regions) {
     const config = generateArtwork(seed, width, height, colors, settings, {
       includeGeometry,
@@ -78,7 +61,7 @@ export async function renderDesign({
       sizeFrame,
       legSymmetry
     });
-    const canvas = renderArtwork(config, images);
+    const canvas = renderArtwork(config);
     return canvas.toBuffer('image/png');
   }
   // includeGeometry/geometryLayout here are already resolved against the FRONT placement's
@@ -91,7 +74,7 @@ export async function renderDesign({
     sizeFrame,
     legSymmetry
   });
-  const sourceCanvas = renderArtwork(sourceConfig, images);
+  const sourceCanvas = renderArtwork(sourceConfig);
   const output = createCanvas(width, height);
   drawRegionsComposite(output.getContext('2d'), sourceCanvas, sourceWidth, sourceHeight, width, height, regions);
   return output.toBuffer('image/png');
