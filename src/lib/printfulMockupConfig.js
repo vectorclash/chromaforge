@@ -307,12 +307,17 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // counterparts (4863/4864), verified by md5 on a real 4-style task; and submitting only
     // the outside placements produces byte-identical photos to submitting all four, so the
     // inside placements contribute nothing to any preview. So the mockup set is the two
-    // outside placements only -- including the inside ones would just burn renders. (Under
-    // v2 they would also have shown the customer the same photo twice, since dedupe was by
-    // style id and two ids served one image; the v1 path dedupes by URL, so it would catch
-    // that on its own.) The inside panels are still really printed: checkout submits every
-    // placement unfiltered.
-    placements: ['outside_front', 'outside_back'],
+    // ALL FOUR faces, as of the v1 mockup migration (2026-08-21). This was the two outside
+    // placements only, and the reason was sound at the time: v2's "Front Inside"/"Back Inside"
+    // styles (4900/4865) returned images BYTE-IDENTICAL to their Outside counterparts
+    // (4863/4864, verified by md5), so the inside was genuinely unphotographable and submitting
+    // it only burned renders. v1 returns four real, distinct inside views -- which is how the
+    // gap announced itself: they came back as blank white hats, because no artwork was sent for
+    // them. Submitting them makes this product's second-design feature visible to the customer
+    // for the first time; before, picking a different inside artwork changed no pixel of any
+    // preview. Nearly free: all four faces share printfile 410, so with ONE design all four
+    // resolve to the same cached render, and only a genuine second design costs a second one.
+    placements: ['outside_front', 'outside_back', 'inside_front', 'inside_back'],
     // The printed-but-unphotographed inside panels above are exactly why this override
     // exists -- see getGeometryPlacementOptions in printful.js.
     geometryPlacementKeys: ['outside_front', 'outside_back', 'inside_front', 'inside_back'],

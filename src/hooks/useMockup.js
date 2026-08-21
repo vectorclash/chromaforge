@@ -3,6 +3,7 @@ import {
   createMockupTask,
   getMockupTask,
   getMockupConfigForProduct,
+  getSecondaryDesignConfig,
   buildMockupFiles,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
@@ -108,7 +109,7 @@ function describeFailure(error) {
 // IS submitted to Printful's create-task endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry) {
+function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -134,7 +135,14 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   // stitching choice -- picking the other one appeared to do nothing at all). Also affects the
   // tote (274), the only other multi-colour product.
   const colorSignature = variant?.color || 'single';
-  return `${product.id}:${colorSignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
+  // The second design printed on a physically separate face (the reversible bucket hat's
+  // inside). This USED to be deliberately excluded, on the grounds that the mockup only
+  // requested the outside placements so a second design could not change any preview pixel --
+  // true under v2, whose inside mockup styles returned images byte-identical to the outside
+  // ones. v1 photographs the inside for real, and the hat now submits those placements, so the
+  // choice genuinely changes the returned photos and a stale preview would misrepresent them.
+  const secondarySignature = secondaryDesign ? JSON.stringify(secondaryDesign) : 'none';
+  return `${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
 }
 
 // See the call site in `generate`. Splits a placement key or a view title into lowercase words
@@ -215,7 +223,8 @@ export function useMockup() {
       mirrorPlacements = null,
       sizeFrame = null,
       legSymmetry = false,
-      productOptions = null
+      productOptions = null,
+      secondaryDesign = null
     }) => {
       if (!design) {
         setStatus('failed');
@@ -237,7 +246,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry);
+      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -275,7 +284,9 @@ export function useMockup() {
           geometryLayout,
           mirrorPlacements,
           sizeFrame,
-          legSymmetry
+          legSymmetry,
+          secondaryDesign,
+          secondaryPlacements: getSecondaryDesignConfig(cfg)?.placements || null
         });
 
         const files = buildMockupFiles(entries, printfileSpecs, urls);
@@ -364,14 +375,15 @@ export function useMockup() {
       mirrorPlacements = null,
       sizeFrame = null,
       legSymmetry = false,
-      productOptions = null
+      productOptions = null,
+      secondaryDesign = null
     }) => {
       setError(null);
       const cfg = design && getMockupConfigForProduct(product.id);
       const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
       const key =
         entries
-          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry)
+          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

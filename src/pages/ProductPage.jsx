@@ -855,20 +855,23 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       mirrorPlacements: effectiveMirrorPlacements,
-      productOptions: stitchColorProductOptions
+      productOptions: stitchColorProductOptions,
+      secondaryDesign
     });
     // pickedChoice?.id matters on its own: picking a second gallery design replaces the
     // 'picked' tile's contents without selectedKey ever changing.
-    // secondaryDesign is deliberately NOT a dependency, and is not passed to syncMockup at
-    // all: the mockup only ever requests cfg.placements, which on the one product with a
-    // secondary design excludes both inside placements (no camera angle shows them). Adding
-    // it would throw away a still-accurate mockup and make the customer sit through another
-    // 30-90s Printful round trip that renders a pixel-identical photo.
+    // secondaryDesign IS a dependency as of the v1 mockup migration (2026-08-21). It used to
+    // be deliberately excluded, because the mockup only requested cfg.placements, which on the
+    // hat excluded both inside placements -- v2's inside styles returned images byte-identical
+    // to the outside ones, so no camera angle could show a second design and invalidating the
+    // preview would have cost a 30-90s round trip for a pixel-identical photo. v1 photographs
+    // the inside for real and the hat now submits those placements, so the choice changes the
+    // returned photos and a stale preview would misrepresent the garment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // effectiveMirrorPlacements, not the raw mirrorSeams: while leg symmetry is on the flip is
     // a no-op, and depending on the raw flag there would throw away a still-accurate mockup and
     // charge the customer another 30-90s Printful round trip for an identical photo.
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor, secondaryDesign]);
 
   // The hero deliberately has NO animation class of its own. It used to carry
   // --animate-reveal-quick on a fresh generation and --animate-pop-in otherwise, chosen by a
@@ -1059,7 +1062,8 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       mirrorPlacements: effectiveMirrorPlacements,
-      productOptions: stitchColorProductOptions
+      productOptions: stitchColorProductOptions,
+      secondaryDesign
     });
   };
 
