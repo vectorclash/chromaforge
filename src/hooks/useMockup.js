@@ -10,6 +10,7 @@ import {
   capRenderStrategy,
   warmRenderService
 } from '../lib/printful';
+import { isSameDesign } from '../render/designSettings';
 import { useStudio } from '../context/StudioContext';
 
 // Drives a Printful v1 mockup-generation task for the current design on a chosen product
@@ -338,7 +339,19 @@ export function useMockup() {
         // view whose title uses a remaining word. On the hat that leaves {inside, label} and
         // removes exactly the four blanks; on a product where we submit everything (the t-shirt)
         // the set is empty and nothing is dropped.
-        const unique = hideUnsubmittedViews(task2.mockups || [], entries, printfileSpecs);
+        // The filter is fed the placements whose views are worth SHOWING, which is not always
+        // the set we submitted. On the reversible hat with a single design, the inside faces
+        // carry the same artwork as the outside ones and Printful's inside photos come back
+        // visually identical to their outside counterparts (measured: matching means on all
+        // four angles). Showing them would double the filmstrip with duplicates -- and on a
+        // 360px phone that pushes 4 of 8 thumbnails out of view. So they are only shown once a
+        // genuinely different second design makes them different photos.
+        const secondaryPlacements = getSecondaryDesignConfig(cfg)?.placements || [];
+        const showsSecondary = !!secondaryDesign && !isSameDesign(design, secondaryDesign);
+        const entriesWorthShowing = showsSecondary
+          ? entries
+          : entries.filter(([placementKey]) => !secondaryPlacements.includes(placementKey));
+        const unique = hideUnsubmittedViews(task2.mockups || [], entriesWorthShowing, printfileSpecs);
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --

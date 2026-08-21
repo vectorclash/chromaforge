@@ -1705,8 +1705,14 @@ export default function ProductPage() {
 
           </div>
 
+          {/* The filmstrip WRAPS rather than scrolling. It was a horizontal scroll strip with
+              .no-scrollbar, which hides the scrollbar and with it any hint that more thumbnails
+              exist -- fine at the 2-4 views most products return, but the reversible hat can
+              return 8 (both faces, four angles each) and a 360px phone showed only 4, cut off
+              mid-thumbnail with no affordance at all. Wrapping needs nothing to discover, and
+              costs a second row only when a strip is genuinely too long for the width. */}
           {showMockup && images.length > 1 && thumbsPreloaded && (
-            <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto px-0.5 pb-1">
+            <div className="mt-3 flex flex-wrap gap-2 px-0.5 pb-1">
               {images.map((m, i) => (
                 <button
                   key={m.mockup_url}
