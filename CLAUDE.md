@@ -1605,6 +1605,25 @@ load for an unrelated reason and every count is meaningless.
   `generatorVersion` of its own). A filter matching zero rows exits 1 rather than looking
   like a clean run. **Add this to the checklist whenever `GENERATOR_VERSION` bumps**,
   alongside the existing "redeploy render-service" step.
+  **PAUSE THE STORE FOR THE WHOLE DEPLOY WINDOW — a version bump has no safe deploy order**
+  (established over two live bumps on 2026-08-20, v11 and v12). The "redeploy render-service"
+  note above reads as though shipping Fly first is the safe direction. It is not: the check in
+  `server.js` is a strict equality, so a new Fly against an old frontend fails every Buy Now
+  with a 422, and an old Fly against a new frontend fails identically. Either ordering breaks
+  live checkout for however long the gap lasts — and since the frontend ships via a GitHub
+  Action, that gap is minutes, not seconds. The sequence that works:
+  `npx supabase secrets set STORE_ENABLED=false` (instant, no redeploy) → verify it took by
+  reading `storeEnabled` off `printful-catalog` on the live site, not by trusting the CLI →
+  `flyctl deploy --config render-service/fly.toml` from the repo root → **`flyctl status` to
+  confirm ALL machines took the release** (a split release fails roughly half of checkouts
+  intermittently) → confirm the deployed version by reading it off the machine, e.g.
+  `flyctl ssh console -C "node -e \"import('/app/render-service/generated/render-lib.js')...\""`
+  (hit `/warmup` first — with scale-to-zero, `ssh console` fails with "no started VMs") →
+  commit and push → **poll the live site until the new bundle actually serves**, not just until
+  the Action goes green → `STORE_ENABLED=true` and verify again → then the thumbnail backfill.
+  Gotcha when polling: the star/render code compiles into a SHARED chunk, not `index-*.js`, so
+  a poll that greps only the entry bundle waits forever while looking like the deploy is slow.
+  Crawl the entry chunk's imports and grep them all for a token from the new code.
   **When to use the filter, and when NOT to (clarified at v8 → v9, 2026-07-29).** The filter is
   right when a bump only changes output for designs *saved* under particular versions. It is
   **wrong** when a bump changes output for every stored design — v9 did, since it altered the
