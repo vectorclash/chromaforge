@@ -108,7 +108,7 @@ function describeFailure(error) {
 // IS submitted to Printful's create-task endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry) {
+function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -125,7 +125,39 @@ function cacheKey(product, entries, design, geometryPlacements, geometryLayout, 
   const frameSignature = sizeFrame ? `${sizeFrame.width}x${sizeFrame.height}` : 'sheet';
   // Changes the returned photo (the legs become mirror images), so it belongs in the key.
   const symmetrySignature = legSymmetry ? 'sym' : 'asym';
-  return `${product.id}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
+  // The variant COLOUR, deliberately not the variant id. Sizes are meant to share a mockup --
+  // they share printfile ids and Printful photographs one garment for all of them, which is
+  // what `signature` above already expresses. Colours are not: Printful photographs each one,
+  // so the returned photo genuinely differs. Colours on these products share their printfiles,
+  // so without this they collided on one key and switching colour silently restored the
+  // previous colour's mockup (found on the windbreaker, 615, whose two "colours" are the
+  // stitching choice -- picking the other one appeared to do nothing at all). Also affects the
+  // tote (274), the only other multi-colour product.
+  const colorSignature = variant?.color || 'single';
+  return `${product.id}:${colorSignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
+}
+
+// See the call site in `generate`. Splits a placement key or a view title into lowercase words
+// ("outside_front" and "Right Front Outside" both yield outside/front), so a view can be matched
+// against the placements it depicts without hardcoding Printful's title strings.
+function placementWords(text) {
+  return String(text).toLowerCase().split(/[^a-z]+/).filter(Boolean);
+}
+
+export function hideUnsubmittedViews(views, entries, printfileSpecs) {
+  const submitted = new Set(entries.flatMap(([placement]) => placementWords(placement)));
+  const all = Object.keys(printfileSpecs?.available_placements || {});
+  const submittedKeys = new Set(entries.map(([placement]) => placement));
+  const hidden = new Set();
+  for (const placement of all) {
+    if (submittedKeys.has(placement)) continue;
+    for (const word of placementWords(placement)) if (!submitted.has(word)) hidden.add(word);
+  }
+  if (!hidden.size) return views;
+  const kept = views.filter(v => !placementWords(v.display_name).some(w => hidden.has(w)));
+  // Never hand back nothing: if the rule somehow matched every view, a blank filmstrip is worse
+  // than a wrong-looking one, and the customer still needs something to approve.
+  return kept.length ? kept : views;
 }
 
 export function useMockup() {
@@ -205,7 +237,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry);
+      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -283,10 +315,19 @@ export function useMockup() {
         }
 
         // Already flattened, de-duplicated by URL and ordered front-first by the Edge
-        // Function (see its GET handler) -- v1's mockups/extra split and the fact that several
-        // placements routinely resolve to the same photo are both handled there, so nothing is
-        // left to do here but take the list.
-        const unique = task2.mockups || [];
+        // Function (see its GET handler). One thing is still left to do here, because only the
+        // client knows which placements it submitted: DROP VIEWS OF PLACEMENTS WE SENT NO
+        // ARTWORK FOR. v1 returns every camera angle it has for the product, not only the ones
+        // covered by the submitted files -- so the reversible bucket hat (654), whose mockup set
+        // is deliberately the two OUTSIDE placements, came back with 8 views of which 4 showed a
+        // blank white hat ("Front Inside", "Back Inside", "Right Front Inside", "Right Inside").
+        // v2 never exposed this because we hand-picked two style ids.
+        // The rule is derived rather than hardcoded: take the words of every placement the
+        // product HAS but we did NOT submit, subtract the words of the ones we did, and drop any
+        // view whose title uses a remaining word. On the hat that leaves {inside, label} and
+        // removes exactly the four blanks; on a product where we submit everything (the t-shirt)
+        // the set is empty and nothing is dropped.
+        const unique = hideUnsubmittedViews(task2.mockups || [], entries, printfileSpecs);
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --
@@ -330,7 +371,7 @@ export function useMockup() {
       const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
       const key =
         entries
-          ? cacheKey(product, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry)
+          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);
