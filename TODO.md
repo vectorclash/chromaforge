@@ -18,10 +18,15 @@ tracks what's true now, not history.
       fetcher demonstrably reached our storage — 7 HEADs per upload, **all 200**. The fault
       is inside Printful, after a successful fetch. **It can recur.**
 - [ ] **Ask Printful why tasks `959089343` / `959089912` / `959090827` never completed
-      despite their fetcher receiving HTTP 200.** Exact wording is in incident log §16.5 —
-      lead with the access-log evidence (7 HEADs, all 200) rather than asking whether they
-      could fetch it, which the logs already answer. The tasks are still `pending` and
-      still queryable, so the evidence is live.
+      despite their fetcher receiving HTTP 200.** **The message is written and ready to
+      send: `docs/incidents/2026-08-19-printful-support-question.md`.** It assembles §16.5's
+      wording with two things that pointer alone misses — §3's paired control (byte-identical
+      file, only the host differs: external completed in 9s, Supabase hung) and §20's
+      Cloudflare-challenge question, which is the single most diagnostic thing they can
+      answer from their side. Lead with the access-log evidence (7 HEADs, all 200) rather
+      than asking whether they could fetch it, which the logs already answer.
+      Re-verified 2026-08-21: all three still `pending` with empty `failure_reasons`, still
+      queryable — the evidence is live, two days on.
 - [ ] **Consider a mockup canary + faster failure** (incident log §15). A scheduled task
       against a known Storage URL that alerts if still `pending` after ~60s would have
       caught this before Aaron did. Related: our poll burns 180s then retries the whole
