@@ -3,7 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
 import MiniGenerator from './MiniGenerator';
-import PageContainer from './PageContainer';
+import RouteSkeleton from './RouteSkeleton';
 
 // Dark site chrome for the store/account/gallery routes -- the same ink base as the studio,
 // using solid surfaces rather than glass (see SolidPanel).
@@ -30,8 +30,13 @@ export default function SiteLayout() {
       <main key={pathname} className="animate-page-enter mx-auto w-full max-w-6xl flex-1 px-6 py-24">
         {/* Every route rendered here is React.lazy (see App.jsx) -- this Suspense boundary
             is what shows while its chunk downloads. Scoped to just <Outlet />, not the
-            whole layout, so the header/footer/mini-generator never flash away mid-navigation. */}
-        <Suspense fallback={<PageContainer title="Loading…" />}>
+            whole layout, so the header/footer/mini-generator never flash away mid-navigation.
+            The fallback is a real per-route placeholder rather than a bare title, because
+            `min-h-dvh` + `flex-1` puts the footer at the bottom of the VIEWPORT whenever this
+            main is empty: a bare fallback showed the footer for the length of the chunk
+            download and then threw it off screen the moment the page mounted. See
+            RouteSkeleton. */}
+        <Suspense fallback={<RouteSkeleton pathname={pathname} />}>
           <Outlet />
         </Suspense>
       </main>

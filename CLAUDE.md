@@ -3361,3 +3361,53 @@ things land).
   of a fixed pixel width that would drift out of sync.
 - Don't migrate/touch code that isn't actually exercised yet (see Logo.jsx above) — you
   can't verify a change against a render that doesn't exist.
+- **A route's loading state must reserve the height its content will occupy — and the
+  SUSPENSE FALLBACK is the half that actually shows the footer** (2026-08-22, Aaron: on the
+  product page "right before the products load in you see the footer", then it "pops out of
+  view"). Every route under SiteLayout is `React.lazy`, and the boundary's fallback was
+  `<PageContainer title="Loading…" />` — an empty main. `min-h-dvh` + `flex-1` then parks the
+  footer at the bottom of the VIEWPORT for the length of the chunk download. Measured on the
+  production build at 1280x800 over throttled 3G: **footer top 471px on /shop, /gallery AND
+  /shop/:id alike**, then 2228 / 1892 / 1308 in one frame. Fixing only the page's own fetch
+  (the first attempt) left this untouched, which is why it still looked identical to him.
+  `components/ui/RouteSkeleton.jsx` now supplies a per-path placeholder to that fallback, and
+  ProductPage renders the **same component** for its own catalog-fetch phase — so blank →
+  chunk → fetch → page is one continuous height. After: the three store routes go straight
+  from blank to their final height, footer never on screen.
+  Six things worth not re-deriving:
+  (1) **It must stay cheap to import.** SiteLayout imports it eagerly, so anything it pulls in
+  lands in the main bundle — exactly what the lazy routes exist to avoid. Hence
+  `SHOP_TILE_COUNT` is a literal instead of `STARTER_PRODUCT_IDS.length` (that import would
+  drag `lib/printful` and the whole render pipeline in), with a dev-only `console.warn` in
+  ShopPage guarding the drift. Verified: the entry bundle is byte-for-byte the same size and
+  RouteSkeleton splits into its own 1.61 kB gzip shared chunk.
+  (2) **The fallback is matched on `pathname`, not chosen per `<Route>`** — the boundary sits
+  above route matching, and by the time a route element could pick its own fallback its chunk
+  has already loaded and there is nothing left to show.
+  (3) **Over-reserving and under-reserving are not symmetric, and the generic routes need
+  both.** Under-reserving leaves the footer on screen and throws it off; over-reserving makes
+  it RISE into view when the content lands — the same jolt in reverse. So the bare generic
+  skeleton is small (main 392 against checkout-success's and 404's real **403** — those two
+  now never move at all) and `GENERIC_BODY_MIN` only lifts it for routes reliably taller than
+  a viewport: terms/privacy start the footer at 1372 and only grow, /account is tuned to its
+  signed-out floor (772) so signing in can only push it down.
+  (4) **ProductPage's skeleton geometry is exact by construction on desktop**, because the
+  `aspect-square` hero in the 3fr column dominates the height: **0px shift at 1280** across
+  five products, −11 at 768, +4 to +90 at 390 where the stacked purchase column contributes
+  and the size-chip row's real wrap depends on a per-product size count (3 to 11) nothing can
+  know before the fetch. That residual is ~1000px below a phone's fold.
+  (5) **Chip WIDTH is as load-bearing as chip height** in that skeleton: placeholder chips at
+  `w-14` wrapped the row at 390 and over-reserved 46px; the real chips are `px-3` around one
+  or two characters.
+  (6) **Gallery's own remaining 80px was the infinite-scroll sentinel**, not the grid. It is
+  reserved during the skeleton phase, gated on `!hasMore`: `hasMore` is set when the ROWS
+  land, which is before the thumbnails preload and the grid reveals, so an ungated spacer
+  double-counts with the real sentinel for that window and overshoots by the same 80px it
+  exists to save.
+  `SkeletonFadeOut` crossfades the product skeleton out over the arriving page (measured:
+  opacity 1 → 0 over 500ms with the document height pinned at 1637 throughout), matching what
+  Shop and Gallery already do. It needs two rAFs before flipping to `opacity-0` because it
+  MOUNTS at the moment of the swap — an element that mounts already transparent has no
+  previous painted value to transition from, the same reason FadeImage defers its own reveal
+  twice. Shop and Gallery can express the same crossfade as a plain class swap because their
+  placeholder is already mounted and visible.

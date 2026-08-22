@@ -4,15 +4,28 @@ import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
+import { SHOP_GRID_CLASS, SHOP_TILE_COUNT } from '../components/ui/RouteSkeleton';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
 
-// One source of truth for the grid geometry: the placeholder and the real grid are stacked
-// on top of each other during the crossfade, so any divergence would show as the
-// placeholder sliding sideways as it fades.
-const GRID_CLASS = 'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3';
+// One source of truth for the grid geometry, shared with SiteLayout's route-level fallback:
+// three placeholders hand over to each other on a cold load (chunk download -> this page's
+// own skeleton -> the real cards), and any divergence in columns, gaps or tile count would
+// show as the placeholder sliding sideways or the page jumping as it fades.
+const GRID_CLASS = SHOP_GRID_CLASS;
+
+// The route-level fallback can't import STARTER_PRODUCT_IDS -- that would drag lib/printful
+// and the whole render pipeline into the main bundle -- so it mirrors the count as a literal.
+// This is the guard against the two drifting when a product is added or removed.
+if (import.meta.env.DEV && SHOP_TILE_COUNT !== STARTER_PRODUCT_IDS.length) {
+  console.warn(
+    `SHOP_TILE_COUNT (${SHOP_TILE_COUNT}) no longer matches STARTER_PRODUCT_IDS.length ` +
+      `(${STARTER_PRODUCT_IDS.length}) -- update it in components/ui/RouteSkeleton.jsx, or the ` +
+      `shop's loading placeholder will reserve the wrong height.`
+  );
+}
 
 // Three columns at lg, so six tiles is roughly the first screenful; the rest stream in
 // under their own per-card placeholders, off-screen.
@@ -84,7 +97,7 @@ export default function ShopPage() {
       {skeletonMounted && !error && (
         <div className="relative">
           <SkeletonGrid
-            count={STARTER_PRODUCT_IDS.length}
+            count={SHOP_TILE_COUNT}
             className={`${GRID_CLASS} transition-opacity duration-500 ease-out ${
               revealed ? 'pointer-events-none absolute inset-x-0 top-0 opacity-0' : 'opacity-100'
             }`}

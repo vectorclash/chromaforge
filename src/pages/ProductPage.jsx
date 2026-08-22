@@ -36,6 +36,8 @@ import { useJsonLd } from '../hooks/useJsonLd';
 import SizeGuideModal from '../components/ui/SizeGuideModal';
 import ScrollStrip from '../components/ui/ScrollStrip';
 import TerminalText from '../components/ui/TerminalText';
+import { ProductPageSkeleton, SkeletonFadeOut } from '../components/ui/RouteSkeleton';
+import { DURATION_SLOW } from '../utils/motionTokens';
 
 // How long the hero's mockup layer takes to fade OUT -- must stay in step with the
 // duration-200 class on it. Only used to keep the <img> mounted long enough to animate
@@ -268,6 +270,9 @@ export default function ProductPage() {
   const [detail, setDetail] = useState(null); // { product, variants }
   const [printfileSpecs, setPrintfileSpecs] = useState(null);
   const [loading, setLoading] = useState(true);
+  // The skeleton outlives `loading` by one transition so it can fade out OVER the arriving
+  // page instead of being cut away -- the same crossfade Shop and Gallery run.
+  const [skeletonMounted, setSkeletonMounted] = useState(true);
   const [error, setError] = useState(null);
   const [selectedVariantId, setSelectedVariantId] = useState(null);
   const [qty, setQty] = useState(1);
@@ -925,12 +930,19 @@ export default function ProductPage() {
     };
   }, [images]);
 
+  // Drop the faded-out skeleton once its transition has run. A timer rather than
+  // `transitionend`, which never fires when prefers-reduced-motion collapses the transition
+  // to ~0ms -- that would strand it on top of the page forever.
+  useEffect(() => {
+    if (loading) return;
+    const t = setTimeout(() => setSkeletonMounted(false), DURATION_SLOW * 1000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
+  // Shared with SiteLayout's Suspense fallback, so the chunk-download phase, the catalog
+  // fetch and the finished page are one continuous height -- see RouteSkeleton.
   if (loading) {
-    return (
-      <PageContainer title="Loading…">
-        <p className="text-text-secondary">Fetching product…</p>
-      </PageContainer>
-    );
+    return <ProductPageSkeleton />;
   }
   if (error || !detail) {
     return (
@@ -1169,6 +1181,18 @@ export default function ProductPage() {
   };
 
   return (
+    // `relative` purely so the outgoing skeleton can sit over the page while it fades. It
+    // establishes a containing block for absolutely-positioned descendants, which is safe
+    // here: every modal on this page is `fixed inset-0` (unaffected), and the only absolute
+    // layers inside the content already have their own positioned parents.
+    // The children below are deliberately NOT re-indented under it -- a real indent level
+    // would reflow ~600 lines of unrelated markup.
+    <div className="relative">
+      {skeletonMounted && (
+        <SkeletonFadeOut>
+          <ProductPageSkeleton />
+        </SkeletonFadeOut>
+      )}
     <PageContainer
       title={product.title}
       breadcrumb={
@@ -1888,5 +1912,6 @@ export default function ProductPage() {
         elapsedSeconds={checkoutElapsed}
       />
     </PageContainer>
+    </div>
   );
 }

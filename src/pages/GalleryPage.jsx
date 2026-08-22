@@ -5,6 +5,7 @@ import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
+import { GALLERY_GRID_CLASS, GALLERY_TILE_COUNT } from '../components/ui/RouteSkeleton';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import GalleryModal from '../components/ui/GalleryModal';
 import { useCrossfadeImage } from '../hooks/useCrossfadeImage';
@@ -26,12 +27,15 @@ import AuthorBadge from '../components/ui/AuthorBadge';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
 
-const PAGE_SIZE = 20;
+// Kept in step with GALLERY_TILE_COUNT, which the route-level fallback uses to reserve the
+// same grid before this page's chunk has even loaded.
+const PAGE_SIZE = GALLERY_TILE_COUNT;
 
-// One source of truth for the grid geometry: the skeleton and the real grid are stacked on
-// top of each other during the crossfade below, so any divergence between their column
-// counts or gaps would show up as the placeholder sliding sideways as it fades.
-const GRID_CLASS = 'grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4';
+// One source of truth for the grid geometry, shared with SiteLayout's route-level fallback:
+// three placeholders hand over to each other on a cold load (chunk download -> this page's
+// own skeleton -> the real cards), and any divergence between their column counts or gaps
+// would show up as the placeholder sliding sideways as it fades.
+const GRID_CLASS = GALLERY_GRID_CLASS;
 
 // How many thumbnails to warm before revealing. Four columns x two rows is roughly the
 // first screenful on a desktop viewport; the rest stream in under their own per-card
@@ -82,6 +86,9 @@ export default function GalleryPage() {
   // bump) from `designs` instead of a stale snapshot taken when it was opened.
   const [openDesignId, setOpenDesignId] = useState(null);
   const openDesign = designs.find(d => d.id === openDesignId) || null;
+  // Exact as soon as the rows are in hand -- the guess only covers the query itself, so the
+  // tile count never visibly corrects underneath the reveal.
+  const skeletonCount = designs.length || lastCountRef.current[tab] || INITIAL_SKELETON_COUNT[tab];
 
   // Signed in, the Public tab excludes your own designs -- they already have their own
   // My Designs tab, and the same design appearing under both read as a duplicate.
@@ -287,15 +294,24 @@ export default function GalleryPage() {
       {skeletonMounted && !error && (
         <div className="relative">
           <SkeletonGrid
-            count={
-              // Exact as soon as the rows are in hand -- the guess only covers the query
-              // itself, so the tile count never visibly corrects underneath the reveal.
-              designs.length || lastCountRef.current[tab] || INITIAL_SKELETON_COUNT[tab]
-            }
+            count={skeletonCount}
             className={`${GRID_CLASS} transition-opacity duration-500 ease-out ${
               revealed ? 'pointer-events-none absolute inset-x-0 top-0 opacity-0' : 'opacity-100'
             }`}
           />
+          {/* The infinite-scroll sentinel's own 80px, reserved up front. Without it the page
+              grew by exactly that much the moment the grid revealed -- the only shift left
+              on this page once the tile count and the thumbnail preloading were handled.
+              A full page of tiles is the same evidence `hasMore` itself is set from, so this
+              is right whenever that is; a public feed holding exactly PAGE_SIZE designs and
+              no more is the one case it over-reserves, and it errs by the same 80px it
+              otherwise saves. Stands down once `hasMore` is known, because the real sentinel
+              mounts on that alone -- it is set when the rows land, which is BEFORE the
+              thumbnails finish preloading and the grid reveals, so without this the two would
+              both be in flow for that window and the page would overshoot by the same 80px. */}
+          {!revealed && !hasMore && tab === 'public' && skeletonCount >= PAGE_SIZE && (
+            <div className="py-10" aria-hidden="true" />
+          )}
         </div>
       )}
       {error && (
