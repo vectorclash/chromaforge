@@ -111,19 +111,31 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // artwork behind it. A single region whose `dest` fills the whole output (as here) is
     // the simplest case of the general mechanism -- see the zip hoodie (717) below for a
     // product needing more than one region.
-    // The `src` rect is SOLVED, not eyeballed: Printful's mockup-generator templates
-    // (printful-catalog?templates=1) are the actual cut-piece sewing patterns with
-    // print-area rects, so the pocket piece's side-seam lines (measured in its own
-    // template, least-squares fit at 5 rows) and the pocket notch dashed on the front
-    // torso template (same lines in front-file coordinates, slopes agreed within ~3%)
-    // give a solvable line-to-line mapping; the third constraint anchors the pocket
-    // piece's bottom cut edge to the torso piece's hem cut line (both are consumed by the
-    // same hem seam). The window falls slightly outside the front file (that's real: the
-    // pocket piece is physically wider at the hem than the front print's own bleed there)
-    // -- out-of-bounds areas land in cut-away bleed and are edge-clamped by drawRegion,
-    // never white. Residual error budget ~0.4in, under the ~1in garment sewing tolerance.
+    // The `src` rect is SOLVED from Printful's own sewing templates, then CONFIRMED on a real
+    // mockup (recalibrated 2026-08-22 -- the previous window was ~10% too small, which printed
+    // the pouch's artwork ~10% oversized against the body behind it and drifted about an inch
+    // by its bottom edge).
+    // How it is derived, so it can be re-solved rather than re-guessed:
+    //   - The front torso template dashes the POCKET NOTCH on it: the safe-print region's
+    //     bottom boundary dips from the side strips up into a trapezoid, and that trapezoid is
+    //     the pouch's footprint. Least-squares fitting its two diagonals against the pocket
+    //     piece's own cut edges gives slopes agreeing to 0.6% and 1.4%, and top-corner widths
+    //     of 830.8 vs 839.5 template px -- i.e. the two templates are drawn at the SAME scale,
+    //     so the mapping is a pure translation of 297px down the front template.
+    //   - The scale between the FILES is then just the ratio of their print areas, because both
+    //     placements share ONE printfile (200) that Printful cover-fits to each piece
+    //     separately: 3000 / 2636 = 1.1381. That shortcut is only valid for a shared printfile
+    //     -- see the zip hoodie (717) below, where it is measurably wrong.
+    // The window extends well past the front file, which is fine and not the "overhang" hazard
+    // drawRegion warns about: over the pocket PIECE itself it samples front-file x 0.17-0.83,
+    // y 0.52-0.85, entirely in bounds. Only the parts of the pocket canvas that are not fabric
+    // fall outside, and those are cut away.
+    // Verified on a real Printful mockup with a labelled grid on the front and this crop on the
+    // pocket: the pouch's bottom row reads 17 against the body's 18 immediately below it
+    // (consecutive), and the diagonals cross the pouch's edges with no kink. The previous
+    // window put row 16 against 18 -- a whole row, ~2in, skipped.
     pocketCrop: {
-      regions: [{ src: { x: -0.012, y: 0.155, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+      regions: [{ src: { x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }
   }, // hoodie
   320: {
@@ -210,8 +222,18 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // beyond a few percent produces its own defect (edge-clamp strips stretched into
     // visible flat-color bars). y is the only tuned value: calibrated against a series of
     // real mockups (increasing y visibly shifts the design "up", decreasing shifts "down")
-    // and landed at 0.36 -- close enough that the difference vs. a real print run is
-    // expected to matter more than further precision here.
+    // and landed at 0.36.
+    // RE-MEASURED 2026-08-22 and left alone, so nobody re-derives it: a mockup carrying two
+    // DIFFERENT labelled grids (uppercase on the front, lowercase on the pocket) makes the
+    // mapping readable straight off the photo, and it came out w 1.008 / x -0.008 /
+    // h 0.643 / y 0.349 against the configured 1 / 0 / 0.625 / 0.36 -- inside the reading
+    // error of a photo of curved fabric. This product is CORRECT as configured.
+    // Two things that matter if it is ever revisited. Its front template dashes NO pocket
+    // notch (unlike the hoodie's, 388 above), so there is nothing to solve against and the
+    // grid photo is the only instrument. And the hoodie's print-area-ratio shortcut does NOT
+    // apply here: it predicts 1.263 where the truth is ~1.01, because that ratio only means
+    // anything when both placements cover-fit the SAME printfile, and these are two different
+    // files (506 and 507) already at a common 150 DPI -- so 1:1 pixels really are 1:1 inches.
     pocketCrop: {
       regions: [{ src: { x: 0, y: 0.36, w: 1, h: 0.625 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }

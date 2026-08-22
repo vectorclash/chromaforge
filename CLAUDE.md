@@ -2109,7 +2109,40 @@ load for an unrelated reason and every count is meaningless.
     is `dest` filling **100%** of the canvas (`{x:0,y:0,w:1,h:1}`) — whatever the garment's
     own real crop discards is simply invisible, same as for any upload; only the `src`
     window (with zero overhang, so no edge-clamp-stretch artifacts either — see below)
-    needs tuning, and only visually, from real mockups. The hoodie (388) needed one
+    needs tuning, and only visually, from real mockups.
+    **Recalibrated 2026-08-22 (Aaron: the pouch didn't line up).** The hoodie's window was ~10%
+    too small, printing the pouch's artwork ~10% oversized against the body behind it and
+    drifting about an inch by its bottom edge; it is now
+    `{ x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }`. Four things worth not re-deriving:
+    (1) **The front torso template dashes the pocket NOTCH on it** — the safe-print region's
+    bottom boundary dips from the side strips up into a trapezoid, and that trapezoid is the
+    pouch's footprint. Least-squares fitting its diagonals against the pocket piece's own cut
+    edges gives slopes agreeing to 0.6%/1.4% and top-corner widths of 830.8 vs 839.5 template
+    px, i.e. **the two templates are drawn at the same scale** and the mapping is a pure 297px
+    translation.
+    (2) **The file-to-file scale is then just the ratio of the two print areas** (3000/2636 =
+    1.1381), because both placements cover-fit the SAME printfile (200) onto differently-sized
+    pieces. **That shortcut is only valid for a shared printfile** — on the zip hoodie it
+    predicts 1.263 where the truth is ~1.01, since 506 and 507 are different files already at a
+    common 150 DPI, so 1:1 pixels really are 1:1 inches there.
+    (3) **A window far outside the front file is not the overhang hazard** described above: over
+    the pocket PIECE it samples front-file x 0.17–0.83, y 0.52–0.85, entirely in bounds. Only
+    the non-fabric parts of the pocket canvas fall outside, and those are cut away.
+    (4) **Printful caches fetched files BY URL**, so re-serving different bytes at a
+    previously-used Storage path silently reuses their copy — it cost one wasted calibration
+    task here (the front came back as the *previous* run's pattern). Content-hash calibration
+    uploads, the way `uploadMockupSourceImage` already does.
+    Verified on real mockups both ways: with a labelled grid (the pouch's bottom row reads 17
+    against the body's 18 immediately below it, consecutive, where the old window skipped a
+    whole row) and with real artwork (shape edges cross the pouch's diagonals unbroken).
+    **The zip hoodie (717) was re-measured the same day and is CORRECT as configured** — a
+    mockup carrying two different labelled grids (uppercase front, lowercase pocket) makes the
+    mapping readable straight off the photo and gave w 1.008 / h 0.643 against its configured
+    1 / 0.625, inside the reading error of a photo of curved fabric. Its front template dashes
+    no notch, so that photo is the only instrument available for it.
+    **Neither needs a render-service deploy**: `pocketCrop` lives in `src/lib`, and the regions
+    ride to Fly in the request body.
+    The hoodie (388) needed one
     `src` rect (solved from CAD template geometry, since its pocket panel and front share
     one printfile at the same aspect). The zip hoodie (717) is structurally different —
     two zip panels forming the front, a compound two-piece welt pocket on its own
