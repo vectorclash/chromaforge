@@ -130,12 +130,25 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // drawRegion warns about: over the pocket PIECE itself it samples front-file x 0.17-0.83,
     // y 0.52-0.85, entirely in bounds. Only the parts of the pocket canvas that are not fabric
     // fall outside, and those are cut away.
-    // Verified on a real Printful mockup with a labelled grid on the front and this crop on the
-    // pocket: the pouch's bottom row reads 17 against the body's 18 immediately below it
-    // (consecutive), and the diagonals cross the pouch's edges with no kink. The previous
-    // window put row 16 against 18 -- a whole row, ~2in, skipped.
+    // TRUE REGISTRATION IS `{ x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }`, IT WAS MEASURED
+    // AND CONFIRMED, AND IT IS DELIBERATELY NOT USED (Aaron, 2026-08-22: "the before looked
+    // better"). Do not "fix" this back without asking him.
+    // That window makes the artwork continue through the pouch exactly -- verified on a real
+    // mockup with a labelled grid (the pouch's bottom row reads 17 against the body's 18
+    // immediately below it, consecutive, where the window below skips one) and with real
+    // artwork (shape edges cross the pouch's diagonals unbroken).
+    // The catch is that perfect continuity makes the pouch VANISH: with the body's artwork
+    // running straight through it, the panel stops reading as a design element at all and the
+    // lower third of the garment reads busier, because whatever wedges sit behind the pouch now
+    // intrude into it. The window kept below is ~10% tighter, which magnifies the pouch's
+    // content about a point near its top edge and leaves it reading as its own panel with its
+    // own focal colour -- accidental in origin, better looking in practice.
+    // So this value is a TASTE choice sitting on top of a solved measurement, not an
+    // unsolved approximation. If it is ever revisited, the honest version of the effect is
+    // "registered, then deliberately scaled about the pouch's centre", which would keep the
+    // panel reading while removing the sideways drift the tighter window also introduces.
     pocketCrop: {
-      regions: [{ src: { x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+      regions: [{ src: { x: -0.012, y: 0.155, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }
   }, // hoodie
   320: {

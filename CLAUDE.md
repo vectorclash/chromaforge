@@ -2110,10 +2110,22 @@ load for an unrelated reason and every count is meaningless.
     own real crop discards is simply invisible, same as for any upload; only the `src`
     window (with zero overhang, so no edge-clamp-stretch artifacts either — see below)
     needs tuning, and only visually, from real mockups.
-    **Recalibrated 2026-08-22 (Aaron: the pouch didn't line up).** The hoodie's window was ~10%
-    too small, printing the pouch's artwork ~10% oversized against the body behind it and
-    drifting about an inch by its bottom edge; it is now
-    `{ x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }`. Four things worth not re-deriving:
+    **Solved 2026-08-22, then DELIBERATELY NOT ADOPTED — read this before "fixing" it.** Aaron
+    asked for a recalibration because the pouch didn't line up; true registration is
+    `{ x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }`, it was measured and confirmed on real
+    mockups, it shipped, and he rejected it on sight: **"the before looked better"**. The
+    configured window stays the ~10% tighter one.
+    **Why the correct answer looks worse, which is the part worth keeping:** perfect continuity
+    makes the pouch VANISH. With the body's artwork running straight through it the panel stops
+    reading as a design element at all, and the lower third of the garment reads busier because
+    whatever wedges sit behind the pouch now intrude into it. The tighter window magnifies the
+    pouch's content about a point near its top edge, so the pouch keeps its own focal colour and
+    its own shape — accidental in origin, better looking in practice. That makes the shipped
+    value a TASTE choice sitting on a solved measurement, not an unsolved approximation.
+    If it is revisited, the honest form of the effect is "registered, then deliberately scaled
+    about the pouch's own centre", which keeps the panel reading without the sideways drift the
+    tighter window also carries.
+    Four things worth not re-deriving from the solve:
     (1) **The front torso template dashes the pocket NOTCH on it** — the safe-print region's
     bottom boundary dips from the side strips up into a trapezoid, and that trapezoid is the
     pouch's footprint. Least-squares fitting its diagonals against the pocket piece's own cut
@@ -2132,9 +2144,9 @@ load for an unrelated reason and every count is meaningless.
     previously-used Storage path silently reuses their copy — it cost one wasted calibration
     task here (the front came back as the *previous* run's pattern). Content-hash calibration
     uploads, the way `uploadMockupSourceImage` already does.
-    Verified on real mockups both ways: with a labelled grid (the pouch's bottom row reads 17
-    against the body's 18 immediately below it, consecutive, where the old window skipped a
-    whole row) and with real artwork (shape edges cross the pouch's diagonals unbroken).
+    Verified on real mockups both ways: with a labelled grid (the registered pouch's bottom row
+    reads 17 against the body's 18 immediately below it, consecutive, where the shipped window
+    skips a whole row) and with real artwork (shape edges cross the pouch's diagonals unbroken).
     **The zip hoodie (717) was re-measured the same day and is CORRECT as configured** — a
     mockup carrying two different labelled grids (uppercase front, lowercase pocket) makes the
     mapping readable straight off the photo and gave w 1.008 / h 0.643 against its configured
