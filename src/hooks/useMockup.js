@@ -8,6 +8,7 @@ import {
   hideUnsubmittedViews,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
+  getHatWrap,
   capRenderStrategy,
   warmRenderService
 } from '../lib/printful';
@@ -263,6 +264,9 @@ export function useMockup() {
           geometryPlacements,
           geometryLayout,
           mirrorPlacements,
+          // Not in cacheKey below: this is a fixed property of the product, never a customer
+          // choice, so it cannot vary between two mockups of the same product and variant.
+          hatWrap: getHatWrap(cfg),
           sizeFrame,
           legSymmetry,
           secondaryDesign,

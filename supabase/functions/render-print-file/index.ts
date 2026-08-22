@@ -83,7 +83,7 @@ Deno.serve(async req => {
   }
 
   const body = await req.json();
-  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight } =
+  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight, hatWrap } =
     body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
@@ -160,7 +160,13 @@ Deno.serve(async req => {
         // placement's dims (what to composite into). Absent for every other placement.
         regions: regions ?? null,
         sourceWidth: sourceWidth ?? null,
-        sourceHeight: sourceHeight ?? null
+        sourceHeight: sourceHeight ?? null,
+        // Optional hat-piece wrap (the reversible bucket hat) -- the product's cut-piece
+        // geometry as fractions of the printfile's width, validated and resolved by
+        // render-service itself, just forwarded here. When set, render-service generates its
+        // own two sources at sizes derived from this geometry, so sourceWidth/sourceHeight
+        // above play no part. Absent for every other product.
+        hatWrap: hatWrap ?? null
       })
     });
   } catch {

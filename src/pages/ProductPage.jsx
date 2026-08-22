@@ -18,6 +18,7 @@ import {
   getLegPanel,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
+  getHatWrap,
   renderPrintFileStrategy
 } from '../lib/printful';
 import { getThumbnailUrl } from '../lib/designs';
@@ -1106,6 +1107,9 @@ export default function ProductPage() {
         secondaryDesign,
         secondaryPlacements: secondaryDesignConfig?.placements || null,
         mirrorPlacements: effectiveMirrorPlacements,
+        // Fixed per product (the reversible hat only), never a customer choice -- see
+        // PRODUCT_MOCKUP_CONFIG's hatWrap and src/render/hatWrap.js.
+        hatWrap: getHatWrap(cfg),
         onProgress: (done, total) => setCheckoutProgress({ done, total })
       });
       // Renders finished; the remaining wait is session creation -- null the counts so the

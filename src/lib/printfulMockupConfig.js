@@ -339,6 +339,28 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // the only fix available that closes both seams at once. That's a taste call, hence the
     // customer-facing toggle in ProductPage (default on).
     mirrorPlacements: ['outside_back', 'inside_back'],
+    // Wraps the composition onto this product's real cut pieces instead of laying it flat
+    // across the sheet -- see src/render/hatWrap.js for the map, why the crown top is treated
+    // differently from the crown wall and brim, and the mockup evidence behind that split.
+    // The numbers are fractions of the printfile's WIDTH (2700), flood-measured off Printful's
+    // own templates 162068/162069/162070 and circle-fitted to inside 0.8px. Two checks confirm
+    // the fits describe the real garment rather than just the drawing: the disc's circumference
+    // matches two crown-wall top arcs to 2.7%, which is what proves each wall piece spans
+    // exactly 180 degrees; and the measured centres came out at 0.49955 and 0.50019, snapped
+    // here to exactly 0.5 because a mirrored face is this sheet reflected about width/2 and an
+    // off-axis centre would put the two faces out of register at the side seams.
+    // Known and accepted: the crown's seam arc is 8.4% longer than the brim's (0.7499 vs
+    // 0.6927 of the width), so there is a small horizontal scale step right at that seam. It is
+    // invisible next to what the flat layout did, and mapping by normalised angle keeps the
+    // artwork continuous across it regardless.
+    hatWrap: {
+      disc: { cx: 0.5, cy: 0.216647, r: 0.204006 },
+      crown: { cx: 0.5, cy: -0.768718, rIn: 1.246201, rOut: 1.499609, half: 0.250032 },
+      brim: { cx: 0.5, cy: 0.566921, rIn: 0.354386, rOut: 0.575096, half: 0.977384 },
+      // Every face this applies to. The label placements are deliberately absent: the mark is
+      // branding on a small separate tag, not artwork that has to meet anything.
+      placements: ['outside_front', 'outside_back', 'inside_front', 'inside_back']
+    },
     // The garment is reversible, so printing one design on both faces wastes the format --
     // ProductPage offers an optional SECOND design for the inside placements (see
     // getSecondaryDesignConfig and renderAndUploadPrintFiles' secondaryDesign param).

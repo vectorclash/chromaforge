@@ -1186,8 +1186,124 @@ function renderArtwork(config) {
   }
   return canvas;
 }
+
+// ../src/render/hatWrap.js
+var HAT_WRAP_SUPERSAMPLE = 2;
+function resolve(geom, outW) {
+  const s = (piece) => ({
+    cx: piece.cx * outW,
+    cy: piece.cy * outW,
+    rIn: (piece.rIn ?? 0) * outW,
+    rOut: (piece.rOut ?? piece.r) * outW,
+    half: piece.half ?? 0
+  });
+  const disc = { cx: geom.disc.cx * outW, cy: geom.disc.cy * outW, r: geom.disc.r * outW };
+  const crown = s(geom.crown);
+  const brim = s(geom.brim);
+  return { disc, crown, brim };
+}
+function hatWrapSourceSize(geom, outW) {
+  const { crown, brim } = resolve(geom, outW);
+  const seamArc = crown.rOut * 2 * crown.half;
+  const total = crown.rOut - crown.rIn + (brim.rOut - brim.rIn);
+  return {
+    width: Math.round(seamArc * HAT_WRAP_SUPERSAMPLE),
+    height: Math.round(total * HAT_WRAP_SUPERSAMPLE)
+  };
+}
+function hatWrapDiscSourceSize(geom, outW) {
+  const { disc } = resolve(geom, outW);
+  const side = Math.round(2 * disc.r * HAT_WRAP_SUPERSAMPLE);
+  return { width: side, height: side };
+}
+function readPixels(source, w, h) {
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(source, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h).data;
+}
+function sample(data, w, h, u, v, out, p) {
+  const sx = Math.min(w - 1, Math.max(0, u * w - 0.5));
+  const sy = Math.min(h - 1, Math.max(0, v * h - 0.5));
+  const x0 = Math.floor(sx);
+  const y0 = Math.floor(sy);
+  const x1 = Math.min(w - 1, x0 + 1);
+  const y1 = Math.min(h - 1, y0 + 1);
+  const fx = sx - x0;
+  const fy = sy - y0;
+  const i00 = y0 * w + x0 << 2;
+  const i10 = y0 * w + x1 << 2;
+  const i01 = y1 * w + x0 << 2;
+  const i11 = y1 * w + x1 << 2;
+  for (let k = 0; k < 3; k++) {
+    const a = data[i00 + k] * (1 - fx) + data[i10 + k] * fx;
+    const b = data[i01 + k] * (1 - fx) + data[i11 + k] * fx;
+    out[p + k] = a * (1 - fy) + b * fy;
+  }
+}
+function drawHatWrap(ctx, unrolled, discSource, geom, outW, outH, { mirror = false } = {}) {
+  const { disc, crown, brim } = resolve(geom, outW);
+  const src = hatWrapSourceSize(geom, outW);
+  const dsc = hatWrapDiscSourceSize(geom, outW);
+  const uData = readPixels(unrolled, src.width, src.height);
+  const dData = readPixels(discSource, dsc.width, dsc.height);
+  const crownBand = crown.rOut - crown.rIn;
+  const total = crownBand + (brim.rOut - brim.rIn);
+  const out = ctx.createImageData(outW, outH);
+  const data = out.data;
+  for (let y = 0; y < outH; y++) {
+    const gy = y + 0.5;
+    for (let x = 0; x < outW; x++) {
+      const gx = x + 0.5;
+      const p = y * outW + x << 2;
+      data[p + 3] = 255;
+      const ddx = gx - disc.cx;
+      const ddy = gy - disc.cy;
+      if (ddx * ddx + ddy * ddy <= disc.r * disc.r) {
+        sample(dData, dsc.width, dsc.height, 0.5 + ddx / (2 * disc.r), 0.5 + ddy / (2 * disc.r), data, p);
+        continue;
+      }
+      let dx = gx - crown.cx;
+      let dy = gy - crown.cy;
+      const rc = Math.sqrt(dx * dx + dy * dy);
+      const tc = Math.atan2(dx, dy);
+      let u;
+      let v;
+      if (Math.abs(tc) <= crown.half * 1.02 && rc >= crown.rIn * 0.97 && rc <= crown.rOut * 1.03) {
+        u = (tc + crown.half) / (2 * crown.half);
+        v = (rc - crown.rIn) / total;
+      } else {
+        dx = gx - brim.cx;
+        dy = gy - brim.cy;
+        const rb = Math.sqrt(dx * dx + dy * dy);
+        const tb = Math.atan2(dx, dy);
+        u = (tb + brim.half) / (2 * brim.half);
+        v = (crownBand + (rb - brim.rIn)) / total;
+      }
+      sample(uData, src.width, src.height, u, v, data, p);
+    }
+  }
+  if (!mirror) {
+    ctx.putImageData(out, 0, 0);
+    return;
+  }
+  const scratch = document.createElement("canvas");
+  scratch.width = outW;
+  scratch.height = outH;
+  scratch.getContext("2d").putImageData(out, 0, 0);
+  ctx.save();
+  ctx.translate(outW, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(scratch, 0, 0);
+  ctx.restore();
+}
 export {
   GENERATOR_VERSION,
+  drawHatWrap,
   generateArtwork,
+  hatWrapDiscSourceSize,
+  hatWrapSourceSize,
   renderArtwork
 };

@@ -6,7 +6,14 @@
 // service (or after any change to ../src/render) to regenerate generated/render-lib.js.
 import './shim.js';
 import { createCanvas } from '@napi-rs/canvas';
-import { generateArtwork, GENERATOR_VERSION, renderArtwork } from './generated/render-lib.js';
+import {
+  generateArtwork,
+  GENERATOR_VERSION,
+  renderArtwork,
+  drawHatWrap,
+  hatWrapSourceSize,
+  hatWrapDiscSourceSize
+} from './generated/render-lib.js';
 
 // This used to load the two star sprite PNGs off disk and hand renderArtwork a { getResult }
 // shim standing in for StudioContext's createjs LoadQueue. Both star shapes are drawn from
@@ -51,8 +58,44 @@ export async function renderDesign({
   legSymmetry = false,
   regions = null,
   sourceWidth = null,
-  sourceHeight = null
+  sourceHeight = null,
+  hatWrap = null
 }) {
+  // Wraps the composition onto a hat's real cut pieces rather than laying it flat across the
+  // sheet -- see src/render/hatWrap.js for the geometry and why the crown top is handled
+  // differently from the crown wall and brim. Unlike `regions` below, this is NOT mirrored by
+  // hand here: drawHatWrap comes through the same bundle as generateArtwork, so the browser and
+  // this service run one implementation.
+  //
+  // mirrorX is deliberately NOT passed to either source generation. For every other placement it
+  // reflects the composition inside renderArtwork; here the thing that has to be reflected is the
+  // finished SHEET, so that a face's cut pieces meet their partner's across the side seams. Doing
+  // both would mirror twice and land back where it started.
+  if (hatWrap) {
+    const src = hatWrapSourceSize(hatWrap, width);
+    const disc = hatWrapDiscSourceSize(hatWrap, width);
+    const unrolled = renderArtwork(
+      generateArtwork(seed, src.width, src.height, colors, settings, {
+        includeGeometry,
+        geometryLayout,
+        sizeFrame,
+        legSymmetry
+      })
+    );
+    const discCanvas = renderArtwork(
+      generateArtwork(seed, disc.width, disc.height, colors, settings, {
+        includeGeometry,
+        geometryLayout,
+        sizeFrame,
+        legSymmetry
+      })
+    );
+    const output = createCanvas(width, height);
+    drawHatWrap(output.getContext('2d'), unrolled, discCanvas, hatWrap, width, height, {
+      mirror: mirrorX === true
+    });
+    return output.toBuffer('image/png');
+  }
   if (!regions) {
     const config = generateArtwork(seed, width, height, colors, settings, {
       includeGeometry,

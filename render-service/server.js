@@ -7,6 +7,7 @@
 // guarantee matters here).
 import http from 'node:http';
 import { renderDesign, GENERATOR_VERSION } from './render.js';
+import { hatWrapSourceSize, hatWrapDiscSourceSize } from './generated/render-lib.js';
 
 const PORT = process.env.PORT || 8080;
 const RENDER_SERVICE_KEY = process.env.RENDER_SERVICE_KEY;
@@ -64,7 +65,8 @@ const server = http.createServer(async (req, res) => {
     legSymmetry,
     regions,
     sourceWidth,
-    sourceHeight
+    sourceHeight,
+    hatWrap
   } = payload;
   if (!seed || !width || !height) {
     send(res, 400, { error: 'Missing required fields: seed, width, height' });
@@ -109,6 +111,42 @@ const server = http.createServer(async (req, res) => {
       return;
     }
   }
+  // Optional hat-piece wrap (see render.js and src/render/hatWrap.js). Validated for the same
+  // reason regions is -- this is paid compute, and the geometry drives the size of two SOURCE
+  // canvases this machine has to hold alongside the output, so a malformed radius is a memory
+  // question, not just a wrong picture. Fractions of the printfile's WIDTH: cy legitimately runs
+  // past 1 (the crown's arc centre sits far above the sheet) and radii legitimately exceed 1 (the
+  // crown's arc is wider than the sheet), so the bounds here are generous sanity limits rather
+  // than [0,1]. The half-angles are radians and cannot exceed a half turn.
+  if (hatWrap != null) {
+    const num = (n, lo, hi) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
+    const sector = p =>
+      p && num(p.cx, -1, 2) && num(p.cy, -20, 20) && num(p.rIn, 0, 20) && num(p.rOut, 0, 20) &&
+      p.rOut > p.rIn && num(p.half, 0.01, Math.PI);
+    const valid =
+      hatWrap.disc && num(hatWrap.disc.cx, -1, 2) && num(hatWrap.disc.cy, -20, 20) &&
+      num(hatWrap.disc.r, 0.001, 5) && sector(hatWrap.crown) && sector(hatWrap.brim) &&
+      width <= MAX_AXIS && height <= MAX_AXIS && width * height <= MAX_PIXELS;
+    if (!valid) {
+      send(res, 400, {
+        error: 'Invalid hatWrap: expected { disc: { cx, cy, r }, crown, brim } as fractions of the printfile width'
+      });
+      return;
+    }
+    // The sources are derived from this geometry rather than sent, so their cost has to be
+    // checked after resolving it -- a plausible-looking radius can still ask for a canvas this
+    // machine cannot hold.
+    const src = hatWrapSourceSize(hatWrap, width);
+    const disc = hatWrapDiscSourceSize(hatWrap, width);
+    if (
+      src.width < 1 || src.height < 1 || disc.width < 1 ||
+      src.width > MAX_AXIS || src.height > MAX_AXIS || disc.width > MAX_AXIS ||
+      src.width * src.height > MAX_PIXELS || disc.width * disc.height > MAX_PIXELS
+    ) {
+      send(res, 400, { error: 'Invalid hatWrap: the implied source canvases exceed this service\'s limits' });
+      return;
+    }
+  }
   if (generatorVersion !== GENERATOR_VERSION) {
     send(res, 422, {
       error: `generatorVersion mismatch: design is v${generatorVersion}, this service renders v${GENERATOR_VERSION}`
@@ -130,7 +168,8 @@ const server = http.createServer(async (req, res) => {
       legSymmetry: legSymmetry === true,
       regions: regions || null,
       sourceWidth: sourceWidth || null,
-      sourceHeight: sourceHeight || null
+      sourceHeight: sourceHeight || null,
+      hatWrap: hatWrap || null
     });
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
     res.end(png);

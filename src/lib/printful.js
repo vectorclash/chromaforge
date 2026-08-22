@@ -14,6 +14,7 @@ import {
 // helpers, not a copy that drifts from the code it exists to protect.
 export { resolvePlacementEntries, buildMockupFiles, hideUnsubmittedViews };
 import { generateLabelMark } from '../render/generateLabelMark';
+import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../render/hatWrap';
 import renderLabelMark from '../render/renderLabelMark';
 import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
 
@@ -255,6 +256,14 @@ export function getMirrorPlacements(cfg) {
   return cfg?.mirrorPlacements || null;
 }
 
+// This product's cut-piece geometry, if its artwork should be wrapped onto real pieces rather
+// than laid flat across the printfile -- today only the reversible bucket hat (654), see its
+// config entry and src/render/hatWrap.js. Null for everything else, which renders exactly as it
+// did before this existed.
+export function getHatWrap(cfg) {
+  return cfg?.hatWrap || null;
+}
+
 // Products where a second design can be printed on a physically separate face of the same
 // garment -- today only the reversible bucket hat (654), see its config entry. Returns null
 // for everything else, which is what keeps this feature invisible on every other product.
@@ -441,6 +450,11 @@ export async function renderAndUploadPrintFiles(
     // PRODUCT_MOCKUP_CONFIG, and renderArtwork.js for where the flip actually happens. Null
     // (every product that doesn't declare it, or the customer opting out) mirrors nothing.
     mirrorPlacements = null,
+    // Wraps each face's composition onto the product's real cut pieces instead of laying it
+    // flat across the sheet -- the reversible bucket hat only, see PRODUCT_MOCKUP_CONFIG's
+    // hatWrap and src/render/hatWrap.js. Null for every other product, which renders exactly
+    // as it did before this existed.
+    hatWrap = null,
     // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
@@ -493,6 +507,9 @@ export async function renderAndUploadPrintFiles(
         : null;
     const useSecondary = hasSecondary && !!secondaryPlacements?.includes(placementKey);
     const mirrorX = !!mirrorPlacements?.includes(placementKey);
+    // Only the faces the product names, so a label placement on the same product can never be
+    // wrapped -- the geometry describes crown and brim pieces it has nothing to do with.
+    const wrap = hatWrap?.placements?.includes(placementKey) ? hatWrap : null;
     // The design is part of the cache key, not just the printfile/geometry/layout: on the
     // bucket hat all four face placements share ONE printfile id, so without this the inside
     // would collide with the outside's entry and silently be served the outside's render --
@@ -509,7 +526,11 @@ export async function renderAndUploadPrintFiles(
       // customer's choice would silently do nothing. Only ever appended when a frame is
       // actually in play, so every other product's keys are byte-identical.
       `${sizeFrame ? `:panel${sizeFrame.width}x${sizeFrame.height}` : ''}` +
-      `${legSymmetry ? ':legsym' : ''}`;
+      `${legSymmetry ? ':legsym' : ''}` +
+      // A wrapped face and an unwrapped one would otherwise collide on printfile id alone.
+      // Only ever appended for a product that declares hatWrap, so every other product's keys
+      // stay byte-identical.
+      `${wrap ? ':hatwrap' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       rendered[cacheKey] = spec
@@ -522,7 +543,8 @@ export async function renderAndUploadPrintFiles(
             geometryLayout,
             mirrorX,
             sizeFrame,
-            legSymmetry
+            legSymmetry,
+            wrap
           )
         : Promise.resolve(null);
     }
@@ -570,6 +592,26 @@ async function compositeRegionsBlob(sourceBlob, outW, outH, regions) {
   bitmap.close();
   return new Promise((resolve, reject) =>
     canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Composite failed'))), 'image/jpeg', 0.92)
+  );
+}
+
+// Client-side half of the hat wrap: decode both rendered sources and hand them to the SHARED
+// drawHatWrap (src/render/hatWrap.js). Unlike drawRegion, this math is not mirrored by hand into
+// render-service -- that module goes through the same esbuild bundle as generateArtwork, so both
+// sides run one implementation and cannot drift.
+async function compositeHatWrapBlob(unrolledBlob, discBlob, geom, outW, outH, mirror) {
+  const [unrolled, disc] = await Promise.all([
+    createImageBitmap(unrolledBlob),
+    createImageBitmap(discBlob)
+  ]);
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  drawHatWrap(canvas.getContext('2d'), unrolled, disc, geom, outW, outH, { mirror });
+  unrolled.close();
+  disc.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Hat wrap composite failed'))), 'image/jpeg', 0.92)
   );
 }
 
@@ -701,9 +743,31 @@ export function capRenderStrategy(renderDesignBlob) {
     geometryLayout = null,
     mirrorX = false,
     sizeFrame = null,
-    legSymmetry = false
+    legSymmetry = false,
+    hatWrap = null
   ) => {
     const { width, height } = capMockupRenderSize(spec.width, spec.height);
+    // Wraps the composition onto the product's real cut pieces (see src/render/hatWrap.js).
+    // The two sources are sized from the geometry rather than from the printfile, so their
+    // ASPECT is identical here and at true print resolution -- which is what keeps this capped
+    // mockup showing the same composition the print file will, rather than a second
+    // ratio-aware recompose of the same seed.
+    //
+    // mirrorX is deliberately not passed to either source render: for every other placement it
+    // reflects the composition inside renderArtwork, but here what has to be reflected is the
+    // finished SHEET, so the face's cut pieces meet their partner's across the side seams.
+    // drawHatWrap does that; doing both would mirror twice.
+    if (hatWrap) {
+      const src = hatWrapSourceSize(hatWrap, width);
+      const disc = hatWrapDiscSourceSize(hatWrap, width);
+      const opts = { includeGeometry, geometryLayout, sizeFrame, legSymmetry };
+      const [unrolledBlob, discBlob] = await Promise.all([
+        renderDesignBlob(design, src.width, src.height, opts),
+        renderDesignBlob(design, disc.width, disc.height, opts)
+      ]);
+      const blob = await compositeHatWrapBlob(unrolledBlob, discBlob, hatWrap, width, height, mirrorX);
+      return uploadMockupSourceImage(blob, `${printfileId}-hatwrap${mirrorX ? '-mirror' : ''}`);
+    }
     if (!regionsConfig) {
       const blob = await renderDesignBlob(design, width, height, {
         includeGeometry,
@@ -759,7 +823,8 @@ export async function renderPrintFileStrategy(
   geometryLayout = null,
   mirrorX = false,
   sizeFrame = null,
-  legSymmetry = false
+  legSymmetry = false,
+  hatWrap = null
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -772,14 +837,22 @@ export async function renderPrintFileStrategy(
     // this same includeGeometry value (already resolved against the front's own choice).
     width: spec.width,
     height: spec.height,
-    label: regionsConfig ? `${printfileId}-pocket` : printfileId,
+    label: hatWrap
+      ? `${printfileId}-hatwrap${mirrorX ? '-mirror' : ''}`
+      : regionsConfig
+        ? `${printfileId}-pocket`
+        : printfileId,
     includeGeometry,
     geometryLayout,
     mirrorX,
     sizeFrame,
     legSymmetry
   };
-  if (regionsConfig) {
+  if (hatWrap) {
+    // render-service derives both source sizes from this geometry, so there is nothing else to
+    // send -- and no sourceWidth/sourceHeight, which belong to the regions path only.
+    body.hatWrap = hatWrap;
+  } else if (regionsConfig) {
     body.regions = regionsConfig.regions;
     body.sourceWidth = regionsConfig.sourceSpec.width;
     body.sourceHeight = regionsConfig.sourceSpec.height;

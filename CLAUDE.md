@@ -2631,6 +2631,71 @@ load for an unrelated reason and every count is meaningless.
     four unnumbered sections wedged between them. The numbers stay on the required steps
     only, since numbering a clearly-optional disclosure as "step 2" would imply a sequence
     that isn't one.
+  - **The bucket hat's artwork is WRAPPED onto its real cut pieces, not laid flat across the
+    sheet (2026-08-21, Aaron: the panels were "starting to look odd"). `src/render/hatWrap.js`,
+    `PRODUCT_MOCKUP_CONFIG`'s `hatWrap`.** Printfile 410 carries **THREE** cut pieces, not the two
+    the `mirrorPlacements` note above describes: a **crown top disc** (front faces only), a
+    **crown wall half**, and a **brim half**. The lower two are annular sectors at wildly
+    different curvature — crown 28.7° of a huge radius, brim 112° of a small one — both
+    representing the same 180° of the head. A flat composition knows about none of that, so the
+    artwork restarted at the crown/brim seam AND each piece picked up a different amount of polar
+    distortion (the brim fanned into radial arcs the crown did not have). Measured over five real
+    stored designs, mean per-channel mismatch across that seam was **61–107 of 255**; through the
+    map it is **5.8–13.3**, and the residual is the seam allowance, not error.
+    The map: generate the composition in the hat's own coordinates (u = angle around the head
+    across one half, v = height from the crown's top edge to the brim's outer edge) and
+    inverse-map it into each sector. Both panels take u from the same normalised angle, so the
+    joins close by construction — which is also why the 8.4% difference between the crown's and
+    brim's seam arcs (0.7499 vs 0.6927 of the width) is harmless: it is a small horizontal scale
+    step at the seam, not a discontinuity.
+    Things worth not re-deriving:
+    (1) **The crown top is deliberately NOT in that map, and this was settled from real mockups,
+    not reasoning.** Wrapping the composition's horizontal axis around the disc takes it through
+    a full 360°, so it converges at the centre — unavoidable for any continuous map, since a disc
+    cannot carry a strip without a singularity. On a test grid that read as a tidy sunburst; on
+    real artwork it read as a pinwheel smear at exactly the spot the eye lands first. **A hybrid
+    (polar at the rim crossfading to planar in the middle) looked like the obvious compromise and
+    measured worse**: blending two unrelated compositions dissolves the hard-edged translucent
+    facets that are this generator's whole character, and buys no continuity anyone can see. The
+    disc takes a plain circular window of a SQUARE render of the same design instead, at the cost
+    of a rim boundary that reads as an ordinary panel seam.
+    (2) **One implementation, not two.** Unlike `drawRegion` (mirrored by hand between
+    `lib/printful.js` and `render-service/render.js`, and explicitly a drift hazard),
+    `hatWrap.js` is exported through `render-service/entry.js` so esbuild bundles it alongside
+    `generateArtwork` — browser and Fly run the same code.
+    (3) **Geometry is fractions of the printfile's WIDTH, never pixels and never mixed against
+    height.** A mockup renders through `capMockupRenderSize` while the print file renders at true
+    dims; normalising by width alone keeps radii circular under that uniform scale. `cy` past 1
+    and radii past 1 are normal (the crown's arc centre sits far above the sheet). Verified the
+    two agree: mockup vs. downscaled print RMSE **11.59**, against **12.88** for today's flat
+    render — i.e. the wrap adds no divergence, it slightly reduces it.
+    (4) **The centres are snapped to exactly 0.5, and that is a correctness requirement.** They
+    measured 0.49955 and 0.50019. A mirrored face is the sheet reflected about `width/2`, so an
+    off-axis centre would put the two faces out of register at the side seams — the join
+    mirroring exists to close. Snapped, a mirrored render is a **pixel-exact** flip of its front
+    (max subpixel delta **0**, three designs).
+    (5) **`mirrorX` is NOT passed to the source renders on this path.** Everywhere else it
+    reflects the composition inside `renderArtwork`; here what must be reflected is the finished
+    SHEET, so `drawHatWrap` does it. Doing both would mirror twice and land back where it started.
+    (6) **Sources are generated at 2x their mapped size** (`HAT_WRAP_SUPERSAMPLE`) so every sample
+    is a downsample — the map stretches up to 1.50x at the brim's outer edge and compresses to
+    0.83x at the crown top. Their ASPECT is derived from the geometry, so it is identical at
+    capped and true resolution, which is what stops the mockup and the print being two different
+    ratio-aware recomposes of one seed.
+    Geometry was flood-measured off Printful's own templates (162068/162069/162070) and
+    circle-fitted to inside 0.8px; the disc's circumference matches two crown-wall top arcs to
+    2.7%, which is what proves each wall piece spans exactly 180°. **The disc's orientation could
+    not be got from the template and needed a photograph** — a clock-face test pattern came back
+    with 12 at the front, so the sheet's +y on the disc is the hat's front centre.
+    **No `GENERATOR_VERSION` bump**: it consumes no `rng()` and does not touch `generateArtwork`
+    — it is per-order render context like `sizeFrame`. `check-render-regression.mjs` passes on all
+    **77** stored designs (0 changed), and every non-hat render path is **byte-identical** to the
+    previous commit (24/24 hashes across 3 designs x 8 shapes, incl. `regions`, `mirrorX`,
+    `legSymmetry`, `sizeFrame` and geometry-off).
+    **Deploy render-service BEFORE the frontend** — it ignores an unknown field, so a frontend
+    sending `hatWrap` against an old bundle would show a wrapped mockup and print a flat garment,
+    with no version check to catch it. Same hazard as `density`, `mirrorX` and `legSymmetry`.
+    Verified end to end on real Printful mockups at the real capped mockup size, all four faces.
   - **Two designs on one reversible garment, 2026-07-25** (Aaron's idea, raised while the
     hat above was being added — both faces printing the same artwork wastes the format).
     `PRODUCT_MOCKUP_CONFIG`'s new `secondaryDesign` block (bucket hat only) declares which
