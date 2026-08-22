@@ -396,6 +396,30 @@ the actual print, generated the same deterministic way.
   (266806 / 76400 for the plain and pocket-crop `regions` paths), a v10 request correctly 422
   with the mismatch message, and no key correctly 401. Confirmed the image contains no
   `star-sprite*` files and no `/app/src` at all.
+- **Large star tuning — `GENERATOR_VERSION = 13` (2026-08-22, Aaron's own values).** `glowR`
+  0.62 -> 0.9, `glowAlpha` 0.2 -> 0.3, `spikeHold` 0.5 -> 0.2: the arms hold full opacity over
+  only the first fifth of their length and fade across the rest, with a wider, slightly
+  stronger glow taking back the presence that removes — a spike reads as a streak leaving the
+  glow rather than as one of four bars. Drawing only, same class as v12, so
+  `check-render-regression.mjs` reports all **81** stored designs unchanged and is blind to it
+  by construction; the bump exists only to stop a browser on new code rendering mockups
+  against a Fly machine on old code. Shipped through the full paused-store sequence, thumbnail
+  backfill included (81 ok).
+  **The values were set by Aaron directly, through a throwaway live tuner** (`star-tuner.html`
+  + `star-tuner.js` at the repo root, deleted after use) — a Vite-served page importing the
+  real `STAR_SHAPE`/`drawStarSprite` and mutating the exported object, showing the stars at
+  their six real drawn sizes composited through `destination-atop` the way `StarField` does,
+  over an adjustable backdrop, beside a wipe between two full `generateArtwork` renders of
+  real stored designs with only the shape swapped. Worth rebuilding the same way if the star
+  is ever revisited; two things it cost to get right the first time:
+  (1) **The strip must lay the tint down FIRST and mask it with the stars** — stars first,
+  tint over them fills the whole rect and hides the backdrop, which is the one thing the strip
+  exists to show.
+  (2) **Vite's inline-`<script type="module">` transform emitted a protocol-relative
+  `//star-tuner.html?html-proxy&index=0.js`**, which Safari resolved as a HOSTNAME — the page
+  silently did nothing, no sliders, blank canvases. An external `src` never goes through that
+  path. Headless Chromium did not reproduce it; only Aaron's own browser showed it.
+
 - **Fine star field: wider range and noise-clustered scale (same bump).** `smallStars`' ceiling
   goes `sizeScale/500` → `/300` (~4.3px → ~7.2px at the studio default) and scale now comes from a
   three-octave `render/valueNoise` field sampled at each speck's own position — the same
