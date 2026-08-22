@@ -31,9 +31,11 @@
 // byte-identical to the originals, verified 0 differing pixels of 419,904; only their RGB
 // is inverted, which is what the three.js tunnel needs and this path discards.)
 //
-// Geometry is expressed as fractions of the star's HALF-width, measured off the original
-// raster so the new star reads as the same object: core edge 0.17, halo disc 0.34 with a
-// bright hairline stroke at its rim, glow fading out by 0.86, arms reaching 0.89.
+// Geometry is expressed as fractions of the star's HALF-width. The starting values were
+// measured off the original raster so the new star read as the same object -- core edge 0.17,
+// halo disc 0.34 with a bright hairline stroke at its rim, glow out to 0.86, arms to 0.89 --
+// but the glow and the arms have since been tuned by eye against real artwork and no longer
+// match the raster. Core and halo still do.
 
 export const STAR_SHAPE = {
   // Opaque centre.
@@ -67,24 +69,28 @@ export const STAR_SHAPE = {
   // feather.
   featherR: 0.022,
   featherMinPx: 1.4,
-  // Outer glow, reaching the arm tips. Pulled well back from the first version (Aaron: it
-  // "feels a bit too much") -- it now reads as a halo around the star rather than a fog the
-  // star sits inside, which also stops it washing out a light backdrop.
-  glowR: 0.62,
-  glowAlpha: 0.2,
+  // Outer glow. Pulled hard back in v12 (Aaron: it "feels a bit too much"), then opened up
+  // again in v13 once the arms were fading earlier -- a wider, slightly stronger glow gives
+  // the star back its presence without the hard-edged brightness the arms were carrying.
+  // Reaches past the halo but stops well short of the arm tips, so the arms read as streaks
+  // leaving the glow rather than as spokes inside a fog.
+  glowR: 0.9,
+  glowAlpha: 0.3,
   // Diffraction spikes. `spikeAlpha` is the arm's opacity along its held stretch, raised
   // well above the raster's effective 0.49 ceiling -- it is the value that decides whether a
   // star reads as a cross or a ball.
   // Arms are 50% longer than the sprite box they came from and do not taper in WIDTH
   // (Aaron) -- a diffraction spike is a constant-width streak that fades out, not a wedge.
-  // Only the opacity tapers, and only over the last stretch. Note spikeR > 1 is fine and
+  // Only the opacity tapers (see spikeHold below). Note spikeR > 1 is fine and
   // deliberate: nothing here is bounded by a sprite frame any more, so `size` is the star's
   // core-and-halo diameter while the arms reach beyond it.
   spikeR: 1.335,
   spikeW: 0.03,
   spikeAlpha: 0.9,
-  // Fraction of the arm that holds full opacity before the fade begins.
-  spikeHold: 0.5,
+  // Fraction of the arm that holds full opacity before the fade begins. Low, so an arm is
+  // bright only close to the core and spends most of its length fading -- which is what a
+  // diffraction spike actually does, and what stops four long bars reading as a plus sign.
+  spikeHold: 0.2,
   // An arm narrower than this many device pixels is widened to it (and dimmed in
   // proportion, so it keeps the same total light rather than getting heavier as it
   // shrinks). Just over one pixel: enough that antialiasing always has something to

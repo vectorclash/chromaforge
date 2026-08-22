@@ -175,7 +175,19 @@ import { getGeometrySettings, compactSettings } from './designSettings';
 // must be flattened before it is blitted from, and its resolution must be a fixed constant).
 // Operationally: redeploy render-service, and re-run backfill-thumbnails.mjs with NO
 // --generator-version filter -- same as v9, v10 and v11.
-export const GENERATOR_VERSION = 12;
+// v12 -> v13 (2026-08-22): star shape tuning only, done by Aaron directly against real
+// artwork -- glowR 0.62 -> 0.9, glowAlpha 0.2 -> 0.3, spikeHold 0.5 -> 0.2. The arms now hold
+// full opacity over only the first fifth of their length and fade across the rest, with a
+// wider and slightly stronger glow taking back the presence that removes. Same class of
+// change as v12: purely how the star is DRAWN, consuming no rng() and touching no config, so
+// check-render-regression.mjs reports every stored design unchanged and is blind to this by
+// construction. The bump exists so a browser on new code cannot render mockups against a Fly
+// machine on old code.
+// Operationally: redeploy render-service, and re-run backfill-thumbnails.mjs with NO
+// --generator-version filter -- same as v9 through v12. And pause the store for the window:
+// the mismatch check is a strict equality, so EITHER deploy order fails live checkout until
+// both sides match (see CLAUDE.md's operational-rule bullet).
+export const GENERATOR_VERSION = 13;
 
 const BLEND_MODES = [
   'screen',
