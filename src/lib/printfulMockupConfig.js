@@ -144,9 +144,17 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // content about a point near its top edge and leaves it reading as its own panel with its
     // own focal colour -- accidental in origin, better looking in practice.
     // So this value is a TASTE choice sitting on top of a solved measurement, not an
-    // unsolved approximation. If it is ever revisited, the honest version of the effect is
-    // "registered, then deliberately scaled about the pouch's centre", which would keep the
-    // panel reading while removing the sideways drift the tighter window also introduces.
+    // unsolved approximation.
+    // CLOSED 2026-08-22 -- the obvious refinement was built, compared and rejected too, so it
+    // does not need proposing again. Expressed as a transform of the registered window, THIS
+    // VALUE IS A ~1.10x MAGNIFICATION of the pouch's content, anchored 0.59in above the pouch's
+    // centre. The centred versions of the same effect are
+    //   1.10x  { x: -0.0150, y: 0.1697, w: 1.0346, h: 1.0346 }
+    //   1.20x  { x:  0.0281, y: 0.2128, w: 0.9484, h: 0.9484 }
+    // and both were generated as real Printful mockups across three designs alongside this one.
+    // Aaron's call, having seen all of them: "a is still best. let's just leave it." Registration
+    // (1.00x) was rejected twice on looks before that. Any future change here is a request for a
+    // different LOOK, not a correction -- the measurement is settled and the zoom is the knob.
     pocketCrop: {
       regions: [{ src: { x: -0.012, y: 0.155, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }

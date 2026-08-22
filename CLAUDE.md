@@ -2122,9 +2122,20 @@ load for an unrelated reason and every count is meaningless.
     pouch's content about a point near its top edge, so the pouch keeps its own focal colour and
     its own shape — accidental in origin, better looking in practice. That makes the shipped
     value a TASTE choice sitting on a solved measurement, not an unsolved approximation.
-    If it is revisited, the honest form of the effect is "registered, then deliberately scaled
-    about the pouch's own centre", which keeps the panel reading without the sideways drift the
-    tighter window also carries.
+    **CLOSED — the obvious refinement was built, compared and rejected too.** Expressed as a
+    transform of the registered window, the shipped value is a **~1.10x magnification** of the
+    pouch's content anchored 0.59in above the pouch's centre; the centred versions (1.10x
+    `{-0.0150, 0.1697, 1.0346}` and 1.20x `{0.0281, 0.2128, 0.9484}`) were generated as real
+    Printful mockups across three designs and Aaron still preferred what was already there.
+    So the pouch's magnification is a KNOB, registration is its zero point, and any future change
+    here is a request for a different look rather than a correction.
+    **Method note worth keeping, because it wasted a round trip:** a flat-lay preview was built to
+    compare options without spending mockup tasks, and it was **circular** — it positioned the
+    pouch on the body using the very 297px offset under test, so it showed the registered option
+    as perfectly aligned by construction. Aaron caught it. The instrument that actually works is a
+    real mockup carrying a coordinate-encoding grid, because Printful places the pouch from its
+    own manufacturing geometry; a free draft order's preview (rendered from the real print files
+    by a different renderer) is the independent second opinion if one is ever wanted.
     Four things worth not re-deriving from the solve:
     (1) **The front torso template dashes the pocket NOTCH on it** — the safe-print region's
     bottom boundary dips from the side strips up into a trapezoid, and that trapezoid is the
