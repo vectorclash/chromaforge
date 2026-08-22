@@ -1584,6 +1584,50 @@ Five things worth not re-deriving:
    settle and the countdown would spend its life as an underscore. Static sentence, live number.
 Frames + measurements: https://claude.ai/code/artifact/73cfce43-9e68-4131-86cf-84d29551ec6a
 
+### Studio settings are remembered in localStorage (`src/lib/studioPrefs.js`, 2026-08-22)
+Two versioned keys: `cf-studio:design` (palette + geometry sliders) and `cf-studio:video`
+(the Video tab -- 3D, frames, star frames, duration, speed ramp, logo, export ratio, fps,
+music). **The SEED is deliberately not stored** -- a visit still opens on artwork nobody has
+seen, it just arrives in the style the user last chose.
+- **The design half is read and written in ONE place, StudioContext**, not in each control.
+  It seeds `currentDesign`'s `useState` initialiser *synchronously*, so the session's first
+  design is already in the user's settings -- no default-then-correct flash, and every
+  surface deriving from `currentDesign` (hero, the three MiniGenerators, footer band, About
+  blob, product mockups) agrees from frame one. One effect writes it back, because every path
+  that can change a palette or slider -- Generate, the debounced slider regen, a colour edit,
+  a share/gallery load, the mini-generator -- ends at `setCurrentDesign`. It skips unchanged
+  values, which is what keeps a 60-frame 2D animation build from doing 60 writes
+  (`buildConfig` runs once per frame and every frame shares the palette).
+- **The Video tab has no such carrier** (it is playback/export state, never part of a
+  design), so DisplayCanvas restores it in its constructor and mirrors it from
+  `componentDidUpdate`, diffed against `DEFAULT_VIDEO_PREFS`'s own key list -- adding a field
+  there is all it takes for it to be remembered.
+- **Video prefs are re-clamped against the READING device's `ANIM_LIMIT`**, so a desktop's
+  60 frames / 60s / 60fps lands inside a phone's caps rather than asking it to build
+  something it cannot hold in memory. Star frames are re-capped at half the frame count.
+- **Validation coerces nothing.** `JSON.parse` maps `null`, `''` and `[]` to a finite 0, so
+  `Number(x)` would read a corrupt entry as "the minimum" instead of falling back to the
+  default; the clamps require an actual number. Colours must match a strict hex form and are
+  never normalised. Clamp ranges mirror the sliders exactly, so a restored value is always
+  representable by the control that produced it.
+- **Loading a share link or gallery design overwrites the stored palette/settings**, because
+  that is already what the panel does live (`adoptDesignColors`/`adoptDesignSettings` exist
+  so the next Generate matches what you are looking at). Consistent, but it does mean opening
+  someone else's design replaces your remembered palette.
+- **Reset is `RESET` beside `BACK`** in the settings panel's bottom rail (a fixed row OUTSIDE
+  `.settings-scroll`, so it costs no scroller height -- the scarce axis), behind
+  `ConfirmDialog`. Both are `.button-small` at 48.5%, the split the Color tab's CLEAR/ADD row
+  already uses, so BACK stopped being full-width with no new width rule. Two things worth not
+  re-deriving: `changeGradient`'s `gsap.set` recolours every `.button-small` border from a
+  RANDOM palette stop, so `.button-danger` is excluded from that selector -- tinted like the
+  rest it could land on the very stop its BACK sibling got; and its hover LABEL stays white
+  rather than taking the border's pink, because `.controls-inner .row button` carries
+  `mix-blend-mode: lighten` and pink-on-pink made the word vanish at exactly the moment the
+  pointer was on it (caught in a real render). `resetStudioSettings` clears storage AND puts
+  the live state back -- clearing alone only shows up on the next load -- then lets one
+  `onColorsChanged` regenerate cover both halves; it handles leaving 3D with no 2D frames
+  built the way `onThreeDToggle`'s off-branch does, and RESET is disabled mid-export.
+
 ### MANDATORY before any renderer change goes live: `scripts/check-render-regression.mjs`
 
 ```

@@ -7,6 +7,7 @@ import { isSameDesign } from '../render/designSettings';
 import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
+import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
 
@@ -62,10 +63,20 @@ export function StudioProvider({ children }) {
 
   // Seed a random default so the store always has something to preview even on a cold
   // deep-link to /shop (no Studio visit). The studio overwrites this via setCurrentDesign
-  // on its first generate. Empty colors -> the seeded RNG picks a palette, deterministically.
-  const [currentDesign, setCurrentDesign] = useState(() =>
-    generateArtwork(randomSeed(), 1080, 1080, [])
-  );
+  // on its first generate; empty colors -> the seeded RNG picks a palette, deterministically.
+  //
+  // The palette + geometry sliders the user last worked in, restored from localStorage (see
+  // lib/studioPrefs.js). Read once, synchronously, so the very first design of the session
+  // is already in their settings -- there is no "generate the default, then correct it"
+  // flash, and every surface that derives from currentDesign (the hero, the three
+  // MiniGenerators, the footer band, the About blob, product mockups) starts out agreeing.
+  //
+  // The SEED is deliberately not restored: a visit still opens on artwork nobody has seen,
+  // it just arrives in the style they chose. Only the settings persist, not the design.
+  const [currentDesign, setCurrentDesign] = useState(() => {
+    const prefs = readDesignPrefs();
+    return generateArtwork(randomSeed(), 1080, 1080, prefs?.colors ?? [], prefs?.settings ?? null);
+  });
   const [previewUrl, setPreviewUrl] = useState(null);
   // The palette the CURRENT PREVIEW is painted with -- deliberately updated alongside
   // previewUrl rather than derived from currentDesign by consumers. currentDesign changes the
@@ -77,6 +88,9 @@ export function StudioProvider({ children }) {
   // Mirrors previewUrl so the render effect can revoke the url it is replacing without
   // doing that (a side effect) inside a setState updater, which StrictMode invokes twice.
   const previewUrlRef = useRef(null);
+  // Last value written by the persistence effect below, so an unchanged design (an animation
+  // frame build, a re-render) costs no localStorage write.
+  const lastPersistedRef = useRef(null);
   // Tracks the exact image-design object (by reference -- see buildConfig's onDesignChange,
   // which hands the same object to setCurrentDesign that DisplayCanvas keeps as this.mainConfig)
   // that was last saved, so "is the CURRENT design already saved" is a single shared fact
@@ -153,6 +167,28 @@ export function StudioProvider({ children }) {
     },
     []
   );
+
+  // Mirror the active design's palette + settings back to localStorage. This is the single
+  // write point on purpose: every path that can change either of them -- the studio's own
+  // Generate, the debounced geometry-slider regeneration, a colour edit, a share-link or
+  // gallery load (both of which sync the panel to the loaded design via
+  // DisplayCanvas.adoptDesignColors/adoptDesignSettings), the mini-generator widget --
+  // finishes by handing the rebuilt design to setCurrentDesign. Persisting here rather than
+  // at each of those means a future path cannot forget to.
+  //
+  // Skipped when the value is unchanged, which is what keeps a 2D animation build cheap:
+  // it calls buildConfig once per frame (up to 60), and every one of those frames shares the
+  // palette and settings this is watching.
+  useEffect(() => {
+    const value = {
+      colors: currentDesign.colors ?? [],
+      settings: currentDesign.settings ?? null
+    };
+    const serialized = JSON.stringify(value);
+    if (serialized === lastPersistedRef.current) return;
+    lastPersistedRef.current = serialized;
+    writeDesignPrefs(value);
+  }, [currentDesign]);
 
   // Derived small preview of the current design -- the single render both the mini-generator
   // widget and the footer art band read, so regenerating once updates both at once instead of

@@ -991,6 +991,25 @@
 .display-canvas .controls-inner .row .button-medium {
   width: 100%;
 }
+/* The settings panel's RESET half. Same 48.5% box as its BACK sibling, but warm rather than
+   the palette-green every other control in the panel shares, so a destructive action sitting
+   next to the exit is distinguishable before the tap rather than only in the dialog after
+   it. Deliberately muted at rest and only fully saturated on hover -- it is a rarely-wanted
+   escape hatch, not something the panel should draw the eye toward. */
+.display-canvas .controls-inner .row .button-small.button-danger {
+  border-color: rgba(255, 0, 122, 0.5);
+  color: rgba(255, 255, 255, 0.7);
+}
+/* The label stays WHITE on hover rather than taking the border's pink, which is what the
+   sibling buttons do with their green. .controls-inner .row button carries
+   mix-blend-mode: lighten, so pink text over a pink-tinted fill blends into it and the word
+   RESET all but disappeared at exactly the moment the pointer was on it (caught in a real
+   render, not reasoned about). White survives lighten unchanged. */
+.display-canvas .controls-inner .row .button-small.button-danger:hover {
+  background: rgba(255, 0, 122, 0.18);
+  border-color: #ff007a;
+  color: var(--color-text);
+}
 
 /* SaveButtonLabel -- the Save button's animated two-line label. Both lines are centered
    inside the button's fixed 60px height, so the subtitle never grows the button box. */

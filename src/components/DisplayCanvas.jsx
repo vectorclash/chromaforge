@@ -22,6 +22,7 @@ import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { generateLogoMark } from '../render/generateLogoMark';
 import { drawLogoMark } from '../render/renderLogoMark';
 import { isMobileDevice } from '../utils/device';
+import { readDesignPrefs, readVideoPrefs, writeVideoPrefs, clearStudioPrefs, DEFAULT_VIDEO_PREFS } from '../lib/studioPrefs';
 import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
@@ -31,6 +32,7 @@ import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
 import CloseButton from './buttons/CloseButton';
+import ConfirmDialog from './ui/ConfirmDialog';
 import GenerateStarField from './Canvas/GenerateStarField';
 import StarField from './Canvas/StarField';
 import FileName from './FileNameGenerator';
@@ -178,6 +180,11 @@ const maxStarFrames = frameCount => Math.max(1, Math.floor(frameCount / 2));
 // Resolved once: the UA cannot change mid-session.
 const ANIM_LIMIT = ANIM_LIMITS[isMobileDevice() ? 'mobile' : 'desktop'];
 
+// The Video tab's settings, i.e. exactly the state fields componentDidUpdate mirrors into
+// localStorage. Derived from the stored shape's own defaults so the two cannot drift: adding
+// a field to DEFAULT_VIDEO_PREFS is all it takes for it to be remembered.
+const VIDEO_PREF_KEYS = Object.keys(DEFAULT_VIDEO_PREFS);
+
 // Mobile 2D frames are RASTERIZED at this long edge instead of the studio's 2160. This is
 // the fix that actually buys the headroom — capping counts alone would have meant a mobile
 // ceiling BELOW today's default, making the setting decorative. The frame is still
@@ -246,6 +253,15 @@ export function coverSourceRect(srcWidth, srcHeight, dstWidth, dstHeight) {
 export default class DisplayCanvas extends React.Component {
   constructor(props) {
     super(props);
+    // Settings remembered from the user's last visit (lib/studioPrefs.js). The palette and
+    // geometry sliders normally arrive via the initialDesign prop -- StudioContext seeds its
+    // first design from the same store, and init()/adoptDesign* sync the panel to it -- so
+    // reading them again here only matters for a mount with no initialDesign at all. Doing it
+    // anyway keeps the panel's own defaults and the restored design from ever disagreeing.
+    // The Video tab has no such carrier: it is playback/export state, never part of a design,
+    // so this IS its only restore path.
+    const designPrefs = readDesignPrefs();
+    const videoPrefs = readVideoPrefs(ANIM_LIMIT, Object.keys(EXPORT_ASPECTS));
     this.state = {
       generateDisabled: false,
       isLoading: false,
@@ -254,7 +270,7 @@ export default class DisplayCanvas extends React.Component {
       controlsAreOpen: true,
       controlsBlurred: false,
       saveVisible: false,
-      colors: [],
+      colors: (designPrefs?.colors ?? []).map((value, id) => ({ id, value })),
       linkCopied: false,
       linkCopyFailed: false,
       animationMode: false,
@@ -263,19 +279,21 @@ export default class DisplayCanvas extends React.Component {
       animationProgress: 0,
       isExporting: false,
       exportProgress: 0,
-      musicEnabled: false,
+      musicEnabled: videoPrefs.musicEnabled,
       audioExportSupported: true,
-      frameCount: 20,
+      frameCount: videoPrefs.frameCount,
       // 5s, the stepper's own minimum (Aaron, 2026-08-12: it's what he reaches for). Nothing
       // downstream assumed 10 -- 3D still builds one lap of unique content (FLIGHT_SPEED x 5
       // is under MAX_CONTENT_LENGTH), the logo mark's two half-second windows still fit, and
       // a 5s export never reaches the bitrate cap, so it always encodes at full quality.
-      cycleDuration: 5,
-      starFrameCount: 10,
-      // MP4 export framing/frame rate. Export-only (never part of a design, never saved),
-      // and applied at export time, so changing either is instant and needs no rebuild.
-      exportAspect: '16:9',
-      exportFps: 24,
+      cycleDuration: videoPrefs.cycleDuration,
+      starFrameCount: videoPrefs.starFrameCount,
+      // MP4 export framing/frame rate. Export-only (never part of a design, never written
+      // to a gallery row -- though remembered locally, like the rest of this tab, see
+      // lib/studioPrefs.js), and applied at export time, so changing either is instant and
+      // needs no rebuild.
+      exportAspect: videoPrefs.exportAspect,
+      exportFps: videoPrefs.exportFps,
       // Speed ramp: playback-time warp (see utils/speedRamp) -- each loop accelerates
       // through its whole first half and decelerates through its whole second half, still
       // looping seamlessly. 3D nearly stops at the seam and peaks at 2.16x; 2D keeps a
@@ -283,24 +301,24 @@ export default class DisplayCanvas extends React.Component {
       // at near-zero speed). Pure playback timing (frame content is untouched), so it
       // applies live in both modes with no frame rebuild / settingsDirty -- which is also
       // why defaulting it ON costs nothing: toggling it off is instant, no regeneration.
-      speedRamp: true,
+      speedRamp: videoPrefs.speedRamp,
       // 3D animation mode: instead of crossfading pre-rendered 2D frames, fly a camera
       // through a real-time three.js star tunnel (src/animation3d/tunnelScene.js).
       // threeDDesign is the compact { seed, colors, settings } identity of the current 3D
       // scene -- deliberately the same shape as a 2D design, so save/load support can be
       // added later without a format change (saving is disabled in 3D mode for now).
-      threeDMode: false,
+      threeDMode: videoPrefs.threeDMode,
       threeDDesign: null,
       // Stamp the design's own vectorclash mark onto the animation's loop seam -- see
       // utils/logoIntro.js for the motion. Like speedRamp this
       // is playback/export state, never part of the design: it changes no frame content, so
       // no settingsDirty, and it is not persisted on save.
-      logoMark: false,
+      logoMark: videoPrefs.logoMark,
       animationPaused: false,
       settingsTab: 'color',
       animTiming: null,
       settingsDirty: false,
-      geometrySettings: { ...DEFAULT_GEOMETRY_SETTINGS },
+      geometrySettings: getGeometrySettings(designPrefs?.settings),
       // Which points-slider thumb was most recently grabbed -- the two thumbs are separate
       // native range inputs stacked on one track, so when their values sit close together
       // they visually overlap and only the higher-z-index one is hit-testable. Tracking the
@@ -314,8 +332,12 @@ export default class DisplayCanvas extends React.Component {
       // geometry setting change, tell the user editing branches a new design rather than
       // touching the one they opened -- see onGeometrySettingChange.
       showBranchNotice: false,
+      // "Reset to defaults" is behind a confirmation because it throws away a palette that
+      // can represent real work and cannot be undone -- the same bar the gallery's delete
+      // uses, and the same shared dialog.
+      confirmResetOpen: false,
     };
-    this.nextColorId = 0;
+    this.nextColorId = this.state.colors.length;
     // Bumped by every buildImage. setImage captures the value its own build started under
     // and drops the blob if it no longer matches, so a build that resolves out of order can
     // never paint over a newer one.
@@ -472,7 +494,15 @@ export default class DisplayCanvas extends React.Component {
     clearTimeout(this.adoptDesignTimer);
   }
 
-  componentDidUpdate(prevProps) {
+  componentDidUpdate(prevProps, prevState) {
+    // Remember the Video tab's own settings across visits. Unlike the palette and geometry
+    // sliders -- which ride the design itself and are persisted once, centrally, in
+    // StudioContext -- nothing carries these anywhere, so this is where they are written.
+    // Diffed rather than written on every update because this component re-renders on
+    // animation progress, export progress and loading flags, none of which touch them.
+    if (prevState && VIDEO_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
+      writeVideoPrefs(this.state);
+    }
     if (
       this.props.initialDesign &&
       this.props.initialDesign !== prevProps.initialDesign &&
@@ -944,7 +974,12 @@ export default class DisplayCanvas extends React.Component {
 
     let borderColor = colors[Math.floor(Math.random() * colors.length)];
 
-    gsap.set('.button-small, .button-medium,  input', {
+    // .button-danger (the settings panel's RESET) is deliberately excluded: it is the one
+    // control whose colour carries meaning rather than decoration. Tinted like the rest it
+    // would take a random palette stop on every build -- occasionally the very same stop its
+    // BACK sibling gets, which is precisely the confusion the warm treatment exists to
+    // prevent. Its border stays what components.css sets.
+    gsap.set('.button-small:not(.button-danger), .button-medium,  input', {
       borderColor: borderColor
     });
   }
@@ -1861,6 +1896,53 @@ export default class DisplayCanvas extends React.Component {
     this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
   }
 
+  // Forget every remembered studio setting and put the live panel back to the values a
+  // first-ever visit would show: no palette, default geometry sliders, default Video tab.
+  // Clearing storage alone would only show up on the next load, so both halves are needed --
+  // and the live half is what re-persists the defaults through StudioContext's own write, so
+  // there is no window where the panel and the store disagree.
+  //
+  // The SEED is deliberately untouched: this resets settings, not the artwork. The design on
+  // screen keeps its identity and is simply regenerated in the default style, the same way
+  // moving a slider does -- which also means it is exactly as recoverable (re-pick the
+  // colours) rather than gone.
+  resetStudioSettings() {
+    clearStudioPrefs();
+    const wasThreeD = this.state.threeDMode;
+    this.nextColorId = 0;
+    this.setState(
+      s => ({
+        confirmResetOpen: false,
+        colors: [],
+        geometrySettings: { ...DEFAULT_GEOMETRY_SETTINGS },
+        ...DEFAULT_VIDEO_PREFS,
+        // A 2D animation's frames are baked from the settings above during a 30s+ Generate,
+        // so changing them while one is on screen only marks them stale -- the same
+        // "regenerate to apply" notice the Video tab's own steppers set.
+        settingsDirty: s.animationMode || s.settingsDirty,
+        isSaved: false
+      }),
+      () => {
+        // Leaving 3D with no 2D frames ever built has to kick off the build, exactly as
+        // onThreeDToggle's own off-branch does -- otherwise animation mode is left with
+        // nothing to show.
+        if (
+          wasThreeD &&
+          this.state.animationMode &&
+          this.state.animationFrames.length === 0 &&
+          !this.state.generateDisabled
+        ) {
+          this.onGenerateButtonClick();
+          return;
+        }
+        // One regenerate covers both halves: it reads the live palette AND the live geometry
+        // sliders off state (see regenerateCurrentSeed), and no-ops into a dirty flag in
+        // animation mode.
+        this.onColorsChanged();
+      }
+    );
+  }
+
   // Color-list edit (add/remove/clear/rainbow/reorder) -- syncs the 3D scene (unchanged)
   // and queues the 2D live regenerate above.
   onColorsChanged() {
@@ -2495,6 +2577,7 @@ export default class DisplayCanvas extends React.Component {
       galleryStatus,
       galleryError,
       showBranchNotice,
+      confirmResetOpen,
     } = this.state;
 
     // `user` now comes from the auth provider via props (StudioPage), not local state.
@@ -3184,10 +3267,30 @@ export default class DisplayCanvas extends React.Component {
             )}
             </div>
 
+            {/* Two .button-small halves rather than one full-width .button-medium: BACK
+                never needed the whole rail, and the 48.5% pair is the split the Color tab's
+                own CLEAR / ADD row already uses, so this needs no new width rule. RESET sits
+                left, matching that row's destructive-left order, and carries .button-danger
+                so it can't be mistaken for BACK at a glance.
+
+                This row is a fixed rail OUTSIDE .settings-scroll, which is why the reset
+                lives here and not per-tab: it costs no scroller height (the scarce axis --
+                the 2D Video tab already needs 584px against an iPhone's ~636) and is
+                reachable from whichever tab you happen to be on. */}
             <div className="row">
               <button
+                onClick={() => this.setState({ confirmResetOpen: true })}
+                className="button-small button-danger"
+                // Mid-export the encoder is reading these settings frame by frame; the 3D
+                // toggle already refuses for the same reason.
+                disabled={isExporting}
+                style={isExporting ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+              >
+                RESET
+              </button>
+              <button
                 onClick={this.onSettingsCloseButtonClick.bind(this)}
-                className="button-medium"
+                className="button-small"
               >
                 BACK
               </button>
@@ -3413,6 +3516,19 @@ export default class DisplayCanvas extends React.Component {
             instead -- this tiny in-canvas notice is only needed on the standalone /studio
             page, which has no footer of its own. */}
         {!compact && <Copyright />}
+
+        {/* Reuses the app's shared destructive-confirmation dialog rather than a bespoke
+            inline two-step, so this reads like the gallery's delete. Rendered at the root of
+            the canvas: it is fixed/inset-0, and the settings panel it is launched from sits
+            at z-[1]. */}
+        <ConfirmDialog
+          open={confirmResetOpen}
+          title="Reset studio settings?"
+          message="Your palette, geometry sliders and video settings all go back to their defaults, on this browser. Saved designs are not affected."
+          confirmLabel="Reset to defaults"
+          onConfirm={this.resetStudioSettings.bind(this)}
+          onCancel={() => this.setState({ confirmResetOpen: false })}
+        />
       </div>
     );
   }
