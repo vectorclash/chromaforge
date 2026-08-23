@@ -1226,7 +1226,11 @@
   background: rgba(250, 250, 250, 0.08);
   border-radius: 8px;
   padding: 6px 10px;
-  margin-top: 20px;
+  /* No margin-top: .controls-inner is a flex column, so margins ADD rather than collapse --
+     the preceding .row already contributes its own 10px margin-bottom. A 20px here made the
+     gap above the notice 30px against 10px below it, which read as the banner belonging to
+     the Save row rather than sitting between the two. Its sibling .settings-dirty-notice
+     occupies the same slot with no margin-top for the same reason. */
   margin-bottom: 10px;
   letter-spacing: 0.02em;
 }
