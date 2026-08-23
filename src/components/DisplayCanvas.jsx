@@ -1955,12 +1955,19 @@ export default class DisplayCanvas extends React.Component {
   // state.colors lags the DOM until this runs -- read it only once, inside the debounced
   // callback, the same way syncThreeDColors already does, so frequent input events during
   // a drag don't each trigger a read/setState/regenerate.
-  onColorSwatchEdit() {
+  //
+  // `committed` is false while the picker is still being dragged (see ColorField). The two
+  // halves cost wildly different amounts, so they answer that differently: a 3D scene rebuild
+  // is instant and regenerateCurrentSeed doesn't even run in animation mode, so 3D follows the
+  // drag live -- while a 2D regenerate is a full studio-resolution render that also disables
+  // Generate, so it waits for the release.
+  onColorSwatchEdit(committed = true) {
     this.syncThreeDColors();
     if (this.state.animationMode || this.state.isExporting) {
       this.markColorsDirtyForAnimation();
       return;
     }
+    if (!committed) return;
     const wasSaved = this.state.isSaved;
     clearTimeout(this.geometryRegenTimer);
     this.geometryRegenTimer = setTimeout(() => {
@@ -2892,7 +2899,7 @@ export default class DisplayCanvas extends React.Component {
                       colorId={colorObj.id}
                       callback={this.onRemoveColorbuttonClick.bind(this)}
                       onReorder={this.onReorderColors.bind(this)}
-                      onEdit={() => this.onColorSwatchEdit()}
+                      onEdit={committed => this.onColorSwatchEdit(committed)}
                     />
                   ))}
                   {colors.length < 6 ? (

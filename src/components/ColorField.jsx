@@ -89,15 +89,14 @@ export default class ColorField extends React.Component {
   // parent (which regenerates the artwork) waits until the drag is released; see the flag above.
   onColorInput(e) {
     this.adjustColor(e.target.value);
-    if (pointerIsDown) return;
-    this.reportEdit(e.target.value);
+    this.reportEdit(e.target.value, !pointerIsDown);
   }
 
   // Native `change`: pointer released on the picker's pad/slider, or a typed hex committed with
   // Enter/blur. This is the one edit that always applies.
   handleColorCommit(e) {
     this.adjustColor(e.target.value);
-    this.reportEdit(e.target.value);
+    this.reportEdit(e.target.value, true);
   }
 
   // A typed hex reaches the parent twice -- once from the keystroke's `input`, then again from
@@ -108,11 +107,23 @@ export default class ColorField extends React.Component {
   // Compared case-insensitively because jscolor normalises a typed `#11ee55` to `#11EE55` on
   // commit: the same colour, a different string, and comparing them literally would let the
   // duplicate render through.
-  reportEdit(value) {
+  //
+  // `committed` is false for the stream of edits arriving mid-drag. They are still reported --
+  // a surface cheap enough to follow along should -- but they carry the flag that lets the
+  // parent hold off the expensive half until the pointer is released.
+  // The dedupe has to know about `committed`, not just the value: a drag reports its final
+  // colour uncommitted on the last pointer move, and the `change` that follows on release
+  // carries that same colour. Treating that as a duplicate would swallow the commit and the
+  // 2D artwork would never regenerate at all -- so a repeat is only suppressed when the
+  // previous report was at least as committed as this one.
+  reportEdit(value, committed) {
     const normalized = String(value).toLowerCase();
-    if (normalized === this.lastReportedValue) return;
+    if (normalized === this.lastReportedValue && (this.lastReportedCommitted || !committed)) {
+      return;
+    }
     this.lastReportedValue = normalized;
-    this.props.onEdit?.();
+    this.lastReportedCommitted = committed;
+    this.props.onEdit?.(committed);
   }
 
   // Runs on mousedown/touchstart, i.e. before the browser applies focus for *this* tap --
