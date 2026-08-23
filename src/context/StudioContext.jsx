@@ -272,6 +272,24 @@ export function StudioProvider({ children }) {
     [user, renderDesignBlob]
   );
 
+  // Record an EXISTING gallery row as the saved design, for the load-by-id path (a gallery
+  // "Open in studio", or a share link). saveCurrentDesign is the only other thing that sets
+  // this, so before this existed a loaded design left savedDesign at null and every
+  // MiniGenerator widget offered "Save" for a design already sitting in the gallery --
+  // clicking it inserted a duplicate row. The studio panel's own button was right, because
+  // DisplayCanvas.loadImageFromUrl sets its local isSaved: true; it was only the shared fact
+  // that never learned. Same shape as the isSameDesign bug below, different cause, which is
+  // why fixing that one didn't cover this.
+  //
+  // Takes the design the canvas actually built (not the raw row), so it is the very object
+  // handed to setCurrentDesign and isSameDesign cannot disagree about a normalised `settings`
+  // or an auto-palette's empty `colors`.
+  const markDesignSaved = useCallback((design, id) => {
+    if (!design || !id) return;
+    setSavedDesign(design);
+    setSavedDesignId(id);
+  }, []);
+
   const value = {
     currentDesign,
     setCurrentDesign,
@@ -280,6 +298,7 @@ export function StudioProvider({ children }) {
     renderDesignBlob,
     generateRandom,
     saveCurrentDesign,
+    markDesignSaved,
     // Real bug, found by manual testing: this used to be reference equality
     // (savedDesign === currentDesign), which only happened to hold for MiniGenerator's own
     // save (it passes currentDesign straight through, same object). DisplayCanvas's Save

@@ -47,8 +47,14 @@ export default function StudioPage({ compact = true }) {
     return () => document.documentElement.classList.remove('no-scroll');
   }, [compact]);
 
-  const { currentDesign, setCurrentDesign, saveCurrentDesign, isCurrentDesignSaved, savedDesignId } =
-    useStudio();
+  const {
+    currentDesign,
+    setCurrentDesign,
+    saveCurrentDesign,
+    isCurrentDesignSaved,
+    savedDesignId,
+    markDesignSaved
+  } = useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -74,6 +80,7 @@ export default function StudioPage({ compact = true }) {
       onDesignChange={setCurrentDesign}
       onNavigate={navigate}
       saveCurrentDesign={saveCurrentDesign}
+      markDesignSaved={markDesignSaved}
     />
   );
 }

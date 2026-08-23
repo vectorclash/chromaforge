@@ -610,7 +610,7 @@ export default class DisplayCanvas extends React.Component {
             this.adoptDesignColors(config.frames[0]?.colors);
             this.loadAnimationFromConfigs(config.frames);
           } else {
-            this.loadImageFromUrl(config);
+            this.loadImageFromUrl(config, designId);
           }
         })
         .catch(err => {
@@ -1063,7 +1063,11 @@ export default class DisplayCanvas extends React.Component {
     }
   }
 
-  loadImageFromUrl(config) {
+  // `designId` is the gallery row this design came from, when it came from one. It is passed
+  // up to StudioContext so the shared "is the current design saved" fact agrees with the
+  // isSaved: true set just below -- otherwise the studio panel reads Saved while every
+  // MiniGenerator elsewhere still offers Save for a design already in the gallery.
+  loadImageFromUrl(config, designId = null) {
     this.setState({
       isLoading: true,
       isSaved: true
@@ -1087,6 +1091,10 @@ export default class DisplayCanvas extends React.Component {
       config.colors,
       config.settings ?? null
     );
+    // After buildConfig, so the object marked saved is the exact one it just handed to
+    // setCurrentDesign -- comparing a raw row against a built config would have to agree
+    // about a normalised `settings` and an auto-palette's empty `colors`.
+    if (designId) this.props.markDesignSaved?.(built, designId);
     this.buildImage(built);
   }
 
