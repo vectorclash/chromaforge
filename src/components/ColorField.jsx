@@ -4,6 +4,36 @@ import React from 'react';
 import tinycolor from 'tinycolor2';
 import CloseColorButton from './buttons/CloseColorButton';
 
+// Is a pointer currently held down anywhere on the page? jscolor's pad/slider drag fires a
+// native `input` event on the swatch on EVERY pointer move, so an `input` arriving while a
+// pointer is down means the user is still mid-drag, still choosing. Applying those would kick
+// off a full studio-resolution regenerate every time they paused for longer than the parent's
+// debounce window -- which reads as the artwork thrashing while you pick. jscolor guarantees a
+// native `change` event on pointer release (jsc.onDocumentPointerEnd triggers 'input' then
+// 'change'), so that is the "done choosing" signal we commit on instead.
+//
+// A module-level flag with listeners installed once, rather than per-field: there can be up to
+// six swatches mounted and they all ask the same question. `pointercancel` and the window's own
+// blur clear it too, so a release the page never sees (dragged off-window, OS gesture) can't
+// leave it stuck on and silently swallow every later edit.
+let pointerIsDown = false;
+let pointerTrackerInstalled = false;
+
+function installPointerTracker() {
+  if (pointerTrackerInstalled || typeof window === 'undefined') return;
+  pointerTrackerInstalled = true;
+  const down = () => {
+    pointerIsDown = true;
+  };
+  const up = () => {
+    pointerIsDown = false;
+  };
+  window.addEventListener('pointerdown', down, true);
+  window.addEventListener('pointerup', up, true);
+  window.addEventListener('pointercancel', up, true);
+  window.addEventListener('blur', up);
+}
+
 export default class ColorField extends React.Component {
   constructor(props) {
     super(props);
@@ -13,11 +43,20 @@ export default class ColorField extends React.Component {
     // and the document listeners leaked/stacked across drags.
     this.boundHandleMove = this.handleMove.bind(this);
     this.boundHandleEnd = this.handleEnd.bind(this);
+    this.boundHandleColorCommit = this.handleColorCommit.bind(this);
   }
 
   componentDidMount() {
     window.jscolor.install();
+    installPointerTracker();
     this.adjustColor(this.props.color);
+    // React's `onChange` on a text input is really the `input` event, so the commit signal has
+    // to come from a real DOM listener for the native `change` event.
+    this.input?.addEventListener('change', this.boundHandleColorCommit);
+  }
+
+  componentWillUnmount() {
+    this.input?.removeEventListener('change', this.boundHandleColorCommit);
   }
 
   adjustColor(color) {
@@ -44,8 +83,35 @@ export default class ColorField extends React.Component {
     this.props.callback(this.props.colorId);
   }
 
+  // Fires continuously while the picker is dragged, and once per keystroke for a typed hex.
+  // The swatch's own label contrast follows immediately either way -- it's a cheap gsap.set on
+  // one element, and the swatch must stay readable against the colour it's showing. Telling the
+  // parent (which regenerates the artwork) waits until the drag is released; see the flag above.
   onColorInput(e) {
     this.adjustColor(e.target.value);
+    if (pointerIsDown) return;
+    this.reportEdit(e.target.value);
+  }
+
+  // Native `change`: pointer released on the picker's pad/slider, or a typed hex committed with
+  // Enter/blur. This is the one edit that always applies.
+  handleColorCommit(e) {
+    this.adjustColor(e.target.value);
+    this.reportEdit(e.target.value);
+  }
+
+  // A typed hex reaches the parent twice -- once from the keystroke's `input`, then again from
+  // the `change` that Enter/blur fires with the identical value -- and the parent answers each
+  // with a full studio-resolution regenerate of the same artwork. Reporting only real value
+  // changes drops the duplicate; the parent still reads the live DOM itself, so this only ever
+  // suppresses a no-op.
+  // Compared case-insensitively because jscolor normalises a typed `#11ee55` to `#11EE55` on
+  // commit: the same colour, a different string, and comparing them literally would let the
+  // duplicate render through.
+  reportEdit(value) {
+    const normalized = String(value).toLowerCase();
+    if (normalized === this.lastReportedValue) return;
+    this.lastReportedValue = normalized;
     this.props.onEdit?.();
   }
 
@@ -329,6 +395,9 @@ export default class ColorField extends React.Component {
         </div>
         <input
           className="color"
+          ref={input => {
+            this.input = input;
+          }}
           data-jscolor=""
           defaultValue={this.props.color}
           onInput={this.onColorInput.bind(this)}
