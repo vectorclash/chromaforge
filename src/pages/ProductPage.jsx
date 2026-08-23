@@ -976,11 +976,21 @@ export default function ProductPage() {
   const colorIsFinish = hasMultipleColors && colorLabel !== 'Color';
   const showColorWithSize = hasMultipleColors && !colorIsFinish;
 
+  // The heading follows the picker's PLACEMENT, not the picker: beside size it is a
+  // sub-label under a numbered step, so it stays small and muted; inside Print options it is
+  // a peer of Geometry placement / Front & back / Stitch color and has to carry their heading
+  // or it reads as a footnote to the section above it.
   const colorPicker = hasMultipleColors ? (
     <div className={showColorWithSize ? 'mt-3' : ''}>
-      <p className="font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
-        {colorLabel}
-      </p>
+      {showColorWithSize ? (
+        <p className="font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
+          {colorLabel}
+        </p>
+      ) : (
+        <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+          {colorLabel}
+        </h2>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">
         {colorOptions.map(color => {
           const selected = color === variant.color;
@@ -1029,9 +1039,6 @@ export default function ProductPage() {
   // here is invisible while the panel is shut -- see the disclosure's own comment for why
   // that matters. Order matches the sections inside.
   const printOptionsSummary = [
-    // Reads "Black stitching" -- the label matters, since "Black" alone would imply a black
-    // garment, which is exactly the misreading this product's override exists to prevent.
-    colorIsFinish && variant?.color && `${variant.color} ${colorLabel.toLowerCase()}`,
     secondaryDesignConfig && (secondaryChoice ? `Inside: ${secondaryChoice.title || 'Untitled'}` : 'Same design both faces'),
     showsGeometryPlacements &&
       (geometryPlacements.size === 0
@@ -1047,7 +1054,11 @@ export default function ProductPage() {
     // that changes nothing would be exactly the kind of false line this summary exists to
     // avoid. (Always shown today -- leg symmetry, the one thing that made it a no-op, is off.)
     showsMirrorSeamsChoice && (mirrorSeams ? 'Back mirrored' : 'Back same as front'),
-    stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`
+    stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`,
+    // Reads "Black stitching" -- the label matters, since "Black" alone would imply a black
+    // garment, which is exactly the misreading this product's override exists to prevent.
+    // Last, beside stitch colour, because that is where its section sits.
+    colorIsFinish && variant?.color && `${variant.color} ${colorLabel.toLowerCase()}`
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1355,10 +1366,6 @@ export default function ProductPage() {
           </button>
           {printOptionsOpen && (
             <div id="print-options-panel" className="mt-5 space-y-6 animate-fade-slide-up">
-              {/* A finish-only colour dimension (see colorIsFinish) -- the windbreaker's
-                  stitching. Shown here rather than beside size because it's the same choice
-                  every other product makes through its stitch_color option below. */}
-              {colorIsFinish && colorPicker}
         {/* Reversible products only (bucket hat): an optional SECOND design for the inside
             face. Defaults to none, which prints the chosen artwork on both faces exactly as
             every other product does. The note is load-bearing, not decoration -- no Printful
@@ -1607,6 +1614,15 @@ export default function ProductPage() {
             </div>
           </div>
         )}
+
+        {/* A finish-only colour dimension (see colorIsFinish) -- the windbreaker's stitching.
+            Shown here rather than beside size because it's the same choice every other product
+            makes through its stitch_color option, and LAST for the same reason: the two are
+            mutually exclusive in the catalogue (a product declaring a finish colour carries no
+            stitch_color option), so together they are one stitching slot that sits in the same
+            place on every product. It used to open the panel, which put the windbreaker's only
+            option at the top while every other product's sat at the bottom. */}
+        {colorIsFinish && colorPicker}
             </div>
           )}
         </div>
