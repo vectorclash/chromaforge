@@ -414,7 +414,7 @@ export default function ShopCarousel() {
                   className="carousel-card group shrink-0"
                   style={{ width: cardWidth || undefined }}
                 >
-                  <div className="relative aspect-square overflow-hidden bg-ink-900">
+                  <div className="relative isolate aspect-square overflow-hidden bg-ink-900">
                     <FadeImage
                       src={product.image}
                       alt={product.title}
@@ -426,8 +426,53 @@ export default function ShopCarousel() {
                         leaving a hairline of undarkened image along the bottom edge, intermittently,
                         depending on how each card's width happens to round. Bleeding the overlay a
                         pixel past its box costs nothing (the card's own overflow-hidden clips it) and
-                        removes the whole class of mismatch rather than the bottom edge alone. */}
-                    <div className="pointer-events-none absolute -inset-px bg-[linear-gradient(to_top,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.55)_30%,rgba(0,0,0,0.18)_55%,transparent_75%)]" />
+                        removes the whole class of mismatch rather than the bottom edge alone.
+
+                        The tint is the brand purple's dark end rather than black, and the blend is
+                        `multiply` -- which over these product photos is a NO-OP against `normal` or
+                        `darken`, because the shots are white-background lifestyle photos and both of
+                        those modes return the source colour over white (measured: the three differ
+                        from each other by 1-2/255, while all three differ from the old black by 8-10).
+                        It earns its place on the dark CONTENT inside the frame -- hair, jeans, dark
+                        props -- which `normal` lifts toward purple and `multiply` leaves dark, and it
+                        is the mode that stays safe if a product photo ever arrives on a dark ground,
+                        since multiply can only darken. `overlay` was measured and is NOT usable here:
+                        it lightens against a white backdrop, taking the white title from 18:1 down to
+                        2.7:1. `isolate` on the parent keeps the blend group inside the image box, so
+                        it can never reach the card or page behind it.
+
+                        The ramp is shorter than the black version's, and its stops are in PIXELS, not
+                        percentages -- 148px of reach where the old one ran to 75% of the card. The
+                        unit is the load-bearing part, not the number. What the ramp has to cover is
+                        a text block of a fixed pixel size, so sizing it to the CARD instead made the
+                        same design fail on a small card and waste space on a big one: measured on the
+                        homepage carousel, whose card is 196px against the shop's 352px, a 42% reach
+                        put the hovered title on a 1.13:1 backdrop. In pixels one value serves both,
+                        and it grows with the surface's own text rather than with its card.
+
+                        On hover the ramp GROWS with the text rather than sitting still: origin-bottom
+                        `scale-y`, on the same 300ms ease-out the text block uses, so the bottom edge
+                        stays pinned and only the fade point rises. The scale is per surface and is
+                        DERIVED, not picked -- `(148 + travel) / 148`, since scaling the box scales the
+                        px stops with it -- so it adds back exactly the distance that surface's text
+                        moves: 1.243 here for `translate-y-9`, 1.162 on the shop grid for its
+                        `translate-y-6`. Change one and the other has to move. Scaling the box is also
+                        what makes this expressible at all: CSS cannot transition a gradient's own
+                        colour stops, while a transform moves every stop together.
+
+                        The un-hovered default is the TALL state, not the short one, matching how the
+                        text row is written -- on a touch device the block never translates and both
+                        lines show permanently, so that layout needs the taller ramp all the time.
+                        Reduced motion is already covered globally in tailwind.css.
+
+                        Contrast, measured as the lightest 8x8 tile anywhere inside the title's own
+                        rect (a deliberately pessimistic reading -- it counts gaps between words):
+                        on the shop grid, 7.6:1 at rest and 5.3:1 hovered. THIS surface is worse, and
+                        was ALREADY worse before any of this: its small card plus a 36px travel
+                        carries the title high into the ramp -- 3.9:1 hovered now, against 3.00:1 on
+                        the original black gradient. That is a pre-existing gap this change does not close; it
+                        needs its own fix (a shorter travel, or ink on the text), not a longer ramp. */}
+                    <div className="pointer-events-none absolute -inset-px origin-bottom scale-y-[1.243] transition-transform duration-300 ease-out [@media(hover:hover)]:scale-y-100 [@media(hover:hover)]:group-hover:scale-y-[1.243] [@media(hover:hover)]:group-focus-within:scale-y-[1.243] mix-blend-multiply bg-[linear-gradient(to_top,rgba(26,11,61,0.92)_0px,rgba(26,11,61,0.55)_60px,rgba(26,11,61,0.18)_109px,transparent_148px)]" />
                     <div className="absolute inset-x-0 bottom-0 p-4">
                       {/* Hidden-until-hover only on devices with a hover-capable pointer --
                           on touch there's no real `:hover` to reveal this, so without the
