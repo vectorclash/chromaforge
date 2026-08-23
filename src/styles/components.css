@@ -1761,6 +1761,15 @@
   flex-wrap: wrap;
   justify-content: space-between;
   row-gap: 10px;
+  /* Slack for the focus/hover state's INK, reserved inside the scroller's CONTENT box.
+     A focused swatch (`.row input:focus`) lifts 2px and casts a 10px cyan glow, so it
+     paints 12px above its own box -- and this row is the FIRST child of .settings-scroll,
+     whose top clip edge sits exactly there. With a full palette the top row is jammed
+     against it and lost its lit border (Aaron, 2026-08-22). Same lever as the range
+     thumb's `padding-right` on .settings-field: content-box space works whatever the
+     engine clips at, unlike padding on the scroller itself. Costs 12px of panel height in
+     the Color tab -- the shortest of the three, so it binds on nothing. */
+  padding-top: 12px;
 }
 .display-canvas .controls-inner .row.colors .button-small {
   position: relative;
