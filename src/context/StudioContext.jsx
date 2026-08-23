@@ -290,6 +290,25 @@ export function StudioProvider({ children }) {
     setSavedDesignId(id);
   }, []);
 
+  // The inverse of markDesignSaved, for the Gallery's delete action: the row backing the
+  // shared "this design is saved" fact is gone, so every surface reading it (the studio
+  // panel's Save button and share link, every MiniGenerator widget) must stop claiming the
+  // active design is in the gallery -- otherwise deleting the design you just made and
+  // navigating back showed "Saved" with a share link pointing at a row that no longer
+  // exists, and no way to save it again. The design itself stays active on purpose: what
+  // was deleted is the saved copy, not the artwork on screen.
+  //
+  // Scoped by id rather than clearing unconditionally, so deleting some OTHER design from
+  // the gallery leaves the active one's saved state alone.
+  const markDesignDeleted = useCallback(
+    id => {
+      if (!id || id !== savedDesignId) return;
+      setSavedDesign(null);
+      setSavedDesignId(null);
+    },
+    [savedDesignId]
+  );
+
   const value = {
     currentDesign,
     setCurrentDesign,
@@ -299,6 +318,7 @@ export function StudioProvider({ children }) {
     generateRandom,
     saveCurrentDesign,
     markDesignSaved,
+    markDesignDeleted,
     // Real bug, found by manual testing: this used to be reference equality
     // (savedDesign === currentDesign), which only happened to hold for MiniGenerator's own
     // save (it passes currentDesign straight through, same object). DisplayCanvas's Save

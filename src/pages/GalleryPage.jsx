@@ -55,7 +55,7 @@ export default function GalleryPage() {
     path: '/gallery'
   });
   const { user } = useAuth();
-  const { setPrintQueueDesign, previewUrl } = useStudio();
+  const { setPrintQueueDesign, previewUrl, markDesignDeleted } = useStudio();
   // Two stacked layers through the shared hook rather than a bare <img src={previewUrl}>:
   // MiniGenerator sits on this route, so generating from it used to crossfade the widget
   // while this empty-state thumbnail popped to the new design on the same beat.
@@ -207,6 +207,10 @@ export default function GalleryPage() {
     try {
       await deleteDesign(design.id);
       setDesigns(d => d.filter(x => x.id !== design.id));
+      // If this row was what the shared "current design is saved" fact pointed at, that fact
+      // is now false everywhere (studio panel, mini-generator widgets). The artwork stays
+      // active -- only its saved copy is gone.
+      markDesignDeleted(design.id);
     } catch (err) {
       setError(err.message);
     }
