@@ -1754,6 +1754,76 @@
   transform: scale(1.15);
 }
 
+/* ProductPage's Print options disclosure -- open and close, not just open.
+
+   The expansion is a `grid-template-rows: 0fr -> 1fr` transition on a one-row grid whose
+   single child is `overflow: hidden; min-height: 0`. That is the whole reason there is a
+   wrapper element that appears to do nothing: it lets the browser interpolate to the
+   content's OWN height with no measured pixel value, so nothing goes stale when a section
+   inside rewraps at a different width, when a product has three sections instead of one, or
+   when the summary above it changes line count. `max-height` was the alternative and is
+   worse in exactly those cases -- a guessed ceiling either clips a tall product or spends
+   the tail of the transition animating empty space.
+
+   The two directions are deliberately NOT symmetric (Aaron's ask: smooth open, quick close).
+   Opening runs 420ms on the same decelerating curve as the gallery modal's iris, with the
+   sections cascading in behind it; closing runs 190ms accelerating, with the content dropping
+   its opacity in half that so the panel reads as folding shut rather than being pulled. The
+   base rule holds the CLOSED state, so the values on it are the close; .is-open carries its
+   own longer transition, which is what makes one element animate differently each way. */
+.print-options-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* mt-5, transitioned rather than applied as a utility -- a static margin would hold a
+     20px gap under a collapsed panel that is otherwise exactly 0 tall. */
+  margin-top: 0;
+  opacity: 0;
+  transition:
+    grid-template-rows 190ms cubic-bezier(0.4, 0, 1, 1),
+    margin-top 190ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 95ms ease-in;
+}
+.print-options-panel.is-open {
+  grid-template-rows: 1fr;
+  margin-top: 1.25rem;
+  opacity: 1;
+  transition:
+    grid-template-rows 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin-top 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 260ms ease-out;
+}
+/* Load-bearing, and the pair of properties is not optional: a grid item's default
+   `min-height: auto` refuses to shrink below its content, so the 0fr row would never
+   actually collapse, and without the clip its content would spill out of the collapsed row. */
+.print-options-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+/* Clip dropped once the panel has finished opening (see printOptionsSettled in ProductPage).
+   An open panel's content box ends flush with its last row of buttons, so the clip that makes
+   the expansion possible was slicing the bottom off their focus outlines. */
+.print-options-panel.is-settled .print-options-inner {
+  overflow: visible;
+}
+/* The cascade. Each section arrives just behind the edge that is uncovering it, which is
+   what makes the open read as the panel unpacking itself rather than one block of content
+   sliding into view. Delays are small (60ms) and stop at the 4th: the tallest product here
+   has five sections, and a delay long enough to be felt on the first is a delay that leaves
+   the last still arriving after the expansion has finished. Only under .is-open, so closing
+   takes the whole panel down at once with nothing staggering out behind it. */
+.print-options-panel.is-open .print-options-inner > div > * {
+  animation: reveal-quick var(--duration-base) cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.print-options-panel.is-open .print-options-inner > div > *:nth-child(2) {
+  animation-delay: 60ms;
+}
+.print-options-panel.is-open .print-options-inner > div > *:nth-child(3) {
+  animation-delay: 120ms;
+}
+.print-options-panel.is-open .print-options-inner > div > *:nth-child(n + 4) {
+  animation-delay: 180ms;
+}
+
 /* Color palette row + its close-button svg */
 .display-canvas .controls-inner .row.colors {
   position: relative;

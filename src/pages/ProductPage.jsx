@@ -704,6 +704,14 @@ export default function ProductPage() {
   // to open this at all. Not persisted -- a customer who opens it on one product shouldn't
   // find it open on the next, since which options even exist differs per product.
   const [printOptionsOpen, setPrintOptionsOpen] = useState(false);
+  // True only once the open transition has finished. It exists to drop the clip: the
+  // expansion needs `overflow: hidden` to have anything to reveal, but the open panel's
+  // content box ends flush with its last row of buttons, so a focus outline (2px, offset 2)
+  // on one of them was being sliced off along the bottom edge. Deliberately driven by the
+  // real transitionend rather than a matching setTimeout, which would have to be kept in
+  // sync with the CSS duration by hand -- and would fire mid-animation under
+  // prefers-reduced-motion, where the transition is 0.01ms.
+  const [printOptionsSettled, setPrintOptionsSettled] = useState(false);
   useEffect(() => {
     setPrintOptionsOpen(false);
   }, [detail?.product?.id]);
@@ -1333,7 +1341,13 @@ export default function ProductPage() {
         <div className="mb-8">
           <button
             type="button"
-            onClick={() => setPrintOptionsOpen(open => !open)}
+            onClick={() => {
+              // Re-clips before either direction runs: opening from a settled-open state is
+              // impossible, and closing has to clip again or the content would spill out of
+              // the collapsing row.
+              setPrintOptionsSettled(false);
+              setPrintOptionsOpen(open => !open);
+            }}
             aria-expanded={printOptionsOpen}
             aria-controls="print-options-panel"
             className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-hairline px-4 py-3 text-left transition hover:border-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
@@ -1364,8 +1378,30 @@ export default function ProductPage() {
               <path d="M6 9l6 6 6-6" />
             </svg>
           </button>
-          {printOptionsOpen && (
-            <div id="print-options-panel" className="mt-5 space-y-6 animate-fade-slide-up">
+          {/* Always mounted, opened/closed by class: a conditional mount can animate its
+              entrance but has nothing on screen to animate on the way out, so this used to
+              open with a fade-slide-up and then vanish in one frame. The expansion itself is
+              a `grid-template-rows: 0fr -> 1fr` transition (see .print-options-panel), which
+              needs no measured pixel height and so cannot go stale when a section inside
+              rewraps at a different width. `inert` keeps the collapsed content out of the tab
+              order and the accessibility tree -- the price of leaving it mounted. */}
+          <div
+            id="print-options-panel"
+            className={
+              'print-options-panel' +
+              (printOptionsOpen ? ' is-open' : '') +
+              (printOptionsSettled ? ' is-settled' : '')
+            }
+            inert={!printOptionsOpen}
+            onTransitionEnd={e => {
+              // The panel's own row transition, not one bubbling up from a button inside it.
+              if (e.target === e.currentTarget && e.propertyName === 'grid-template-rows') {
+                setPrintOptionsSettled(printOptionsOpen);
+              }
+            }}
+          >
+            <div className="print-options-inner">
+              <div className="space-y-6">
         {/* Reversible products only (bucket hat): an optional SECOND design for the inside
             face. Defaults to none, which prints the chosen artwork on both faces exactly as
             every other product does. The note is load-bearing, not decoration -- no Printful
@@ -1623,8 +1659,9 @@ export default function ProductPage() {
             place on every product. It used to open the panel, which put the windbreaker's only
             option at the top while every other product's sat at the bottom. */}
         {colorIsFinish && colorPicker}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       )}
 
