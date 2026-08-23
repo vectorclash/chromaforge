@@ -1908,6 +1908,13 @@
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  /* The strip is a self-contained scroller, so its overscroll is nobody else's business.
+     Without this, swiping past either end on iOS chains to the document and rubber-bands the
+     whole page sideways -- which reads as the page itself sliding/zooming under the thumbnails.
+     `none` rather than `contain` because it also removes the strip's OWN bounce: the rail is a
+     row of a few images, and letting them drag far off screen makes the end of the list feel
+     like a fault rather than the end of the list. */
+  overscroll-behavior-x: none;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
   padding-bottom: 2px;
