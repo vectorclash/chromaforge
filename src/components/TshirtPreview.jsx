@@ -151,16 +151,25 @@ function drawCover(ctx, img, dx, dy, dw, dh, { flipX = false, flipY = false } = 
   ctx.restore();
 }
 
-// Generate-transition pass: chromatic aberration + animated wavy distortion, both scaled
+// Generate-transition pass: chromatic aberration + a shockwave distortion, both scaled
 // by one normalized strength uniform (uAmount 0..1) so they rise and fall together.
+//
 // The aberration is a uniform LATERAL RGB split (red left, blue right) rather than
 // radial-from-center -- radial was tried first and didn't read as aberration at this
 // size (nothing happens at the centered shirt's chest while the edges turn into
 // misregistered anaglyph channels); a small constant split gives the classic crisp
-// red/blue ghost edges everywhere. The distortion is two crossed sine waves scrolling
-// via uTime (fed from the rAF clock), so the shirt shimmers like heat-haze while the
-// render is in flight. Alpha takes the max of the three taps so the fringe isn't
-// clipped at the silhouette.
+// red/blue ghost edges everywhere. Alpha takes the max of the three taps so the fringe
+// isn't clipped at the silhouette.
+//
+// The distortion replaced a scrolling two-octave sine "heat haze" (2026-08-24). Four
+// candidates were built and compared live on the real hero; this one won. The lesson
+// worth keeping from that pass: the FIRST version of this shockwave read as barely
+// different from the haze it replaced, and randomizing its parameters harder did not
+// help. The cause was the wavefront profile -- a sine inside a gaussian envelope packs
+// 1.5 to 2.7 full oscillations into the band, i.e. fine corrugation, which is what the
+// haze already was. Switching the profile to a derivative-of-gaussian (one compression,
+// one rarefaction: a single lens sweeping outward, ~2.5x the peak displacement at a
+// fraction of the spatial frequency) is what made it a different effect at all.
 const ABERRATION_PEAK = 1;
 const AberrationShader = {
   uniforms: {
@@ -180,17 +189,62 @@ const AberrationShader = {
     uniform float uAmount;
     uniform float uTime;
     varying vec2 vUv;
+
+    float hash(float n) { return fract(sin(n * 78.233) * 43758.5453); }
+
     void main() {
       vec2 uv = vUv;
-      // Two incommensurate octaves per axis with cross-axis phase terms -- a single
-      // sine per axis read as a uniform corrugated ripple; the mixed frequencies give
-      // larger, irregular blob-like warps instead.
-      float nx = sin(uv.y * 6.8 + uTime * 3.1)
-               + 0.6 * sin(uv.y * 13.7 - uTime * 4.3 + uv.x * 5.2);
-      float ny = cos(uv.x * 5.9 - uTime * 2.6)
-               + 0.6 * cos(uv.x * 11.3 + uTime * 3.8 + uv.y * 4.4);
-      uv.x += nx * 0.012 * uAmount;
-      uv.y += ny * 0.009 * uAmount;
+
+      // Three pulses on staggered, incommensurate clocks so rings overlap irregularly
+      // rather than marching. Everything about a pulse is hashed off its own cycle
+      // index -- origin, reach, width, strength, lobe phases -- and some cycles don't
+      // fire at all, so the rhythm never settles into a pattern.
+      vec2 push = vec2(0.0);
+      for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        float tt = uTime * 0.45 + fi * 0.37;
+        float k = floor(tt);
+        float phase = fract(tt);
+        float h1 = hash(k * 13.1 + fi * 7.7);
+        float h2 = hash(k * 29.3 + fi * 3.1);
+        float h3 = hash(k * 5.7 + fi * 11.9);
+        float h4 = hash(k * 41.7 + fi * 2.3);
+        // ~1 cycle in 5 is a dud, so pulses arrive in clusters and gaps.
+        float gate = step(0.2, h4);
+        vec2 origin = vec2(0.5) + (vec2(h1, h2) - 0.5) * 0.34;
+        vec2 oc = uv - origin;
+        float od = length(oc);
+        float ang = atan(oc.y, oc.x);
+        // Low-order lobes at random phase, growing with the ring: near-round at the
+        // origin, an irregular blob by the time it reaches the hem.
+        float wobble = (0.060 * sin(ang * 2.0 + h1 * 6.28)
+                      + 0.040 * sin(ang * 3.7 - h2 * 6.28)
+                      + 0.025 * sin(ang * 6.3 + h3 * 6.28)) * (0.35 + phase);
+        float r = phase * (0.60 + h3 * 0.60) + wobble;
+        float width = 0.045 + h2 * 0.070;
+        float x = (od - r) / width;
+        // 1.6487 = e^0.5, normalizing the derivative-of-gaussian to a peak of 1.
+        float profile = -x * exp(-x * x) * 1.6487;
+        float amp = (0.35 + h1 * 1.30) * gate;
+        push += (oc / max(od, 1e-4)) * profile * amp * (1.0 - phase);
+      }
+
+      // A little tearing on top, mostly where a wavefront is passing -- the shock is
+      // what breaks the picture up, so the two read as one event rather than two
+      // effects sharing a clock. Bands are NOT uniform: a coarse zone index picks its
+      // own row density (5 to 26 rows), so tall slabs and thin slivers coexist and the
+      // partition itself reshuffles as the zone offset drifts.
+      float gt = floor(uTime * 14.0);
+      float burst = step(0.72, hash(gt * 0.13)); // ~1 frame in 4 tears at all
+      float zone = floor(uv.y * 5.0 + hash(gt * 3.3) * 3.0);
+      float density = mix(5.0, 26.0, hash(zone * 7.1 + gt * 0.7));
+      float row = floor(uv.y * density);
+      float live = step(0.55, hash(row * 3.7 + gt * 1.73 + zone * 0.9));
+      float shockBoost = smoothstep(0.2, 0.9, length(push));
+      float tear = burst * live * (0.3 + 0.7 * shockBoost);
+      uv.x += (hash(row * 1.31 + gt * 7.13 + zone) - 0.5) * 0.075 * tear * uAmount;
+      uv += push * 0.045 * uAmount;
+
       vec2 off = vec2(0.06 * uAmount, 0.0);
       vec4 cr = texture2D(tDiffuse, uv - off);
       vec4 cc = texture2D(tDiffuse, uv);
