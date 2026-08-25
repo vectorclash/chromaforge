@@ -78,7 +78,12 @@ const EMPTY_TAB = { pages: [], pageIndex: 0, total: null, loading: false, error:
 // without picking anything is obviously safe. Only ever lists printable designs
 // (kind='image' -- the mockup pipeline can't take an animation's frames array).
 // Backdrop/panel/keyboard handling mirrors GalleryModal/ConfirmDialog.
-export default function ArtworkPickerModal({ open, onClose, onSelect }) {
+// `inUseId` is the design already filling the slot this modal was opened for, if that slot
+// holds a gallery row at all (the studio design isn't one, so it's null on that tile). It
+// only marks a card -- it deliberately does NOT prefill `pending`, since the in-use design
+// is often not on page 0 and an armed "Use this artwork" button pointing at something the
+// customer can't see is worse than no marker at all.
+export default function ArtworkPickerModal({ open, onClose, onSelect, inUseId = null }) {
   const { user } = useAuth();
   useScrollLock(open);
   // My Designs is the default tab for signed-in users -- picking your own saved artwork is
@@ -366,6 +371,11 @@ export default function ArtworkPickerModal({ open, onClose, onSelect }) {
                 className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
               />
               {selected && <CheckBadge />}
+              {d.id === inUseId && (
+                <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
+                  In use
+                </span>
+              )}
             </div>
             <div className="min-w-0 px-1.5 py-1 sm:px-2 sm:py-1.5">
               <span className="block truncate text-[10px] font-bold text-text sm:text-xs">

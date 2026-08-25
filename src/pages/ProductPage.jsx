@@ -565,7 +565,14 @@ export default function ProductPage() {
     }
     if (isSameDesign(currentDesign, design.data)) {
       setSelectedKey('current');
-    } else if (queuedChoice && design.id === queuedChoice.id) {
+    } else if (
+      queuedChoice &&
+      // Identity as well as row id: two gallery rows can hold the same artwork (the same
+      // design saved by two people, or re-saved after a round trip through the studio), and
+      // pinning a third tile that is pixel-for-pixel one of the two already there is the same
+      // thing that reads as a bug in the queued hand-off above.
+      (design.id === queuedChoice.id || isSameDesign(queuedChoice.data, design.data))
+    ) {
       setSelectedKey('queued');
     } else {
       setPickedChoice(design);
@@ -615,10 +622,24 @@ export default function ProductPage() {
     if (consumedQueueRef.current || !printQueueDesign) return;
     consumedQueueRef.current = true;
     if (printQueueDesign.kind !== 'animation') {
-      setQueuedChoice(printQueueDesign);
-      setSelectedKey('queued');
+      // Same dedupe the gallery modal's onPickDesign already does: the studio design and the
+      // queued one are very often literally the same piece (generate -> save -> open it in
+      // the gallery -> Print this, without generating again in between), and pinning a second
+      // identical tile beside "Studio design / Current" reads as a bug -- two tiles, one
+      // thumbnail, and no way to tell what the difference between them is meant to be.
+      // isSameDesign compares seed/colors/settings, so this is design identity, not object
+      // identity, which is what makes it fire on that flow at all.
+      if (isSameDesign(currentDesign, printQueueDesign.data)) {
+        setSelectedKey('current');
+      } else {
+        setQueuedChoice(printQueueDesign);
+        setSelectedKey('queued');
+      }
     }
     setPrintQueueDesign(null);
+    // currentDesign is read above but deliberately not a dependency: the ref guard makes this
+    // a one-shot on mount, and listing it would only re-run an effect that returns immediately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [printQueueDesign, setPrintQueueDesign]);
 
   // A new mockup batch always starts on its first (front-facing) image.
@@ -692,12 +713,22 @@ export default function ProductPage() {
   const secondaryDesignConfig = detail?.product
     ? getSecondaryDesignConfig(getMockupConfigForProduct(detail.product.id))
     : null;
+  // A second design that IS the first design is not a second design: renderAndUploadPrintFiles
+  // checks the same thing (isSameDesign, not ===) and collapses both faces onto one render, so
+  // without this the page would claim a two-design order in the tile and the summary line while
+  // the pipeline quietly produced a one-design one. Derived rather than corrected at pick time,
+  // because the primary can move under a secondary that was already chosen -- picking the
+  // inside face first and then selecting that same artwork above has to land in the same place
+  // as doing it the other way round. Non-destructive: the pick is kept, so changing the primary
+  // back restores it.
+  const secondaryIsDuplicate = !!secondaryChoice && isSameDesign(selectedDesign, secondaryChoice.data);
   // Memoised for the same reason as the tiles above -- this one is only read from event
   // handlers today so it can't loop, but leaving an unstable identity around for the next
   // person to drop into a dependency array is how that bug happens twice.
   const secondaryDesign = useMemo(
-    () => (secondaryChoice ? withCurrentGeneratorVersion(secondaryChoice.data) : null),
-    [secondaryChoice]
+    () =>
+      secondaryChoice && !secondaryIsDuplicate ? withCurrentGeneratorVersion(secondaryChoice.data) : null,
+    [secondaryChoice, secondaryIsDuplicate]
   );
 
   // Collapsed by default: these all have good defaults, so the common purchase never needs
@@ -1047,7 +1078,10 @@ export default function ProductPage() {
   // here is invisible while the panel is shut -- see the disclosure's own comment for why
   // that matters. Order matches the sections inside.
   const printOptionsSummary = [
-    secondaryDesignConfig && (secondaryChoice ? `Inside: ${secondaryChoice.title || 'Untitled'}` : 'Same design both faces'),
+    secondaryDesignConfig &&
+      (secondaryChoice && !secondaryIsDuplicate
+        ? `Inside: ${secondaryChoice.title || 'Untitled'}`
+        : 'Same design both faces'),
     showsGeometryPlacements &&
       (geometryPlacements.size === 0
         ? 'No geometry'
@@ -1419,17 +1453,30 @@ export default function ProductPage() {
             <div className="mt-3 flex flex-wrap items-start gap-3">
               {secondaryChoice ? (
                 <div className="flex w-24 flex-col gap-1.5">
-                  <div className="relative h-24 w-24 overflow-hidden rounded-xl border-2 border-accent bg-ink-900">
+                  {/* Muted, not accented, while it duplicates the primary: the accent border and
+                      the face badge both say "this face prints something of its own", which is
+                      exactly what is not happening. */}
+                  <div
+                    className={
+                      'relative h-24 w-24 overflow-hidden rounded-xl border-2 bg-ink-900 ' +
+                      (secondaryIsDuplicate ? 'border-hairline opacity-60' : 'border-accent')
+                    }
+                  >
                     <FadeImage
                       src={getThumbnailUrl(secondaryChoice.user_id, secondaryChoice.id)}
                       alt={secondaryChoice.title || 'Untitled'}
                       className="h-full w-full object-cover"
                     />
                     <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
-                      {secondaryDesignConfig.label}
+                      {secondaryIsDuplicate ? 'Same' : secondaryDesignConfig.label}
                     </span>
                   </div>
-                  <p className="line-clamp-2 min-h-[2.5em] text-center text-[11px] font-bold leading-tight text-text">
+                  <p
+                    className={
+                      'line-clamp-2 min-h-[2.5em] text-center text-[11px] font-bold leading-tight ' +
+                      (secondaryIsDuplicate ? 'text-text-secondary' : 'text-text')
+                    }
+                  >
                     {secondaryChoice.title || 'Untitled'}
                   </p>
                 </div>
@@ -1449,6 +1496,11 @@ export default function ProductPage() {
               )}
               {secondaryChoice && (
                 <div className="flex flex-col gap-1.5 pt-1">
+                  {secondaryIsDuplicate && (
+                    <p className="max-w-[16rem] text-xs text-text-muted">
+                      That&rsquo;s the same artwork you picked above, so both faces will print it.
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => openPicker('secondary')}
@@ -1461,7 +1513,10 @@ export default function ProductPage() {
                     onClick={() => setSecondaryChoice(null)}
                     className="cursor-pointer text-left text-xs font-bold text-text-muted underline-offset-2 hover:text-text hover:underline"
                   >
-                    Use the same design on both faces
+                    {/* The usual label describes the OUTCOME of clearing, which is already the
+                        outcome while this pick duplicates the primary -- there it would read as
+                        a button that does nothing, so it describes the action instead. */}
+                    {secondaryIsDuplicate ? 'Clear this pick' : 'Use the same design on both faces'}
                   </button>
                 </div>
               )}
@@ -1945,6 +2000,18 @@ export default function ProductPage() {
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onSelect={onPickDesign}
+        // Which row (if any) the slot being filled already holds, so re-opening the modal
+        // shows what you're on rather than an unmarked grid. Null on the studio design --
+        // it has no row -- which is correct: there is nothing in this list to mark.
+        inUseId={
+          pickerTarget === 'secondary'
+            ? secondaryChoice?.id ?? null
+            : selectedKey === 'queued'
+              ? queuedChoice?.id ?? null
+              : selectedKey === 'picked'
+                ? pickedChoice?.id ?? null
+                : null
+        }
       />
 
       <BuyNowModal
