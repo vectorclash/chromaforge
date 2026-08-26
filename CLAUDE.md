@@ -1584,6 +1584,34 @@ Five things worth not re-deriving:
    settle and the countdown would spend its life as an underscore. Static sentence, live number.
 Frames + measurements: https://claude.ai/code/artifact/73cfce43-9e68-4131-86cf-84d29551ec6a
 
+### A continuous control commits on release, never mid-drag (`components/ui/SettingsRange.jsx`, 2026-08-26)
+Every studio setting answers a change by regenerating the current seed at full studio
+resolution, so an in-progress adjustment must not reach that path. **A debounce alone does
+not achieve this and never did** — the six geometry sliders were 350ms-debounced and still
+fired mid-drag, because any pause longer than the window *while still dragging* schedules a
+regenerate; aiming slowly at a value was therefore the case that thrashed hardest. Measured
+against the previous commit: one slow drag across the coherence track (8 stops of 600ms) ran
+**4 full regenerates before the pointer was ever released**; it is now **0 during, 1 after**.
+- **The commit signal is the native `change` event, from a real DOM listener.** React's
+  `onChange` on a range (and on a text input) is the `input` event, so there is no React prop
+  for this. `SettingsRange` renders the input, reports every tick through `onDrag` and the
+  release through `onCommit`. Same split, same reason, as `ColorField`'s jscolor swatch —
+  which is where the pattern came from when the colour picker was fixed.
+- **What waits is the expensive work, not the control's own feedback.** `onDrag` still runs,
+  so the value readout and the `--range-fill` track follow the thumb (verified live: the
+  readout reads 100% and the fill 44% mid-drag while zero regenerates have happened).
+  `onGeometrySettingChange(patch, committed)` also CLEARS the pending timer on every
+  uncommitted tick, so a regenerate queued by the previous release cannot land inside the
+  next drag.
+- **3D is deliberately still live**, matching `onColorSwatchEdit`'s existing split: its scenes
+  rebuild instantly, and `regenerateCurrentSeed` doesn't run in animation mode at all.
+- **Discrete controls commit by default** (`committed = true`), because a click has no
+  mid-state — the Stars-in-front toggle, the Video tab's steppers, selects and toggles. Those
+  were audited and none of them needed changing; the six range inputs are the only continuous
+  controls in the app (`grep 'type="range"'` finds nothing outside DisplayCanvas).
+Verified live on the production build: track click, keyboard arrow, the dual Points thumbs and
+the toggle each still produce exactly one regenerate, 0 console errors at 390px.
+
 ### Studio settings are remembered in localStorage (`src/lib/studioPrefs.js`, 2026-08-22)
 Two versioned keys: `cf-studio:design` (palette + geometry sliders) and `cf-studio:video`
 (the Video tab -- 3D, frames, star frames, duration, speed ramp, logo, export ratio, fps,

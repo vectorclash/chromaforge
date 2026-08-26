@@ -32,6 +32,7 @@ import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
 import CloseButton from './buttons/CloseButton';
+import SettingsRange from './ui/SettingsRange';
 import ConfirmDialog from './ui/ConfirmDialog';
 import GenerateStarField from './Canvas/GenerateStarField';
 import StarField from './Canvas/StarField';
@@ -1814,13 +1815,25 @@ export default class DisplayCanvas extends React.Component {
     }
   }
 
-  // Geometry slider moved. Update the state immediately (the value readout tracks the
-  // thumb live), then regenerate the CURRENT seed with the new settings after a short
-  // debounce -- so dragging a slider visibly reshapes the artwork on screen rather than
-  // only affecting the next Generate. Settings are part of a design's identity (see
-  // StudioContext.isSameDesign), so the result counts as unsaved. In animation mode a
-  // regenerate means rebuilding every frame (a 30s+ job), so there it only marks settings
-  // dirty -- the same "regenerate to apply" notice the video settings already use.
+  // Geometry setting changed. Update the state immediately (the value readout and the fill
+  // track follow the thumb live), then regenerate the CURRENT seed with the new settings --
+  // so a slider visibly reshapes the artwork on screen rather than only affecting the next
+  // Generate. Settings are part of a design's identity (see StudioContext.isSameDesign), so
+  // the result counts as unsaved. In animation mode a regenerate means rebuilding every frame
+  // (a 30s+ job), so there it only marks settings dirty -- the same "regenerate to apply"
+  // notice the video settings already use.
+  //
+  // `committed` is false for the stream of values arriving mid-drag (see SettingsRange). A 2D
+  // regenerate is a full studio-resolution render that also disables Generate, so it waits for
+  // the release: a 350ms debounce alone never made it wait, because any pause longer than that
+  // WHILE STILL DRAGGING fired one -- so aiming slowly at a value was the case that thrashed
+  // hardest. The pending timer is cleared on every uncommitted tick too, so a regenerate
+  // queued by the previous release can't land in the middle of the next drag. The discrete
+  // controls (the Stars-in-front toggle) commit by default, since a click has no mid-state.
+  //
+  // 3D is deliberately unchanged and still follows the drag: its scenes rebuild instantly, so
+  // there is nothing to protect the user from -- the same split onColorSwatchEdit already
+  // makes between the two modes.
   //
   // isSaved flips false here immediately (not just later inside regenerateCurrentSeed) so
   // a burst of slider ticks within one debounce window only ever sees the "was this saved"
@@ -1829,7 +1842,7 @@ export default class DisplayCanvas extends React.Component {
   // flag, it naturally fires exactly once per saved-design edit: the same design's next
   // slider tick already has isSaved === false, and a freshly loaded/saved design starts
   // this cycle over again.
-  onGeometrySettingChange(patch) {
+  onGeometrySettingChange(patch, committed = true) {
     const wasSaved = this.state.isSaved;
     this.setState(
       s => ({
@@ -1858,6 +1871,7 @@ export default class DisplayCanvas extends React.Component {
           return;
         }
         clearTimeout(this.geometryRegenTimer);
+        if (!committed) return;
         this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
       }
     );
@@ -2943,17 +2957,15 @@ export default class DisplayCanvas extends React.Component {
                           : `${Math.round(geometrySettings.chance * 100)}%`}
                     </span>
                   </span>
-                  <input
-                    type="range"
+                  <SettingsRange
                     className="settings-range"
                     min="0"
                     max="100"
                     value={Math.round(geometrySettings.chance * 100)}
                     style={{ '--range-fill': `${Math.round(geometrySettings.chance * 100)}%` }}
                     aria-label="Geometry chance"
-                    onChange={e =>
-                      this.onGeometrySettingChange({ chance: Number(e.target.value) / 100 })
-                    }
+                    onDrag={v => this.onGeometrySettingChange({ chance: v / 100 }, false)}
+                    onCommit={v => this.onGeometrySettingChange({ chance: v / 100 })}
                   />
                 </div>
                 <div className="settings-field">
@@ -2976,8 +2988,7 @@ export default class DisplayCanvas extends React.Component {
                       '--range-max': `${((geometrySettings.pointsMax - 3) / 9) * 100}%`
                     }}
                   >
-                    <input
-                      type="range"
+                    <SettingsRange
                       min="3"
                       max="12"
                       value={geometrySettings.pointsMin}
@@ -2995,23 +3006,34 @@ export default class DisplayCanvas extends React.Component {
                             : undefined
                       }
                       onPointerDown={() => this.setState({ pointsActiveThumb: 'min' })}
-                      onChange={e =>
+                      onDrag={v =>
+                        this.onGeometrySettingChange(
+                          { pointsMin: Math.min(v, geometrySettings.pointsMax) },
+                          false
+                        )
+                      }
+                      onCommit={v =>
                         this.onGeometrySettingChange({
-                          pointsMin: Math.min(Number(e.target.value), geometrySettings.pointsMax)
+                          pointsMin: Math.min(v, geometrySettings.pointsMax)
                         })
                       }
                     />
-                    <input
-                      type="range"
+                    <SettingsRange
                       min="3"
                       max="12"
                       value={geometrySettings.pointsMax}
                       aria-label="Maximum points"
                       style={this.state.pointsActiveThumb === 'max' ? { zIndex: 4 } : undefined}
                       onPointerDown={() => this.setState({ pointsActiveThumb: 'max' })}
-                      onChange={e =>
+                      onDrag={v =>
+                        this.onGeometrySettingChange(
+                          { pointsMax: Math.max(v, geometrySettings.pointsMin) },
+                          false
+                        )
+                      }
+                      onCommit={v =>
                         this.onGeometrySettingChange({
-                          pointsMax: Math.max(Number(e.target.value), geometrySettings.pointsMin)
+                          pointsMax: Math.max(v, geometrySettings.pointsMin)
                         })
                       }
                     />
@@ -3024,17 +3046,15 @@ export default class DisplayCanvas extends React.Component {
                       {' '}{Math.round(geometrySettings.coherence * 100)}%
                     </span>
                   </span>
-                  <input
-                    type="range"
+                  <SettingsRange
                     className="settings-range"
                     min="0"
                     max="100"
                     value={Math.round(geometrySettings.coherence * 100)}
                     style={{ '--range-fill': `${Math.round(geometrySettings.coherence * 100)}%` }}
                     aria-label="Geometry coherence"
-                    onChange={e =>
-                      this.onGeometrySettingChange({ coherence: Number(e.target.value) / 100 })
-                    }
+                    onDrag={v => this.onGeometrySettingChange({ coherence: v / 100 }, false)}
+                    onCommit={v => this.onGeometrySettingChange({ coherence: v / 100 })}
                   />
                 </div>
                 <div className="settings-field">
@@ -3051,17 +3071,15 @@ export default class DisplayCanvas extends React.Component {
                             : `${Math.round(geometrySettings.size * 100)}%`}
                     </span>
                   </span>
-                  <input
-                    type="range"
+                  <SettingsRange
                     className="settings-range"
                     min="0"
                     max="100"
                     value={Math.round(geometrySettings.size * 100)}
                     style={{ '--range-fill': `${Math.round(geometrySettings.size * 100)}%` }}
                     aria-label="Geometry size"
-                    onChange={e =>
-                      this.onGeometrySettingChange({ size: Number(e.target.value) / 100 })
-                    }
+                    onDrag={v => this.onGeometrySettingChange({ size: v / 100 }, false)}
+                    onCommit={v => this.onGeometrySettingChange({ size: v / 100 })}
                   />
                 </div>
                 <div className="settings-field">
@@ -3078,17 +3096,15 @@ export default class DisplayCanvas extends React.Component {
                         : `${Math.round(geometrySettings.density * 100)}%`}
                     </span>
                   </span>
-                  <input
-                    type="range"
+                  <SettingsRange
                     className="settings-range"
                     min="10"
                     max="100"
                     value={Math.round(geometrySettings.density * 100)}
                     style={{ '--range-fill': `${Math.round(((geometrySettings.density * 100 - 10) / 90) * 100)}%` }}
                     aria-label="Geometry density"
-                    onChange={e =>
-                      this.onGeometrySettingChange({ density: Number(e.target.value) / 100 })
-                    }
+                    onDrag={v => this.onGeometrySettingChange({ density: v / 100 }, false)}
+                    onCommit={v => this.onGeometrySettingChange({ density: v / 100 })}
                   />
                 </div>
                 {/* Last in the tab because it's the only row here that doesn't shape the
