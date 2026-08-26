@@ -15,7 +15,11 @@ import { resolveScenePalette } from '../animation3d/scenePalette';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
-import { DEFAULT_GEOMETRY_SETTINGS, getGeometrySettings } from '../render/designSettings';
+import {
+  STUDIO_DEFAULT_GEOMETRY_SETTINGS,
+  getGeometrySettings,
+  getStudioGeometrySettings
+} from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
@@ -319,7 +323,10 @@ export default class DisplayCanvas extends React.Component {
       settingsTab: 'color',
       animTiming: null,
       settingsDirty: false,
-      geometrySettings: getGeometrySettings(designPrefs?.settings),
+      // Studio defaults, not the resolution defaults: this is the panel about to make NEW
+      // work, and nothing stored is being reproduced here. adoptDesignSettings below is the
+      // opposite case and correctly stays on getGeometrySettings.
+      geometrySettings: getStudioGeometrySettings(designPrefs?.settings),
       // Which points-slider thumb was most recently grabbed -- the two thumbs are separate
       // native range inputs stacked on one track, so when their values sit close together
       // they visually overlap and only the higher-z-index one is hit-testable. Tracking the
@@ -774,6 +781,15 @@ export default class DisplayCanvas extends React.Component {
       settings = { geometry: this.state.geometrySettings };
     }
     const config = generateArtwork(seed, width, height, colorValues, settings);
+    // The panel's slider is the only thing in the app that knows the user's ODDS, so it
+    // stamps them here rather than letting generateArtwork's own value stand. That value is
+    // whatever chance went IN, which is right when this is making new work and wrong the
+    // moment it is REPRODUCING a stored design: a load path passes that design's settings,
+    // where chance is that design's own resolved value, not the user's odds. Left alone it rode
+    // out through StudioContext's prefs mirror and came back as a remembered preference of
+    // "always" or "never" -- caught in a real browser, where opening the app wrote 0.7 and
+    // then immediately overwrote it with 1 as the hero adopted its own first design.
+    config.geometryChance = this.state.geometrySettings.chance;
     this.mainConfig = config;
     // Mirror the current design into StudioContext (via StudioPage) so store routes can
     // render mockups of it without the canvas being mounted. No-op when rendered outside
@@ -1105,7 +1121,13 @@ export default class DisplayCanvas extends React.Component {
   // it correctly (buildConfig gets the stored settings explicitly) but leave the sliders,
   // and therefore the next Generate, wherever they last were.
   adoptDesignSettings(settings) {
-    this.setState({ geometrySettings: getGeometrySettings(settings) });
+    // Everything except the odds -- and note getGeometrySettings also strips `present`, so a
+    // loaded design's own answer cannot leak into the panel and govern later generates (see
+    // its whitelist comment). The sliders describing the SHAPE of the layer follow the design;
+    // the one deciding whether a fresh roll produces one is the user's and stays theirs.
+    this.setState(s => ({
+      geometrySettings: { ...getGeometrySettings(settings), chance: s.geometrySettings.chance }
+    }));
   }
 
   // Sync the color swatch panel to a loaded design's actual palette (or clear it, for an
@@ -1936,7 +1958,7 @@ export default class DisplayCanvas extends React.Component {
       s => ({
         confirmResetOpen: false,
         colors: [],
-        geometrySettings: { ...DEFAULT_GEOMETRY_SETTINGS },
+        geometrySettings: { ...STUDIO_DEFAULT_GEOMETRY_SETTINGS },
         ...DEFAULT_VIDEO_PREFS,
         // A 2D animation's frames are baked from the settings above during a 30s+ Generate,
         // so changing them while one is on screen only marks them stale -- the same

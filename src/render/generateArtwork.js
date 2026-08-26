@@ -10,7 +10,7 @@ import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialFi
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import { makeRng, randomSeed, expandMonochromePalette, meanLuminance, BRIGHT_BACKDROP } from './prng';
-import { getGeometrySettings, compactSettings } from './designSettings';
+import { getGeometrySettings, getGeometryPresence, compactSettings } from './designSettings';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
 // seed, so old designs can be detected and (re)rendered with matching behaviour.
@@ -327,9 +327,6 @@ export function generateArtwork(
     colors: colorValues.slice()
   };
 
-  const compactedSettings = compactSettings(settings);
-  if (compactedSettings) config.settings = compactedSettings;
-
   config.gradientBackgroundConfig = new GenerateLinearGradient(
     width,
     height,
@@ -386,9 +383,15 @@ export function generateArtwork(
   // chance of 0.4 makes the threshold 0.6 -- the exact pre-settings `>= 0.6` comparison.
   // chance 1 -> threshold 0 (always passes); chance 0 -> threshold 1 (never passes, since
   // the PRNG's range is [0, 1)).
-  let geometryChance = rng();
+  const geometryDraw = rng();
+  // A design that already exists STATES whether it has this layer, and that statement is
+  // final -- the draw above is still taken (the sequence must not move) but it decides
+  // nothing. Only a design being made for the first time, or a legacy blob that states
+  // nothing, falls through to the coin.
+  const stated = getGeometryPresence(settings);
+  const hasGeometry = stated === null ? geometryDraw >= 1 - geometry.chance : stated;
 
-  if (geometryChance >= 1 - geometry.chance) {
+  if (hasGeometry) {
     config.thirdBlend = randomBlendMode(rng);
     // Unscaled -- exactly one rng() draw, matching pre-fix behavior. GenerateGeometricShape
     // itself builds this many shapes (fixed, size-independent rng() consumption) and only
@@ -397,8 +400,8 @@ export function generateArtwork(
     let shapeNum = 10 + Math.round(rng() * 30);
     // Constructed unconditionally (same rng() consumption whether or not it ends up
     // attached below) so a design rendered with includeGeometry=false on one placement
-    // stays rng-aligned with its other placements -- same discipline as geometryChance's
-    // unconditional draw above.
+    // stays rng-aligned with its other placements -- same discipline as the geometry draw's
+    // unconditional rng() call above.
     const geometryConfig = new GenerateGeometricShape(
       width,
       height,
@@ -413,6 +416,34 @@ export function generateArtwork(
       config.geometryConfig = geometryConfig;
     }
   }
+
+  // What gets persisted is the FACT -- `settings.geometry.present` -- and never the odds. A
+  // finished design either has this layer or it does not; the coin was flipped once, at
+  // generate time, and nothing about a design that already exists should depend on the odds
+  // it was flipped at. `chance` therefore means exactly one thing everywhere in the app now
+  // (a probability, live in the studio, never stored) and `present` means exactly one thing
+  // (this design's own answer). Neither field has a second reading.
+  //
+  // The consequence worth having: the studio's chance slider is purely a knob for making NEW
+  // work. Moving it -- or changing its default -- cannot alter a design that already exists,
+  // because that design stores no odds for anything to re-roll.
+  //
+  // The probability itself is generation context, like width/height: never persisted, never
+  // part of a design's identity (isSameDesign ignores it), and exposed here only so a
+  // "generate more like this" path -- the mini-generator's Generate, the remembered studio
+  // prefs -- can carry the user's setting forward instead of inheriting this design's answer.
+  // See designSettings.js's getGenerationSettings.
+  //
+  // It is only meaningful when this call is making NEW work, because then the chance that
+  // came in really was odds. A caller REPRODUCING a stored design passes that design's own
+  // settings, so what lands here is that design's own resolved value -- which is why
+  // DisplayCanvas.buildConfig overwrites this with the live slider value instead of trusting it.
+  config.geometryChance = geometry.chance;
+  const compactedSettings = compactSettings({
+    ...settings,
+    geometry: { ...geometry, present: hasGeometry }
+  });
+  if (compactedSettings) config.settings = compactedSettings;
 
   let overlayChance = rng();
 

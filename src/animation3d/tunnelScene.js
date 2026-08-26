@@ -429,6 +429,12 @@ function buildGeometricTunnel(rng, geometry, uWarpStart, L) {
   // `size` scales the whole structure (bore + outer web); `chance` scales structural
   // density (wires/panels). Both are pure multipliers with defaults ≡ 1 (size 0.5,
   // chance 0.4), so default-settings scenes are unchanged and no rng draws move.
+  //
+  // `chance` here is the studio slider's PROBABILITY, which is the only thing it ever means:
+  // buildThreeDDesign hands this the live slider state, and a stored design carries no chance
+  // at all (it states `present` instead -- see designSettings). So if 3D replay of a SAVED
+  // design is ever built, this falls back to the legacy value for it; feed it
+  // getGenerationSettings(design) if the user's own odds are wanted instead.
   const sizeScale = 0.55 + geometry.size * 0.9;
   const densityScale = 0.35 + geometry.chance * 1.625;
   const radiusBase = (15 + rng() * 9) * sizeScale; // camera flies inside

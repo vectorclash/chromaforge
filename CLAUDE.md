@@ -80,6 +80,75 @@ the actual print, generated the same deterministic way.
   complete polygon as the print) sized to fit with 12.5% clearance off the short dimension;
   between, size lerps and chaotic triangles trade off against filled cells. The chance draw always
   consumes exactly one rng() regardless of the setting so downstream layers stay aligned.
+- **A design STATES whether it has the geometry layer; `chance` is odds and is never stored
+  (2026-08-26, Aaron: odds should never have been part of a design's DNA).** A finished design
+  either has the layer or it does not — the coin was flipped once, at generate time — so
+  `generateArtwork` persists **`settings.geometry.present: true|false`** and a stated presence
+  overrides the draw entirely (the draw is still taken, so the shared sequence never moves).
+  `chance` now means exactly one thing everywhere: a probability, live in the studio, never
+  written to storage. Neither field has a second reading. The studio default is **0.7**
+  (`STUDIO_DEFAULT_GEOMETRY_CHANCE`) and is free to move — it cannot reach anything already
+  made. Eight things worth not re-deriving:
+  (1) **A stored design contains no geometry DATA to point at** — a row is only
+  `{ generatorVersion, seed, colors, settings }`, and `geometryConfig` (megabytes when
+  resolved) is regenerated from the seed every render. So the fact has to be written down as a
+  flag; there is nothing whose mere existence could carry it. An interim version encoded it as
+  `chance: 1|0`, which renders identically on any bundle and made the first backfill deployable
+  with no ordering — but a field named for odds holding a fact is the same improper structure
+  wearing a hat, and it confused its own author on sight. Don't reintroduce it.
+  (2) **`getGeometrySettings` whitelists keys instead of spreading, and that is load-bearing.**
+  Its result becomes DisplayCanvas's slider state, which is the input to the NEXT generate — so
+  a spread carried `present` out of a loaded design into the panel, and every Generate after it
+  inherited that design's geometry instead of flipping its own coin. Caught in a real browser,
+  invisible to the build, to `check-render-regression.mjs` and to any unit test of the render
+  path. It also drops the stray legacy `frontOnly` key some old rows still carry.
+  (3) **The probability is generation CONTEXT** — `config.geometryChance`, never persisted,
+  ignored by `isSameDesign`. `getGenerationSettings(config)` carries it forward for
+  "generate more like this" (the mini-generator's Generate, the localStorage prefs mirror):
+  a design's DNA plus the user's odds, never the design's own presence.
+  **`DisplayCanvas.buildConfig` stamps the live slider value over whatever generateArtwork
+  returned**, because when REPRODUCING a stored design the chance that went in was that
+  design's own resolved value, not the user's odds. Without the stamp it rode out through the
+  prefs mirror and came back as a remembered preference of "always" — also caught in a browser.
+  (4) **A legacy `chance` of exactly 1 or 0 IS read as a statement**, by `getGeometryPresence`.
+  Those values could only ever have meant "has geometry" / "has none" (threshold 0, the draw
+  always passes / threshold 1, never), so reading them as facts renders identically — but it
+  makes every such row immune to an rng shift immediately, and it lets `isSameDesign` match a
+  legacy row against its own regenerated form. Without that, the artwork picker's dedup
+  (`ProductPage`'s `isSameDesign(currentDesign, design.data)`) would see them as two different
+  designs and re-break the "one design showing as two" fix. Anything strictly between stays
+  real odds and falls through to the coin, since nothing is recoverable from a probability.
+  (5) **`LEGACY_GEOMETRY_CHANCE` (0.4) is a compatibility constant, not a tunable**: the
+  meaning of an absent chance on a blob that states nothing. Changing it re-rolls the coin for
+  every such blob. Share links carry only a row id (no embedded design), so the only blobs that
+  could reach it are `order_items.design_data` audit copies, which are never rendered.
+  (6) **The backfill has an ordering requirement the rest of this does not.**
+  `scripts/backfill-geometry-presence.mjs` converts every row to `present` and REMOVES
+  `chance` — so it must run only **after the new frontend is live**, or the deployed bundle
+  falls back to the 0.4 coin and re-rolls those designs on the live gallery. Until it runs,
+  rows keep `chance: 1|0`, which the new code reads correctly as a statement of fact. Dry run:
+  86 rows to rewrite (83 with geometry, 3 without), each verified to generate an identical
+  composition at three sizes. Idempotent and re-runnable; saves the previous `data` of every
+  touched row to a gitignored rollback file.
+  (7) **Deploy render-service BEFORE the frontend** — it ignores an unknown field, so a browser
+  sending `present` (and no odds) against an old Fly bundle would re-flip the coin and print a
+  garment the mockup never showed. Same hazard as `density`, `mirrorX`, `legSymmetry` and
+  `hatWrap`. No `GENERATOR_VERSION` bump and no thumbnail backfill: composition is unchanged.
+  (8) **`tunnelScene`'s `densityScale` reads `chance` as a probability**, which is now
+  unambiguous — it is fed live slider state via `buildThreeDDesign`, and a stored design has no
+  chance at all, so a future 3D replay falls back to the legacy value rather than reading a
+  fact as odds.
+  Verified: `check-render-regression.mjs` — 86 stored designs × 3 sizes, 0 changed, 0 geometry
+  lost or gained. A stated presence survives 5 sizes including the shorts sheet and overrides
+  any odds handed alongside it; legacy blobs (absent, and explicit `chance: 1`) still resolve
+  exactly as before. **And the property this whole change exists for, measured:** simulating one
+  extra `rng()` draw upstream of the geometry coin flips the layer on **22 of the 31** rows that
+  originally stored odds, and on **0 of all 86** as they stand today — i.e. the 2026-08-02
+  incident can no longer take a saved design's geometry away. Also verified at the seams the
+  render check cannot see: a saved row compares equal to the design it came from (the Saved
+  button / duplicate-row guard), a legacy row compares equal to its regenerated form (the
+  picker's dedup), and `withCurrentGeneratorVersion` keeps the statement intact through
+  checkout adoption.
   Settings ride through every regeneration path: compactDesign (both the JS and the Deno
   `_shared/compactDesign.ts` mirror), StudioContext's renderDesignBlob (mockups/thumbnails),
   share links, gallery loads, `render-print-file` → render-service. Deployed everywhere:

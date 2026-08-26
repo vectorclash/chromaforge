@@ -13,8 +13,6 @@
 // it too, and generateArtwork imports those -- putting it there would be a circular import.
 
 export const DEFAULT_GEOMETRY_SETTINGS = {
-  // Probability the geometry layer appears at all: 0 = never, 1 = always.
-  chance: 0.4,
   // Lattice vertex-count range (a "points" value of 6 makes hexagonal lattices). Equal
   // min/max pins the shape: min = max = 6 means every design gets a hexagon.
   pointsMin: 3,
@@ -84,10 +82,125 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // `settings.geometry.frontOnly` key; it's simply never read anymore.
 };
 
+// `geometry.chance` is deliberately NOT in the block above, because it is not a property of
+// the artwork at all -- it is the odds of a coin flip, and it reads differently depending on
+// which direction it is travelling.
+//
+// Going IN to generateArtwork it is a PROBABILITY: the odds the geometry layer appears, which
+// is what the studio's slider sets. Coming back OUT on a generated design it is a resolved
+// FACT -- exactly 1 (this design has geometry) or 0 (it does not) -- because the coin has been
+// flipped and a design that already exists cannot un-flip it. Odds are never persisted.
+//
+// Hence two separate constants, neither of them a "default" for the block above:
+
+// What an ABSENT chance means, and nothing else. It reproduces the original hardcoded
+// `rng() >= 0.6` for a design blob that predates the resolved-fact change -- an old share
+// link, an order's audit copy in order_items.design_data, a stale localStorage entry. Every
+// row in the designs table states its own `present` instead (scripts/backfill-geometry-
+// presence.mjs), so nothing in the gallery depends on this any more.
+// It is a compatibility constant, not a tunable: changing it re-rolls the coin for every
+// legacy blob still in circulation, which is exactly the class of change
+// check-render-regression.mjs exists to block.
+export const LEGACY_GEOMETRY_CHANCE = 0.4;
+
+// The odds the studio's slider starts a fresh session (or a RESET) on. Free to move: a
+// generated design records `present`, never the odds, so changing this cannot reach anything
+// already made.
+//
+// 0.7 rather than the historical 0.4 (Aaron, 2026-08-26): the geometry layer is the most
+// distinctive thing the generator does, and at 0.4 the majority of fresh generates arrived
+// without it.
+export const STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.7;
+
+// What a surface making NEW work starts from: the DNA defaults plus the studio's odds. Read
+// by StudioContext's first design of a session, DisplayCanvas's panel when nothing is stored,
+// and RESET. Every path that reproduces a STORED design resolves through
+// getGeometrySettings instead.
+export const STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
+  ...DEFAULT_GEOMETRY_SETTINGS,
+  chance: STUDIO_DEFAULT_GEOMETRY_CHANCE
+};
+
 // Resolve a design's stored `settings` (possibly missing/partial) to a full geometry
 // settings object.
 export function getGeometrySettings(settings) {
-  return { ...DEFAULT_GEOMETRY_SETTINGS, ...(settings?.geometry || null) };
+  const resolved = { ...DEFAULT_GEOMETRY_SETTINGS, chance: LEGACY_GEOMETRY_CHANCE };
+  const stored = settings?.geometry;
+  // A whitelist, not a spread, and that is load-bearing rather than fastidious. This object
+  // becomes DisplayCanvas's slider state, and slider state is the input to the NEXT generate
+  // -- so anything that rides through here on a loaded design silently governs every design
+  // made after it. A spread carried `present` through exactly that way (caught in a real
+  // browser): opening a saved design put its stated geometry into the panel, and every
+  // Generate from then on inherited it instead of flipping its own coin. The fact belongs to
+  // one design; only the knobs below belong to the studio. It also drops the stray legacy
+  // `frontOnly` key some old rows still carry, which nothing has read since 2026-07.
+  if (stored) {
+    for (const key of Object.keys(resolved)) {
+      if (stored[key] !== undefined) resolved[key] = stored[key];
+    }
+  }
+  return resolved;
+}
+
+// The same resolution for a surface that is about to make NEW work rather than reproduce
+// stored work: an absent/partial block falls back to the studio defaults instead of the
+// legacy ones. Never use this to render a stored design -- see the note above.
+export function getStudioGeometrySettings(settings) {
+  const resolved = getGeometrySettings(settings);
+  // Same whitelist (it is built on the resolver above, deliberately, so the two cannot drift
+  // and neither can carry a design's `present` into the panel), differing only in what an
+  // absent chance means: the studio's odds for new work rather than the legacy value.
+  if (settings?.geometry?.chance === undefined) resolved.chance = STUDIO_DEFAULT_GEOMETRY_CHANCE;
+  return resolved;
+}
+
+// The settings to make MORE work in the style of a design already on screen -- what the
+// mini-generator's Generate and the remembered studio prefs both want. Its DNA (points,
+// coherence, size, density, layer order) carries over as-is, but `chance` is deliberately
+// NOT taken from the design: a design states its geometry through `present` and stores no
+// odds at all, so the only sensible source for the next roll is the user's own setting (and
+// `present` itself is stripped by the resolver above, so it cannot ride along). Those odds
+// come from the
+// generation-context field generateArtwork hands back (config.geometryChance), falling back
+// to the studio default for anything that did not come from a generate -- a raw stored
+// gallery row, say.
+export function getGenerationSettings(config) {
+  const { chance: _resolved, ...dna } = getGeometrySettings(config?.settings);
+  return {
+    geometry: {
+      ...dna,
+      chance:
+        typeof config?.geometryChance === 'number'
+          ? config.geometryChance
+          : STUDIO_DEFAULT_GEOMETRY_CHANCE
+    }
+  };
+}
+
+// Whether a design STATES that it has the geometry layer: true, false, or null for a design
+// that states nothing and must therefore fall back to flipping the coin (see generateArtwork).
+//
+// Deliberately read straight off the raw settings rather than being folded into
+// getGeometrySettings' resolved object, and that is a correctness requirement, not a style
+// choice: that object becomes DisplayCanvas's slider state, and slider state is the input to
+// the NEXT generate. A `present` riding along in there would force every subsequent design
+// off the same panel to the same answer, which is the opposite of what this field is for.
+// The fact belongs to a design; the odds belong to the studio.
+export function getGeometryPresence(settings) {
+  const stated = settings?.geometry?.present;
+  if (typeof stated === 'boolean') return stated;
+  // A legacy blob written before `present` existed still states the fact when its odds are
+  // absolute: chance 1 could only ever mean "this design has geometry" (threshold 0, the draw
+  // always passes) and 0 only "it does not". Reading them as statements rather than odds is
+  // not a courtesy -- it renders identically either way, but it makes those designs immune to
+  // a shift in the shared rng sequence immediately, and it lets isSameDesign recognise such a
+  // row and its own regenerated form as the same design (they differ only in which field
+  // carries the answer). Anything strictly between stays real odds and falls through to the
+  // coin, because nothing else can be recovered from a probability.
+  const chance = settings?.geometry?.chance;
+  if (chance === 1) return true;
+  if (chance === 0) return false;
+  return null;
 }
 
 // Normalize `settings` for persistence: undefined when everything is at its default (so
@@ -95,16 +208,34 @@ export function getGeometrySettings(settings) {
 // resolved geometry block. Idempotent.
 export function compactSettings(settings) {
   const geometry = getGeometrySettings(settings);
-  const isDefault = Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(
-    key => geometry[key] === DEFAULT_GEOMETRY_SETTINGS[key]
+  const { chance, ...dna } = geometry;
+  const dnaIsDefault = Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(
+    key => dna[key] === DEFAULT_GEOMETRY_SETTINGS[key]
   );
-  return isDefault ? undefined : { geometry };
+  const present = getGeometryPresence(settings);
+
+  // A design that states its geometry stores THAT and nothing about odds -- `chance` is
+  // dropped outright, because a probability has no meaning on a piece that already exists.
+  // Every design generated by this bundle takes this branch (generateArtwork always states
+  // the resolved outcome), so odds cannot reach storage at all.
+  if (present !== null) return { geometry: { ...dna, present } };
+
+  // Legacy blob: it states nothing, so its `chance` is still the only signal of how the coin
+  // would fall and has to be preserved exactly. Dropped only when it is the absent-value,
+  // where it carries no information and keeping it would just bloat an old-format design.
+  if (chance === LEGACY_GEOMETRY_CHANCE) return dnaIsDefault ? undefined : { geometry: dna };
+  return { geometry: { ...dna, chance } };
 }
 
 // Two settings objects mean the same design if they resolve to the same values.
 export function isSameSettings(a, b) {
   const ga = getGeometrySettings(a);
   const gb = getGeometrySettings(b);
+  // Presence first: it is the statement of fact, and two designs that disagree about whether
+  // they have a geometry layer are different designs whatever else matches. `chance` is only
+  // consulted for legacy blobs that state nothing, where it is still the deciding input.
+  if (getGeometryPresence(a) !== getGeometryPresence(b)) return false;
+  if (getGeometryPresence(a) === null && ga.chance !== gb.chance) return false;
   return Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(key => ga[key] === gb[key]);
 }
 

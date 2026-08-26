@@ -3,7 +3,11 @@ import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
-import { isSameDesign } from '../render/designSettings';
+import {
+  isSameDesign,
+  getGenerationSettings,
+  getStudioGeometrySettings
+} from '../render/designSettings';
 import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
@@ -75,7 +79,12 @@ export function StudioProvider({ children }) {
   // it just arrives in the style they chose. Only the settings persist, not the design.
   const [currentDesign, setCurrentDesign] = useState(() => {
     const prefs = readDesignPrefs();
-    return generateArtwork(randomSeed(), 1080, 1080, prefs?.colors ?? [], prefs?.settings ?? null);
+    // Explicit settings either way: with nothing stored this is the studio's own defaults for
+    // NEW work (see STUDIO_DEFAULT_GEOMETRY_SETTINGS), which differ from what an absent
+    // settings block means to a stored design. Passing null here would resolve to the latter.
+    return generateArtwork(randomSeed(), 1080, 1080, prefs?.colors ?? [], {
+      geometry: getStudioGeometrySettings(prefs?.settings)
+    });
   });
   const [previewUrl, setPreviewUrl] = useState(null);
   // The palette the CURRENT PREVIEW is painted with -- deliberately updated alongside
@@ -180,9 +189,13 @@ export function StudioProvider({ children }) {
   // it calls buildConfig once per frame (up to 60), and every one of those frames shares the
   // palette and settings this is watching.
   useEffect(() => {
+    // getGenerationSettings, not currentDesign.settings: a design carries the FACT of its own
+    // geometry (`present`) and no odds at all, while what belongs in a remembered preference is
+    // precisely the odds the user chose. It strips `present` too, so a Generate off a restored
+    // session rolls its own coin rather than inheriting the last design's answer.
     const value = {
       colors: currentDesign.colors ?? [],
-      settings: currentDesign.settings ?? null
+      settings: getGenerationSettings(currentDesign)
     };
     const serialized = JSON.stringify(value);
     if (serialized === lastPersistedRef.current) return;
@@ -230,7 +243,7 @@ export function StudioProvider({ children }) {
   // before.
   const generateRandom = useCallback(() => {
     setCurrentDesign(prev =>
-      generateArtwork(randomSeed(), 1080, 1080, prev.colors ?? [], prev.settings ?? null)
+      generateArtwork(randomSeed(), 1080, 1080, prev.colors ?? [], getGenerationSettings(prev))
     );
   }, []);
 

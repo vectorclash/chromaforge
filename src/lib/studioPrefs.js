@@ -15,7 +15,11 @@
 // into generateArtwork and, for colours, all the way to ctx.addColorStop, which is exactly
 // the kind of "browsers are lenient until one isn't" surface that has bitten this project
 // before (see GenerateLargeRadialField's alpha-as-a-string).
-import { DEFAULT_GEOMETRY_SETTINGS } from '../render/designSettings';
+import {
+  DEFAULT_GEOMETRY_SETTINGS,
+  STUDIO_DEFAULT_GEOMETRY_CHANCE,
+  getGeometrySettings
+} from '../render/designSettings';
 
 const DESIGN_KEY = 'cf-studio:design';
 const VIDEO_KEY = 'cf-studio:video';
@@ -74,7 +78,9 @@ function sanitizeGeometry(geometry) {
   const pointsMin = clampInt(geometry.pointsMin, 3, 12, d.pointsMin);
   const pointsMax = clampInt(geometry.pointsMax, 3, 12, d.pointsMax);
   return {
-    chance: clampNumber(geometry.chance, 0, 1, d.chance),
+    // The studio's own odds for new work, so its fallback is the studio default rather than
+    // the legacy resolution default the rest of these keys use.
+    chance: clampNumber(geometry.chance, 0, 1, STUDIO_DEFAULT_GEOMETRY_CHANCE),
     // The dual slider's own invariant: the two thumbs may meet but never cross.
     pointsMin: Math.min(pointsMin, pointsMax),
     pointsMax: Math.max(pointsMin, pointsMax),
@@ -99,10 +105,17 @@ export function readDesignPrefs() {
   return { colors, settings: geometry ? { geometry } : undefined };
 }
 
+// The geometry block is always written out in FULL, even when it matches the resolution
+// defaults and a design would therefore omit it (compactSettings). The two are answering
+// different questions: an absent block on a DESIGN means "the legacy defaults, forever",
+// while an absent entry here means "this browser has never been to the studio", which is what
+// entitles a first visit to the studio defaults (see STUDIO_DEFAULT_GEOMETRY_SETTINGS).
+// Storing nothing at the legacy defaults would conflate the two -- someone who deliberately
+// pulls geometry chance back down to 0.4 would find it at 0.7 again on their next visit.
 export function writeDesignPrefs({ colors, settings }) {
   writeKey(DESIGN_KEY, {
     colors: Array.isArray(colors) ? colors.slice(0, MAX_COLORS) : [],
-    settings: settings ?? null
+    settings: { geometry: getGeometrySettings(settings) }
   });
 }
 
@@ -154,7 +167,7 @@ export function writeVideoPrefs(video) {
 
 // Forget everything -- what a "reset to defaults" control calls. Clearing storage alone
 // only takes effect on the next load, so a caller must also put its own live state back to
-// the defaults above (and to DEFAULT_GEOMETRY_SETTINGS / an empty palette).
+// the defaults above (and to STUDIO_DEFAULT_GEOMETRY_SETTINGS / an empty palette).
 export function clearStudioPrefs() {
   try {
     localStorage.removeItem(DESIGN_KEY);

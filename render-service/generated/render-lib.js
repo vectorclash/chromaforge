@@ -356,8 +356,6 @@ import tinycolor2 from "tinycolor2";
 
 // ../src/render/designSettings.js
 var DEFAULT_GEOMETRY_SETTINGS = {
-  // Probability the geometry layer appears at all: 0 = never, 1 = always.
-  chance: 0.4,
   // Lattice vertex-count range (a "points" value of 6 makes hexagonal lattices). Equal
   // min/max pins the shape: min = max = 6 means every design gets a hexagon.
   pointsMin: 3,
@@ -426,15 +424,40 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // param) rather than a design setting. Old saved designs may still carry a stray
   // `settings.geometry.frontOnly` key; it's simply never read anymore.
 };
+var LEGACY_GEOMETRY_CHANCE = 0.4;
+var STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.7;
+var STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
+  ...DEFAULT_GEOMETRY_SETTINGS,
+  chance: STUDIO_DEFAULT_GEOMETRY_CHANCE
+};
 function getGeometrySettings(settings) {
-  return { ...DEFAULT_GEOMETRY_SETTINGS, ...settings?.geometry || null };
+  const resolved = { ...DEFAULT_GEOMETRY_SETTINGS, chance: LEGACY_GEOMETRY_CHANCE };
+  const stored = settings?.geometry;
+  if (stored) {
+    for (const key of Object.keys(resolved)) {
+      if (stored[key] !== void 0) resolved[key] = stored[key];
+    }
+  }
+  return resolved;
+}
+function getGeometryPresence(settings) {
+  const stated = settings?.geometry?.present;
+  if (typeof stated === "boolean") return stated;
+  const chance = settings?.geometry?.chance;
+  if (chance === 1) return true;
+  if (chance === 0) return false;
+  return null;
 }
 function compactSettings(settings) {
   const geometry = getGeometrySettings(settings);
-  const isDefault = Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(
-    (key) => geometry[key] === DEFAULT_GEOMETRY_SETTINGS[key]
+  const { chance, ...dna } = geometry;
+  const dnaIsDefault = Object.keys(DEFAULT_GEOMETRY_SETTINGS).every(
+    (key) => dna[key] === DEFAULT_GEOMETRY_SETTINGS[key]
   );
-  return isDefault ? void 0 : { geometry };
+  const present = getGeometryPresence(settings);
+  if (present !== null) return { geometry: { ...dna, present } };
+  if (chance === LEGACY_GEOMETRY_CHANCE) return dnaIsDefault ? void 0 : { geometry: dna };
+  return { geometry: { ...dna, chance } };
 }
 
 // ../src/components/Canvas/GenerateGeometricShape.js
@@ -675,8 +698,6 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     starsOnTop: geometry.starsOnTop,
     colors: colorValues.slice()
   };
-  const compactedSettings = compactSettings(settings);
-  if (compactedSettings) config.settings = compactedSettings;
   config.gradientBackgroundConfig = new GenerateLinearGradient(
     width,
     height,
@@ -707,8 +728,10 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     backgroundLuminance,
     seed
   );
-  let geometryChance = rng();
-  if (geometryChance >= 1 - geometry.chance) {
+  const geometryDraw = rng();
+  const stated = getGeometryPresence(settings);
+  const hasGeometry = stated === null ? geometryDraw >= 1 - geometry.chance : stated;
+  if (hasGeometry) {
     config.thirdBlend = randomBlendMode(rng);
     let shapeNum = 10 + Math.round(rng() * 30);
     const geometryConfig = new GenerateGeometricShape(
@@ -725,6 +748,12 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       config.geometryConfig = geometryConfig;
     }
   }
+  config.geometryChance = geometry.chance;
+  const compactedSettings = compactSettings({
+    ...settings,
+    geometry: { ...geometry, present: hasGeometry }
+  });
+  if (compactedSettings) config.settings = compactedSettings;
   let overlayChance = rng();
   if (overlayChance >= 0.7 && paletteColors.length > 0) {
     config.overlayBlend = randomBlendMode(rng);
