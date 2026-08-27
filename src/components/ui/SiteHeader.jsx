@@ -32,7 +32,7 @@ const navClass = ({ isActive }) =>
   (isActive ? 'text-text' : 'text-text-muted hover:text-text');
 
 export default function SiteHeader({ transparent = false, overlay = false }) {
-  const { user, avatarUrl } = useAuth();
+  const { user, authResolved, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const showGradient = transparent || menuOpen;
   const revertDuration = menuOpen ? 'var(--duration-base)' : 'var(--duration-fast)';
@@ -80,7 +80,19 @@ export default function SiteHeader({ transparent = false, overlay = false }) {
                   <HexagonIcon size={12} className="text-text-secondary" />
                 )}
               </span>
-              {user ? 'Account' : 'Sign in'}
+              {/* The word is withheld, not guessed, until auth resolves -- `user` is null both
+                  when signed out and when Supabase has simply not answered yet, and a
+                  returning visitor's token refresh is a network round trip (see
+                  AuthContext's authResolved). Faded rather than unmounted, and both labels
+                  are seven characters, so nothing moves either way. The link itself stays
+                  live throughout: /account is the right destination in both states. */}
+              <span
+                className={
+                  'transition-opacity duration-200 ' + (authResolved ? 'opacity-100' : 'opacity-0')
+                }
+              >
+                {user ? 'Account' : 'Sign in'}
+              </span>
             </NavLink>
           </nav>
           {/* `sm:hidden` goes on this wrapper, not the button itself -- .cf-btn-icon's own

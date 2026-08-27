@@ -1653,6 +1653,42 @@ Five things worth not re-deriving:
    settle and the countdown would spend its life as an underscore. Static sentence, live number.
 Frames + measurements: https://claude.ai/code/artifact/73cfce43-9e68-4131-86cf-84d29551ec6a
 
+### `user === null` is two different facts, and the UI used to assert the wrong one (2026-08-27)
+Aaron caught the account icon showing the signed-out state and no avatar while he was signed in.
+Not localhost weirdness — a real bug, and the mechanism generalises: **`user` starts null in
+`AuthContext` and stays null until Supabase's first auth event, so it means "signed out" and
+"not answered yet" at once.** Any surface rendering a signed-out state off `user` alone is
+asserting a fact it does not have.
+It is not merely a first-paint race. A returning visitor's access token has expired, so
+supabase-js must make a **network round trip** to `/auth/v1/token` before it knows anything —
+**measured at 779ms against live Supabase.** With the refresh stubbed at 700ms on a warm dev
+server the header rendered `Sign in` for **204ms** before correcting to `Account`; the flash is
+refresh latency minus paint latency, so it grows with a slower connection.
+Fixed with `authResolved` on the context (set by the first `onAuthChange` callback), consumed by
+the three surfaces that were guessing: `SiteHeader` and `MobileNav` withhold the word (opacity,
+not unmount — and both labels are seven characters, so nothing moves), and `ProductPage` gets a
+`pending` scrim mode that renders nothing plus a neutral disabled **Buy now** rather than
+`Sign in to buy` — the worst of the three, since it told a signed-in customer to sign in on the
+one control the page exists for.
+Four things worth not re-deriving:
+(1) **`onAuthChange` never calls back at all when Supabase is unconfigured** (it returns a no-op),
+so `authResolved` is set directly in that branch — otherwise every consumer waits forever for an
+answer that is not coming.
+(2) **`authResolved` says nothing about the PROFILE.** `avatarUrl` needs a second round trip that
+cannot even start until `user` exists, so the avatar circle stays a placeholder after the label
+has already resolved. That is a neutral placeholder rather than a false claim, so it was left
+alone — but it is why the original report was "no avatar AND logged out".
+(3) **The genuinely signed-out path is untouched and was re-verified**: header `Sign in` at
+opacity 1, `Sign in to buy`, and the mockup scrim's sign-in copy all still render.
+(4) **A failed refresh is a DIFFERENT thing and was deliberately not touched.** Measured: a 400
+from `/auth/v1/token` makes supabase-js clear the whole session from localStorage at 914ms — you
+really are signed out then, and saying so is correct. Refresh tokens rotate, so the same session
+restored in two places (two ports on localhost are two origins, with two separate stores) is the
+ordinary way to reach it.
+Verified with a harness that stubs the refresh at a fixed delay and samples the control every
+frame: header goes `(withheld)` → `Account`, buy goes `Buy now [disabled]` → `Buy now`, and
+neither ever asserts a signed-out state.
+
 ### Curated palettes replace the ADD 🌈 button (`render/palettePresets.js`, 2026-08-27)
 The Color tab's second button is now a scrolling strip of named palette chips.
 **`src/render/palettePresets.js` is the whole editable surface** — an array of

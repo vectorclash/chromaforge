@@ -252,7 +252,7 @@ export default function ProductPage() {
     printQueueDesign,
     setPrintQueueDesign
   } = useStudio();
-  const { user } = useAuth();
+  const { user, authResolved } = useAuth();
   // Crossfades the "Current studio design" tile between successive MiniGenerator
   // regenerations instead of popping straight to the new render -- same hook/timing
   // MiniGenerator and SiteFooter already use off this same previewUrl.
@@ -1111,7 +1111,20 @@ export default function ProductPage() {
   // was replaced by the Generate button and only THEN faded. Frozen, the loading state stays
   // put and simply fades away under the incoming mockup; the mode updates again as soon as the
   // mockup is gone, so the way back shows the right thing fading in.
-  const scrimMode = !user ? 'signin' : busy ? 'busy' : status === 'failed' ? 'failed' : 'generate';
+  //
+  // 'pending' exists because `!user` is true both when you are signed out and when Supabase
+  // has not answered yet -- and for a returning visitor that answer is a network round trip
+  // (see AuthContext's authResolved). Without it this scrim told a signed-in customer to sign
+  // in for as long as their token refresh took.
+  const scrimMode = !authResolved
+    ? 'pending'
+    : !user
+      ? 'signin'
+      : busy
+        ? 'busy'
+        : status === 'failed'
+          ? 'failed'
+          : 'generate';
   if (!hasMockup) scrimModeRef.current = scrimMode;
   const displayedScrimMode = hasMockup ? scrimModeRef.current : scrimMode;
 
@@ -1748,7 +1761,10 @@ export default function ProductPage() {
                     (showMockup ? 'opacity-0' : 'opacity-100')
                   }
                 >
-                {displayedScrimMode === 'signin' ? (
+                {/* 'pending' renders nothing at all: an empty scrim for the length of a token
+                    refresh is the honest state, where every other branch here would be a claim
+                    about a customer we have not identified yet. */}
+                {displayedScrimMode === 'pending' ? null : displayedScrimMode === 'signin' ? (
                   <p className="max-w-xs text-center text-sm text-text">
                     <Link to="/account" className="text-accent underline">Sign in</Link> to generate a mockup of your design.
                   </p>
@@ -1961,7 +1977,16 @@ export default function ProductPage() {
               Shipping &amp; tax calculated at checkout.
             </p>
 
-            {!user ? (
+            {/* Disabled-but-neutral until auth resolves. "Sign in to buy" is a claim about the
+                customer, and `user` is null while Supabase is still answering -- so a signed-in
+                customer briefly saw a button telling them to sign in, on the one control the
+                whole page exists for. The primary label says nothing about who you are, so it
+                is the safe thing to show while we do not know. */}
+            {!authResolved ? (
+              <Button className="mt-4 w-full" disabled aria-busy="true">
+                Buy now
+              </Button>
+            ) : !user ? (
               <Button as={Link} to="/account" className="mt-4 w-full">
                 Sign in to buy
               </Button>

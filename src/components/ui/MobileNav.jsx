@@ -50,7 +50,7 @@ const itemClass = ({ isActive }) =>
 // needs a reverse for the close) plus the CSS keyframe's own per-item `animation-delay`
 // stagger is simpler and matches everywhere else in the app that staggers a list in.
 export default function MobileNav({ open, onClose }) {
-  const { user, avatarUrl } = useAuth();
+  const { user, authResolved, avatarUrl } = useAuth();
   const { currentDesign, renderDesignBlob } = useStudio();
   // Keyed on `open`, not `mounted`: the page unfreezes as the close tween starts rather
   // than after it, and on a navigation the unlock's scroll restore lands before
@@ -200,7 +200,18 @@ export default function MobileNav({ open, onClose }) {
           { to: '/gallery', label: 'Gallery', icon: null },
           {
             to: '/account',
-            label: user ? 'Account' : 'Sign in',
+            // Withheld until auth resolves rather than guessed -- see SiteHeader's note and
+            // AuthContext's authResolved. Both labels are seven characters, so the row holds
+            // its width whichever way it lands.
+            label: (
+              <span
+                className={
+                  'transition-opacity duration-200 ' + (authResolved ? 'opacity-100' : 'opacity-0')
+                }
+              >
+                {user ? 'Account' : 'Sign in'}
+              </span>
+            ),
             icon: (
               <span className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-700">
                 {avatarUrl ? (

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { onAuthChange } from '../lib/auth';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { getMyProfile } from '../lib/profiles';
 import { useToastNotice } from '../hooks/useToastNotice';
 import Toast from '../components/ui/Toast';
@@ -14,6 +15,21 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  // Has Supabase told us who (if anyone) is signed in yet? `user` starts null, which is
+  // indistinguishable from a real signed-out session -- so any surface that renders a
+  // signed-out state off `user` alone is asserting a fact it does not have.
+  //
+  // That is not hypothetical and it is not only a first-paint concern: a returning visitor's
+  // access token has expired, so supabase-js must make a NETWORK round trip to /auth/v1/token
+  // before it knows anything. Measured against live Supabase that took 779ms, and with the
+  // refresh stubbed at 700ms the header rendered "Sign in" for 204ms before correcting itself
+  // to "Account" -- the header paints long before the network answers, so the flash is the
+  // refresh latency minus the paint, and grows with a slower connection.
+  //
+  // Consumers should render a NEUTRAL state while this is false, never the signed-out one.
+  // Note it says nothing about whether the profile has loaded: `avatarUrl` arrives a second
+  // round trip later, since that fetch cannot start until `user` exists.
+  const [authResolved, setAuthResolved] = useState(false);
   const [notice, setNotice] = useToastNotice(); // { type: 'success'|'error', message }
   const [avatarUrl, setAvatarUrl] = useState(null);
   // profiles.is_admin. A UI-only flag -- `profiles` is world-readable, so this conceals
@@ -80,8 +96,15 @@ export function AuthProvider({ children }) {
   }, [navigate]);
 
   useEffect(() => {
+    // onAuthChange never calls back at all without a configured client, so resolving has to
+    // happen here or every consumer would wait forever for an answer that isn't coming.
+    if (!isSupabaseConfigured) {
+      setAuthResolved(true);
+      return undefined;
+    }
     const unsubscribe = onAuthChange(u => {
       setUser(u);
+      setAuthResolved(true);
       if (awaitingRecovery.current && u) {
         awaitingRecovery.current = false;
         setRecoveryMode(true);
@@ -97,6 +120,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
+        authResolved,
         isAdmin,
         avatarUrl,
         setAvatarUrl,
