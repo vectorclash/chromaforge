@@ -64,6 +64,20 @@ jobs:
       # route chunks for the length of the sync. --delete-after transfers everything
       # first and only then prunes, holding both builds' assets on disk through the
       # window (they coexist fine -- the filenames are content-hashed).
+      # The retry ladder is 5 attempts with escalating backoff (60/120/180/240s), covering
+      # ~10.5min of unreachability rather than the ~2.5min the old flat 3x60s ladder did.
+      # Widened after a real failure (2026-08-27, run 33123115212 attempt 1): all three
+      # attempts died on `ssh: connect to host ... port 65002: Connection timed out` -- a TCP
+      # connect timeout, so not the key, the pinned host key, or permissions, just Hostinger
+      # unreachable. A manual re-run ~3.5min after the last attempt succeeded in 24s, i.e. the
+      # outage outlasted the ladder by a little and nothing was wrong with the deploy itself.
+      # Note this is NOT the connection-rate/fail2ban case the concurrency comment above
+      # describes -- that needs a preceding SSH session and this was a lone push three hours
+      # after the previous deploy. Escalating rather than flat so the common case (a blip)
+      # still recovers fast while a multi-minute outage gets ridden out; the cost of the long
+      # tail is Actions minutes on a run that is already failing. A failed deploy is clean --
+      # the build has already succeeded and rsync never starts, so the site keeps serving the
+      # previous build intact.
       - name: Deploy to Hostinger via rsync over SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -72,15 +86,19 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo '[45.137.159.160]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN9ovrpXkuA4/afZmktfMJGvkX5pavmxwZP13E4lACJz' >> ~/.ssh/known_hosts
-          for attempt in 1 2 3; do
+          attempt=0
+          for delay in 60 120 180 240 ""; do
+            attempt=$((attempt + 1))
             if rsync -az --delete-after --timeout=60 \
               -e "ssh -i ~/.ssh/deploy_key -p 65002 -o ConnectTimeout=15 -o BatchMode=yes" \
               ./dist/ u141529136@45.137.159.160:domains/chromaforge.app/public_html/; then
               echo "Deployed on attempt $attempt"
               exit 0
             fi
-            echo "Attempt $attempt failed; waiting 60s"
-            sleep 60
+            if [ -n "$delay" ]; then
+              echo "Attempt $attempt failed; waiting ${delay}s"
+              sleep "$delay"
+            fi
           done
           echo "All rsync attempts failed" >&2
           exit 1
