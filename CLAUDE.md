@@ -1653,6 +1653,58 @@ Five things worth not re-deriving:
    settle and the countdown would spend its life as an underscore. Static sentence, live number.
 Frames + measurements: https://claude.ai/code/artifact/73cfce43-9e68-4131-86cf-84d29551ec6a
 
+### Curated palettes replace the ADD 🌈 button (`render/palettePresets.js`, 2026-08-27)
+The Color tab's second button is now a scrolling strip of named palette chips.
+**`src/render/palettePresets.js` is the whole editable surface** — an array of
+`{ name, colors }`; the old rainbow survives in it byte-identical as `Spectrum`. A dev-only
+`validatePalettePresets` warns (never throws) on the four rules a preset has to hold: at most
+six colours (the swatch panel's cap, mirrored in `studioPrefs`'s `MAX_COLORS` and the
+`colors.length < 6` gate on ADD COLOR — all three move together), `#rrggbb` only (studioPrefs
+accepts 3/4/8-digit forms and normalises none, so writing them one way is what makes storage
+round-trip exact), unique names, and at least one colour. Nothing records which preset a design
+came from, so the list can change freely without touching a stored design.
+Seven things worth not re-deriving:
+(1) **The strip was picked over a drill-in list, a popover and a stepper**, all mocked at the
+panel's real metrics first (https://claude.ai/code/artifact/457f9060-5f54-4a8e-99ce-6ed559f06f5a).
+The list and popover are free at rest and the stepper is smaller still, but picking a preset and
+then nudging one stop is the actual use, and only the strip keeps that on one screen.
+(2) **It costs +123px of Color tab height, measured**, at every viewport (292 → 415px of content
+with six swatches). It fits with room to spare down to 360px; at **320×568 the tab scrolls for
+the first time**, hiding 57px — reachable, and the Video tab already scrolls on the three
+smallest phones by design. If that ever needs clawing back, the label row is 32px of it.
+(3) **`ScrollStrip` gained an opt-in `dragToScroll`**, default off, so the ProductPage filmstrip
+is untouched. Mouse only — touch already swipes the rail natively, and claiming that gesture
+would take the vertical pan that scrolls the settings panel with it (verified: a vertical drag
+over the strip scrolls the panel 0 → 57px and moves the rail 0px). A press becomes a drag past
+8px, and a real drag swallows the release click in the **capture** phase, which is upstream of
+both the chip's own handler and React's root-level bubble dispatch — otherwise every throw of
+the strip would also apply whatever palette it started on (verified: drag scrolls 126px, palette
+unchanged; a plain click still applies).
+(4) **Overscroll was already handled** — the rail's `overscroll-behavior-x: none` is what stops a
+swipe past either end chaining out and rubber-banding the page sideways. Verified on a real touch
+overswipe: `window.scrollX` stays 0.
+(5) **Chips are deliberately NOT `.button-small`.** `changeGradient` recolours every
+`.button-small` border from a RANDOM stop of the live palette on each build, so a chip's border
+would advertise a different palette than the swatches inside it. They carry their own neutral
+border, lit by the accent only on the palette you are currently on. They also reset
+`mix-blend-mode` (the panel's shared `lighten` washes the label out over the near-black chip
+fill) and recolour rather than lift on hover, since a chip inside a horizontally clipped rail
+cannot afford ink outside its own box.
+(6) **Fresh colour ids on every apply**, continuing from `nextColorId` — the same lesson the
+rainbow button already carried. Reused keys mean React keeps those `ColorField` instances and
+their UNCONTROLLED jscolor inputs hold their old values, so only the non-colliding slots
+actually change.
+(7) **The active-chip highlight lags a jscolor edit by the 350ms debounce**, because
+`onColorSwatchEdit` reads the inputs back into state there rather than on every input event.
+Known and left alone: it settles on its own and only drives a highlight.
+**CLEAR went full-width** (`button-medium`) now the strip has taken its partner. It stays a real
+button rather than being demoted to a link: an empty palette is the auto-palette mode the
+generator picks its own colours in, i.e. the counterpart to the strip beside it, not merely a
+destructive action.
+Verified live on the production build in Chromium and WebKit at 1280/390/360/320: palettes apply
+and regenerate the artwork, `aria-pressed` tracks the live palette, zero console errors, zero
+horizontal page overflow.
+
 ### A continuous control commits on release, never mid-drag (`components/ui/SettingsRange.jsx`, 2026-08-26)
 Every studio setting answers a change by regenerating the current seed at full studio
 resolution, so an in-progress adjustment must not reach that path. **A debounce alone does

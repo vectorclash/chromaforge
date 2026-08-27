@@ -20,7 +20,17 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 //
 // Everything is inert when the content fits -- no fade, no bar -- so short strips look exactly
 // as they did before.
-export default function ScrollStrip({ children, className = '', railClassName = '' }) {
+//
+// `dragToScroll` additionally lets a mouse grab the CONTENT and throw it, which the filmstrip
+// never needed (its children are photos, and the scrollbar was affordance enough) but a row of
+// small chips does -- there, the bar is the only thing on screen that looks grabbable and the
+// chips themselves look like buttons that don't move. Opt-in, so the filmstrip is untouched.
+export default function ScrollStrip({
+  children,
+  className = '',
+  railClassName = '',
+  dragToScroll = false
+}) {
   const viewportRef = useRef(null);
   const railRef = useRef(null);
   const trackRef = useRef(null);
@@ -43,6 +53,10 @@ export default function ScrollStrip({ children, className = '', railClassName = 
     viewport.style.setProperty('--fade-l', `${left}px`);
     viewport.style.setProperty('--fade-r', `${right}px`);
 
+    // Only advertise the grab cursor while there is somewhere to go -- on a strip that fits,
+    // a grab cursor promises movement that can't happen.
+    rail.classList.toggle('is-draggable', dragToScroll && overflows);
+
     const track = trackRef.current;
     const thumb = thumbRef.current;
     if (!track || !thumb) return;
@@ -50,7 +64,7 @@ export default function ScrollStrip({ children, className = '', railClassName = 
     if (!overflows) return;
     thumb.style.width = `${(rail.clientWidth / rail.scrollWidth) * 100}%`;
     thumb.style.left = `${(rail.scrollLeft / rail.scrollWidth) * 100}%`;
-  }, []);
+  }, [dragToScroll]);
 
   // Geometry has to be re-read whenever the CONTENT changes, not just the box: swapping a
   // product's 8 thumbnails for another's 2 leaves the rail exactly the same size, so a
@@ -105,6 +119,71 @@ export default function ScrollStrip({ children, className = '', railClassName = 
         /* the pointer can already be gone (cancelled gesture, element re-rendered) */
       }
     };
+    // Drag-to-scroll on the content itself. MOUSE ONLY, deliberately: touch already swipes the
+    // rail natively, and claiming the gesture there would take the vertical pan with it -- this
+    // strip sits inside the settings panel's own scroller, so a thumb dragged up the screen has
+    // to keep scrolling that.
+    const DRAG_THRESHOLD = 8;
+    let dragPointer = null;
+    let dragStartX = 0;
+    let dragStartScroll = 0;
+    let dragging = false;
+
+    const onRailDown = event => {
+      if (event.button !== 0 || event.pointerType !== 'mouse') return;
+      if (rail.scrollWidth - rail.clientWidth <= 1) return;
+      dragPointer = event.pointerId;
+      dragStartX = event.clientX;
+      dragStartScroll = rail.scrollLeft;
+      dragging = false;
+    };
+    const onRailMove = event => {
+      if (dragPointer !== event.pointerId) return;
+      const dx = event.clientX - dragStartX;
+      // A press only becomes a drag past the threshold, so a plain click on a child still
+      // activates it -- the same tap-vs-drag split TshirtPreview uses to keep its shop link.
+      if (!dragging) {
+        if (Math.abs(dx) < DRAG_THRESHOLD) return;
+        dragging = true;
+        rail.classList.add('is-dragging');
+        rail.style.scrollSnapType = 'none';
+        rail.setPointerCapture(event.pointerId);
+      }
+      rail.scrollLeft = dragStartScroll - dx;
+      event.preventDefault();
+    };
+    const onRailUp = event => {
+      if (dragPointer !== event.pointerId) return;
+      dragPointer = null;
+      if (!dragging) return;
+      dragging = false;
+      rail.classList.remove('is-dragging');
+      rail.style.scrollSnapType = '';
+      try {
+        rail.releasePointerCapture(event.pointerId);
+      } catch {
+        /* the pointer can already be gone (cancelled gesture, element re-rendered) */
+      }
+      // The release still fires a click on whichever child the drag started over, and that
+      // child is a button that would apply a palette nobody asked for. Swallowed once in the
+      // CAPTURE phase, which is upstream of both the child's own handler and React's
+      // root-level bubble dispatch. Cleared on the next task in case no click follows at all
+      // (released outside a child, or the pointer left the strip).
+      const swallowClick = clickEvent => {
+        clickEvent.stopPropagation();
+        clickEvent.preventDefault();
+      };
+      rail.addEventListener('click', swallowClick, { capture: true, once: true });
+      setTimeout(() => rail.removeEventListener('click', swallowClick, { capture: true }), 0);
+    };
+
+    if (dragToScroll) {
+      rail.addEventListener('pointerdown', onRailDown);
+      rail.addEventListener('pointermove', onRailMove);
+      rail.addEventListener('pointerup', onRailUp);
+      rail.addEventListener('pointercancel', onRailUp);
+    }
+
     track?.addEventListener('pointerdown', onDown);
     track?.addEventListener('pointermove', onMove);
     track?.addEventListener('pointerup', onUp);
@@ -113,12 +192,16 @@ export default function ScrollStrip({ children, className = '', railClassName = 
     return () => {
       rail.removeEventListener('scroll', update);
       observer.disconnect();
+      rail.removeEventListener('pointerdown', onRailDown);
+      rail.removeEventListener('pointermove', onRailMove);
+      rail.removeEventListener('pointerup', onRailUp);
+      rail.removeEventListener('pointercancel', onRailUp);
       track?.removeEventListener('pointerdown', onDown);
       track?.removeEventListener('pointermove', onMove);
       track?.removeEventListener('pointerup', onUp);
       track?.removeEventListener('pointercancel', onUp);
     };
-  }, [update]);
+  }, [update, dragToScroll]);
 
   return (
     <div className={`scroll-strip ${className}`}>

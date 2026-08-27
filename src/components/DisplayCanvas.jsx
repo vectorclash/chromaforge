@@ -37,6 +37,7 @@ import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
 import CloseButton from './buttons/CloseButton';
 import SettingsRange from './ui/SettingsRange';
+import PalettePicker from './ui/PalettePicker';
 import ConfirmDialog from './ui/ConfirmDialog';
 import GenerateStarField from './Canvas/GenerateStarField';
 import StarField from './Canvas/StarField';
@@ -2445,22 +2446,25 @@ export default class DisplayCanvas extends React.Component {
     this.nextColorId = 0;
   }
 
-  onRainbowColors() {
-    // Replace the palette with the full rainbow set. Use fresh ids (continuing from
-    // nextColorId) so the keys never collide with existing colors — otherwise React
-    // reuses those ColorField instances and their uncontrolled inputs keep their old
-    // values, so only the non-colliding slots would actually show rainbow colors.
+  // Replace the whole palette with a curated one (render/palettePresets.js, surfaced as the
+  // Color tab's PALETTES strip -- this is the old ADD 🌈 button generalised, and Spectrum is
+  // that same rainbow).
+  //
+  // Fresh ids, continuing from nextColorId, so the keys can never collide with the colours
+  // being replaced -- otherwise React reuses those ColorField instances and their UNCONTROLLED
+  // jscolor inputs keep their old values, leaving only the non-colliding slots actually
+  // showing the new palette. That was a real bug in the rainbow button before this.
+  //
+  // A preset is a discrete choice with no mid-state, so it commits immediately: one full
+  // regenerate per click, no debounce, matching every other click-once control in the panel
+  // (see SettingsRange for why the continuous ones are the exception, not this).
+  onApplyPalette(colors) {
     const base = this.nextColorId;
-    this.setState({
-      colors: [
-        { id: base, value: '#ff0059' },
-        { id: base + 1, value: '#ffbb00' },
-        { id: base + 2, value: '#eaff00' },
-        { id: base + 3, value: '#00e5ff' },
-        { id: base + 4, value: '#4c00ff' }
-      ]
-    }, () => this.onColorsChanged());
-    this.nextColorId = base + 5;
+    this.setState(
+      { colors: colors.map((value, i) => ({ id: base + i, value })) },
+      () => this.onColorsChanged()
+    );
+    this.nextColorId = base + colors.length;
     gsap.delayedCall(0.05, () => this.animateColors());
   }
 
@@ -2954,12 +2958,18 @@ export default class DisplayCanvas extends React.Component {
                     ''
                   )}
                 </div>
+                <PalettePicker
+                  colors={colors.map(c => c.value)}
+                  onApply={c => this.onApplyPalette(c)}
+                />
+                {/* CLEAR goes full width now that the strip has taken its ADD 🌈 partner.
+                    It is not merely destructive -- an empty palette is the auto-palette mode
+                    the generator picks its own colours in, i.e. the counterpart to the strip
+                    beside it -- so it keeps a real button rather than being demoted to a link
+                    in the label row above. */}
                 <div className="row">
-                  <button onClick={this.onClearColors.bind(this)} className="button-small">
+                  <button onClick={this.onClearColors.bind(this)} className="button-medium">
                     CLEAR
-                  </button>
-                  <button onClick={this.onRainbowColors.bind(this)} className="button-small">
-                    ADD 🌈
                   </button>
                 </div>
               </>

@@ -1853,6 +1853,104 @@
   justify-content: center;
   align-items: center;
 }
+/* Palette presets -- the curated-palette strip at the foot of the Color tab, in place of the
+   old ADD 🌈 button. See components/ui/PalettePicker.jsx for why it is a strip rather than a
+   drill-in list, a popover or a stepper, and render/palettePresets.js for the palettes.
+
+   Deliberately NOT .button-small: changeGradient recolours every .button-small border from a
+   random stop of the live palette on each build, and a chip whose border took the colour of a
+   DIFFERENT palette than the one it displays would be actively misleading. These carry their
+   own neutral border, lit by the accent only when they are the palette you are on. */
+.display-canvas .controls-inner .palette-picker {
+  width: 100%;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(250, 250, 250, 0.06);
+}
+.display-canvas .controls-inner .palette-picker-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  /* Matches the .settings-field padding-right on the other tabs, so the strip's right edge
+     lines up with every slider and select in the panel rather than sitting 10px proud. */
+  padding-right: 10px;
+}
+.display-canvas .controls-inner .palette-strip {
+  /* The mask's own fade is what tells you the row continues; the rail keeps a hair of left
+     padding so a chip's lit border at scroll 0 isn't shaved by it. */
+  padding-right: 10px;
+}
+.display-canvas .controls-inner .palette-strip-rail {
+  padding: 2px 2px 4px;
+  /* Chip labels are not content anyone needs to select, and a mouse drag across them would
+     otherwise paint a selection under the finger the whole way. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.display-canvas .controls-inner .palette-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 11px 0 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: rgba(250, 250, 250, 0.72);
+  font-family: 'Quicksand', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  /* The panel's shared .row button rule lifts 2px and casts a glow on hover; a chip inside a
+     horizontally clipped rail cannot afford ink outside its own box, so it recolours instead.
+     mix-blend-mode is reset for the same reason .controls-compact resets it: `lighten` over
+     these near-black chip fills washes the label out. */
+  mix-blend-mode: normal;
+  box-shadow: none;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.display-canvas .controls-inner .row .palette-chip:hover,
+.display-canvas .controls-inner .palette-chip:hover {
+  background: rgba(44, 216, 254, 0.08);
+  border-color: var(--color-interactive);
+  color: var(--color-text);
+  transform: none;
+  box-shadow: none;
+}
+.display-canvas .controls-inner .palette-chip[aria-pressed='true'] {
+  background: rgba(166, 224, 0, 0.1);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+.display-canvas .controls-inner .palette-chip:focus-visible {
+  outline: 2px solid var(--color-interactive);
+  outline-offset: 2px;
+}
+/* GalleryModal's palette chip, at the same 16px/-5px overlap: the swatches read as one
+   palette object rather than four dots competing with the name beside them. The ring is the
+   chip's own dark ground, which is what makes the overlap legible on any fill. */
+.display-canvas .controls-inner .palette-chip-cluster {
+  display: flex;
+  flex-shrink: 0;
+}
+.display-canvas .controls-inner .palette-chip-cluster > span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(10, 8, 20, 0.75);
+}
+.display-canvas .controls-inner .palette-chip-cluster > span + span {
+  margin-left: -5px;
+}
+.display-canvas .controls-inner .palette-chip-name {
+  white-space: nowrap;
+}
+
 .display-canvas .controls-inner .row.colors .button-small svg {
   position: absolute;
   right: 0;
@@ -1925,6 +2023,19 @@
 }
 .scroll-strip-rail::-webkit-scrollbar {
   display: none;
+}
+/* Opt-in drag-to-scroll (ScrollStrip's `dragToScroll`). The class is toggled by the component
+   and only while the content actually overflows -- a grab cursor on a strip that fits promises
+   movement that cannot happen. */
+.scroll-strip-rail.is-draggable {
+  cursor: grab;
+}
+.scroll-strip-rail.is-dragging {
+  cursor: grabbing;
+  /* Suspended for the duration so the rail lands wherever it was thrown, rather than being
+     yanked to the nearest item on every pointermove -- the same reason the scrollbar drag
+     suspends it. */
+  scroll-behavior: auto;
 }
 .scroll-strip-rail > * {
   scroll-snap-align: start;
