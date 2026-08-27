@@ -34,7 +34,7 @@ export const MAX_PRESET_COLORS = 6;
 export const PALETTE_PRESETS = [
   { name: 'Chromaforge', colors: ['#FF004A', '#008AFC', '#FFFFFF', '#67FF0E', '#202020'] },
   { name: 'Spectrum', colors: ['#ff0059', '#ffbb00', '#eaff00', '#00e5ff', '#4c00ff'] },
-  { name: 'Parakeet', colors: ['#10D3FF', '#12327E', '#FF048B', '#BFFF56', '#1FF177'] },
+  { name: 'Nebula', colors: ['#10D3FF', '#12327E', '#FF048B', '#BFFF56', '#1FF177'] },
 ];
 
 // Deliberately stricter than studioPrefs' HEX: that one is lenient because it reads values the
