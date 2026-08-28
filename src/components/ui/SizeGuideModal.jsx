@@ -13,11 +13,17 @@ import { getSizeGuide } from '../../lib/printful';
 // Two table types come back and they are NOT interchangeable:
 //   'measure_yourself'  -- body measurements (Chest/Waist/Hips) per size. Self-explanatory,
 //                          actionable on its own, and the one that answers the question.
-//                          Present on 10 of the 15 products.
+//                          Present on 11 of the 18 products (re-counted 2026-08-28 when the
+//                          beanie, neck gaiter and wide-leg pants were added -- the pants and
+//                          beanie have one, the one-size gaiter doesn't). Note that count went
+//                          10-of-15 to 11-of-18 rather than 12: the windbreaker (615) has since
+//                          DROPPED its body table upstream and now returns product_measure only.
+//                          Nothing to fix -- the modal renders whatever tables come back -- but
+//                          it is live proof this set drifts.
 //   'product_measure'   -- the garment laid flat, with measurements labelled A, B, C...
 //                          Those labels are keyed to letters on Printful's diagram, so the
 //                          numbers are MEANINGLESS without the image beside them. Present on
-//                          all 15. Hence the diagram is rendered as part of the table rather
+//                          all 18. Hence the diagram is rendered as part of the table rather
 //                          than as decoration, and a table with no usable image still shows
 //                          its letters alongside imageDescription, which explains them.
 //
@@ -39,10 +45,13 @@ const UNITS = [
 // Entity decoding is a string-only allowlist plus numeric escapes -- deliberately NOT the
 // usual "assign innerHTML to a detached element and read textContent" trick, which decodes
 // everything but is exactly the injection surface this function exists to avoid.
-// Scanning all 15 products' real size payloads (2026-07-27) turns up only three named
-// entities: &nbsp;, &rsquo; (14 sites, including the men's tee) and &Prime; (the crossbody
-// bag). The latter two were previously missed and rendered literally as "they&rsquo;re" on
-// most products' size guides -- found while adding the bandana. The rest of the typographic
+// Scanning all 18 products' real size payloads (re-run 2026-08-28 over 169 description,
+// image_description, unit and measurement-label fields) turns up only four named entities:
+// &nbsp; (75), &quot; (64), &rsquo; (17, including the men's tee) and &Prime; (2, the crossbody
+// bag) -- every one of them already in the list below, and the only tags present are p, strong,
+// span and br, all of which the generic strip above removes. &rsquo; and &Prime; were once
+// missed and rendered literally as "they&rsquo;re" on most products' size guides -- found while
+// adding the bandana. The rest of the typographic
 // set below is Printful's own WYSIWYG vocabulary, decoded pre-emptively so a copy edit
 // upstream can't reintroduce the same visible defect.
 // &amp; is decoded LAST: doing it first (as this used to) turns a literal "&amp;rsquo;" into

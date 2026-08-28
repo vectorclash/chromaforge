@@ -7,8 +7,9 @@
 // Uses the STABLE v1 Mockup Generator API (/mockup-generator/create-task), migrated off v2
 // on 2026-08-21. The header here used to say v1 "returned a task_key and accepted the task but
 // every actual render came back Internal Server Error for our all-over-print products".
-// **That is no longer true** -- re-tested against all 15 products, every one renders, and v1
-// covers every placement we use plus two v2 cannot express at all (the mesh shorts' `back`
+// **That is no longer true** -- re-tested against every configured product (all 15 at the time,
+// and the three added on 2026-08-28 verified the same way), every one renders, and v1 covers
+// every placement we use plus two v2 cannot express at all (the mesh shorts' `back`
 // panel and the track jacket's `details` strip). Reasons for moving:
 //   - v2 is an unsupported beta with no published end date; v1 is stable, and orders already
 //     run on v1 (ported 2026-07-15 when v2's order pipeline failed on `label_inside`).

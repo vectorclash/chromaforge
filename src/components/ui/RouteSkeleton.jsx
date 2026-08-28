@@ -30,7 +30,7 @@ export const GALLERY_GRID_CLASS = 'grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid
 // Mirrors STARTER_PRODUCT_IDS.length. Deliberately a literal and not that array's length:
 // importing it would drag lib/printful (and with it the whole render pipeline) into the main
 // bundle. ShopPage imports this constant back and warns in dev if the two ever drift.
-export const SHOP_TILE_COUNT = 15;
+export const SHOP_TILE_COUNT = 18;
 
 // Mirrors GalleryPage's PAGE_SIZE, for the same reason as above -- kept a literal so this
 // module stays free of page imports.

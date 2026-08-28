@@ -45,8 +45,11 @@ export const STARTER_PRODUCT_IDS = [
   390, // All-Over Print Unisex Bomber Jacket
   693, // All-Over Print Recycled Unisex Mesh Shorts
   784, // All-Over Print Unisex Wide-Leg Joggers
+  604, // All-Over Print Unisex Wide-Leg Pants
   654, // All-Over Print Reversible Bucket Hat
+  458, // All-Over Print Beanie
   630, // All-Over Print Bandana
+  420, // All-Over Print Neck Gaiter
   274, // All-Over Print Large Tote Bag w/ Pocket
   744, // All-Over Print Utility Crossbody Bag
   83, // All-Over Print Basic Pillow

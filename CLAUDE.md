@@ -909,7 +909,8 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   looks like a scrollbar it has to be one. `flex-wrap` was tried first and rejected too — 8 wraps
   to a tidy 4+4 at 360px, but 5 orphans one and 8 at 390px breaks a ragged 5+3.
   **`scripts/check-printful-mockups.mjs` exists because of all of this** — it generates a real
-  mockup for **every variant of every product (114)** and asserts the pipeline end to end. Run it
+  mockup for **every variant of every product (129 as of 2026-08-28)** and asserts the pipeline
+  end to end. Run it
   after any `PRODUCT_MOCKUP_CONFIG` change; ~18 min, needs only `PRINTFUL_API_KEY`. It found (4),
   which hand-testing had passed over. Two things about it: it imports the REAL helpers (which is
   why `resolvePlacementEntries`/`buildMockupFiles`/`hideUnsubmittedViews` moved to
@@ -2232,15 +2233,17 @@ load for an unrelated reason and every count is meaningless.
   Things worth knowing:
   - **The two table types are not interchangeable.** `measure_yourself` is BODY measurements
     (Chest/Waist/Hips) per size — self-explanatory, and the one that actually answers the
-    question; present on 10 of 15 products. `product_measure` is the garment laid flat with
+    question; present on 11 of 18 products. `product_measure` is the garment laid flat with
     measurements labelled **A, B, C…**, which are keyed to letters on Printful's diagram —
     **the numbers are meaningless without the image**, so the diagram renders inside the
     table's section rather than as decoration, with `image_description` (which explains each
     letter) beneath it. Body measurements are sorted first.
   - **Descriptions are third-party HTML and are rendered as TEXT**, never via
     `dangerouslySetInnerHTML` — this is markup from another company on a page that also takes
-    payment. `htmlToText` strips tags and decodes entities; verified across all 15 products'
-    real payloads (48 description fields) that no tag or entity survives the strip.
+    payment. `htmlToText` strips tags and decodes entities; verified across all 18 products'
+    real payloads (169 text fields, re-scanned 2026-08-28) that no tag or entity survives the
+    strip — the only entities present are `&nbsp;`, `&quot;`, `&rsquo;` and `&Prime;`, all four
+    already in the allowlist, and the only tags are `p`/`strong`/`span`/`br`.
     That claim used to be made about tags only, and the entity half of it was false —
     `&rsquo;` and `&Prime;` weren't in the decode allowlist and rendered literally
     ("they&rsquo;re") on most products' size guides, found and fixed 2026-07-27 while adding
@@ -2333,7 +2336,7 @@ load for an unrelated reason and every count is meaningless.
 - `src/lib/printful.js` — catalog browsing (`listCatalogProducts`/`getCatalogProduct`/
   `getPrintfileSpecs`) via the `printful-catalog` edge function (read-only, Printful's v1
   API), plus `PRODUCT_MOCKUP_CONFIG` — a hand-verified, per-product map of
-  placements/technique/required options for all 15 configured products (every entry confirmed
+  placements/technique/required options for all 18 configured products (every entry confirmed
   against a real mockup task; see the file's header comments for product-specific quirks
   like the track jacket's `details`+sleeves combo failing outright). `resolvePlacementEntries`
   + `renderAndUploadPrintFiles` are shared between mockup previews and real checkout: mockup
@@ -2483,7 +2486,8 @@ load for an unrelated reason and every count is meaningless.
     name). **Coverage and sizes re-audited live 2026-07-30 against
     `mockup-generator/printfiles/{id}` for all 15 products — the earlier summary of these two
     was wrong in three ways, so trust this list, not a remembered rule:**
-    `label_inside` is on **11 of 15** — absent on both t-shirts (257/261), the tote (274) and
+    `label_inside` is on **13 of 18** — absent on both t-shirts (257/261), the tote (274), the
+    neck gaiter (420, which has no label placement of any kind) and
     the pillow (83), so it is NOT universal and NOT "every crewneck product". `label_outside`
     is on **5**: track jacket (801), mesh shorts (693), joggers (784), crossbody bag (744) and
     bucket hat (654) — not the "joggers/track jacket only" previously recorded here (which
@@ -2783,6 +2787,57 @@ load for an unrelated reason and every count is meaningless.
     the artwork. Every style on this product is `restricted_to_variants` a **single size**, so
     a shared pair would fail for two of the three sizes — the pillow's (83) failure mode,
     handled the same way with `mockupStyleIdsByVariant`.
+  - **Beanie (458), neck gaiter (420) and wide-leg pants (604) added 2026-08-28 — starter set
+    is now 18, which is what makes the shop grid six FULL rows of three on desktop.** Aaron
+    asked for the beanie and for two more to keep the rows even; the other two were picked from
+    the live AOP catalogue (133 products) against their real specs. Each was spec-verified the
+    usual way — a real completed mockup for every variant, then a real draft order — and the
+    ordering in `STARTER_PRODUCT_IDS` puts the pants beside the joggers and leaves row five as a
+    natural beanie/bandana/gaiter trio. Five things worth not re-deriving:
+    (1) **The obvious third pick was rejected on FULFILMENT REGION, and that is a check nothing
+    in this repo performs.** All-Over Print Unisex Track Pants (618) is the natural partner to
+    the track jacket (801), and its config would have been near-identical to 604's — but all 14
+    of its variants are stocked `CN` only, where every one of the other 17 products is
+    `EU/EU_LV/US`. Priced against real `POST /shipping/rates` calls it costs **$9.29 to GB and
+    to EU against the $8.49 the `heavy` class charges** — a loss on every UK and EU order — with
+    8–11 day transit where the joggers take 3–4. It also inverts the assumption the rate table
+    is built on, that GB/EU are the CHEAP regions. There is no per-product rate override, and
+    raising `heavy`'s GB/EU rate would have raised it for the hoodies and joggers too. 604 has
+    rates **identical to the joggers' in all five regions**, so it drops into `heavy` with no
+    table change at all. **Check `availability_status` before configuring any new product** —
+    a CN-sourced item is not visible in placements, printfiles, or any mockup.
+    (2) **604 is a third `twoLegCanvas` product and needed its own template measurement**, done
+    the same way 693/784 were (flood-fill the transparent = fabric regions inside the declared
+    print area). The method was validated against the shorts first and reproduces this file's own
+    recorded numbers exactly — leg panels at x 0.156–0.457, and an
+    `elementSizeScale(leg)/elementSizeScale(sheet)` of 0.4196. For 604 the FRONT sheet's leg
+    pieces sit at 0.1767–0.4730 / 0.5270–0.8237 and the BACK's at 0.1377–0.4973 / 0.5030–0.8623,
+    exact reflections about the sheet centre (own-flip IoU 0.987 front, 0.996 back), so the
+    per-leg seam argument that brought the shorts and joggers into `mirrorPlacements` applies
+    unchanged. `legPanel` is `{ 0.296, 0.924 }`, giving a ratio of 0.688 — beside the joggers'
+    0.725 and well clear of the shorts' 0.4196, which is the expected ordering.
+    (3) **Neither the beanie nor the gaiter can have its seam closed, and not for the tote's
+    reason.** Both genuinely have a seam — each is a single panel sewn into a tube — but
+    mirroring is a relationship between a front and a back render and these sheets are on their
+    own. Closing them would need a horizontally tileable composition this generator cannot
+    produce, the same dead end as the bucket hat's rejected "endless wrap".
+    (4) **The beanie is NOT a second bucket hat.** Its template's print area is the full
+    3000×3000 sheet with no cut-piece outlines dashed on it at all, so there is no piece geometry
+    for `hatWrap` to be pointed at. It returns **nine** views — the same shape the bucket
+    hat's blank-inside-faces bug had — and all nine were downloaded and looked at: four
+    on-model, five
+    product shots including a top-down, none blank, none redundant.
+    (5) **None of the three needs `geometryPlacementKeys`.** Checked against each one's real
+    `available_placements` rather than assumed: the beanie and gaiter print exactly one visible
+    panel, and 604's geometry row is hidden anyway (every `twoLegCanvas` product's is) with its
+    selection Set fully populated. The hazard the shorts hit — printed panels outnumbering
+    previewable ones — is absent here.
+    **Deploy note: `create-checkout-session` must be redeployed**, because `_shared/shipping.ts`
+    gained the three weight classes and an unknown product id falls through to `"heavy"`. That is
+    safe for 604 (it IS heavy) but would overcharge a beanie or gaiter buyer by $3.50 in the US.
+    Nothing else needs deploying — no `GENERATOR_VERSION` bump, no new render field, so
+    render-service is untouched, and `printful-catalog`/`printful-mockup` read the config from
+    the browser bundle rather than holding a copy.
   - **Seam mirroring, 2026-07-25** (`mirrorPlacements` in `PRODUCT_MOCKUP_CONFIG`, bucket
     hat only so far). Each of that product's faces carries TWO cut pieces — half the crown
     side-wall and half the brim — so front and back meet at the two seams Printful's own
@@ -2827,7 +2882,7 @@ load for an unrelated reason and every count is meaningless.
     generator can't produce.
     **Extended to every product with a distinct back panel, same session** (Aaron's ask), so
     this is not a bucket-hat feature. (**At the time this was written 11 of 15 carried
-    `mirrorPlacements: ['back']`; it is now 13 of 15** — the mesh shorts and joggers were added
+    `mirrorPlacements: ['back']`; it is now 14 of 18** — the mesh shorts and joggers were added
     later the same day, see the two-leg-products section below, which supersedes the exclusion
     reasoning in this paragraph. Only the tote (274) and bandana (630) are still out, and
     neither has a `back` placement at all.) Two facts were checked rather than assumed before extending: every one of
@@ -2855,7 +2910,9 @@ load for an unrelated reason and every count is meaningless.
     session, driven by "it's too complicated as it is and none of the settings other than
     stitch color really make any sense the way they are worded now."
     **(1) `mirrorPlacements: ['back']` now covers mesh shorts (693) and joggers (784)** — 13 of
-    15 products, only the tote and bandana left out (neither has a back placement at all). Their
+    the catalogue, with the wide-leg pants (604) joining on 2026-08-28 — 14 of 18, the four left
+    out being the tote (274), bandana (630), beanie (458) and neck gaiter (420), none of which
+    has a `back` placement at all. Their
     earlier exclusion, on the grounds that a cut-in-half canvas means front and back never meet
     as one cylinder so the front's-right-meets-back's-left argument can't apply, **was wrong**:
     the argument holds, it just applies per leg. Flood-measuring Printful's own front AND back
@@ -2922,6 +2979,48 @@ load for an unrelated reason and every count is meaningless.
     v8-clamped, one-leg-scaled print file is itself the proof.
     **Still open: the other 13 products keep Geometry placement and were not otherwise
     reworded** — Aaron's complaint was general, so this is a candidate for the same treatment.
+  - **The legs read as separate, and it is PARKED as a signature look (2026-08-28). Read this
+    before attempting a wrap again — the reason it was parked is geometric, not a lack of
+    effort.** Aaron: "the pants and shorts panel alignment doesn't quite make sense. the legs
+    read as separate." He is right about the cause. The two leg panels are cut with a wide strip
+    of fabric BETWEEN them that is thrown away — **8.7% of the sheet on the shorts (982px of
+    11250), 6.6% on the joggers, 11.6% on the pants** — and the two edges either side of it are
+    then sewn to each other at the centre-front rise, so a composition running straight across
+    the sheet JUMPS there. Measured on the two columns actually stitched together, over 3
+    products x 3 designs: mean per-channel difference **42.7 of 255**.
+    Three fixes were built and all three were rejected on looks. Each failed for a different and
+    instructive reason, and the third one is the one that settles it:
+    (1) **`renderArtwork`'s `legSymmetry`** (reflect the sheet's left half onto its right) closes
+    that seam — 42.7 to **0.2** — but discards half the composition and makes a leg's back panel
+    byte-identical to its front. Aaron: "it feels like half the design gets cut off. the front
+    and back just look like near mirror opposite." Both halves of that are literally true.
+    (2) **Slices of a tileable composition mapped onto each panel's rectangular bounding box.**
+    Front and back finally differed, but the real fabric edges are curves wandering 3-9% of the
+    sheet, so the two edges meeting at a side carried different parts of the design at most
+    heights. Aaron: "now we have a different seem at the sides."
+    (3) **A row-by-row warp onto the real panel outlines.** Seams closed everywhere (outseam 3.3,
+    inseam 6.3, centre 1.4, measured at the true edge curves) and it looked *worse*: stretching
+    each row independently shears the artwork, and drawing thousands of 1px rows at fractional x
+    let the backdrop bleed through the panel edge — measured at 4-5x the sheet's normal
+    adjacent-column difference along exactly the columns the edge sweeps. Aaron: "it's much worse
+    now and there's some weird lines appearing."
+    **THE CONSTRAINT, which is what should have been established first: a trouser leg is a CONE,
+    not a cylinder.** Measured row by row, the leg's circumference changes **2.20x** down the
+    shorts, **1.80x** down the pants and **1.64x** down the joggers. A repeating flat pattern
+    cannot wrap a cone seamlessly — a period that closes at the hip is ~40% wrong at the hem. So
+    there are three corners and you may have any two: seamless sides + front != back requires
+    stretching (3); seamless sides + undistorted forces back = mirror of front (which is today);
+    front != back + undistorted means the seam closes at one height and opens away from it.
+    Aaron's ask — full design wrapping seamlessly around each leg with mirror seams only at the
+    centre — sits outside all three and is not reachable.
+    **Decision: accept the asymmetry as a signature look for the shorts and pants.** Everything
+    above was reverted; the renderer is byte-identical to before it. If it is ever revisited, the
+    piece worth rebuilding first is an opt-in `wrapX` render flag making a composition
+    horizontally periodic (draw every star/blob/shape again a canvas width to either side; flatten
+    both linear gradients onto their principal axis — BOTH branches are diagonal, which is easy to
+    miss — and close the horizontal one into a colour cycle). It measured clean (tile join 0.0-1.2x
+    the baseline adjacent-column difference, against 96-325x without it) and cost nothing: all 97
+    stored designs rendered byte-identically, so it needed no `GENERATOR_VERSION` bump.
   - **ProductPage's options collapsed into one "Print options" disclosure, 2026-07-25**
     (Aaron: the page felt cluttered — fairly, since two of the sections had landed that same
     day). Five refinement sections (inside artwork, geometry placement, geometry layout, side

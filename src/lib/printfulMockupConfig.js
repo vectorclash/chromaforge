@@ -446,6 +446,60 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // second being that same "Product details" close-up, with no configuration.
     // No mirrorPlacements: there's no 'back' placement to mirror (same as the tote, 274).
     // The single square has no seam for a pattern to restart at.
-  } // bandana
+  }, // bandana
+  604: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    placements: ['front', 'back'],
+    // The un-cuffed sibling of the joggers (784) and structurally the same in every respect that
+    // matters here: one flat sheet (printfile 340, 10200x7500) cut into two legs when sewn.
+    // Measured off this product's own CAD sewing templates the same way 693/784 were, by
+    // flood-filling the transparent (= fabric piece) regions: the FRONT sheet's two leg pieces sit
+    // at x 0.1767-0.4730 and 0.5270-0.8237 and the BACK sheet's at 0.1377-0.4973 / 0.5030-0.8623 --
+    // exact reflections about the sheet centre in both cases (own-flip IoU 0.987 front, 0.996
+    // back, against the joggers' own 0.996). So the per-leg seam argument that brought the shorts
+    // and joggers into mirrorPlacements applies here unchanged; see that comment at the top of
+    // this file for the derivation, which is not repeated.
+    mirrorPlacements: ['back'],
+    twoLegCanvas: true,
+    // ONE leg's front panel as fractions of the printfile: 3022x6929px = 20.1in x 46.2in at
+    // 150 DPI, aspect 2.29 -- between the shorts' 1.43 and the joggers' 2.93, as the garment
+    // itself is. Taken from the FRONT sheet (the back's pieces are wider, 0.359, because the back
+    // rise is), matching how 693's was taken.
+    // Sanity check rather than trust in the measurement: it puts
+    // elementSizeScale(leg)/elementSizeScale(sheet) at 0.688, right beside the joggers' 0.725 and
+    // well clear of the shorts' 0.4196 -- the expected ordering, since that ratio tracks how far a
+    // single panel's aspect sits from the sheet's.
+    legPanel: { width: 0.296, height: 0.924 }
+  }, // wide-leg pants
+  458: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // A knit beanie prints from ONE square panel (printfile 236, 3900x3900) sewn into a tube and
+    // gathered at the crown -- 'default' IS the whole product. Its template's print area is the
+    // full 3000x3000 sheet with no cut-piece outlines dashed on it at all, so unlike the bucket
+    // hat (654) there is no piece geometry to wrap the artwork onto and nothing hatWrap could be
+    // pointed at.
+    placements: ['default'],
+    // No mirrorPlacements, and not for the tote/bandana reason -- this product genuinely does have
+    // a seam, where the panel's left edge meets its right around the head. There is just no second
+    // placement to mirror INTO: mirroring is a relationship between a front and a back render, and
+    // this sheet is on its own. Closing that seam would need a horizontally tileable composition,
+    // which this generator cannot produce.
+    // 'label_inside' (printfile 64, 375x150) is omitted for the ordinary reason -- not visible in
+    // any camera angle -- and is still printed on a real order, since resolvePlacementEntries runs
+    // unfiltered at checkout.
+  }, // beanie
+  420: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // The simplest product in the catalogue: one variant, one size, one placement, and 'default'
+    // (printfile 32, 2850x2850) is the entire garment -- a single panel sewn into a tube. It is
+    // the only product here with NO label placement of any kind, so resolvePlacementEntries
+    // returns exactly this one entry at checkout as well as in a preview.
+    placements: ['default'],
+    // Same seam situation as the beanie (458) above, and the same reason nothing can be done about
+    // it from a single sheet.
+  } // neck gaiter
 };
 

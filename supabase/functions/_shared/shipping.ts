@@ -19,11 +19,14 @@ type WeightClass = "light" | "heavy";
 
 // Verified against Printful's AOP ("all-over print" -- the only print type this store uses,
 // see printful.js's header comment) shipping-rate tables, 2026-07-02: T-shirts/shorts/
-// leggings ("light") vs. hoodies/sweatshirts/jackets/joggers ("heavy"). The 5 non-garment
-// starter products (tote bag, crossbody bag, pillow, bucket hat, bandana) aren't covered by
-// either clothing table -- Printful prices bags/home-goods/accessories on a separate table that
-// hasn't been looked up yet. Defaulted to "light" as the closer approximation (smaller and
-// lighter than a garment) -- revisit if the real rates turn out to differ meaningfully.
+// leggings ("light") vs. hoodies/sweatshirts/jackets/joggers ("heavy"). The 7 non-garment
+// starter products (tote bag, crossbody bag, pillow, bucket hat, bandana, and -- added
+// 2026-08-28 -- the beanie and neck gaiter) aren't covered by either clothing table --
+// Printful prices bags/home-goods/accessories on a separate table that hasn't been looked up
+// yet. Defaulted to "light" as the closer approximation (smaller and lighter than a garment)
+// -- revisit if the real rates turn out to differ meaningfully. The beanie and gaiter are the
+// only two of the seven whose real rates HAVE been looked up, and they confirm the
+// approximation holds; see their entries below.
 const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   257: "light", // All-Over Print Men's Crew Neck T-Shirt
   261: "light", // All-Over Print Women's Crew Neck T-Shirt
@@ -32,11 +35,23 @@ const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   388: "heavy", // All-Over Print Recycled Unisex Hoodie
   717: "heavy", // All-Over Print Recycled Unisex Zip Hoodie
   784: "heavy", // All-Over Print Unisex Wide-Leg Joggers
+  // Measured 2026-08-28 rather than inferred: this product's real rates are IDENTICAL to the
+  // joggers' in all five regions (US $8.29, CA $9.79, GB $7.29, EU $7.29, AU $12.49), which is
+  // what makes "heavy" a drop-in here and needed no change to the table below.
+  604: "heavy", // All-Over Print Unisex Wide-Leg Pants -- measured, see comment above
   801: "heavy", // All-Over Print Recycled Unisex Track Jacket
   615: "heavy", // All-Over Print Men's Windbreaker
   390: "heavy", // All-Over Print Unisex Bomber Jacket
   654: "light", // All-Over Print Reversible Bucket Hat -- approximated, see comment above
   630: "light", // All-Over Print Bandana -- approximated, see comment above
+  // The beanie and neck gaiter are the two products here whose "light" classification is
+  // MEASURED rather than approximated (2026-08-28, POST /shipping/rates against real
+  // addresses in all five regions). Both come back identical -- US $4.69, CA $7.29,
+  // GB $4.59, EU $4.99, AU $7.99 -- i.e. comfortably inside the light rates below, with
+  // $1.20-$1.50 of margin in every region. Worth re-running that call the same way if the
+  // other accessories above are ever moved off their approximation.
+  458: "light", // All-Over Print Beanie -- measured, see comment above
+  420: "light", // All-Over Print Neck Gaiter -- measured, see comment above
   274: "light", // All-Over Print Large Tote Bag w/ Pocket -- approximated, see comment above
   744: "light", // All-Over Print Utility Crossbody Bag -- approximated, see comment above
   83: "light", // All-Over Print Basic Pillow -- approximated, see comment above
