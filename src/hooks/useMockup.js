@@ -13,7 +13,13 @@ import {
   capRenderStrategy,
   warmRenderService
 } from '../lib/printful';
-import { chooseOptionGroups, orderViews, MAX_VIEWS, VIEW_POLICY_VERSION } from '../lib/printfulViewPolicy';
+import {
+  chooseOptionGroups,
+  correctViewNames,
+  orderViews,
+  MAX_VIEWS,
+  VIEW_POLICY_VERSION
+} from '../lib/printfulViewPolicy';
 import { isSameDesign } from '../render/designSettings';
 import { useStudio } from '../context/StudioContext';
 
@@ -381,7 +387,10 @@ export function useMockup() {
         // are as important as its outside ones, and they sort late, so a flat cap would trim exactly
         // the views that choice exists to show.
         const ordered = hideUnsubmittedViews(task2.mockups || [], entriesWorthShowing, printfileSpecs);
-        const unique = orderViews(ordered, showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS);
+        const unique = orderViews(
+          correctViewNames(product.id, ordered),
+          showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS
+        );
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --

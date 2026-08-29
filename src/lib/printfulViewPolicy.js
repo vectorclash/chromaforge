@@ -48,7 +48,7 @@ export const MAX_VIEWS = 6;
 // useMockup persists finished previews in localStorage against a cache key that otherwise describes
 // only the ORDER (product, variant, design, print options), so without this a browser holding a
 // preview from before a policy change replays it for 12 hours.
-export const VIEW_POLICY_VERSION = 10;
+export const VIEW_POLICY_VERSION = 11;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -70,6 +70,28 @@ export function chooseOptionGroups(availableGroups) {
   return chosen;
 }
 
+// Per-product corrections to the view names the Edge Function derives from placement keys.
+//
+// A placement key does not reliably identify the photo it returns. On the TRACK JACKET (801),
+// measured on a real task, the `front` placement returns the garment's BACK shot while the front
+// shot arrives under `back` -- so both views come back labelled the wrong way round and the strip
+// reads back-then-front (Aaron, 2026-08-29: "it goes flat back then flat front").
+//
+// Deliberately a NAMED, PER-PRODUCT correction rather than a general rule. Deriving the view from
+// Printful's filename instead was tried across the whole catalogue and made things worse elsewhere,
+// so this stays scoped to the one product it is known to be true of, where being wrong is visible
+// and cheap. Verify against a real task before adding another entry, and drop an entry if Printful
+// ever fixes their side.
+const VIEW_NAME_FIXUPS = {
+  801: { Front: 'Back', Back: 'Front' }
+};
+
+export function correctViewNames(productId, views) {
+  const fixes = VIEW_NAME_FIXUPS[String(productId)];
+  if (!fixes) return views;
+  return views.map(v => (fixes[v.display_name] ? { ...v, display_name: fixes[v.display_name] } : v));
+}
+
 // Angle order within a group. Front first, then the back, then the rest as Printful names them.
 // Anything unrecognised sorts after everything known rather than first, so a view title Printful
 // adds later cannot displace the front of the strip.
@@ -80,22 +102,18 @@ export function viewRank(title) {
   return i === -1 ? VIEW_ORDER.length : i;
 }
 
-const DETAIL_VIEW = /product\s*detail/i;
-
-// Rank of a photo: the flats first, its detail shots after. A photo with no group is a placement's
-// own primary, which -- given only Flat and Product details are ever requested -- is a flat lay.
-// The NAME is checked as well as the group, because a detail shot can arrive as a primary carrying
-// no group at all (the sweatshirt, mesh shorts and joggers each return one that way), and the name
-// is read off Printful's own filename, so it describes the photo rather than the placement.
-export function viewGroupRank(group, displayName) {
-  if (DETAIL_VIEW.test(String(displayName ?? '')) || DETAIL_VIEW.test(baseGroup(group ?? ''))) return 1;
-  return 0;
+// Rank of the style group a photo came from. A photo with no group is a placement's own primary --
+// which, given only Flat and Product details are ever requested, is a flat lay. It ranks with the
+// flats, which is where it belongs and is now simply true rather than inferred.
+export function viewGroupRank(group) {
+  if (!group) return 0;
+  return /^product details$/i.test(baseGroup(group)) ? 1 : 0;
 }
 
 // Orders and caps a normalised view list: the flats first in angle order, then the detail shots.
 export function orderViews(views, max = MAX_VIEWS) {
   return views
-    .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group, v.display_name), r: viewRank(v.display_name) }))
+    .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group), r: viewRank(v.display_name) }))
     .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i)
     .slice(0, max)
     .map(x => x.v);

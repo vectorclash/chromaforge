@@ -1021,25 +1021,6 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     may not name a view unless it is a camera-visible panel (`NON_VIEW_PLACEMENTS` — labels plus
     `pocket`, `details`, `inside_pocket`, `hood_inner`, `facing`), or a photo of the jacket comes back
     labelled "Pocket".
-    **A view is named from Printful's own FILENAME, not from the placement key** — the placement does
-    not identify the photo. The track jacket's `front` placement returns its **BACK** shot, while the
-    front shot arrives under `pocket`, so naming from `PLACEMENT_LABELS` labelled them backwards and
-    `viewRank` then sorted the back one first. Aaron: "it goes flat back then flat front".
-    Filenames run `<slug>-<colour>-<view>-<hash>.jpg`, so stripping the prefix every photo of the
-    product shares plus the trailing hash leaves the view. **Verified against all 231 `extra` entries
-    in the catalogue — whose titles are already known — reproducing the title exactly, 231/231.**
-    Capitalisation is borrowed from the titles in the same response (Printful writes angles in title
-    case, "Right Front", and detail views in sentence case, "Product details"). Falls back to the
-    placement label only when the filename cannot be read, which needs a response holding a single
-    photo.
-    **That also let `NON_VIEW_PLACEMENTS` stop suppressing primaries**, which was costing real photos.
-    It existed so a jacket photo could not be labelled "Pocket"; with the name coming from the photo
-    that cannot happen. Measured across the catalogue, **five products carry a view reachable ONLY
-    through a non-view placement** — the detail shots on the sweatshirt (320), mesh shorts (693) and
-    joggers (784), and the inside shots on the tote (274) and beanie (458) — none of which appeared
-    before. The skip still applies when the filename cannot be read.
-    **A detail shot is ranked by its NAME as well as its group**, because one can arrive as a primary
-    with no group at all (those three products), and it would otherwise sort in among the flats.
     **The pillow (83) still returns fewer views on some sizes**, because Printful marks styles
     `restricted_to_variants` — the same hazard that broke every pillow size but 18x18 under v2. That
     is theirs, not the policy's.
