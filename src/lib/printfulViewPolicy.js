@@ -46,11 +46,13 @@
 //     change under us without warning.
 //   Product specs -- NOT photographs. On the track jacket (801) these are size-chart cards rendered
 //     in English/French/German/Italian/Japanese/Spanish, six near-identical documents.
-const EXCLUDED_GROUP = /lifestyle|halloween|holiday|vibes|couple|duet|boy's|girl's|product specs/i;
+// `ghost` and `on hanger` are excluded on Aaron's call (2026-08-29): neither adds anything a flat
+// lay and a model shot do not already say, and both were taking slots from detail shots.
+const EXCLUDED_GROUP = /lifestyle|halloween|holiday|vibes|couple|duet|boy's|girl's|product specs|ghost|on hanger/i;
 
 // Preference order among what survives. Anything unlisted sorts after these but is still eligible,
-// which is what keeps a product like the tote (Default / On Hanger / Standing / In Hand) working
-// without naming its vocabulary here.
+// which is what keeps a product like the tote (Default / Standing / In Hand) working without naming
+// its vocabulary here.
 const GROUP_RANK = [
   /^flat$/i,      // the canonical product shot, garments
   /^default$/i,   // the same thing, non-apparel vocabulary
@@ -60,12 +62,11 @@ const GROUP_RANK = [
   // product with only one of them (261, the women's tee) is unaffected either way.
   /^men's$/i,
   /^women's$/i,
-  /^ghost$/i,     // garment shape, no model
   // Above the hanger/standing shots: a fabric close-up tells a buyer more about how their own
   // artwork prints than a photograph of the garment hanging up does, and the group budget below
   // fills before both can be had.
   /^product details$/i,
-  /^standing$/i, /^on hanger$/i, /^in hand$/i,
+  /^standing$/i, /^in hand$/i,
   // Last of the ranked groups: real, but it is a scale reference rather than a look at the artwork.
   /^person$/i
 ];
@@ -98,7 +99,7 @@ export const MAX_VIEWS = 6;
 // option_group on its entries, which makes orderViews silently fall back to sorting by angle alone.
 // That is exactly how it surfaced: a filmstrip that still jumped between image types after the fix
 // had shipped, on a page whose cached copy predated it.
-export const VIEW_POLICY_VERSION = 5;
+export const VIEW_POLICY_VERSION = 6;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -162,7 +163,7 @@ export function viewRank(title) {
 // product where `chooseOptionGroups` matched nothing, EVERY view is ungrouped, they all tie here,
 // and the order is by angle exactly as before.
 export function viewGroupRank(group) {
-  if (!group) return GROUP_RANK.length + 1;
+  if (!group) return 0;
   return groupRank(group);
 }
 
@@ -220,13 +221,14 @@ export function orderViews(views, max = MAX_VIEWS) {
   const preferred = [];
   const spare = [];
   for (const x of ranked) {
-    const used = taken.get(x.g) ?? 0;
+    const bucket = x.v.option_group ?? '(primary)';
+    const used = taken.get(bucket) ?? 0;
     const isBack = BACK_VIEW.test(String(x.v.display_name ?? ''));
     if (used >= perGroup || (isBack && backs >= MAX_BACK_VIEWS)) {
       spare.push(x);
       continue;
     }
-    taken.set(x.g, used + 1);
+    taken.set(bucket, used + 1);
     if (isBack) backs += 1;
     preferred.push(x);
   }

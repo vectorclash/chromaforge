@@ -1096,7 +1096,29 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     (verified across all 18 x every variant, before and after). A hard filter would have taken views
     from the pillow, bandana, women's tee and pants — the four that can least afford it. The survivors
     are re-sorted after the cut so a backfilled view cannot land out of type order at the tail.
-    **`VIEW_POLICY_VERSION` is 5**, and the normaliser change at 4 means `printful-mockup` must be
+    **A placement's primary is NOT a duplicate of a grouped view, and one real task settled it after
+    three rounds of guessing from the catalog.** Everything above had been predicted from
+    `/v2/catalog-products/{id}/mockup-styles`; a real `create-task` on the tee (257) shows the styles
+    endpoint does not describe what a task returns. Two findings, neither derivable from the catalog:
+    (1) **`Men's` came back as Back, Right and Left with NO Front — the missing view IS the ungrouped
+    primary.** So the primary is the placement's own canonical angle, carrying a photo no group
+    supplies, and sorting it last (v3-v5) exiled the product's hero shot to slot 6, which is exactly
+    what Aaron saw. It ranks **0** now, in the canonical band with Flat/Default, sorted by angle.
+    (2) **`Flat` returned only `Front`.** No flat back exists anywhere in the response, on any
+    placement, although the catalog advertises `Flat/Back` as style id 15715. So "does the men's tee
+    really only have a flat front?" — yes, and no amount of policy can conjure the other one.
+    **Measure a real task before reasoning about what a filmstrip contains.** The catalog says what
+    styles EXIST; only a task says what comes back. `scripts/` has no copy of that probe — it was a
+    throwaway that builds the payload from the real `mockupPlacementEntries`/`buildMockupFiles`/
+    `chooseOptionGroups` and dumps every `mockups[]` entry, its primary and its extras with URLs
+    tagged, so duplicates across placements are visible at a glance (the tee: 8 distinct photos
+    across 6 placement entries, the sleeves repeating the front's).
+    **`ghost` and `on hanger` are excluded outright** (Aaron, 2026-08-29: "they don't really add
+    anything here") — neither says anything a flat lay and a model shot do not, and both were taking
+    slots from detail shots. Ten products now request exactly `Flat` + `Men's` + `Product details`.
+    **The per-group cap keys on the group NAME, not its rank**, so the ungrouped primaries cannot eat
+    Flat's quota now that both sit at rank 0.
+    **`VIEW_POLICY_VERSION` is 6**, and the normaliser change at 4 means `printful-mockup` must be
     deployed with any frontend carrying it.
     **The track jacket's five-back filmstrip was NOT the policy — v1 returns the same photograph at a
     DIFFERENT URL under every submitted placement.** One flat back and three detail shots arrived six
