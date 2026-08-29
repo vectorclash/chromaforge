@@ -193,6 +193,16 @@ export const PRODUCT_MOCKUP_CONFIG = {
   }, // pillow
   693: {
     technique: 'cut-sew',
+    // Where this product's `label_outside` lands on the FRONT sheet, as fractions of it, so the
+    // mark can sample the artwork it will be printed over and pick light or dark ink (see
+    // src/render/labelBackdrop.js). mesh shorts -- lower right leg, below the pocket.
+    //
+    // MEASURED, never derived. A lettered grid on the front plus a marker on label_outside gives
+    // the cell; a second mockup drawing hollow 1x and 2x boxes at the prediction refines both the
+    // position and the SIZE. The size has to be measured too: the naive labelPx/frontPx ratio is
+    // right on some products and 1.21x out on the track jacket, because the front file is
+    // cover-fitted to its print area and so is not at 1:1 scale with it.
+    labelOutsideRegion: { x: 0.749, y: 0.749, w: 0.040, h: 0.103 },
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     // 'back' added 2026-08-29 (Aaron, on seeing the new mockups: "it's odd that the shorts
     // mockup on v1 doesn't have a back shot now"). This was 'front' alone for a reason that
@@ -288,6 +298,16 @@ export const PRODUCT_MOCKUP_CONFIG = {
   }, // zip hoodie
   784: {
     technique: 'cut-sew',
+    // Where this product's `label_outside` lands on the FRONT sheet, as fractions of it, so the
+    // mark can sample the artwork it will be printed over and pick light or dark ink (see
+    // src/render/labelBackdrop.js). joggers -- upper right thigh.
+    //
+    // MEASURED, never derived. A lettered grid on the front plus a marker on label_outside gives
+    // the cell; a second mockup drawing hollow 1x and 2x boxes at the prediction refines both the
+    // position and the SIZE. The size has to be measured too: the naive labelPx/frontPx ratio is
+    // right on some products and 1.21x out on the track jacket, because the front file is
+    // cover-fitted to its print area and so is not at 1:1 scale with it.
+    labelOutsideRegion: { x: 0.693, y: 0.263, w: 0.067, h: 0.081 },
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back'],
     // Enabled 2026-07-29 alongside the shorts (693) -- same seam analysis, see
@@ -315,6 +335,16 @@ export const PRODUCT_MOCKUP_CONFIG = {
   }, // wide-leg joggers
   801: {
     technique: 'cut-sew',
+    // Where this product's `label_outside` lands on the FRONT sheet, as fractions of it, so the
+    // mark can sample the artwork it will be printed over and pick light or dark ink (see
+    // src/render/labelBackdrop.js). track jacket -- right chest, beside the zip.
+    //
+    // MEASURED, never derived. A lettered grid on the front plus a marker on label_outside gives
+    // the cell; a second mockup drawing hollow 1x and 2x boxes at the prediction refines both the
+    // position and the SIZE. The size has to be measured too: the naive labelPx/frontPx ratio is
+    // right on some products and 1.21x out on the track jacket, because the front file is
+    // cover-fitted to its print area and so is not at 1:1 scale with it.
+    labelOutsideRegion: { x: 0.563, y: 0.349, w: 0.083, h: 0.078 },
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     // 'details' was omitted because on v2 it failed the whole task when combined with the sleeve
     // placements. **Retested on v1 2026-08-29 and that is no longer true** -- the task completes
@@ -338,6 +368,16 @@ export const PRODUCT_MOCKUP_CONFIG = {
   }, // track jacket
   744: {
     technique: 'cut-sew',
+    // Where this product's `label_outside` lands on the FRONT sheet, as fractions of it, so the
+    // mark can sample the artwork it will be printed over and pick light or dark ink (see
+    // src/render/labelBackdrop.js). crossbody -- lower front panel.
+    //
+    // MEASURED, never derived. A lettered grid on the front plus a marker on label_outside gives
+    // the cell; a second mockup drawing hollow 1x and 2x boxes at the prediction refines both the
+    // position and the SIZE. The size has to be measured too: the naive labelPx/frontPx ratio is
+    // right on some products and 1.21x out on the track jacket, because the front file is
+    // cover-fitted to its print area and so is not at 1:1 scale with it.
+    labelOutsideRegion: { x: 0.521, y: 0.631, w: 0.133, h: 0.200 },
     productOptions: [{ name: 'stitch_color', value: 'black' }],
     placements: ['front', 'back', 'pocket', 'details'],
     mirrorPlacements: ['back']
@@ -390,6 +430,16 @@ export const PRODUCT_MOCKUP_CONFIG = {
   }, // bomber jacket
   654: {
     technique: 'cut-sew',
+    // Where this product's `label_outside` lands on the FRONT sheet, as fractions of it, so the
+    // mark can sample the artwork it will be printed over and pick light or dark ink (see
+    // src/render/labelBackdrop.js). bucket hat -- front of the crown wall.
+    //
+    // MEASURED, never derived. A lettered grid on the front plus a marker on label_outside gives
+    // the cell; a second mockup drawing hollow 1x and 2x boxes at the prediction refines both the
+    // position and the SIZE. The size has to be measured too: the naive labelPx/frontPx ratio is
+    // right on some products and 1.21x out on the track jacket, because the front file is
+    // cover-fitted to its print area and so is not at 1:1 scale with it.
+    labelOutsideRegion: { x: 0.416, y: 0.415, w: 0.167, h: 0.171 },
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     // Reversible: outside_front/outside_back and inside_front/inside_back are four
     // separately printed panels, and the customer wears either face out. But NO mockup

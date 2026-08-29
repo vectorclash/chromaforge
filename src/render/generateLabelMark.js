@@ -28,7 +28,12 @@ import { resolveDesignPalette } from './resolvedPalette';
 // v7 (2026-08-13): the accent is the MOST SATURATED stop of the resolved palette rather than a
 // random one -- see pickAccentSource. Which chords survive and the greys on the ~80% that
 // aren't accented are untouched.
-export const LABEL_MARK_GENERATOR_VERSION = 7;
+// v8 (2026-08-29): `lightInk` decouples "no background panel" from "dark ink". label_outside now
+// picks its ink from the artwork it is printed over (see src/render/labelBackdrop.js) instead of
+// always inverting, which was correct only on light artwork -- four of six real designs measured
+// dark where the shorts' label lands. The light ink is not a new treatment: it is exactly what the
+// inside tag already prints, minus the tag's own dark panel.
+export const LABEL_MARK_GENERATOR_VERSION = 8;
 
 // Layout rule (Aaron, 2026-07-30): **the mark gets a square, and whatever is left over is
 // accent.** A square dark panel holds the mark; the remaining rectangle is filled flat with
@@ -208,7 +213,7 @@ function pickAccentSource(colors) {
 // (see below). So WHICH chords survive, and the greyscale ink on the ~80% of them that aren't
 // accented, are byte-identical all the way back to v5 -- only the accented chords and the
 // accent panel have ever moved.
-export function generateMarkLines(design, { transparent = false, palette = null } = {}) {
+export function generateMarkLines(design, { transparent = false, palette = null, lightInk = false } = {}) {
   const rng = makeRng(`${design.seed}-label`);
   const source = palette?.length ? palette : resolveDesignPalette(design);
   const colors = source?.length ? source : [DEFAULT_BASE_COLOR];
@@ -235,7 +240,12 @@ export function generateMarkLines(design, { transparent = false, palette = null 
       // only the mapping of the drawn value to ink changes. Light greys read against the
       // dark panel; their inverses read against the print/fabric when there's no panel.
       const grey = Math.round(100 + rng() * 155);
-      const g = transparent ? 255 - grey : grey;
+      // `transparent` alone used to decide this, which welded "no background panel" to "dark ink"
+      // -- correct only while the artwork underneath is light. It is dark under the patch on most
+      // designs (measured: 4 of 6 real saved designs, mean sRGB luminance 0.15-0.25 where the
+      // shorts' label_outside actually lands), which is why the mark kept disappearing on real
+      // garments. `lightInk` decouples the two so the caller can choose from what is underneath.
+      const g = transparent && !lightInk ? 255 - grey : grey;
       color = tinycolor({ r: g, g: g, b: g }).toHexString();
     }
     lines.push({ x1, y1, x2, y2, color });
@@ -250,8 +260,8 @@ export const MARK_BOUNDS = BOUNDS;
 export const MARK_RING = { center: RING_CENTER, radius: RING_RADIUS };
 export const MARK_RING_COLOR = RING_COLOR;
 
-export function generateLabelMark(design, width, height, { transparent = false } = {}) {
-  const { lines, accentColor: mainColorHex } = generateMarkLines(design, { transparent });
+export function generateLabelMark(design, width, height, { transparent = false, lightInk = false } = {}) {
+  const { lines, accentColor: mainColorHex } = generateMarkLines(design, { transparent, lightInk });
 
   // The accent panel uses the un-spun chosen accent itself (the per-line spins above are
   // variations OF this color, so the flat panel reads as their common root). The mark
@@ -279,7 +289,9 @@ export function generateLabelMark(design, width, height, { transparent = false }
     // null background = the renderer paints no fills at all (transparent canvas); the
     // ring flips from white-on-dark to the dark ink itself.
     backgroundColor: transparent ? null : BACKGROUND_COLOR,
-    ringColor: transparent ? BACKGROUND_COLOR : RING_COLOR,
+    // The ring follows the ink: dark on light artwork, white on dark. A panelled label keeps its
+    // white ring, since it paints its own dark background to sit on.
+    ringColor: transparent && !lightInk ? BACKGROUND_COLOR : RING_COLOR,
     accentColor: mainColorHex,
     // A transparent label has no panels to speak of, so the mark takes the whole canvas.
     // NOT `{ ...panels, accent: null }` -- that nulls the accent but keeps the SQUARE mark

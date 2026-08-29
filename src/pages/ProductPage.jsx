@@ -16,6 +16,7 @@ import {
   getStitchColorOption,
   hasTwoLegCanvas,
   getLegWrap,
+  getLabelOutsideRegion,
   getLegPanel,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
@@ -927,6 +928,7 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
+      labelOutsideRegion: getLabelOutsideRegion(cfg),
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1172,6 +1174,7 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
+      labelOutsideRegion: getLabelOutsideRegion(cfg),
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1212,6 +1215,7 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
+      labelOutsideRegion: getLabelOutsideRegion(cfg),
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,

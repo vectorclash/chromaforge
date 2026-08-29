@@ -15,6 +15,7 @@ import {
 // helpers, not a copy that drifts from the code it exists to protect.
 export { resolvePlacementEntries, mockupPlacementEntries, buildMockupFiles, hideUnsubmittedViews };
 import { generateLabelMark } from '../render/generateLabelMark';
+import { sampleLabelBackdrop, wantsLightInk } from '../render/labelBackdrop';
 import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../render/hatWrap';
 import { drawLegWrap, legWrapSourceSize } from '../render/legWrap';
 import renderLabelMark from '../render/renderLabelMark';
@@ -326,6 +327,14 @@ export function getLegWrap(cfg) {
   return cfg?.legWrap || null;
 }
 
+// Where this product's outside label lands on its front sheet, as fractions of it -- the five
+// products with a visible label_outside, measured from real calibration mockups (see
+// PRODUCT_MOCKUP_CONFIG's labelOutsideRegion). Null everywhere else, which keeps the mark's
+// existing dark ink.
+export function getLabelOutsideRegion(cfg) {
+  return cfg?.labelOutsideRegion || null;
+}
+
 
 // Mockups are previews, not the final print file -- cap render size well below Printful's
 // real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
@@ -448,8 +457,8 @@ function includesGeometry(placementKey, frontKey, geometryPlacements) {
 // same design-mockups bucket every other print/mockup file already lives in.
 const LABEL_MARK_PLACEMENTS = new Set(['label_inside', 'label_outside']);
 
-async function renderLabelMarkBlob(design, spec, { transparent = false } = {}) {
-  const config = generateLabelMark(design, spec.width, spec.height, { transparent });
+async function renderLabelMarkBlob(design, spec, { transparent = false, lightInk = false } = {}) {
+  const config = generateLabelMark(design, spec.width, spec.height, { transparent, lightInk });
   const canvas = renderLabelMark(config);
   // The transparent variant must ship as PNG -- JPEG has no alpha channel, and the whole
   // point is that unfilled pixels stay unprinted. The paneled variant keeps JPEG (smaller,
@@ -502,6 +511,9 @@ export async function renderAndUploadPrintFiles(
     // parameter and belongs in the cache key below. Null on every other product and in the two
     // flat modes, which render exactly as they did before this existed.
     legWrap = null,
+    // Where this product's outside label lands on the front sheet, so the mark can sample the
+    // artwork underneath and pick its ink -- see PRODUCT_MOCKUP_CONFIG's labelOutsideRegion.
+    labelOutsideRegion = null,
     // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
@@ -539,7 +551,24 @@ export async function renderAndUploadPrintFiles(
       if (!rendered[cacheKey]) {
         const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
         rendered[cacheKey] = spec
-          ? renderLabelMarkBlob(design, spec, { transparent: placementKey === 'label_outside' }).then(blob =>
+          ? renderLabelMarkBlob(design, spec, {
+              transparent: placementKey === 'label_outside',
+              // Only label_outside is printed over the artwork; label_inside paints its own dark
+              // panel and is legible by construction. Null region (every product without a visible
+              // outside label) or a failed sample keeps the dark ink that shipped before this.
+              lightInk:
+                placementKey === 'label_outside' &&
+                wantsLightInk(
+                  sampleLabelBackdrop(design, frontSpec, labelOutsideRegion, {
+                    includeGeometry: includesGeometry(frontKey, frontKey, geometryPlacements),
+                    geometryLayout,
+                    sizeFrame,
+                    legSymmetry,
+                    legWrap: legWrap?.placements?.includes(frontKey) ? legWrap : null,
+                    hatWrap: hatWrap?.placements?.includes(frontKey) ? hatWrap : null
+                  })
+                )
+            }).then(blob =>
               uploadMockupSourceImage(blob, `${printfileId}-label`)
             )
           : Promise.resolve(null);

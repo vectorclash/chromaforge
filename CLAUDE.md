@@ -2777,6 +2777,48 @@ load for an unrelated reason and every count is meaningless.
     grey into a muted red (`#888888` → `#c65353`) rather than leaving it grey — Aaron's "if the
     user chose only grey then so be it" would argue for keeping it achromatic, but it is not
     worth changing print output for a palette nothing in the table has.
+    **`label_outside` picks its ink from the artwork underneath — `LABEL_MARK_GENERATOR_VERSION = 8`
+    (2026-08-29, Aaron: "it would have been good to use the light variant of the logo since the label
+    area is so dark"). This SUPERSEDES the 2026-08-11 "keep it as-is" closure.** That closure was
+    correct on its evidence: a contrast halo and a GLOBAL luminance flip were both built and rejected
+    on looks ("that looks absolutely horrible"), and Aaron himself established the blocker — nothing
+    in Printful's catalog data maps `label_outside` to a location on the front sheet, so there was no
+    region to sample, and inferring one from CAD templates is the guessing that produced the
+    pocket-crop seam defects. **Neither of those rejected mechanisms is what shipped**, and the
+    blocker moved: the calibration-mockup technique built for the leg wrap reads the mapping straight
+    off a real garment.
+    **The argument that settled it is Aaron's, and it is the important one: `label_inside` ALREADY
+    prints the light variant.** The inside tag is white ring + light greys on its own dark panel. So
+    the light ink is not a new treatment being introduced — it is the mark already approved and
+    already printing, applied where it is legible. The inconsistency was in what shipped: the same
+    garment carried a white-ring mark inside and a black-ring one outside, the outside one inverted
+    on an assumption (light artwork underneath) that measurement says is wrong most of the time —
+    **four of six real saved designs measure 0.15-0.25 luminance where the shorts' label lands**, and
+    across 5 products x 12 designs the light ink is the right call on **36 of 60**.
+    Six things worth not re-deriving:
+    (1) **`transparent` was welded to "dark ink", and that coupling WAS the bug.** One flag meant both
+    "paint no background panel" and "invert the greys, darken the ring". `lightInk` separates them.
+    (2) **The patch location is MEASURED per product, never derived** (`labelOutsideRegion`). A
+    lettered grid on the front plus a marker on `label_outside` gives the cell; a second mockup
+    drawing hollow 1x and 2x boxes at the prediction refines position AND size.
+    (3) **The SIZE has to be measured too, which was not obvious.** The naive `labelPx / frontPx`
+    ratio is right on the shorts and crossbody and **1.21x out on the track jacket**, because the
+    front file is cover-fitted to its print area and so is not at 1:1 scale with it. On the bucket hat
+    the height is ~1.8x out, since the crown's curvature maps the sheet non-linearly.
+    (4) **What is sampled is the RENDERED SHEET, not the composition** — on the two-leg products and
+    the hat the sheet is a wrap, so the artwork under a point of the sheet is not the composition at
+    that point. `labelBackdrop.js` applies whatever wrap the product uses, at low resolution.
+    (5) **Sampling is client-side in BOTH paths, and must stay that way.** The mockup and the print
+    file have to reach the identical decision or the preview lies; at checkout the real render happens
+    on Fly and the browser never sees its pixels, so a small local re-render is the only thing both
+    paths can share. Verified: **60/60 agreement** between true-printfile and capped-mockup dims.
+    (6) **A failed or absent sample keeps today's dark ink**, so every product without a visible
+    outside label is untouched and a thrown error can never fail an upload.
+    No render-service redeploy and no thumbnail backfill: label marks are client-side, and
+    `generateArtwork` is not touched. Products affected: 693, 784, 801, 744, 654.
+    **Automating the grid read was tried and thrown away** — with 216 cells the hue formula repeats,
+    so pixels classify into the wrong cells (residuals of 4-6 CELLS). Read the labels by eye; the
+    confirm mockup is what makes that rigorous.
     **Transparent label_outside + heavier mark (2026-07-15, `LABEL_MARK_GENERATOR_VERSION
     = 4`, Aaron-approved from real track-jacket draft mockups — orders 166996698/166999659):**
     Printful composites label placements OVER the garment's own print (confirmed on a real

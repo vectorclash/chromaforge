@@ -213,6 +213,9 @@ export function useMockup() {
       sizeFrame = null,
       legSymmetry = false,
       legWrap = null,
+      // A fixed property of the product, so deliberately NOT in cacheKey below -- the ink it
+      // produces varies with the DESIGN, and the design is already part of the key.
+      labelOutsideRegion = null,
       productOptions = null,
       secondaryDesign = null
     }) => {
@@ -288,6 +291,7 @@ export function useMockup() {
           sizeFrame,
           legSymmetry,
           legWrap,
+          labelOutsideRegion,
           secondaryDesign,
           secondaryPlacements: getSecondaryDesignConfig(cfg)?.placements || null
         });
@@ -413,6 +417,9 @@ export function useMockup() {
       sizeFrame = null,
       legSymmetry = false,
       legWrap = null,
+      // A fixed property of the product, so deliberately NOT in cacheKey below -- the ink it
+      // produces varies with the DESIGN, and the design is already part of the key.
+      labelOutsideRegion = null,
       productOptions = null,
       secondaryDesign = null
     }) => {
