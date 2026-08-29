@@ -1030,10 +1030,25 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     seasonal (would date the page and change under us); and **Product specs, which are not
     photographs at all** — on the track jacket they are size-chart cards in English/French/German/
     Italian/Japanese/Spanish.
-    **Known weak spot: the track jacket (801)** lands at 5 views with two detail shots and no
-    three-quarter, despite its Ghost group advertising Left Front and Right Back. Whether those
-    dedupe onto existing photos or get retitled has not been chased. Still better than the two flats
-    it had.
+    **The strip is ordered BY TYPE, then by angle** (Aaron, 2026-08-29: "it seems to jump back and
+    forth between image types"). An earlier version round-robined by ANGLE, to stop one angle
+    flooding the strip; that necessarily alternates flat lay -> model -> ghost, so it never settles.
+    Grouping by type fixes both at once and the round-robin is gone rather than layered with it:
+    flooding was only ever possible ACROSS groups, since each group supplies a couple of angles at
+    most. `option_group` was on every `extra` entry all along -- the normaliser was discarding it.
+    A view with no group is a placement's own default shot and sorts first.
+    **The track jacket's five-back filmstrip was NOT the policy — v1 returns the same photograph at a
+    DIFFERENT URL under every submitted placement.** One flat back and three detail shots arrived six
+    times over, and de-duplicating by URL alone cannot see it. `normalise` now also de-dupes by
+    group+title: same group and same title is the same view. This is what made 801 look broken all
+    day, and it would have got worse with every placement added.
+    **`Person` is eligible, and is not a staged scene** (Aaron's call). It is someone holding the
+    product; on the pillow -- the only product with the group, and the only one with no on-model
+    group at all -- it is the sole human-scale reference, and a pillow is unusually hard to judge for
+    size with no body to read it against. Ranked last, so on any future product that has both it can
+    only appear once better groups have not filled the budget. Note it is **variant-restricted on the
+    pillow**, so that product returns 2 views on some sizes and 4 on others -- the same
+    restricted_to_variants hazard that broke every pillow size but 18x18 under v2.
   **`scripts/check-printful-mockups.mjs` exists because of all of this** — it generates a real
   mockup for **every variant of every product (129 as of 2026-08-28)** and asserts the pipeline
   end to end. Run it

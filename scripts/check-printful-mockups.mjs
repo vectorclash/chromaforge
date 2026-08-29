@@ -100,27 +100,33 @@ function normalise(result) {
   const byUrl = new Map();
   const raw = [];
   const seenUrls = new Set();
-  const push = (url, name) => {
+  const seenViews = new Set();
+  const push = (url, name, optionGroup) => {
     if (!url || seenUrls.has(url)) return;
+    const viewKey = `${optionGroup ?? ''}|${name}`;
+    if (seenViews.has(viewKey)) return;
+    seenViews.add(viewKey);
     seenUrls.add(url);
-    raw.push({ url, name });
+    raw.push({ url, name, optionGroup });
   };
   const ordered = [...(result.mockups ?? [])].sort(
     (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
   );
   for (const m of ordered) {
     if (!NON_VIEW_PLACEMENTS.has(m.placement)) push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
-    for (const e of m.extra ?? []) push(e.url, e.title);
+    // option_group is what makes the filmstrip groupable by TYPE rather than by angle --
+      // v1 puts it only on the extras, and the primary mockup_url is the placement's own default.
+      for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
   }
   const reserved = new Set(raw.map(r => r.name));
   const taken = new Set();
-  for (const { url, name } of raw) {
+  for (const { url, name, optionGroup } of raw) {
     let final = name;
     if (taken.has(final)) {
       for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
     }
     taken.add(final);
-    byUrl.set(url, { mockup_url: url, display_name: final });
+    byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null });
   }
   return { status: result.status, error: result.error ?? null, mockups: [...byUrl.values()] };
 }

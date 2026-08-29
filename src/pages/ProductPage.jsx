@@ -399,6 +399,12 @@ export default function ProductPage() {
     showsTwoLegLayout && legArtwork === 'front'
       ? getLegWrap(getMockupConfigForProduct(detail.product.id))
       : null;
+  // Resolved ONCE here like the values around it, not at each call site: a first version inlined
+  // getLabelOutsideRegion(cfg) into all three, and `cfg` is only in scope in one of them -- which
+  // broke every product page with a ReferenceError rather than just the products that have a label.
+  const labelOutsideRegion = detail?.product
+    ? getLabelOutsideRegion(getMockupConfigForProduct(detail.product.id))
+    : null;
   // No longer a customer choice -- fixed at 'mirror', which was the row's own default and is
   // what the ordered shorts were printed with: the geometry shape repeated flipped on each leg
   // rather than confined to one, and above all not centred on the cut line, the one spot
@@ -928,7 +934,7 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
-      labelOutsideRegion: getLabelOutsideRegion(cfg),
+      labelOutsideRegion,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1174,7 +1180,7 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
-      labelOutsideRegion: getLabelOutsideRegion(cfg),
+      labelOutsideRegion,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1215,7 +1221,7 @@ export default function ProductPage() {
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
-      labelOutsideRegion: getLabelOutsideRegion(cfg),
+      labelOutsideRegion,
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,

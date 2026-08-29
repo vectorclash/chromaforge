@@ -32,14 +32,21 @@
 
 // Groups never requested, with the reason -- so "why is this missing?" is answerable here rather
 // than through a Printful round trip:
-//   Lifestyle*/Flat Lifestyle/Person/Couple's/Duet/Boy's/Girl's -- staged scenes. They photograph a
-//     mood, often showing a sliver of the garment at an angle that says nothing about the buyer's
-//     own artwork, which is the only thing this filmstrip exists to show.
+//   Lifestyle*/Flat Lifestyle/Couple's/Duet/Boy's/Girl's -- staged scenes. They photograph a mood,
+//     often showing a sliver of the garment at an angle that says nothing about the buyer's own
+//     artwork, which is the only thing this filmstrip exists to show.
+//     NOT `Person`, which was grouped here at first and is different (Aaron, 2026-08-29). It is
+//     someone holding the product, and on the pillow -- the only product that has the group, and the
+//     only one with no on-model group at all -- it is the one human-scale reference available. A
+//     pillow is unusually hard to judge for size against a plain background, with no body to read it
+//     against, and 18in vs 22in is exactly what a buyer is unsure about. It is ranked below the real
+//     product shots, so on any future product that has both it can only appear once the budget is
+//     not already filled by better groups.
 //   Halloween/Holiday season/Spring-summer vibes -- seasonal. They would date the product page and
 //     change under us without warning.
 //   Product specs -- NOT photographs. On the track jacket (801) these are size-chart cards rendered
 //     in English/French/German/Italian/Japanese/Spanish, six near-identical documents.
-const EXCLUDED_GROUP = /lifestyle|halloween|holiday|vibes|couple|duet|person|boy's|girl's|product specs/i;
+const EXCLUDED_GROUP = /lifestyle|halloween|holiday|vibes|couple|duet|boy's|girl's|product specs/i;
 
 // Preference order among what survives. Anything unlisted sorts after these but is still eligible,
 // which is what keeps a product like the tote (Default / On Hanger / Standing / In Hand) working
@@ -58,7 +65,9 @@ const GROUP_RANK = [
   // artwork prints than a photograph of the garment hanging up does, and the group budget below
   // fills before both can be had.
   /^product details$/i,
-  /^standing$/i, /^on hanger$/i, /^in hand$/i
+  /^standing$/i, /^on hanger$/i, /^in hand$/i,
+  // Last of the ranked groups: real, but it is a scale reference rather than a look at the artwork.
+  /^person$/i
 ];
 
 // At most one ON-MODEL group. A unisex all-over-print garment photographed on a male and a female
@@ -125,36 +134,31 @@ export function viewRank(title) {
   return i === -1 ? VIEW_ORDER.length : i;
 }
 
-// Orders and caps a normalised view list.
+// Rank of the STYLE GROUP a photo came from, for ordering the filmstrip. A view with no group is a
+// placement's own default shot (v1 returns those as the primary `mockup_url`, with `option_group`
+// only on the `extra` entries), so it sorts first -- that is the canonical product shot.
+export function viewGroupRank(group) {
+  if (!group) return -1;
+  return groupRank(group);
+}
+
+// Orders and caps a normalised view list: BY TYPE FIRST, then by angle within the type.
 //
-// Ordering alone is not enough, and the first version proved it: the track jacket came back as
-// "Front, Back, Back 2, Back 3, Back 4, Product details 2" -- four photographs of the same side and
-// one of the front. Asking for several style groups means several groups each supply their own back
-// shot (flat, on-model, ghost), and the normaliser suffixes the collisions, so a rank-only sort
-// happily fills the strip with one angle.
+// It used to round-robin by angle, to stop one angle filling the strip -- the track jacket came back
+// as "Front, Back, Back 2, Back 3, Back 4, Product details 2", four photographs of the same side.
+// That fixed the flooding and introduced a worse problem (Aaron, 2026-08-29: "it seems to jump back
+// and forth between image types"): alternating by angle necessarily alternates between a flat lay, a
+// model shot and a ghost shot, so the strip never settles.
 //
-// So this ROUND-ROBINS by base view name: one of each distinct angle in rank order, then the
-// seconds. A buyer scanning a filmstrip wants front, back, a three-quarter and a detail -- variety
-// of angle beats a second opinion on the same angle -- and `perBase` stops any one angle taking
-// more than its share even when the cap leaves room.
-export function orderViews(views, max = MAX_VIEWS, perBase = 2) {
-  const bases = new Map();
-  views.forEach((v, i) => {
-    // Digits can sit anywhere in Printful's titles, not just at the end -- the bucket hat returns
-    // "Front Outside", "Front 2 Outside", "Right Front Outside". Stripping only a trailing number
-    // left those as three distinct bases and filled the strip with fronts. Remove any standalone
-    // number so repeats of one angle collapse wherever the numbering lands.
-    const base = String(v.display_name || '').replace(/\b\d+\b/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!bases.has(base)) bases.set(base, { r: viewRank(v.display_name), i, items: [] });
-    bases.get(base).items.push(v);
-  });
-  const ranked = [...bases.values()].sort((a, b) => a.r - b.r || a.i - b.i);
-  const out = [];
-  for (let round = 0; round < perBase && out.length < max; round++) {
-    for (const b of ranked) {
-      if (out.length >= max) break;
-      if (b.items[round]) out.push(b.items[round]);
-    }
-  }
-  return out;
+// Grouping by type fixes both at once, which is why the round-robin is gone rather than layered
+// with. Flooding was only ever possible ACROSS groups -- each group supplies at most a couple of
+// angles of its own -- so ordering by group and taking them in rank order cannot repeat an angle
+// several times before showing anything else. The strip now reads: the garment flat (front, back),
+// then worn, then ghosted, then its detail.
+export function orderViews(views, max = MAX_VIEWS) {
+  return views
+    .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group), r: viewRank(v.display_name) }))
+    .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i)
+    .slice(0, max)
+    .map(x => x.v);
 }
