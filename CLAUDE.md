@@ -1036,7 +1036,22 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     Grouping by type fixes both at once and the round-robin is gone rather than layered with it:
     flooding was only ever possible ACROSS groups, since each group supplies a couple of angles at
     most. `option_group` was on every `extra` entry all along -- the normaliser was discarding it.
-    A view with no group is a placement's own default shot and sorts first.
+    **A view with no group is a placement's own default shot, and it sorts LAST — after every group,
+    including an unrecognised one.** It sorted FIRST for half a day, on the reasoning that a
+    placement's default is the canonical product shot, and that single line was enough to make the
+    whole feature look like it had never shipped (Aaron, 2026-08-29, on the men's tee and then on
+    every product: "they all have similar mismatched orders"). Printful picks that default itself, so
+    its TYPE is arbitrary and is not recoverable from the response — v1 puts `option_group` only on
+    the `extra` entries. On the tee, URL de-duplication collapsed the sleeve and back primaries onto
+    one surviving MODEL shot, which then led the strip ahead of the Flat group while the rest of the
+    model shots followed it: **model -> flat -> flat -> model -> model -> model**, reproduced exactly
+    from the shipped ranks. It was general rather than per-product because every product submits one
+    primary per camera-visible placement — up to five type-arbitrary photos (388, 615, 717) ahead of
+    the first grouped one, measured across all 18.
+    Sorting them last costs nothing: they are near-duplicates of angles the requested groups already
+    supply, so on a product with a full set they fall past `MAX_VIEWS` and never appear. On a product
+    where `chooseOptionGroups` matched nothing, EVERY view is ungrouped, they all tie, and the order
+    is by angle exactly as before. **`VIEW_POLICY_VERSION` is 3.**
     **The track jacket's five-back filmstrip was NOT the policy — v1 returns the same photograph at a
     DIFFERENT URL under every submitted placement.** One flat back and three detail shots arrived six
     times over, and de-duplicating by URL alone cannot see it. `normalise` now also de-dupes by

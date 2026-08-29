@@ -98,7 +98,7 @@ export const MAX_VIEWS = 6;
 // option_group on its entries, which makes orderViews silently fall back to sorting by angle alone.
 // That is exactly how it surfaced: a filmstrip that still jumped between image types after the fix
 // had shipped, on a page whose cached copy predated it.
-export const VIEW_POLICY_VERSION = 2;
+export const VIEW_POLICY_VERSION = 3;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -144,10 +144,25 @@ export function viewRank(title) {
 }
 
 // Rank of the STYLE GROUP a photo came from, for ordering the filmstrip. A view with no group is a
-// placement's own default shot (v1 returns those as the primary `mockup_url`, with `option_group`
-// only on the `extra` entries), so it sorts first -- that is the canonical product shot.
+// placement's own default shot -- v1 returns those as the primary `mockup_url` and puts
+// `option_group` only on the `extra` entries -- and it sorts LAST, after every group including an
+// unrecognised one.
+//
+// It used to sort first, on the reasoning that a placement's default is the canonical product shot.
+// That was wrong in a way only a real filmstrip shows (Aaron, 2026-08-29, on the men's t-shirt and
+// then on every product): Printful chooses that default itself, so its TYPE is arbitrary and
+// unknowable from the response. A model shot therefore led the strip, the Flat group followed, and
+// the rest of the model shots came after it -- model, flat, flat, model, model, model, which reads
+// as no order at all. And because a product submits one per camera-visible placement, that is up to
+// five type-arbitrary photos ahead of the first grouped one, which is why the symptom was general
+// rather than particular to one product.
+//
+// Sorting them last costs nothing: they are near-duplicates of angles the requested groups already
+// supply, so on a product with a full set they fall past MAX_VIEWS and simply do not appear. On a
+// product where `chooseOptionGroups` matched nothing, EVERY view is ungrouped, they all tie here,
+// and the order is by angle exactly as before.
 export function viewGroupRank(group) {
-  if (!group) return -1;
+  if (!group) return GROUP_RANK.length + 1;
   return groupRank(group);
 }
 
