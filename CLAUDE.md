@@ -877,8 +877,17 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   would compete with real customers.
   (7) **Not fixed by this:** the 2026-08-19 Storage-fetch hang (the file fetch is very likely
   shared infrastructure). **Newly possible because of it:** the mesh shorts' `back` panel and the
-  track jacket's `details` strip, which v2 cannot express at all — both left as follow-ups, since
-  they change what customers see.
+  track jacket's `details` strip, which v2 cannot express at all. **The shorts' back landed
+  2026-08-29** (Aaron, on seeing the leg-wrap mockups: "it's odd that the shorts mockup on v1
+  doesn't have a back shot now") — 693's `placements` is `['front', 'back']`, confirmed against a
+  real v1 task first: two real photos come back, and the back is the mirrored render with the side
+  seams meeting across it. Until then the shorts were the one product in the catalogue whose back
+  panel a customer could buy without ever seeing. **The track jacket's `details` strip landed the same day**, once
+  the catalogue-wide audit below turned it up as the only remaining gap: retested on v1, the task
+  completes with all six placements, so the v2 restriction is simply gone. Note the previously
+  recorded symptom was wrong in detail — it was inferred from the bomber (390) and described a
+  blank *hem*; measured on 801 it is the **collar band**, 929 px of the front photo. Both follow-ups
+  from the migration are now closed.
   **Deploying it was a BREAKING contract change in both directions**, and the way out is worth
   remembering: rather than land the function and the frontend in the same instant (impossible when
   the frontend ships via a GitHub Action), the function was taught to speak BOTH shapes for one
@@ -908,10 +917,95 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   A non-interactive progress bar was prototyped and rejected because Aaron went to grab it: if it
   looks like a scrollbar it has to be one. `flex-wrap` was tried first and rejected too — 8 wraps
   to a tidy 4+4 at 360px, but 5 orphans one and 8 at 390px breaks a ragged 5+3.
+  - **Mockups submit exactly what an ORDER submits — every placement, no curation (2026-08-29,
+    Aaron: "all mockups should be sending all the same pieces that a final order sends").**
+    `useMockup` and checkout now resolve the identical placement set through
+    `mockupPlacementEntries`; `PRODUCT_MOCKUP_CONFIG`'s `placements` no longer has anything to do
+    with what a preview asks for, and survives only as the geometry-checkbox list
+    (`getGeometryPlacementOptions`'s fallback behind `geometryPlacementKeys`).
+    **What the old curation was costing, all found the same day:** the mesh shorts' entire back
+    panel; the track jacket's collar band (`details`, rendering blank white in every preview); and
+    **every product's label placements** — including the shorts' `label_outside`, which is not a
+    sewn-in tag but a **visible 3in patch on the front of the leg**. Customers were buying it
+    unseen. Measured on a controlled pair (identical artwork, identical variant, labels the only
+    difference): the front photo changes by **9,333 px**, the back by **0**. That asymmetry is the
+    whole point — `label_inside` really is invisible, `label_outside` really is not, and no
+    reasoning from the placement's NAME would have separated them.
+    **Two beliefs that justified the curation had silently expired at the v1 migration and were
+    only found by retesting — do not reinstate a filter on their authority.** The bandana (630)
+    was recorded as hard-rejecting `label_inside` with a 400; on v1 it is accepted and returns two
+    views. The track jacket (801) was recorded as failing the whole task when `details` is combined
+    with the sleeves; on v1 it completes. Both were true, of v2, and both outlived the API they
+    described. **There are currently no placements any product rejects.**
+    Three things worth not re-deriving:
+    (1) **Cost is a duplicate photo, not a wasted task.** A placement no camera angle shows collapses
+    onto an existing view and the Edge Function's URL de-duplication removes it, so the filmstrip is
+    unchanged. What it does cost is render work: labels take the cheap client-side
+    `generateLabelMark` path, but `label_panel`, `hood_inner`, `facing` and `inside_pocket` are
+    full-size printfiles and add a cached render each on the products that have them.
+    (2) **A filter is still expressible, but it belongs in `mockupPlacementEntries` alone**, per
+    product, with a reason and a retest date — never at a call site. A filter means a customer can
+    buy a piece they were never shown, so it needs to be visible to `checkCoverage`.
+    (2b) **`label_panel` is slightly visible — but do not oversell it, and NO product's mockup
+    shows an actual label.** Measured on the zip hoodie (controlled pair, identical artwork and
+    variant): submitting it changes a **40x38 px wedge at the throat, 0.15% of the frame**, from
+    blank white to printed, and changes the back photo by **0**. That is real and worth having, and
+    it is also small enough that you have to be told where to look — a first write-up of this
+    described it as a triangle of lining showing through the open collar, which reads as something
+    a customer would notice, and it isn't.
+    **The naming is the trap here.** `label_panel` is not a label: it is the hood/neckline lining,
+    a full-size print panel that happens to carry a label-ish name. The actual brand-mark
+    placements are `label_inside` and `label_outside`, and of those only `label_outside` is ever
+    photographable (the shorts' 3in leg patch). **A sewn-in neck tag has no camera angle on any
+    product and never will**, so "why doesn't the mockup show the label?" has the answer "because
+    it is inside the garment", not "because we don't submit it". Printful's ORDER view shows every
+    label because it lists the FILES, one per placement; the mockup generator returns PHOTOS.
+    The generalisable half stands: the two label-named placements on one product are opposite
+    cases, and no reasoning from a placement's NAME predicts whether a camera can see it — only a
+    controlled pair does. The same panel is on the hoodie (388) and sweatshirt (320), which now
+    submit it too, but **neither has been measured** — inferred, not verified. This changes only
+    the PREVIEW: `includesGeometry` still forces geometry off on `label_panel`, and the real order
+    always printed it.
+    (3) **`hideUnsubmittedViews` is now inert** (nothing is unsubmitted, so its hidden-word set is
+    empty and it returns its input). Keep it: it is the safety net for exactly the case where a
+    future exclusion does get added, and it is what stopped the bucket hat returning four blank
+    white photos when its inside placements were unsubmitted.
+    **It broke view NAMING, which is customer-facing, and the fix is in `printful-mockup`'s
+    normalisation (mirrored in the checker).** Two faults, found by reading the checker's own view
+    titles rather than by any assertion: `PLACEMENT_LABELS` had no entry for the three label keys,
+    so the fallback put the raw string `label_inside` on a filmstrip tab; and naming is FIRST-WINS
+    by URL, so on the track jacket a photo **of the jacket** came back named `label_outside`
+    purely because that placement happened to be ordered first. Label placements are now pushed
+    last (`LABEL_PLACEMENTS`), so when several placements share one photo the name comes from the
+    panel the photo actually shows, and the three keys have real labels (Inside label / Outside
+    label / Lining). `check-printful-mockups.mjs` now fails on any view whose name is a raw key
+    from `available_placements` — keyed off the real key list, not a regex on "label", so a
+    placement Printful adds later is caught the same way.
   **`scripts/check-printful-mockups.mjs` exists because of all of this** — it generates a real
   mockup for **every variant of every product (129 as of 2026-08-28)** and asserts the pipeline
   end to end. Run it
-  after any `PRODUCT_MOCKUP_CONFIG` change; ~18 min, needs only `PRINTFUL_API_KEY`. It found (4),
+  after any `PRODUCT_MOCKUP_CONFIG` change; ~18 min, needs only `PRINTFUL_API_KEY`.
+  **`--variants=N` samples the first N variants per product.** Every run leaves a file in
+  Printful's library permanently (no delete or list API), so a full 129-variant sweep is not
+  casual. Use the sample when what changed is a property of the PRODUCT (a placement list, an
+  option, wrap geometry); use the full run when it could differ per variant (a size- or
+  colour-restricted mockup style, per-variant printfile ids, anything touching the cache key's
+  colour discriminator).
+  **It gained `checkCoverage` on 2026-08-29, and the reason is worth internalising: two full green
+  runs sat on top of real gaps.** Every other assertion in that file reasons about the views that
+  came back for the placements we SUBMITTED — and the submission list was itself the thing under
+  test, so a view nobody thought to request was invisible by construction. Worse, `checkVariant`
+  calls `hideUnsubmittedViews`, which correctly hid the shorts' back view, and then asserted only
+  `views.length > 0`: **the check ran the code that hides the evidence and reported green on what
+  survived.** `checkCoverage` now compares the ORDER's placement set against the MOCKUP's, both
+  from the real exported helpers, and allows no difference. It costs no mockup quota and was
+  verified to FAIL on the day's real gaps before being trusted.
+  **The general lesson, which is not specific to mockups: a checker that derives its inputs from
+  the config it is checking can only ever confirm that config is self-consistent.** Something has
+  to compare it against the world — and if the two things being compared can both come from the
+  same call, the comparison is a tautology that passes forever. That is why "what a mockup
+  submits" is one exported function (`mockupPlacementEntries`) rather than an inline call at each
+  site: the checker imports the same one the app runs. It found (4),
   which hand-testing had passed over. Two things about it: it imports the REAL helpers (which is
   why `resolvePlacementEntries`/`buildMockupFiles`/`hideUnsubmittedViews` moved to
   `src/lib/printfulPlacements.js` — `lib/printful.js` imports the Supabase client and so cannot run
@@ -2454,9 +2548,12 @@ load for an unrelated reason and every count is meaningless.
     the mockup cache key (`useMockup.js`) so toggling a checkbox correctly misses a stale
     cached preview instead of silently reusing one rendered under a different selection.
     **Real bug from this, found in a live order 2026-07-29**: the checkbox list is derived
-    from `cfg.placements` — the MOCKUP-visible set — and mesh shorts (693) carry
-    `placements: ['front']` only because Printful publishes no "Flat Back" style for them,
-    not because there's no back panel. So `back` had no checkbox, was therefore never in
+    from `cfg.placements` — the MOCKUP-visible set — and mesh shorts (693) carried
+    `placements: ['front']` only because Printful published no "Flat Back" style for them under
+    v2, not because there's no back panel. (That constraint is gone: 693 submits both placements
+    since 2026-08-29, see the v1-migration note above. The lesson below is not — `placements` is
+    still a preview-visibility list, and narrowing it again for any product would re-open exactly
+    this hole.) So `back` had no checkbox, was therefore never in
     ProductPage's selection Set, and `includesGeometry` reads an absent placement as
     **geometry OFF** — every pair of shorts printed a geometry-less back (stars + gradient
     only), with no UI able to change it, and the front-only mockup could never reveal it.
@@ -2468,7 +2565,10 @@ load for an unrelated reason and every count is meaningless.
     catalog's real `available_placements` (not assumed): **693 was the only one.** The other
     mismatches are deliberate — `744`'s `inside_pocket`, `615`'s `hood_inner`/`facing`, and
     `801`/`390`'s `details` are interior/trim surfaces where geometry-off is the intended
-    rule, same as `label_panel`. Note the joggers (784) were **never** affected despite
+    rule, same as `label_panel`. (That reasoning still holds for GEOMETRY. It did not hold for
+    MOCKUPS, and the two were conflated until 2026-08-29 — `details` and `label_panel` are both
+    partly visible and were rendering blank; every placement is submitted for a preview now, while
+    geometry stays off on all of them.) Note the joggers (784) were **never** affected despite
     being the shorts' twin in every other respect: they do list `['front', 'back']`. With
     both panels on, the shorts' front and back resolved to the same render cache key (one
     printfile, and `twoLegCanvas` products were excluded from `mirrorPlacements` at the time),
@@ -2483,7 +2583,9 @@ load for an unrelated reason and every count is meaningless.
     `label_panel` (hoodie/zip hoodie/sweatshirt only — confirmed via Printful's own
     mockup-generator template reference images to be the hood/neckline **interior lining**
     panel, sharing a full-size printfile with front/pocket, not a small tag despite the
-    name). **Coverage and sizes re-audited live 2026-07-30 against
+    name; **and "interior" does not quite mean invisible — a 40x38 px wedge of it, 0.15% of the
+    frame, shows at the zip hoodie's throat and was rendering blank white; see the measurement in
+    the mockups-submit-everything bullet, and note it is far smaller than that sentence sounds**). **Coverage and sizes re-audited live 2026-07-30 against
     `mockup-generator/printfiles/{id}` for all 15 products — the earlier summary of these two
     was wrong in three ways, so trust this list, not a remembered rule:**
     `label_inside` is on **13 of 18** — absent on both t-shirts (257/261), the tote (274), the
@@ -2937,11 +3039,16 @@ load for an unrelated reason and every count is meaningless.
     ProductPage hides the row and skips `mirrorX` in that mode (`seamsAlreadyMatch`) — a
     correctness requirement, with front/back continuing to share one cached render as a bonus.
     **(2) Five rows → two.** `artworkScale` + `legSymmetry` + `geometryLayout` collapsed into one
-    `legArtwork` state with two options, **Detailed (default)** / **Oversized**;
-    Geometry placement is hidden on these two products only, so geometry renders on every panel
+    `legArtwork` state with two options, **Detailed** / **Oversized**. (**A third option,
+    `'front'` — "Across the front" — was added 2026-08-29 and is now the DEFAULT**; it is not
+    another scale but the leg-wrap that closes the centre-front seam, and it sends neither
+    `sizeFrame` nor `geometryLayout`. See the leg-wrap bullet below. Everything in this paragraph
+    still describes the two flat modes, which stay selectable.)
+    Geometry placement is hidden on these products only, so geometry renders on every panel
     there (which is what makes the `geometryPlacementKeys` fix above belt-and-braces rather than
-    the only thing standing between a customer and a blank back). `geometryLayout` is now fixed
-    at `'mirror'` and `legSymmetry` at `false`; only the size frame differs between the modes.
+    the only thing standing between a customer and a blank back). In the two flat modes
+    `geometryLayout` is fixed at `'mirror'` and `legSymmetry` at `false`; only the size frame
+    differs between them.
     **`legSymmetry` is deliberately NOT in either mode, and getting that wrong is the trap.**
     First pass folded it into the default, reading Aaron's "the one leg option == mirrored,
     that's the default" as the SHEET mirror. It meant the **geometry layout** mirror — the shape
@@ -2979,48 +3086,117 @@ load for an unrelated reason and every count is meaningless.
     v8-clamped, one-leg-scaled print file is itself the proof.
     **Still open: the other 13 products keep Geometry placement and were not otherwise
     reworded** — Aaron's complaint was general, so this is a candidate for the same treatment.
-  - **The legs read as separate, and it is PARKED as a signature look (2026-08-28). Read this
-    before attempting a wrap again — the reason it was parked is geometric, not a lack of
-    effort.** Aaron: "the pants and shorts panel alignment doesn't quite make sense. the legs
-    read as separate." He is right about the cause. The two leg panels are cut with a wide strip
-    of fabric BETWEEN them that is thrown away — **8.7% of the sheet on the shorts (982px of
-    11250), 6.6% on the joggers, 11.6% on the pants** — and the two edges either side of it are
-    then sewn to each other at the centre-front rise, so a composition running straight across
-    the sheet JUMPS there. Measured on the two columns actually stitched together, over 3
-    products x 3 designs: mean per-channel difference **42.7 of 255**.
-    Three fixes were built and all three were rejected on looks. Each failed for a different and
-    instructive reason, and the third one is the one that settles it:
+  - **The legs read as one piece across the front now — `src/render/legWrap.js`, the default on
+    all three two-leg products (2026-08-29, Aaron: "have the full design across the front of the
+    product as the default"). This SUPERSEDES the 2026-08-28 "parked as a signature look" note;
+    what is kept below is the part that is still true, namely why the three earlier attempts
+    failed and where the real wall is.** The two leg panels are cut with a wedge of fabric BETWEEN
+    them that is thrown away — **19.1% of the sheet's width on the shorts, 14.3% on the pants,
+    14.1% on the joggers**, measured on the front sheets — and the two edges either side of it are
+    then sewn to each other at the centre-front rise, so a composition running straight across the
+    sheet JUMPS exactly where the customer looks first. On the two columns actually stitched
+    together, over 3 products x 5 real saved designs, mean per-channel difference **57–85 of 255**,
+    about **4–6.5x** what the same artwork changes naturally over that span.
+    **The fix is a pure translation, and the reason it is available is one measurement nobody had
+    taken: the rise edge is essentially STRAIGHT over the part anyone sees.** It looks like a curve
+    on the template, but only its last fifth hooks toward the crotch point, and that hook tucks
+    under the body — over the visible run it holds to within 10px of 2967 on all three products. So
+    one composition is rendered at the assembled front's own size and drawn onto the sheet twice,
+    the left half slid right and the right half slid left, each by half the discarded wedge; the
+    seam lands on the composition's own centre column and closes by construction. Nothing is
+    stretched, sheared or resampled. Below the crotch the legs genuinely separate, there is no seam
+    to close, and the composition simply carries on into air that never gets printed.
+    **The cone constraint from the 2026-08-28 attempt is real and is NOT contradicted by this.**
+    A trouser leg's circumference changes 2.20x down the shorts, 1.80x down the pants, 1.64x down
+    the joggers, and no repeating flat pattern wraps a cone seamlessly. That wall applies to
+    wrapping a WHOLE LEG all the way round. It says nothing about closing one seam at the front,
+    which is all this does — and all Aaron ever asked for. Do not let the earlier note talk a
+    future session out of this one.
+    Why the three earlier attempts failed, kept because each is a live trap:
     (1) **`renderArtwork`'s `legSymmetry`** (reflect the sheet's left half onto its right) closes
-    that seam — 42.7 to **0.2** — but discards half the composition and makes a leg's back panel
-    byte-identical to its front. Aaron: "it feels like half the design gets cut off. the front
-    and back just look like near mirror opposite." Both halves of that are literally true.
-    (2) **Slices of a tileable composition mapped onto each panel's rectangular bounding box.**
-    Front and back finally differed, but the real fabric edges are curves wandering 3-9% of the
-    sheet, so the two edges meeting at a side carried different parts of the design at most
-    heights. Aaron: "now we have a different seem at the sides."
-    (3) **A row-by-row warp onto the real panel outlines.** Seams closed everywhere (outseam 3.3,
-    inseam 6.3, centre 1.4, measured at the true edge curves) and it looked *worse*: stretching
-    each row independently shears the artwork, and drawing thousands of 1px rows at fractional x
-    let the backdrop bleed through the panel edge — measured at 4-5x the sheet's normal
-    adjacent-column difference along exactly the columns the edge sweeps. Aaron: "it's much worse
-    now and there's some weird lines appearing."
-    **THE CONSTRAINT, which is what should have been established first: a trouser leg is a CONE,
-    not a cylinder.** Measured row by row, the leg's circumference changes **2.20x** down the
-    shorts, **1.80x** down the pants and **1.64x** down the joggers. A repeating flat pattern
-    cannot wrap a cone seamlessly — a period that closes at the hip is ~40% wrong at the hem. So
-    there are three corners and you may have any two: seamless sides + front != back requires
-    stretching (3); seamless sides + undistorted forces back = mirror of front (which is today);
-    front != back + undistorted means the seam closes at one height and opens away from it.
-    Aaron's ask — full design wrapping seamlessly around each leg with mirror seams only at the
-    centre — sits outside all three and is not reachable.
-    **Decision: accept the asymmetry as a signature look for the shorts and pants.** Everything
-    above was reverted; the renderer is byte-identical to before it. If it is ever revisited, the
-    piece worth rebuilding first is an opt-in `wrapX` render flag making a composition
-    horizontally periodic (draw every star/blob/shape again a canvas width to either side; flatten
-    both linear gradients onto their principal axis — BOTH branches are diagonal, which is easy to
-    miss — and close the horizontal one into a colour cycle). It measured clean (tile join 0.0-1.2x
-    the baseline adjacent-column difference, against 96-325x without it) and cost nothing: all 97
-    stored designs rendered byte-identically, so it needed no `GENERATOR_VERSION` bump.
+    the seam but discards half the composition and makes a leg's back panel byte-identical to its
+    front. Aaron: "it feels like half the design gets cut off." Both halves of that are literally
+    true. It remains supported and remains off.
+    (2) **Slices of a tileable composition mapped onto each panel's rectangular bounding box.** The
+    real fabric edges are curves wandering 3–9% of the sheet, so the two edges meeting at a SIDE
+    carried different parts of the design at most heights. Aaron: "now we have a different seem at
+    the sides."
+    (3) **A row-by-row warp onto the real panel outlines.** Seams closed everywhere and it looked
+    *worse*: stretching each row independently shears the artwork, and drawing thousands of 1px
+    rows at fractional x let the backdrop bleed through the panel edge. Aaron: "it's much worse now
+    and there's some weird lines appearing." The lesson is that a per-row STRETCH is fatal; the
+    per-half TRANSLATION that shipped is a different animal entirely.
+    **The shipped `shift` deliberately OVERSHOOTS true registration, and that is Aaron's call from
+    real mockups (2026-08-29) — do not "correct" it back.** Its geometric zero point is half the
+    discarded wedge (0.09623 / 0.07133 / 0.07033 for 693 / 604 / 784); the shipped values are
+    0.14161 / 0.10158 / 0.08804. The reason is measured, not aesthetic hand-waving: a numbered
+    colour ruler put through this same map and printed on the real garment reads **...9 | 14 across
+    the waist** at the zero point — 2–3 bands of 24 simply not visible, real fabric turning away
+    from the camera at the centre front (seam allowance, the rise curving under the body, and the
+    gathered elastic waist on the shorts). Overshooting hides that in a narrow strip that repeats
+    down in the crotch, where nothing is visible, and buys a front that reads continuous from waist
+    to crotch. **The two metrics genuinely disagree and each favours the value it is aligned with,
+    so quote them in pairs.** On the flat FILE at the stitch columns: today 4.0/5.4/6.5x the noise
+    floor, geometric 1.7/1.8/1.5x, shipped 4.6/4.7/3.8x. On the columns that actually end up
+    adjacent IN VIEW: today 13.6/7.3/6.0x, geometric 4.1/5.6/4.8x, shipped **3.2/1.8/1.5x**. The
+    shorts are the least converged of the three (3.2x as seen) because their overshoot is tuned to
+    the waist and over-corrects lower down.
+    **Rebuild the ruler mockup if this is ever retuned** — it is the only non-circular instrument,
+    since Printful places the pieces from its own manufacturing geometry. `scripts/` has no copy;
+    it was a throwaway (a 24-band hue ruler at the composition width, put through `drawLegWrap`,
+    uploaded to the `design-mockups` bucket and submitted as a real v1 mockup task). A local
+    preview positioned from these same numbers cannot test them — same circularity that wasted a
+    round on the hoodie pouch.
+    Eight things worth not re-deriving:
+    (1) **One implementation, not two.** `legWrap.js` is exported through `render-service/entry.js`
+    so esbuild bundles it alongside `generateArtwork` — browser and Fly run the same code, unlike
+    `drawRegion` which is mirrored by hand and is an explicit drift hazard. Verified: a sheet
+    composited in Chromium, in WebKit and under `@napi-rs/canvas` from the same composition is
+    **byte-identical, 0 differing subpixels of 2.28M**. That cross-engine check is a different
+    instrument from `check-render-regression.mjs`, which runs napi-rs at both ends — the v11 star
+    spike divergence is what proved the two are not interchangeable.
+    (2) **`mirrorX` must NOT reach the source render.** For every other placement it reflects the
+    composition inside `renderArtwork`; here what has to be reflected is the finished SHEET, so a
+    mirrored back meets the front across the side seams. `drawLegWrap` does it. Doing both mirrors
+    twice and lands back where it started. Same rule as `hatWrap`. Verified: a mirrored render is a
+    **pixel-exact** flip of its unmirrored twin, max subpixel delta 0, all three products.
+    (3) **Smoothing is off for the two edge-clamp draws.** A single source column stretched
+    sideways has nothing to interpolate, and with smoothing on it resampled slightly differently at
+    the two ends, which broke (2) — 7 subpixels of 2.52M on the joggers, all in the sliver outside
+    every cut piece. Small, but the flip being exact by construction is what the side seams rest on.
+    (4) **`sizeFrame` plays no part in this mode** and is never sent with it. The composition IS one
+    leg-pair front, so element sizes are already measured against exactly what the customer sees;
+    `legPanel` was only ever approximating that.
+    (5) **`geometryLayout` is `null` here, not `'mirror'`.** `'mirror'` exists because on a flat
+    sheet the shape's default centring put it on the cut line, lost in the inseam. In this mode the
+    composition's centre IS the centre-front seam, so a centred shape straddles it in full view —
+    the same thing every other product's front panel does. It is also what the mockups this mode
+    was signed off from were rendered without.
+    (6) **The centre BACK improves but does not close, deliberately.** The back panels are wider at
+    the rise (their inner edge sits at ~1211 / 1142 / 1226 template px against the front's 1214 /
+    1286 / 1289), so sharing the front's shift leaves a residual gap there — near zero on the
+    shorts, small on the joggers, largest on the pants. Closing it exactly needs the back to shift
+    by a different amount, which breaks the mirror relationship and reopens BOTH side seams. Keeping
+    the mirror is what keeps the side seams closed and is what makes the back "the reverse of the
+    front" the way Aaron described it.
+    (7) **It is a customer CHOICE, so it rides as a parameter and belongs in both cache keys** —
+    unlike `hatWrap`, which every call site reads straight off the product config. Front and back
+    share one printfile id on these products, so without `:legwrap` in the render cache key and
+    `legWrapSignature` in `useMockup`'s, a flat render would be served for a wrapped one and the
+    Artwork row would silently do nothing. The two flat scales stay selectable (Aaron's call), so
+    the look these products shipped with until now is still reachable.
+    (8) **No `GENERATOR_VERSION` bump** — it consumes no `rng()` and does not touch
+    `generateArtwork`; it is per-order render context like `sizeFrame`.
+    `check-render-regression.mjs` passes on all **99** stored designs (0 changed), and every
+    non-wrapped render path is **byte-identical** to the previous commit (32/32 hashes across 4
+    designs x 8 shapes, incl. `regions`, `mirrorX`, `legSymmetry`, `sizeFrame`, `geometryLayout`
+    and `hatWrap`).
+    **DEPLOY ORDER: render-service and `render-print-file` BEFORE the frontend.** render-service
+    ignores an unknown field, so a browser sending `legWrap` against an old Fly bundle would show a
+    wrapped mockup and print a FLAT garment — and with no version bump there is no mismatch check
+    to catch it. Exactly the `density` / `mirrorX` / `legSymmetry` / `hatWrap` hazard. No thumbnail
+    backfill (composition is unchanged for every stored design) and no Printful payload change, so
+    `check-printful-catalog`/`-mockups`/`-draft-orders` are unaffected.
   - **ProductPage's options collapsed into one "Print options" disclosure, 2026-07-25**
     (Aaron: the page felt cluttered — fairly, since two of the sections had landed that same
     day). Five refinement sections (inside artwork, geometry placement, geometry layout, side

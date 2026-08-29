@@ -5,6 +5,67 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
+## Ready to deploy — leg wrap on the shorts / joggers / pants (2026-08-29)
+
+Built and verified locally, **nothing pushed**. The artwork now runs across the front of the
+two-leg products as one piece instead of restarting where the legs are sewn together
+(`src/render/legWrap.js`; see CLAUDE.md's leg-wrap bullet for the geometry and the calibration).
+
+**Deploy in this order — render-service and the Edge Function BEFORE the frontend.** There is no
+`GENERATOR_VERSION` bump, so there is no mismatch check to catch a mismatched pair: a browser
+sending `legWrap` at an old Fly bundle would show a wrapped mockup and print a FLAT garment. The
+reverse gap is harmless (an old browser simply never sends the field), so unlike a version bump
+this does **not** need the store paused.
+
+- [ ] `flyctl deploy --config render-service/fly.toml` from the repo root, then `flyctl status`
+      to confirm **all** machines took the release (a split release fails roughly half of
+      checkouts intermittently).
+- [ ] `npx supabase functions deploy render-print-file` — it forwards the new `legWrap` field.
+- [ ] `npx supabase functions deploy printful-mockup` — its view-naming normalisation changed
+      (label placements are named and pushed last). **Required, not optional**: without it a
+      filmstrip tab reads `label_inside`, and on the track jacket a photo of the jacket is named
+      `label_outside`. Safe to deploy before the frontend — an older bundle simply submits fewer
+      placements, which the new normalisation handles unchanged.
+- [ ] Commit and push, then poll the live site until the new bundle actually serves (the render
+      code compiles into a SHARED chunk, not `index-*.js` — crawl the entry chunk's imports).
+- [ ] Sanity-check one real product page per two-leg product (693 / 604 / 784): the Artwork row
+      offers three options with **Across the front** selected, and the generated mockup shows the
+      design continuing over the centre front. On the shorts specifically, confirm the filmstrip
+      now carries a **Back** photo — 693 submits its back placement for the first time (it was
+      `['front']` from the v2 days, when no back style existed), so that product's mockups cost one
+      extra capped render while Front &amp; back is set to Mirrored.
+- [ ] Sanity-check the **track jacket (801)** too: its `details` placement is submitted for the
+      first time, so the collar band should no longer render blank white. Costs one extra capped
+      render there as well; no UI change (`details` gains no geometry checkbox — verified live that
+      801's options still read Front / Back / Left sleeve / Right sleeve, identical to the bomber).
+- [x] **Mockups now submit every placement an order does** (Aaron's rule), so `placements` is no
+      longer a curated preview list — it survives only as the geometry-checkbox fallback. Verified
+      with a real one-variant-per-product sweep: 18/18 products produce usable previews.
+- [x] Catalogue-wide mockup coverage audit. `check-printful-mockups.mjs` gained `checkCoverage`
+      (order set vs mockup set, both from the real helpers) and a raw-placement-key view-name
+      assertion; both cost no mockup quota, and `checkCoverage` was verified to fail on the gaps it
+      found (693 `back`, 801 `details`) before being trusted. It also gained `--variants=N`.
+- [ ] **Run the FULL `check-printful-mockups.mjs` (all 129 variants) once before deploying.** The
+      sampled run proves the placement change, which is per-product; a full run is what covers the
+      per-variant axis (size/colour-restricted mockup styles, per-variant printfile ids). ~18 min,
+      and it leaves 129 permanent files in Printful's library, so do it once, at deploy time.
+- [ ] Optional but cheap: one free draft order per product
+      (`PRINTFUL_API_KEY=... node scripts/check-printful-draft-orders.mjs --products 693,604,784`)
+      — the order preview Printful renders from the real print files is the one independent look
+      at what actually gets printed. Nothing in the submitted payload changed, so this is a
+      confidence check rather than a required one.
+
+Not needed, checked rather than assumed: no thumbnail backfill (composition is unchanged for
+every stored design — `check-render-regression.mjs` passes on all 99), and no catalog/mockup
+config drift, so `check-printful-catalog.mjs` and `check-printful-mockups.mjs` are unaffected.
+
+**Not verified locally: a real `docker build` of `render-service/Dockerfile`** — Docker was not
+running on this machine. The bundle WAS rebuilt and the server exercised end to end from a
+directory containing only the files the Dockerfile copies (a legWrap render returned valid PNG
+bytes; malformed geometry 400s, a stale version 422s, a bad key 401s), which is what catches a
+missing `COPY`. The only new file is `src/render/legWrap.js`, already inside the existing
+`COPY src/render`. Run the real image build before deploying if convenient.
+
 ## Closed incident, both follow-ups deferred (2026-08-19)
 
 - [x] **Printful could not fetch our Supabase Storage URLs — every mockup task hung

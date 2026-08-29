@@ -194,15 +194,25 @@ export const PRODUCT_MOCKUP_CONFIG = {
   693: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
-    // No "Flat Back" style exists in this product's mockup-styles catalog (just Front,
-    // on-model, and lifestyle angles) -- front is the only flat preview available.
-    placements: ['front'],
-    // ...but the shorts DO have a real, printed 'back' panel -- it just can't be previewed.
-    // Without this override the geometry checkboxes would be derived from `placements` above
-    // and offer Front only, which leaves 'back' out of ProductPage's selection Set, and
-    // includesGeometry reads an absent placement as "geometry OFF". That silently printed
-    // every pair of shorts with a geometry-less back and gave the customer no control over
-    // it (real order, 2026-07-29). Same override the bucket hat (654) needs, same reason.
+    // 'back' added 2026-08-29 (Aaron, on seeing the new mockups: "it's odd that the shorts
+    // mockup on v1 doesn't have a back shot now"). This was 'front' alone for a reason that
+    // EXPIRED with the v1 migration and was left as a follow-up: v2 had no "Flat Back" style for
+    // this product, so a back preview genuinely could not be asked for. v1 returns every camera
+    // angle the product has instead, and hideUnsubmittedViews was correctly dropping the back
+    // view because we sent no back file -- so the shorts were the one product in the catalogue
+    // whose back panel a customer could buy without ever seeing. Confirmed with a real v1 task
+    // before changing this: submitting both placements returns two real photos, front and back,
+    // and the back is the mirrored render with the side seams meeting across it.
+    // Costs one extra capped mockup render, and only while the Front & back row is set to
+    // Mirrored -- unmirrored, both placements resolve to the same cache key and one render.
+    placements: ['front', 'back'],
+    // Kept even though it now matches `placements` exactly. It is not redundant: it is what
+    // guarantees the geometry SELECTION covers the back panel independently of whatever the
+    // mockup set happens to be, and it existed because a previous mismatch between the two
+    // silently printed every pair of shorts with a geometry-less back and gave the customer no
+    // control over it (real order, 2026-07-29) -- includesGeometry reads an absent placement as
+    // "geometry OFF". Deleting it would re-couple the two and reintroduce that hazard the next
+    // time `placements` is narrowed for a preview reason. Same override the bucket hat (654) has.
     geometryPlacementKeys: ['front', 'back'],
     // Enabled 2026-07-29 -- see mirrorPlacements' own comment above for the seam analysis that
     // reversed this product's earlier exclusion, and why the flip is a no-op under "Mirrored
@@ -216,6 +226,23 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // product's own CAD sewing template (2812x4031px = 18.7in x 26.9in, aspect 1.43 -- very
     // nearly a t-shirt front). Lets the customer size the composition to a single leg rather
     // than to the whole sheet, which is never seen at once. See render/scale.js.
+    // Lays one composition across the ASSEMBLED FRONT instead of across the flat sheet, so the
+    // artwork continues over the centre-front seam rather than restarting at it (2026-08-29 --
+    // see src/render/legWrap.js for the map and CLAUDE.md for the three attempts before it).
+    // Fractions of the printfile's width.
+    //   width -- spans both leg panels once they have slid together, taken from the wider of this
+    //            product's front and back sheets so a mirrored back is covered too.
+    //   shift -- how far each half slides toward the centre. Its geometric zero point -- half the
+    //            discarded wedge, flood-measured off template 198100 -- is 0.09623; the shipped
+    //            value overshoots it, calibrated on real Printful mockups of a numbered ruler put
+    //            through this same map. At the zero point the ruler read ...9 | 14 across the
+    //            waist, three bands of 24 unaccounted for: real fabric turning away from the
+    //            camera at the centre front (seam allowance, the rise curving under the body, and
+    //            this product's gathered elastic waist). Overshooting hides that in a narrow strip
+    //            that repeats down in the crotch, where nothing is visible, and buys a front that
+    //            reads continuous from waist to crotch. Aaron's call, 2026-08-29, from the
+    //            mockups -- the same trade he took on the hoodie pouch.
+    legWrap: { placements: ['front', 'back'], shift: 0.14161, width: 0.49882 },
     legPanel: { width: 0.250, height: 0.926 }
   }, // mesh shorts
   717: {
@@ -273,14 +300,35 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // Measured the same way as 693's: 2730x8009px = 18.2in x 53.4in, aspect 2.93. That is a
     // tall narrow frame, which is exactly why getElementSizeScale clamps its aspect term --
     // unclamped, sizing to this panel would blow elements up rather than reining them in.
+    // Lays one composition across the ASSEMBLED FRONT instead of across the flat sheet, so the
+    // artwork continues over the centre-front seam rather than restarting at it (2026-08-29 --
+    // see src/render/legWrap.js for the map and CLAUDE.md for the three attempts before it).
+    // Fractions of the printfile's width.
+    //   width -- spans both leg panels once they have slid together, taken from the wider of this
+    //            product's front and back sheets so a mirrored back is covered too.
+    //   shift -- how far each half slides toward the centre. Zero point (half the discarded wedge, off
+    //            template 382466) is 0.07033; the shipped value overshoots it for the reason
+    //            spelled out on the shorts (693) above. This product needed the least correction
+    //            of the three -- its ruler was already closed outright from mid-rise down.
+    legWrap: { placements: ['front', 'back'], shift: 0.08804, width: 0.56667 },
     legPanel: { width: 0.276, height: 0.989 }
   }, // wide-leg joggers
   801: {
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
-    // 'details' omitted -- confirmed live to fail the task when combined with the sleeve
-    // placements (see comment above). This set already covers every visible panel.
-    placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'pocket'],
+    // 'details' was omitted because on v2 it failed the whole task when combined with the sleeve
+    // placements. **Retested on v1 2026-08-29 and that is no longer true** -- the task completes
+    // with all six, and the omission was visible: without it the neck band renders BLANK WHITE in
+    // every track-jacket preview (measured against the with-details render of the same variant --
+    // 929 px differ, all of them in the collar band). Note the older claim in CLAUDE.md that this
+    // showed as a blank *hem* was inferred from the bomber (390) and is wrong for this product;
+    // here it is the collar. The real garment was never affected either way -- checkout submits
+    // every placement unfiltered -- this only ever cost a preview.
+    // Costs one extra capped render: 'details' shares printfile 693 with the front, but resolves
+    // to a different cache key because geometry is off on it. Same price the bomber already pays.
+    // It gains no geometry checkbox: 'details' is not in GEOMETRY_PLACEMENT_LABELS, so
+    // includesGeometry keeps reading it as OFF, which is the intended rule for a trim surface.
+    placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'pocket', 'details'],
     mirrorPlacements: ['back']
     // No pocketCrop here, deliberately: checked this product's 'pocket' placement against
     // its mockup-generator templates (printful-catalog?id=801&templates=1, template
@@ -470,6 +518,16 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // elementSizeScale(leg)/elementSizeScale(sheet) at 0.688, right beside the joggers' 0.725 and
     // well clear of the shorts' 0.4196 -- the expected ordering, since that ratio tracks how far a
     // single panel's aspect sits from the sheet's.
+    // Lays one composition across the ASSEMBLED FRONT instead of across the flat sheet, so the
+    // artwork continues over the centre-front seam rather than restarting at it (2026-08-29 --
+    // see src/render/legWrap.js for the map and CLAUDE.md for the three attempts before it).
+    // Fractions of the printfile's width.
+    //   width -- spans both leg panels once they have slid together, taken from the wider of this
+    //            product's front and back sheets so a mirrored back is covered too.
+    //   shift -- how far each half slides toward the centre. Zero point (half the discarded wedge,
+    //            off template 127919) is 0.07133; the shipped value overshoots it, same reasoning
+    //            as the shorts (693) above, calibrated on this product's own ruler mockup.
+    legWrap: { placements: ['front', 'back'], shift: 0.10158, width: 0.58067 },
     legPanel: { width: 0.296, height: 0.924 }
   }, // wide-leg pants
   458: {

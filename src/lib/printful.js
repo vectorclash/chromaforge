@@ -3,18 +3,20 @@ import { cachedFetch } from './catalogCache';
 import { isSameDesign } from '../render/designSettings';
 import {
   resolvePlacementEntries,
+  mockupPlacementEntries,
   buildMockupFiles,
   hideUnsubmittedViews
 } from './printfulPlacements';
 
-// resolvePlacementEntries/buildMockupFiles/hideUnsubmittedViews live in printfulPlacements.js and
+// These four live in printfulPlacements.js and
 // are re-exported here so every existing import site is unchanged. They moved for the same reason
 // PRODUCT_MOCKUP_CONFIG did: this module imports the Supabase client, so nothing in it can run
 // from a plain-Node script -- and scripts/check-printful-mockups.mjs has to exercise the REAL
 // helpers, not a copy that drifts from the code it exists to protect.
-export { resolvePlacementEntries, buildMockupFiles, hideUnsubmittedViews };
+export { resolvePlacementEntries, mockupPlacementEntries, buildMockupFiles, hideUnsubmittedViews };
 import { generateLabelMark } from '../render/generateLabelMark';
 import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../render/hatWrap';
+import { drawLegWrap, legWrapSourceSize } from '../render/legWrap';
 import renderLabelMark from '../render/renderLabelMark';
 import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
 
@@ -235,14 +237,20 @@ const GEOMETRY_PLACEMENT_LABELS = [
   { key: 'inside_back', label: 'Inside back' }
 ];
 
-// Which placements this list is derived from defaults to cfg.placements -- the mockup set --
-// because for every product up to the bucket hat (654) "printed panel the customer sees" and
-// "panel visible in a Flat Front/Back photo" were the same set. They aren't on a reversible
-// garment: the hat's inside panels are really printed and really worn, but no mockup style
-// photographs them (see 654's config comment), so deriving from cfg.placements would leave
-// them with no checkbox -- and a placement with no checkbox is never in ProductPage's
-// selection Set, which includesGeometry reads as "geometry off", silently and unfixably.
-// cfg.geometryPlacementKeys is the explicit override for that case.
+// Derived from cfg.geometryPlacementKeys, falling back to cfg.placements.
+//
+// **cfg.placements no longer has anything to do with what a mockup submits** (2026-08-29 --
+// mockups now resolve placements unfiltered, exactly as checkout does; see
+// printfulPlacements.js). This is its one remaining consumer, so read it as "which panels offer
+// the customer a geometry checkbox", and the fallback as a convenience for the products whose
+// two lists happened to coincide. That coincidence is precisely what went wrong twice: a
+// placement with no checkbox is never in ProductPage's selection Set, which includesGeometry
+// reads as "geometry off", silently and unfixably -- it printed geometry-less backs on the mesh
+// shorts, and would have on the bucket hat's inside panels, which are really printed and really
+// worn. cfg.geometryPlacementKeys is the explicit override, and is the safer thing to write.
+// Note the whitelist above is what keeps trim surfaces (details, label_*, facing, hood_inner,
+// inside_pocket) out of this list no matter what the fallback contains -- geometry-off is the
+// intended rule for those, and it now survives the placements list widening.
 export function getGeometryPlacementOptions(cfg) {
   const placements = cfg?.geometryPlacementKeys || cfg?.placements || [];
   return GEOMETRY_PLACEMENT_LABELS.filter(
@@ -287,6 +295,16 @@ export function hasTwoLegCanvas(cfg) {
 // sizeFrame when the customer picks the panel option. See render/scale.js.
 export function getLegPanel(cfg) {
   return cfg?.legPanel || null;
+}
+
+// The geometry for laying one composition across this product's ASSEMBLED FRONT rather than
+// flat across the sheet, so the artwork continues over the centre-front seam -- the three
+// two-leg products, see their config entries and src/render/legWrap.js. Null for everything
+// else. Unlike getHatWrap this is not automatically in play wherever it exists: it is the
+// default mode on those products but the customer can still pick the flat scales, so
+// ProductPage resolves it and passes it down rather than every call site reading it here.
+export function getLegWrap(cfg) {
+  return cfg?.legWrap || null;
 }
 
 
@@ -458,6 +476,13 @@ export async function renderAndUploadPrintFiles(
     // hatWrap and src/render/hatWrap.js. Null for every other product, which renders exactly
     // as it did before this existed.
     hatWrap = null,
+    // Lays one composition across the ASSEMBLED FRONT of a two-leg garment instead of flat
+    // across the sheet, so the artwork continues over the centre-front seam -- the shorts,
+    // joggers and wide-leg pants, see PRODUCT_MOCKUP_CONFIG's legWrap and src/render/legWrap.js.
+    // Unlike hatWrap this is a customer choice (ProductPage's Artwork row), so it arrives as a
+    // parameter and belongs in the cache key below. Null on every other product and in the two
+    // flat modes, which render exactly as they did before this existed.
+    legWrap = null,
     // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
@@ -513,6 +538,9 @@ export async function renderAndUploadPrintFiles(
     // Only the faces the product names, so a label placement on the same product can never be
     // wrapped -- the geometry describes crown and brim pieces it has nothing to do with.
     const wrap = hatWrap?.placements?.includes(placementKey) ? hatWrap : null;
+    // Same discipline as `wrap`: only the faces the product itself names, so a label placement
+    // on the same product can never be wrapped onto a geometry that describes leg panels.
+    const legs = legWrap?.placements?.includes(placementKey) ? legWrap : null;
     // The design is part of the cache key, not just the printfile/geometry/layout: on the
     // bucket hat all four face placements share ONE printfile id, so without this the inside
     // would collide with the outside's entry and silently be served the outside's render --
@@ -533,7 +561,12 @@ export async function renderAndUploadPrintFiles(
       // A wrapped face and an unwrapped one would otherwise collide on printfile id alone.
       // Only ever appended for a product that declares hatWrap, so every other product's keys
       // stay byte-identical.
-      `${wrap ? ':hatwrap' : ''}`;
+      `${wrap ? ':hatwrap' : ''}` +
+      // A wrapped face and a flat one would otherwise collide on printfile id alone, and on
+      // these products front and back share one -- so without this the flat mode would be
+      // served the wrapped render (or the reverse) and the Artwork choice would silently do
+      // nothing. Only ever appended when the customer is actually in the wrapped mode.
+      `${legs ? ':legwrap' : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       rendered[cacheKey] = spec
@@ -547,7 +580,8 @@ export async function renderAndUploadPrintFiles(
             mirrorX,
             sizeFrame,
             legSymmetry,
-            wrap
+            wrap,
+            legs
           )
         : Promise.resolve(null);
     }
@@ -595,6 +629,22 @@ async function compositeRegionsBlob(sourceBlob, outW, outH, regions) {
   bitmap.close();
   return new Promise((resolve, reject) =>
     canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Composite failed'))), 'image/jpeg', 0.92)
+  );
+}
+
+// Client-side half of the leg wrap: decode the one rendered source and hand it to the SHARED
+// drawLegWrap (src/render/legWrap.js). Like drawHatWrap and unlike drawRegion, that module goes
+// through the same esbuild bundle as generateArtwork, so the browser and render-service run one
+// implementation and cannot drift.
+async function compositeLegWrapBlob(sourceBlob, geom, outW, outH, mirror) {
+  const source = await createImageBitmap(sourceBlob);
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  drawLegWrap(canvas.getContext('2d'), source, geom, outW, outH, { mirror });
+  source.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Leg wrap composite failed'))), 'image/jpeg', 0.92)
   );
 }
 
@@ -747,9 +797,31 @@ export function capRenderStrategy(renderDesignBlob) {
     mirrorX = false,
     sizeFrame = null,
     legSymmetry = false,
-    hatWrap = null
+    hatWrap = null,
+    legWrap = null
   ) => {
     const { width, height } = capMockupRenderSize(spec.width, spec.height);
+    // Lays one composition across the assembled front (see src/render/legWrap.js). Same two
+    // properties that make the hat wrap below safe: the source is sized from the geometry, so
+    // its ASPECT is identical here and at true print resolution and this capped mockup shows
+    // the composition the print file will rather than a second recompose of the same seed; and
+    // mirrorX is NOT passed to the source render, because what has to be reflected is the
+    // finished SHEET so a mirrored back meets the front across the side seams. drawLegWrap
+    // does that; doing both would mirror twice and land back where it started.
+    //
+    // sizeFrame is deliberately not passed either: the composition IS one leg-pair front here,
+    // so element sizes are already measured against what the customer sees. ProductPage never
+    // sends both, but the render path should not depend on that.
+    if (legWrap) {
+      const src = legWrapSourceSize(legWrap, width, height);
+      const sourceBlob = await renderDesignBlob(design, src.width, src.height, {
+        includeGeometry,
+        geometryLayout,
+        legSymmetry
+      });
+      const blob = await compositeLegWrapBlob(sourceBlob, legWrap, width, height, mirrorX);
+      return uploadMockupSourceImage(blob, `${printfileId}-legwrap${mirrorX ? '-mirror' : ''}`);
+    }
     // Wraps the composition onto the product's real cut pieces (see src/render/hatWrap.js).
     // The two sources are sized from the geometry rather than from the printfile, so their
     // ASPECT is identical here and at true print resolution -- which is what keeps this capped
@@ -827,7 +899,8 @@ export async function renderPrintFileStrategy(
   mirrorX = false,
   sizeFrame = null,
   legSymmetry = false,
-  hatWrap = null
+  hatWrap = null,
+  legWrap = null
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -842,9 +915,11 @@ export async function renderPrintFileStrategy(
     height: spec.height,
     label: hatWrap
       ? `${printfileId}-hatwrap${mirrorX ? '-mirror' : ''}`
-      : regionsConfig
-        ? `${printfileId}-pocket`
-        : printfileId,
+      : legWrap
+        ? `${printfileId}-legwrap${mirrorX ? '-mirror' : ''}`
+        : regionsConfig
+          ? `${printfileId}-pocket`
+          : printfileId,
     includeGeometry,
     geometryLayout,
     mirrorX,
@@ -855,6 +930,9 @@ export async function renderPrintFileStrategy(
     // render-service derives both source sizes from this geometry, so there is nothing else to
     // send -- and no sourceWidth/sourceHeight, which belong to the regions path only.
     body.hatWrap = hatWrap;
+  } else if (legWrap) {
+    // render-service derives the source size from this geometry, same as hatWrap above.
+    body.legWrap = legWrap;
   } else if (regionsConfig) {
     body.regions = regionsConfig.regions;
     body.sourceWidth = regionsConfig.sourceSpec.width;

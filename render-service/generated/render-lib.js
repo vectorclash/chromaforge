@@ -1332,11 +1332,49 @@ function drawHatWrap(ctx, unrolled, discSource, geom, outW, outH, { mirror = fal
   ctx.drawImage(scratch, 0, 0);
   ctx.restore();
 }
+
+// ../src/render/legWrap.js
+function legWrapSourceSize(geom, outW, outH) {
+  return { width: Math.max(1, Math.round(geom.width * outW)), height: outH };
+}
+function drawLegWrap(ctx, comp, geom, outW, outH, { mirror = false } = {}) {
+  const shift = Math.round(geom.shift * outW);
+  const compW = Math.max(1, Math.round(geom.width * outW));
+  const x0 = Math.round((outW - compW) / 2);
+  const half = outW / 2;
+  ctx.save();
+  if (mirror) {
+    ctx.translate(outW, 0);
+    ctx.scale(-1, 1);
+  }
+  for (const [clipX, dx] of [
+    [0, -shift],
+    [half, shift]
+  ]) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipX, 0, half, outH);
+    ctx.clip();
+    const left = x0 + dx;
+    const right = left + compW;
+    if (left > 0 || right < outW) {
+      ctx.imageSmoothingEnabled = false;
+      if (left > 0) ctx.drawImage(comp, 0, 0, 1, outH, 0, 0, left, outH);
+      if (right < outW) ctx.drawImage(comp, compW - 1, 0, 1, outH, right, 0, outW - right, outH);
+      ctx.imageSmoothingEnabled = true;
+    }
+    ctx.drawImage(comp, left, 0, compW, outH);
+    ctx.restore();
+  }
+  ctx.restore();
+}
 export {
   GENERATOR_VERSION,
   drawHatWrap,
+  drawLegWrap,
   generateArtwork,
   hatWrapDiscSourceSize,
   hatWrapSourceSize,
+  legWrapSourceSize,
   renderArtwork
 };

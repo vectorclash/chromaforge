@@ -12,7 +12,9 @@ import {
   renderArtwork,
   drawHatWrap,
   hatWrapSourceSize,
-  hatWrapDiscSourceSize
+  hatWrapDiscSourceSize,
+  drawLegWrap,
+  legWrapSourceSize
 } from './generated/render-lib.js';
 
 // This used to load the two star sprite PNGs off disk and hand renderArtwork a { getResult }
@@ -59,8 +61,27 @@ export async function renderDesign({
   regions = null,
   sourceWidth = null,
   sourceHeight = null,
-  hatWrap = null
+  hatWrap = null,
+  legWrap = null
 }) {
+  // Lays one composition across the assembled front of a two-leg garment instead of flat across
+  // the sheet, so the artwork continues over the centre-front seam -- see src/render/legWrap.js.
+  // Like hatWrap below, mirrorX is deliberately NOT passed to the source render: what has to be
+  // reflected is the finished SHEET. And no sizeFrame: the composition already IS one leg-pair
+  // front, so element sizes are measured against what the customer sees.
+  if (legWrap) {
+    const src = legWrapSourceSize(legWrap, width, height);
+    const comp = renderArtwork(
+      generateArtwork(seed, src.width, src.height, colors, settings, {
+        includeGeometry,
+        geometryLayout,
+        legSymmetry
+      })
+    );
+    const output = createCanvas(width, height);
+    drawLegWrap(output.getContext('2d'), comp, legWrap, width, height, { mirror: mirrorX === true });
+    return output.toBuffer('image/png');
+  }
   // Wraps the composition onto a hat's real cut pieces rather than laying it flat across the
   // sheet -- see src/render/hatWrap.js for the geometry and why the crown top is handled
   // differently from the crown wall and brim. Unlike `regions` below, this is NOT mirrored by

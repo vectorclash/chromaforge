@@ -102,9 +102,13 @@ for (const [idStr, cfg] of Object.entries(PRODUCT_MOCKUP_CONFIG)) {
   // 3+4: placements + printfile dimensions (v1)
   const { result: pfiles } = await pf(`/mockup-generator/printfiles/${id}`);
   const availablePlacements = new Set(Object.keys(pfiles.available_placements ?? {}));
-  for (const placement of cfg.placements ?? []) {
+  // cfg.placements is the GEOMETRY-checkbox list as of 2026-08-29, not the mockup submission set
+  // (mockups now submit every placement, same as an order). Still worth asserting every key it
+  // names is real: a stale key here silently drops a geometry checkbox, which includesGeometry
+  // then reads as "geometry off" for that panel.
+  for (const placement of cfg.geometryPlacementKeys ?? cfg.placements ?? []) {
     if (!availablePlacements.has(placement)) {
-      fail(`product ${id}: configured mockup placement '${placement}' missing from catalog (has: ${[...availablePlacements].join(', ')})`);
+      fail(`product ${id}: configured placement '${placement}' missing from catalog (has: ${[...availablePlacements].join(', ')})`);
     }
   }
   const dims = {};

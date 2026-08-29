@@ -83,7 +83,7 @@ Deno.serve(async req => {
   }
 
   const body = await req.json();
-  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight, hatWrap } =
+  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight, hatWrap, legWrap } =
     body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
@@ -166,7 +166,14 @@ Deno.serve(async req => {
         // render-service itself, just forwarded here. When set, render-service generates its
         // own two sources at sizes derived from this geometry, so sourceWidth/sourceHeight
         // above play no part. Absent for every other product.
-        hatWrap: hatWrap ?? null
+        hatWrap: hatWrap ?? null,
+        // Optional leg wrap (the shorts, joggers and wide-leg pants) -- how far each half of the
+        // sheet slides toward the centre so the artwork continues over the centre-front seam,
+        // and how wide the one composition is, both as fractions of the printfile's width.
+        // Validated and resolved by render-service, just forwarded here; when set it derives its
+        // own source size, so sourceWidth/sourceHeight above play no part. Unlike hatWrap this is
+        // a customer choice, absent whenever they pick one of the flat artwork scales.
+        legWrap: legWrap ?? null
       })
     });
   } catch {

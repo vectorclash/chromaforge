@@ -7,7 +7,7 @@
 // guarantee matters here).
 import http from 'node:http';
 import { renderDesign, GENERATOR_VERSION } from './render.js';
-import { hatWrapSourceSize, hatWrapDiscSourceSize } from './generated/render-lib.js';
+import { hatWrapSourceSize, hatWrapDiscSourceSize, legWrapSourceSize } from './generated/render-lib.js';
 
 const PORT = process.env.PORT || 8080;
 const RENDER_SERVICE_KEY = process.env.RENDER_SERVICE_KEY;
@@ -66,7 +66,8 @@ const server = http.createServer(async (req, res) => {
     regions,
     sourceWidth,
     sourceHeight,
-    hatWrap
+    hatWrap,
+    legWrap
   } = payload;
   if (!seed || !width || !height) {
     send(res, 400, { error: 'Missing required fields: seed, width, height' });
@@ -147,6 +148,31 @@ const server = http.createServer(async (req, res) => {
       return;
     }
   }
+  // Optional leg wrap (see render.js and src/render/legWrap.js). Validated for the same reason
+  // hatWrap is: it drives the size of a SOURCE canvas this machine has to hold alongside the
+  // output, so a malformed fraction is a memory question and not just a wrong picture. Both are
+  // fractions of the printfile's width; shift is bounded below 0.5 because a half-sheet slide
+  // would carry each half clean past the centre.
+  if (legWrap != null) {
+    const num = (n, lo, hi) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
+    const valid =
+      num(legWrap.shift, 0, 0.49) && num(legWrap.width, 0.05, 2) &&
+      width <= MAX_AXIS && height <= MAX_AXIS && width * height <= MAX_PIXELS;
+    if (!valid) {
+      send(res, 400, {
+        error: 'Invalid legWrap: expected { shift, width } as fractions of the printfile width'
+      });
+      return;
+    }
+    const src = legWrapSourceSize(legWrap, width, height);
+    if (
+      src.width < 1 || src.height < 1 || src.width > MAX_AXIS || src.height > MAX_AXIS ||
+      src.width * src.height > MAX_PIXELS
+    ) {
+      send(res, 400, { error: 'Invalid legWrap: the implied source canvas exceeds this service\'s limits' });
+      return;
+    }
+  }
   if (generatorVersion !== GENERATOR_VERSION) {
     send(res, 422, {
       error: `generatorVersion mismatch: design is v${generatorVersion}, this service renders v${GENERATOR_VERSION}`
@@ -169,7 +195,8 @@ const server = http.createServer(async (req, res) => {
       regions: regions || null,
       sourceWidth: sourceWidth || null,
       sourceHeight: sourceHeight || null,
-      hatWrap: hatWrap || null
+      hatWrap: hatWrap || null,
+      legWrap: legWrap || null
     });
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
     res.end(png);

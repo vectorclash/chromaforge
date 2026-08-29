@@ -67,8 +67,19 @@ const PLACEMENT_LABELS: Record<string, string> = {
   sleeve_left: "Left", sleeve_right: "Right",
   hood: "Hood", pocket: "Pocket", details: "Details",
   outside_front: "Front", outside_back: "Back",
-  inside_front: "Inside front", inside_back: "Inside back"
+  inside_front: "Inside front", inside_back: "Inside back",
+  // Added 2026-08-29, when mockups started submitting every placement an order does. Without
+  // these the fallback below put the raw Printful key -- "label_inside" -- on a customer-facing
+  // filmstrip tab.
+  label_inside: "Inside label", label_outside: "Outside label", label_panel: "Lining"
 };
+
+// Placements that are a brand mark rather than a panel. Their mockup entries are pushed LAST, so
+// when several placements resolve to the same photo (the common case -- see the de-dup below) the
+// name comes from the panel the photo actually shows. Found the same day and it was not cosmetic:
+// on the track jacket a photo of the JACKET came back named "label_outside", because naming is
+// first-wins by URL and that placement happened to be ordered first.
+const LABEL_PLACEMENTS = new Set(["label_inside", "label_outside", "label_panel"]);
 
 const GLOBAL_USER_ID = "00000000-0000-0000-0000-000000000000";
 const GLOBAL_RATE_LIMIT = 10;
@@ -275,7 +286,10 @@ Deno.serve(async req => {
       seenUrls.add(url);
       raw.push({ url, name });
     };
-    for (const m of result.mockups ?? []) {
+    const ordered = [...(result.mockups ?? [])].sort(
+      (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
+    );
+    for (const m of ordered) {
       push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
       for (const e of m.extra ?? []) push(e.url, e.title);
     }

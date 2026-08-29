@@ -9,15 +9,52 @@
 // lib/printful.js re-exports all three, so existing imports are unchanged.
 
 // Which placements the chosen variant needs, as [placementKey, printfileId] pairs.
-// `placementFilter` narrows to the mockup-visible subset (PRODUCT_MOCKUP_CONFIG's `placements`);
-// checkout deliberately passes none, because a placement left out of an ORDER prints as blank
-// fabric on the real garment.
+//
+// **Both callers now pass no filter** -- checkout (ProductPage) and the mockup preview
+// (useMockup) resolve the identical set, so a preview is a preview of the order (Aaron,
+// 2026-08-29: "all mockups should be sending all the same pieces that a final order sends").
+//
+// It used to narrow mockups to PRODUCT_MOCKUP_CONFIG's `placements`, a hand-curated list of what
+// a v2 mockup STYLE could photograph. That list stopped being true at the v1 migration -- v1
+// returns every camera angle a product has rather than the two we hand-picked -- and the drift
+// cost real, customer-visible views: the mesh shorts' entire back panel, the track jacket's
+// collar band, and every product's label placements, one of which (the shorts' `label_outside`)
+// is a **visible 3in patch on the front of the leg** that customers were buying without ever
+// seeing it. Measured on a controlled pair, submitting it changes 9,333 px of the front photo.
+// Two beliefs that justified the curation were retested on v1 the same day and are both FALSE
+// now, so don't reinstate a filter on their authority: the bandana (630) does NOT reject
+// `label_inside` (that 400 was v2), and the track jacket (801) does NOT fail when `details` is
+// combined with the sleeves (also v2). There are currently no placements any product rejects.
+//
+// `placementFilter` is kept because it is what makes the "no filter" contract explicit at both
+// call sites and gives a future product an escape hatch if Printful ever does reject one -- but
+// a filter here means a customer can buy a panel they were never shown, so it needs a reason and
+// a retest date, and scripts/check-printful-mockups.mjs asserts nothing is quietly dropped.
 export function resolvePlacementEntries(printfileSpecs, variant, placementFilter) {
   const variantPrintfiles = printfileSpecs.variant_printfiles.find(v => v.variant_id === variant.id);
   if (!variantPrintfiles) return null;
   return Object.entries(variantPrintfiles.placements).filter(
     ([key]) => !placementFilter || placementFilter.includes(key)
   );
+}
+
+// What a MOCKUP submits, as the same [placementKey, printfileId] pairs. It is deliberately the
+// unfiltered order set: a preview is a preview of the order (Aaron, 2026-08-29).
+//
+// This exists as a named function rather than an inline `resolvePlacementEntries(specs, variant)`
+// at each call site so that "what a mockup submits" has exactly ONE definition, which
+// scripts/check-printful-mockups.mjs imports and asserts against the order set. Without that, the
+// check comparing the two would be comparing a call to itself -- a tautology that would pass
+// forever, including on the day someone reintroduces a filter.
+//
+// If Printful ever genuinely rejects a placement for some product, narrow it HERE, per product,
+// with the reason and the date it was last retested -- and teach the checker about the exception
+// so it stays visible. Do not narrow it at a call site. Two such exclusions existed on v2 and both
+// were retested on v1 on 2026-08-29 and had expired: the bandana (630) accepts `label_inside`, and
+// the track jacket (801) accepts `details` alongside the sleeves.
+export function mockupPlacementEntries(printfileSpecs, variant, cfg) {
+  void cfg; // no product needs an exclusion today; kept so adding one needs no call-site change
+  return resolvePlacementEntries(printfileSpecs, variant);
 }
 
 // The `files` array for a v1 mockup task: one entry per placement, each carrying the artwork URL

@@ -6,7 +6,7 @@ import {
   getSecondaryDesignConfig,
   buildMockupFiles,
   hideUnsubmittedViews,
-  resolvePlacementEntries,
+  mockupPlacementEntries,
   renderAndUploadPrintFiles,
   getHatWrap,
   capRenderStrategy,
@@ -19,8 +19,9 @@ import { useStudio } from '../context/StudioContext';
 // variant. Ported out of DisplayCanvas: render each unique printfile size from the design
 // (off-canvas via StudioContext.renderDesignBlob), upload, create the task, poll, dedupe.
 // The render+upload step (renderAndUploadPrintFiles) is shared with the real checkout flow
-// in lib/checkout.js -- see lib/printful.js for why mockups filter to cfg.placements while
-// checkout doesn't.
+// in lib/checkout.js, and as of 2026-08-29 so is the PLACEMENT SET: this hook resolves
+// placements unfiltered, exactly as checkout does, so a preview shows every piece the order
+// will actually print.
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_TRIES = 45;
 
@@ -112,7 +113,7 @@ function describeFailure(error) {
 // IS submitted to Printful's create-task endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign) {
+function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -129,6 +130,11 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   const frameSignature = sizeFrame ? `${sizeFrame.width}x${sizeFrame.height}` : 'sheet';
   // Changes the returned photo (the legs become mirror images), so it belongs in the key.
   const symmetrySignature = legSymmetry ? 'sym' : 'asym';
+  // The leg wrap changes the composition itself -- a different aspect, and the two halves slid
+  // together -- so a wrapped preview must never be served for a flat one or the reverse. Unlike
+  // getHatWrap this is a customer choice (ProductPage's Artwork row), which is exactly why it
+  // has to be in the key rather than read from the product's config at render time.
+  const legWrapSignature = legWrap ? `wrap${legWrap.shift}x${legWrap.width}` : 'flat';
   // The variant COLOUR, deliberately not the variant id. Sizes are meant to share a mockup --
   // they share printfile ids and Printful photographs one garment for all of them, which is
   // what `signature` above already expresses. Colours are not: Printful photographs each one,
@@ -145,7 +151,7 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   // ones. v1 photographs the inside for real, and the hat now submits those placements, so the
   // choice genuinely changes the returned photos and a stale preview would misrepresent them.
   const secondarySignature = secondaryDesign ? JSON.stringify(secondaryDesign) : 'none';
-  return `${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${JSON.stringify(design)}`;
+  return `${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}`;
 }
 
 
@@ -204,6 +210,7 @@ export function useMockup() {
       mirrorPlacements = null,
       sizeFrame = null,
       legSymmetry = false,
+      legWrap = null,
       productOptions = null,
       secondaryDesign = null
     }) => {
@@ -214,7 +221,16 @@ export function useMockup() {
       }
 
       const cfg = getMockupConfigForProduct(product.id);
-      const entries = resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
+      // No placement filter -- deliberately the SAME call checkout makes (ProductPage.jsx), so a
+      // preview is a preview of the order rather than of a hand-curated subset of it (Aaron,
+      // 2026-08-29: "all mockups should be sending all the same pieces that a final order
+      // sends"). See resolvePlacementEntries' own comment for the history: `cfg.placements` used
+      // to narrow this to the placements a v2 mockup style could photograph, and every product
+      // whose config had drifted from what v1 can actually show lost a real view -- the mesh
+      // shorts' whole back panel, the track jacket's collar band, and every product's label
+      // placements, one of which (the shorts' label_outside) is a visible 3in patch on the leg
+      // that customers were buying unseen.
+      const entries = mockupPlacementEntries(printfileSpecs, variant, cfg);
       if (!entries) {
         setStatus('failed');
         setError('No printfile mapping for this variant.');
@@ -227,7 +243,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign);
+      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -269,6 +285,7 @@ export function useMockup() {
           hatWrap: getHatWrap(cfg),
           sizeFrame,
           legSymmetry,
+          legWrap,
           secondaryDesign,
           secondaryPlacements: getSecondaryDesignConfig(cfg)?.placements || null
         });
@@ -371,15 +388,18 @@ export function useMockup() {
       mirrorPlacements = null,
       sizeFrame = null,
       legSymmetry = false,
+      legWrap = null,
       productOptions = null,
       secondaryDesign = null
     }) => {
       setError(null);
       const cfg = design && getMockupConfigForProduct(product.id);
-      const entries = cfg && resolvePlacementEntries(printfileSpecs, variant, cfg.placements);
+      // Same unfiltered call as generate() above -- the two must agree or the cache key computed
+      // here would never match the one the run stored.
+      const entries = cfg && mockupPlacementEntries(printfileSpecs, variant, cfg);
       const key =
         entries
-          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign)
+          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

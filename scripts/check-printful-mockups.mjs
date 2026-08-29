@@ -2,7 +2,8 @@
 // whole preview pipeline holds together.
 //
 //   PRINTFUL_API_KEY=... node scripts/check-printful-mockups.mjs
-//   PRINTFUL_API_KEY=... node scripts/check-printful-mockups.mjs --products 654,615
+//   PRINTFUL_API_KEY=... node scripts/check-printful-mockups.mjs --products=654,615
+//   PRINTFUL_API_KEY=... node scripts/check-printful-mockups.mjs --variants=1   # one per product
 //
 // Exit 0 = every variant produced usable previews. Exit 1 = at least one did not.
 //
@@ -20,9 +21,11 @@
 // WHAT IT DOES NOT COVER, so nobody mistakes a green run for full coverage: it drives Printful
 // directly with a fixed public image, so it does not exercise our artwork render, the Supabase
 // upload, the Edge Function's auth or rate-limit gates, or any of the browser UI (the filmstrip,
-// cache invalidation, React state). It answers exactly one question -- "does every product and
-// variant we sell produce usable preview photos" -- which is the question the hand-testing was
-// answering slowly.
+// cache invalidation, React state). It answers two questions: "does every product and variant we
+// sell produce usable preview photos" (the one the hand-testing was answering slowly) and, since
+// 2026-08-29, "are we even ASKING for every view each product can show" -- see checkCoverage, and
+// read its comment before trusting a green run, because the second question is precisely the one
+// two earlier green runs could not see.
 //
 // It imports the REAL helpers from src/lib/printfulPlacements.js rather than reimplementing them.
 // The one thing it must mirror is the Edge Function's response normalisation (printful-mockup's
@@ -31,6 +34,7 @@
 import { PRODUCT_MOCKUP_CONFIG } from '../src/lib/printfulMockupConfig.js';
 import {
   resolvePlacementEntries,
+  mockupPlacementEntries,
   buildMockupFiles,
   hideUnsubmittedViews
 } from '../src/lib/printfulPlacements.js';
@@ -57,6 +61,13 @@ const POLL_TRIES = 60;
 
 const args = process.argv.slice(2);
 const only = args.find(a => a.startsWith('--products='))?.split('=')[1]?.split(',');
+// --variants=N samples the first N variants of each product instead of all of them. Every run
+// leaves a file in Printful's library PERMANENTLY (they expose no delete or list API), so a full
+// 129-variant sweep is not something to do casually. Use the sample when what changed is a
+// property of the PRODUCT -- a placement list, a product option, the wrap geometry -- and the full
+// run when it could differ per variant: a size- or colour-restricted mockup style, a variant's own
+// printfile ids, or anything touching the cache key's colour discriminator.
+const variantLimit = Number(args.find(a => a.startsWith('--variants='))?.split('=')[1]) || Infinity;
 const productIds = Object.keys(PRODUCT_MOCKUP_CONFIG).filter(id => !only || only.includes(id));
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -69,8 +80,10 @@ const PLACEMENT_LABELS = {
   sleeve_left: 'Left', sleeve_right: 'Right',
   hood: 'Hood', pocket: 'Pocket', details: 'Details',
   outside_front: 'Front', outside_back: 'Back',
-  inside_front: 'Inside front', inside_back: 'Inside back'
+  inside_front: 'Inside front', inside_back: 'Inside back',
+  label_inside: 'Inside label', label_outside: 'Outside label', label_panel: 'Lining'
 };
+const LABEL_PLACEMENTS = new Set(['label_inside', 'label_outside', 'label_panel']);
 function normalise(result) {
   const byUrl = new Map();
   const raw = [];
@@ -80,7 +93,10 @@ function normalise(result) {
     seenUrls.add(url);
     raw.push({ url, name });
   };
-  for (const m of result.mockups ?? []) {
+  const ordered = [...(result.mockups ?? [])].sort(
+    (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
+  );
+  for (const m of ordered) {
     push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
     for (const e of m.extra ?? []) push(e.url, e.title);
   }
@@ -127,11 +143,66 @@ function retryAfterSeconds(body) {
   return match ? Number(match[1]) : 15;
 }
 
+// Asserts the mockup asks Printful for EVERY piece a real order would print -- not merely that
+// the pieces we asked for came back usable.
+//
+// THIS IS THE ASSERTION THAT WAS MISSING, and its absence is why two full green runs (2026-08-21
+// and 2026-08-28) sat on top of real gaps. Every other check in this file reasons about the views
+// that came back for the placements we SUBMITTED -- and the submission list was itself the thing
+// under test, so a piece we never thought to request was invisible by construction. Worse,
+// checkVariant calls hideUnsubmittedViews, which correctly hid the mesh shorts' back view, and
+// then asserted only `views.length > 0`. The check ran the code that hid the evidence and reported
+// green on what survived. A checker cannot find a view it never thought to request.
+//
+// What it was hiding, once looked for: the shorts' whole back panel, the track jacket's collar
+// band, and every product's label placements -- including the shorts' `label_outside`, a visible
+// 3in patch on the front of the leg that customers were buying without ever seeing it.
+//
+// The rule is now simply "the mockup submits what the order submits" (Aaron, 2026-08-29), so this
+// compares the resolved mockup entries against the product's full placement list and allows no
+// exceptions. If Printful ever genuinely rejects a placement for a product, the fix is a filter at
+// the call site WITH a reason and a retest date -- and this check should then be taught about it
+// explicitly, so the exception stays visible instead of becoming another silent curation. Note two
+// such beliefs were retested on v1 on 2026-08-29 and both had expired: the bandana does not reject
+// `label_inside`, and the track jacket does not fail on `details` + sleeves.
+//
+// Costs no mockup quota, which is the other reason it should have existed from the start.
+function checkCoverage(productId, cfg, specs, variant) {
+  const all = Object.keys(specs.available_placements || {});
+  if (!all.length) return failures.push(`${productId}: no available_placements in the printfile spec`);
+
+  // The ORDER's set against the MOCKUP's set, both from the real helpers the app uses. The mockup
+  // side must come from mockupPlacementEntries and not from an inline unfiltered call here, or
+  // this compares a call to itself and passes forever.
+  const ordered = resolvePlacementEntries(specs, variant);
+  if (!ordered) return;
+  const preview = mockupPlacementEntries(specs, variant, cfg);
+  const orderedKeys = ordered.map(([k]) => k);
+  const previewKeys = new Set(preview.map(([k]) => k));
+  const dropped = orderedKeys.filter(k => !previewKeys.has(k));
+  if (dropped.length) {
+    failures.push(
+      `${productId}/${variant.id}: the mockup drops placement(s) the order prints: ${dropped.join(', ')} ` +
+        `-- customers can buy these pieces without ever seeing them.`
+    );
+  }
+
+  // Separately: cfg.placements is the geometry-checkbox list now, not a submission set. A key that
+  // names a placement this product does not have silently costs that panel its checkbox, which
+  // includesGeometry then reads as "geometry off" for the real print.
+  const geometryKeys = cfg.geometryPlacementKeys || cfg.placements || [];
+  const unknown = geometryKeys.filter(p => !all.includes(p) && p !== 'default');
+  if (unknown.length) {
+    failures.push(`${productId}: geometry placement key(s) this product does not have: ${unknown.join(', ')}`);
+  }
+}
+
 async function checkVariant(productId, cfg, specs, variant) {
   const label = `${productId}/${variant.id} ${variant.size ?? ''}${variant.color ? ' ' + variant.color : ''}`.trim();
   const fail = msg => failures.push(`${label}: ${msg}`);
 
-  const entries = resolvePlacementEntries(specs, variant, cfg.placements);
+  // The real helper useMockup uses, so this drives Printful with exactly what the app sends.
+  const entries = mockupPlacementEntries(specs, variant, cfg);
   if (!entries || !entries.length) return fail('no printfile mapping for this variant');
 
   let files;
@@ -186,6 +257,14 @@ async function checkVariant(productId, cfg, specs, variant) {
   if (urls.size !== views.length) return fail('duplicate view URLs survived de-duplication');
   const names = new Set(views.map(v => v.display_name));
   if (names.size !== views.length) return fail('duplicate view labels');
+  // No view may be named after a raw Printful placement key. These are customer-facing filmstrip
+  // tabs, and the day mockups started submitting every placement an order does, three keys with no
+  // PLACEMENT_LABELS entry -- label_inside, label_outside, label_panel -- went straight onto the
+  // UI. Keyed off the real key list rather than a regex on "label", so a future placement Printful
+  // adds is caught the same way instead of only the ones that happen to be named label_*.
+  const rawKeys = new Set(Object.keys(specs.available_placements || {}));
+  const leaked = views.filter(v => rawKeys.has(v.display_name));
+  if (leaked.length) return fail(`view label(s) are raw placement keys: ${leaked.map(v => v.display_name).join(', ')}`);
 
   rows.push({ productId, variant: variant.id, size: variant.size, color: variant.color, views: views.length,
     titles: views.map(v => v.display_name).join(', ') });
@@ -206,10 +285,17 @@ for (const productId of productIds) {
     failures.push(`${productId}: could not load catalog data`);
     continue;
   }
-  totalVariants += variants.length;
-  console.log(`Checking product ${productId} (${variants.length} variants)...`);
+  // Coverage first: it costs no mockup task, and if it fails you want to see it before an
+  // 18-minute run finishes. Per-variant, because the placement set is resolved per variant.
+  checkCoverage(productId, cfg, specs, variants[0]);
 
-  const queue = [...variants];
+  const sampled = variants.slice(0, variantLimit);
+  totalVariants += sampled.length;
+  console.log(
+    `Checking product ${productId} (${sampled.length}${sampled.length < variants.length ? ` of ${variants.length}` : ''} variants)...`
+  );
+
+  const queue = [...sampled];
   const workers = Array.from({ length: CONCURRENCY }, async () => {
     for (;;) {
       const variant = queue.shift();

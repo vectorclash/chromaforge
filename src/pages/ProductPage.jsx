@@ -15,6 +15,7 @@ import {
   getGeometryPlacementOptions,
   getStitchColorOption,
   hasTwoLegCanvas,
+  getLegWrap,
   getLegPanel,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
@@ -329,9 +330,21 @@ export default function ProductPage() {
   // is really one taste decision (Artwork scale, Leg symmetry, Geometry layout) and the labels
   // had stopped making sense next to each other -- two rows both used the word "mirrored" for
   // different scopes, and "Full sheet" names an object the customer never sees.
-  //   'detailed'  (DEFAULT) -- element sizes measured against ONE leg panel.
-  //   'oversized'           -- element sizes measured against the whole sheet.
+  //   'front'     (DEFAULT) -- one composition laid across the ASSEMBLED front, so the artwork
+  //                            continues over the centre-front seam instead of restarting at it.
+  //   'detailed'            -- flat across the sheet, element sizes measured against ONE leg panel.
+  //   'oversized'           -- flat across the sheet, element sizes measured against the whole sheet.
   // Per-order render context, never saved with the design.
+  //
+  // 'front' became the default 2026-08-29 (Aaron: "I'd really like to see this done right and
+  // have the full design across the front of the product as the default"). It is not another
+  // scale: the two flat modes both leave a hard jump where the two leg panels are sewn together,
+  // because the sheet throws away a wedge of fabric between them -- 14-19% of the sheet's width,
+  // measured. See src/render/legWrap.js for the map and PRODUCT_MOCKUP_CONFIG's legWrap for the
+  // per-product geometry. The flat modes stay selectable rather than being removed (Aaron's
+  // call), so the look this product has shipped with until now is still reachable.
+  // sizeFrame plays no part in 'front': the composition IS one leg-pair front there, so element
+  // sizes are already measured against exactly what the customer sees.
   //
   // SCALE is the entire difference, and the keys/labels say so because an earlier pair
   // ("Mirrored shapes" / "One large design") did not, and was actively false (Aaron, live,
@@ -360,9 +373,9 @@ export default function ProductPage() {
   // symmetry in was the single biggest cause of the mismatch. Leaving it out also keeps the
   // "Front & back" row meaningful in the default mode (no symmetric sheet means no no-op), and
   // that flip is what closes the front/back seams here -- verified exact.
-  const [legArtwork, setLegArtwork] = useState('detailed');
+  const [legArtwork, setLegArtwork] = useState('front');
   useEffect(() => {
-    setLegArtwork('detailed');
+    setLegArtwork('front');
   }, [detail?.product?.id]);
 
   // Each of the three "effective" values below is resolved ONCE here and used everywhere,
@@ -378,11 +391,24 @@ export default function ProductPage() {
   // symmetric look is ever wanted back as a third option.
   const effectiveLegSymmetry = false;
   const effectiveSizeFrame = legPanel && legArtwork === 'detailed' ? legPanel : null;
+  // Same resolve-once discipline as the values around it: gated on the product declaring the
+  // geometry AND the customer being in the wrapped mode, so it can never leak onto a product
+  // with no leg panels or onto one of the two flat scales.
+  const effectiveLegWrap =
+    showsTwoLegLayout && legArtwork === 'front'
+      ? getLegWrap(getMockupConfigForProduct(detail.product.id))
+      : null;
   // No longer a customer choice -- fixed at 'mirror', which was the row's own default and is
   // what the ordered shorts were printed with: the geometry shape repeated flipped on each leg
   // rather than confined to one, and above all not centred on the cut line, the one spot
   // guaranteed to end up hidden in the inseam.
-  const effectiveGeometryLayout = showsTwoLegLayout ? 'mirror' : null;
+  // Only in the two flat modes. 'mirror' exists because on a flat sheet the shape's default
+  // centring put it exactly on the cut line, the one spot guaranteed to be lost in the inseam.
+  // In the wrapped mode the composition's centre IS the centre-front seam, so a centred shape
+  // straddles it in full view and is the correct behaviour -- the same thing every other
+  // product's front panel does. Sending 'mirror' there would put two copies on one front for no
+  // reason, and it is what the mockups this mode was signed off from were rendered without.
+  const effectiveGeometryLayout = showsTwoLegLayout && !effectiveLegWrap ? 'mirror' : null;
 
   // Whether this product's back half prints mirrored so the pattern continues across its
   // visible side seams (see PRODUCT_MOCKUP_CONFIG's mirrorPlacements for which products and
@@ -900,6 +926,7 @@ export default function ProductPage() {
       geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
+      legWrap: effectiveLegWrap,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -911,8 +938,8 @@ export default function ProductPage() {
     // hat excluded both inside placements -- v2's inside styles returned images byte-identical
     // to the outside ones, so no camera angle could show a second design and invalidating the
     // preview would have cost a 30-90s round trip for a pixel-identical photo. v1 photographs
-    // the inside for real and the hat now submits those placements, so the choice changes the
-    // returned photos and a stale preview would misrepresent the garment.
+    // the inside for real, and mockups now submit every placement the order does, so the choice
+    // changes the returned photos and a stale preview would misrepresent the garment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // effectiveMirrorPlacements, not the raw mirrorSeams: while leg symmetry is on the flip is
     // a no-op, and depending on the raw flag there would throw away a still-accurate mockup and
@@ -1091,7 +1118,10 @@ export default function ProductPage() {
               .filter(o => geometryPlacements.has(o.key))
               .map(o => o.label.toLowerCase())
               .join(', ')}`),
-    showsTwoLegLayout && (legArtwork === 'detailed' ? 'Detailed artwork' : 'Oversized artwork'),
+    showsTwoLegLayout &&
+      { front: 'Artwork across the front', detailed: 'Detailed artwork', oversized: 'Oversized artwork' }[
+        legArtwork
+      ],
     // Only when it isn't a no-op, matching the row's own visibility -- summarising a setting
     // that changes nothing would be exactly the kind of false line this summary exists to
     // avoid. (Always shown today -- leg symmetry, the one thing that made it a no-op, is off.)
@@ -1141,6 +1171,7 @@ export default function ProductPage() {
       geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
+      legWrap: effectiveLegWrap,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1180,6 +1211,7 @@ export default function ProductPage() {
         geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
       legSymmetry: effectiveLegSymmetry,
+      legWrap: effectiveLegWrap,
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,
@@ -1585,20 +1617,27 @@ export default function ProductPage() {
             before anyone wears it). See legArtwork's own comment for exactly what each mode
             resolves to. Changing it invalidates the current mockup -- it genuinely changes the
             composition, so it is in useMockup's cacheKey.
-            The labels name SCALE, and no label here uses the word "mirrored" on purpose -- see
-            legArtwork's comment for the two false pairs this went through first and why the
-            word belongs to the Front & back row alone. */}
+            The default gained a third, non-scale option 2026-08-29 ("Across the front"), which
+            is the one that actually fixes the jump where the legs are sewn together; the other
+            two are the flat scales this product shipped with before it. No label here uses the
+            word "mirrored" on purpose -- see legArtwork's comment for the two false pairs this
+            went through first and why the word belongs to the Front & back row alone. */}
         {showsTwoLegLayout && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
               Artwork
             </h2>
             <p className="mt-1 text-xs text-text-muted">
-              This product prints as one sheet that's cut into two legs, so you never see the
-              whole sheet at once — choose how big the pattern is on each one.
+              This product prints as one sheet that's cut into two legs. By default the artwork
+              is laid out so it runs across the front as one piece.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
+                {
+                  key: 'front',
+                  label: 'Across the front',
+                  hint: 'One design over both legs'
+                },
                 {
                   key: 'detailed',
                   label: 'Detailed',
