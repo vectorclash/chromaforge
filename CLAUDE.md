@@ -2897,6 +2897,28 @@ load for an unrelated reason and every count is meaningless.
     Checked against the live DB before deciding: **zero saved designs have exactly one
     colour** (30 use the auto-palette/empty array, the rest 3/5/6), so nothing existing
     changed appearance and no thumbnail backfill was needed.
+  - **A new product with a `label_outside` placement needs a CALIBRATION too**
+    (`scripts/calibrate-label-outside.mjs`, 2026-08-29). The mark chooses light or dark ink by
+    sampling the artwork it will be printed over, and it can only do that if the config says where
+    that patch is — `labelOutsideRegion` in PRODUCT_MOCKUP_CONFIG. Without one it silently keeps the
+    dark ink unconditionally, which is the wrong choice on most artwork (all five calibrated products
+    wanted light ink on a typical vivid design, luminance 0.08–0.27). Products with only
+    `label_inside` need nothing: a sewn tag has no camera angle and paints its own dark panel.
+    Two rounds, both needing a human to look at a photo:
+    `--product N` prints a lettered grid on the front and a marker on the label, and you read which
+    cell it lands in; `--product N --predict x,y` then draws hollow 1x and 2x boxes at that guess so
+    the label can be measured against them. Repeat until only hairlines of the magenta box show.
+    **The SIZE must be measured, not derived** — the obvious `labelPx / frontPx` ratio is right on the
+    shorts and crossbody, **1.21x out on the track jacket** (its front file is cover-fitted to its
+    print area, so it is not at 1:1 scale with it) and ~1.8x out in height on the bucket hat (the
+    crown's curvature maps the sheet non-linearly). That is what the 2x box is for: the label can
+    never fully occlude it, so offset and scale both come off one photo.
+    **Reading the grid by eye is deliberate.** Classifying mockup pixels back to their source cell by
+    colour was tried and thrown away: with a couple of hundred cells the hue formula repeats, so a
+    least-squares fit returned residuals of 4–6 CELLS. Automating it needs machine-identifiable cells
+    (a per-cell dot code), not a better classifier. And a preview built from our own numbers cannot
+    test them — Printful places the label from its own manufacturing geometry, so the mockup is the
+    only non-circular instrument, same lesson as the hoodie pocket.
   - **A new product needs a DRAFT-ORDER check before it can be bought, not just a working
     mockup** (`scripts/check-printful-draft-orders.mjs`, added 2026-07-25). A mockup
     exercises Printful's mockup generator; the failures that have actually bitten this
