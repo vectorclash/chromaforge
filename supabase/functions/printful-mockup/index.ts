@@ -303,10 +303,10 @@ Deno.serve(async req => {
     // That list gives Front / Front 3 / Front 2. Found by scripts/check-printful-mockups.mjs
     // across all 14 windbreaker variants -- the sort of thing hand-testing reads as fine,
     // because it is only a tooltip.
-    const raw: Array<{ url: string; name: string }> = [];
+    const raw: Array<{ url: string; name: string; optionGroup?: string; fromPanel?: boolean }> = [];
     const seenUrls = new Set<string>();
     const seenViews = new Set<string>();
-    const push = (url: string | undefined, name: string, optionGroup?: string) => {
+    const push = (url: string | undefined, name: string, optionGroup?: string, fromPanel = false) => {
       if (!url || seenUrls.has(url)) return;
       // ALSO de-duplicate by group+title, not URL alone. v1 repeats a product's camera angles under
       // EVERY submitted placement, and gives the same photograph a different URL each time -- so on
@@ -316,38 +316,24 @@ Deno.serve(async req => {
       if (seenViews.has(viewKey)) return;
       seenViews.add(viewKey);
       seenUrls.add(url);
-      raw.push({ url, name, optionGroup });
+      raw.push({ url, name, optionGroup, fromPanel });
     };
     const ordered = [...(result.mockups ?? [])].sort(
       (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
     );
-    // WHICH GROUP a primary belongs to, inferred from what is missing. Printful omits the primary's
-    // own style from the extras -- measured on a real task for the tee (257): `Men's` came back as
-    // Back, Right and Left with no Front, and `Flat` came back as Front with no Back, because those
-    // two photos ARE the `default` and `back` placements' primaries. So a primary is not an
-    // untypeable orphan: it is the one view of one group that nothing else supplied, and the gap
-    // names it. Without this the tee's strip read flat, MODEL, flat, model, model, model, since its
-    // two primaries are different types and both sat in the canonical band.
+    // A placement's primary is the camera angle Printful chose for it, and it arrives with NO
+    // option_group -- v1 puts that only on the extras. It cannot be typed from the response alone
+    // (a first attempt guessed "the group missing this angle" and, with three groups requested,
+    // handed every primary to Product details -- the track jacket's whole strip came back as detail
+    // shots). The client does it instead, against the catalog's own view names.
     //
-    // Ambiguity is left alone deliberately: if no group is missing that angle, or several are, the
-    // primary stays ungrouped and sorts in the canonical band as before. Guessing between two
-    // candidates would put a photo under a heading it may not belong to, which is worse than the
-    // mild type-jump it would be fixing.
-    const groupTitles = new Map<string, Set<string>>();
-    for (const m of ordered) {
-      for (const e of m.extra ?? []) {
-        if (!e.option_group) continue;
-        if (!groupTitles.has(e.option_group)) groupTitles.set(e.option_group, new Set());
-        groupTitles.get(e.option_group)!.add(e.title);
-      }
-    }
-    const inferGroup = (title: string) => {
-      const missing = [...groupTitles].filter(([, titles]) => !titles.has(title)).map(([g]) => g);
-      return missing.length === 1 ? missing[0] : undefined;
-    };
+    // What CAN be decided here is whether a primary is a panel worth leading with. `from_panel` is
+    // true only for the front and back, the two angles every product is photographed from; a sleeve
+    // or hood primary is an incidental extra shot and the client ranks it last. Measured on the
+    // sweatshirt: its sleeve primaries were sorting between the two flat lays.
+    const PANEL_PLACEMENTS = new Set(["default", "front", "back", "outside_front", "outside_back"]);
 
-    // Extras across EVERY placement first, then the primaries -- the group map has to be complete
-    // before any primary is typed, and a grouped copy must still win a URL a primary would take.
+    // Extras across EVERY placement first, so a grouped copy always claims a URL a primary would.
     for (const m of ordered) {
       for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
     }
@@ -361,18 +347,17 @@ Deno.serve(async req => {
       // leftover photos outnumber the placements that can claim them. Its extras still count --
       // those carry Printful's own view titles.
       if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
-      const name = PLACEMENT_LABELS[m.placement] ?? m.placement;
-      push(m.mockup_url, name, inferGroup(name));
+      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement, undefined, PANEL_PLACEMENTS.has(m.placement));
     }
     const reserved = new Set(raw.map(r => r.name));
     const taken = new Set<string>();
-    for (const { url, name, optionGroup } of raw) {
+    for (const { url, name, optionGroup, fromPanel } of raw) {
       let final = name;
       if (taken.has(final)) {
         for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
       }
       taken.add(final);
-      byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null });
+      byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null, from_panel: !!fromPanel });
     }
     return Response.json(
       {

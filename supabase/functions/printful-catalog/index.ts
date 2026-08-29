@@ -89,12 +89,23 @@ Deno.serve(async req => {
   // only thing the policy needs is the set of names.
   if (wantsStyles) {
     const names = new Set<string>();
+    // Each group's VIEW NAMES as well, which is what lets the client work out which group a
+    // placement's ungrouped primary photo belongs to -- Printful omits the primary's own style from
+    // that placement's extras, so the group short of exactly that view is the one it came from.
+    // Still tiny next to the raw payload (358 style entries on the hoodie), since a group has a
+    // handful of distinct view names however many variants repeat it.
+    const views: Record<string, string[]> = {};
     for (const entry of (data?.data ?? [])) {
       for (const style of (entry?.mockup_styles ?? [])) {
-        if (style?.category_name) names.add(style.category_name);
+        if (!style?.category_name) continue;
+        names.add(style.category_name);
+        if (!style?.view_name) continue;
+        const seen = views[style.category_name] ??= [];
+        if (!seen.includes(style.view_name)) seen.push(style.view_name);
       }
     }
-    return Response.json({ result: [...names] }, { status: printfulRes.status, headers: corsHeaders });
+    // `result` keeps its array-of-names shape so an older bundle is unaffected.
+    return Response.json({ result: [...names], views }, { status: printfulRes.status, headers: corsHeaders });
   }
 
   // Single-product responses carry each variant's cost price -- mark it up here so the

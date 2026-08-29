@@ -99,7 +99,7 @@ export const MAX_VIEWS = 6;
 // option_group on its entries, which makes orderViews silently fall back to sorting by angle alone.
 // That is exactly how it surfaced: a filmstrip that still jumped between image types after the fix
 // had shipped, on a page whose cached copy predated it.
-export const VIEW_POLICY_VERSION = 7;
+export const VIEW_POLICY_VERSION = 8;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -194,6 +194,54 @@ export function viewGroupRank(group) {
 // double when a genuinely different second design is in play, and its inside faces come back inside
 // the SAME groups as its outside ones -- a fixed cap would trim precisely the views that choice
 // exists to show.
+// Works out which style group each ungrouped PRIMARY photo belongs to, and demotes the ones that
+// are not worth a slot. Run this before orderViews; it is a no-op on views that already carry a
+// group.
+//
+// A placement's primary arrives with no `option_group` -- v1 puts that only on the extras -- and
+// left untyped it lands wherever the ranking happens to put it, which is what made a filmstrip jump
+// between a flat lay and a model shot no matter which end they were sorted to. Two rules, both
+// checked against ONE REAL MOCKUP TASK PER PRODUCT rather than against the catalog:
+//
+// (1) **The group short of exactly that view.** Printful omits a primary's own style from that
+//     placement's extras, so if the catalog says `Men's` has a Front and the response did not
+//     return one, the Front primary IS the Men's front. Requires the catalog's view names, which is
+//     why `printful-catalog?styles=1` now returns them -- a first attempt inferred from the response
+//     alone ("whichever group lacks this angle") and, with three groups requested, gave every
+//     primary to Product details, because Product details lacks every angle by definition. The
+//     track jacket's entire strip came back as detail shots.
+// (2) **Only front and back primaries can lead.** A sleeve or hood primary is an incidental shot,
+//     and on the sweatshirt those were sorting between the two flat lays. They become spares, as
+//     does any primary whose angle a grouped view already covers. A spare is not dropped: it sorts
+//     after every group and still fills a slot nothing better wants -- which is what keeps the track
+//     jacket whole, since its only garment photos ARE primaries and its sole grouped views are
+//     detail close-ups.
+//
+// Verified across all 18 products on real responses: 13 come out perfectly type-ordered, and the
+// rest are limited by what Printful returned, not by the ranking.
+export function typePrimaryViews(views, styleViews) {
+  const expected = new Map(Object.entries(styleViews ?? {}).map(([g, list]) => [g, new Set(list)]));
+  const returned = new Map();
+  for (const v of views) {
+    if (!v.option_group) continue;
+    if (!returned.has(v.option_group)) returned.set(v.option_group, new Set());
+    returned.get(v.option_group).add(v.display_name);
+  }
+
+  const typed = views.map(v => {
+    if (v.option_group) return v;
+    const candidates = [...expected]
+      .filter(([g, names]) => names.has(v.display_name) && !(returned.get(g) ?? new Set()).has(v.display_name))
+      .map(([g]) => g);
+    return candidates.length === 1 ? { ...v, option_group: candidates[0] } : v;
+  });
+
+  const covered = new Set(typed.filter(v => v.option_group).map(v => v.display_name));
+  return typed.map(v =>
+    v.option_group ? v : { ...v, spare: covered.has(v.display_name) || v.from_panel === false }
+  );
+}
+
 // A back view is worth much less than its slot suggests, because on every product carrying
 // `mirrorPlacements` the back print DEFAULTS to a mirror of the front -- so a second and third one
 // are near-copies of pictures already in the strip (Aaron, 2026-08-29: "not that it gets you much to
@@ -209,7 +257,12 @@ const MAX_BACK_VIEWS = 1;
 export function orderViews(views, max = MAX_VIEWS) {
   const perGroup = Math.max(1, Math.ceil(max / 2));
   const ranked = views
-    .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group), r: viewRank(v.display_name) }))
+    .map((v, i) => ({
+      v,
+      i,
+      g: v.spare ? GROUP_RANK.length + 1 : viewGroupRank(v.option_group),
+      r: viewRank(v.display_name)
+    }))
     .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i);
 
   // Both caps DEMOTE rather than drop: an over-quota view goes to the back of the queue and still

@@ -1115,24 +1115,35 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     `chooseOptionGroups` and dumps every `mockups[]` entry, its primary and its extras with URLs
     tagged, so duplicates across placements are visible at a glance (the tee: 8 distinct photos
     across 6 placement entries, the sleeves repeating the front's).
-    **A primary's GROUP is inferred from the view that is missing**, since Printful omits the
-    primary's own style from that placement's extras: `Men's` arrived with no Front and `Flat` with
-    no Back, because those two photos are the primaries. So a primary is not an untypeable orphan —
-    it is the one view of one group nothing else supplied, and the gap names it. The tee now reads
-    **Flat Front, Flat Back, Men's Front, Left, Right, Back**, verified against the recorded
-    response. Two safeguards: inference applies only when EXACTLY ONE group lacks that angle
-    (ambiguity leaves it ungrouped in the canonical band, as before), and **a wrong guess can never
-    drop a photo** — a group is only ever assigned when it lacks that title, so the group+title
-    de-dup key it produces cannot collide with an existing view. Only sort position is at stake.
-    It also forced the loop into two passes, extras across every placement and then the primaries,
-    because the group map has to be complete before any primary can be typed.
+    **A primary is typed CLIENT-SIDE against the catalog's view names, and demoted when it is not a
+    front or back panel** (`typePrimaryViews`). Printful omits a primary's own style from that
+    placement's extras, so if the catalog says `Men's` has a Front and the response returned none,
+    the Front primary IS the Men's front. That needs the catalog's per-group VIEW NAMES, which is why
+    `printful-catalog?styles=1` now returns a `views` map alongside its group names.
+    **A first version inferred from the RESPONSE ALONE and was badly wrong — do not retry it.** The
+    rule "whichever group lacks this angle" looks equivalent and is not: with three groups requested,
+    `Product details` lacks every angle by definition, so it swallowed everything. The track jacket's
+    entire strip came back labelled Product details, and the sweatshirt alternated flat/model/flat
+    because its sleeve primaries were typed `Flat`. It shipped, and Aaron caught it in one look.
+    **Only front and back primaries may lead** (`from_panel`, decided in the Edge Function from the
+    placement key). A sleeve or hood primary is an incidental shot, and on the sweatshirt those were
+    sorting between the two flat lays; they become spares, as does any primary whose angle a grouped
+    view already covers. A spare still fills a slot nothing better wants, which is what keeps the
+    track jacket whole — its only garment photos ARE primaries, its sole grouped views being detail
+    close-ups.
+    **Validated on ONE REAL MOCKUP TASK PER PRODUCT** (18 tasks, first variant each) rather than on
+    the catalog: **13 of 18 come out fully type-ordered** (`Flat, Flat, Men's, Men's, Men's,
+    [Details]`), and the five that do not are carrying primaries Printful gave no group for at all.
+    Keep `sweep.json`-style raw dumps if this is ever revisited — four separate ordering rules were
+    tried against that one file in minutes, where each guess had previously cost a deploy and a
+    round trip through Aaron.
     **`ghost` and `on hanger` are excluded outright** (Aaron, 2026-08-29: "they don't really add
     anything here") — neither says anything a flat lay and a model shot do not, and both were taking
     slots from detail shots. Ten products now request exactly `Flat` + `Men's` + `Product details`.
     **The per-group cap keys on the group NAME, not its rank**, so the ungrouped primaries cannot eat
     Flat's quota now that both sit at rank 0.
-    **`VIEW_POLICY_VERSION` is 7**, and the normaliser change at 4 means `printful-mockup` must be
-    deployed with any frontend carrying it.
+    **`VIEW_POLICY_VERSION` is 8**, and the normaliser change at 4 means `printful-mockup` must be
+    deployed with any frontend carrying it, as must `printful-catalog` for its `views` map.
     **The track jacket's five-back filmstrip was NOT the policy — v1 returns the same photograph at a
     DIFFERENT URL under every submitted placement.** One flat back and three detail shots arrived six
     times over, and de-duplicating by URL alone cannot see it. `normalise` now also de-dupes by
