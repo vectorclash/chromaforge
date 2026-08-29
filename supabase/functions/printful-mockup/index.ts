@@ -94,6 +94,45 @@ const NON_VIEW_PLACEMENTS = new Set([
   ...LABEL_PLACEMENTS, "pocket", "details", "inside_pocket", "hood_inner", "facing"
 ]);
 
+// The view a photo actually SHOWS, read off Printful's own filename.
+//
+// The placement key does not identify the photo, and assuming it did put the track jacket's
+// filmstrip in backwards: its `front` placement returns the BACK photo, while the front photo
+// arrives under `pocket`. So a view named from `PLACEMENT_LABELS` was wrong on that product, and
+// `viewRank` then dutifully sorted "Front" (a back shot) ahead of "Back" (a front shot).
+//
+// Printful's filenames run <product-slug>-<colour>-<view>-<hash>.(jpg|png), so stripping the prefix
+// every photo of this product shares, plus the trailing hash, leaves the view. Verified against all
+// 231 `extra` entries across the catalogue -- whose titles we already know -- and it reproduces the
+// title exactly, 231/231. Falls back to null when it cannot tell (a response with a single photo has
+// no shared prefix to strip), and the caller then uses the placement label as before.
+function viewFromFilename(allUrls: string[], url: string): string | null {
+  const base = (u: string) => (u.split("/").pop() ?? "").toLowerCase();
+  const names = allUrls.map(base);
+  let prefix = names[0] ?? "";
+  for (const n of names) {
+    let i = 0;
+    while (i < prefix.length && i < n.length && prefix[i] === n[i]) i++;
+    prefix = prefix.slice(0, i);
+  }
+  // Back off to the last hyphen, so a prefix ending mid-word cannot eat part of the view.
+  prefix = prefix.replace(/[^-]*$/, "");
+  const token = base(url).slice(prefix.length).replace(/-[0-9a-f]{6,}\.(jpg|png)$/, "");
+  return token ? token : null;
+}
+
+// Capitalisation is borrowed from whatever titles Printful sent in this same response, so a view we
+// had to name ourselves reads like the ones we did not: it writes angles in title case ("Right
+// Front") and detail views in sentence case ("Product details"), and guessing either way round is
+// visible in a filmstrip tab. Falls back to title case for a word never seen.
+function titleFromToken(token: string, casing: Map<string, string>) {
+  return token
+    .split("-")
+    .filter(Boolean)
+    .map((w, i) => casing.get(w) ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
 const GLOBAL_USER_ID = "00000000-0000-0000-0000-000000000000";
 const GLOBAL_RATE_LIMIT = 10;
 const GLOBAL_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -330,6 +369,26 @@ Deno.serve(async req => {
     for (const m of ordered) {
       for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
     }
+
+    // Every photo in the response, for the shared-prefix strip, plus the titles Printful gave its
+    // extras so a primary showing the same view is labelled identically rather than title-cased.
+    const allUrls: string[] = [];
+    const titleByToken = new Map<string, string>();
+    const wordCasing = new Map<string, string>();
+    for (const m of ordered) {
+      if (m.mockup_url) allUrls.push(m.mockup_url);
+      for (const e of m.extra ?? []) {
+        if (!e.url) continue;
+        allUrls.push(e.url);
+        titleByToken.set(String(e.title).toLowerCase().replace(/ /g, "-"), e.title);
+        String(e.title).split(/\s+/).forEach((w, i) => {
+          // The first word of a title is capitalised by position, so it says nothing about how the
+          // word is written elsewhere; only later words are evidence.
+          if (i > 0 && w) wordCasing.set(w.toLowerCase(), w);
+        });
+      }
+    }
+
     for (const m of ordered) {
       // A label placement's own mockup_url is never a photograph OF the label -- a sewn-in tag has
       // no camera angle on any product, and the one label that IS visible (the mesh shorts'
@@ -339,8 +398,19 @@ Deno.serve(async req => {
       // labelled "Outside label". Measured: asking for more camera angles made this routine, since
       // leftover photos outnumber the placements that can claim them. Its extras still count --
       // those carry Printful's own view titles.
-      if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
-      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+      const token = viewFromFilename(allUrls, m.mockup_url ?? "");
+      // With the name coming from the photo itself, a non-view placement is no longer a hazard --
+      // the old rule skipped them so a jacket photo could not be labelled "Pocket", and that cannot
+      // happen now. It was costing real photos: measured across the catalogue, five products carry a
+      // view reachable ONLY through one, including the detail shots on the sweatshirt, mesh shorts
+      // and joggers, and the inside shots on the tote and beanie. They are still skipped when the
+      // filename cannot be read, since the placement label is all that is left in that case.
+      if (!token) {
+        if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
+        push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+        continue;
+      }
+      push(m.mockup_url, titleByToken.get(token) ?? titleFromToken(token, wordCasing));
     }
     const reserved = new Set(raw.map(r => r.name));
     const taken = new Set<string>();

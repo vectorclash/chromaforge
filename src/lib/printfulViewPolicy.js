@@ -48,7 +48,7 @@ export const MAX_VIEWS = 6;
 // useMockup persists finished previews in localStorage against a cache key that otherwise describes
 // only the ORDER (product, variant, design, print options), so without this a browser holding a
 // preview from before a policy change replays it for 12 hours.
-export const VIEW_POLICY_VERSION = 9;
+export const VIEW_POLICY_VERSION = 10;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -80,18 +80,22 @@ export function viewRank(title) {
   return i === -1 ? VIEW_ORDER.length : i;
 }
 
-// Rank of the style group a photo came from. A photo with no group is a placement's own primary --
-// which, given only Flat and Product details are ever requested, is a flat lay. It ranks with the
-// flats, which is where it belongs and is now simply true rather than inferred.
-export function viewGroupRank(group) {
-  if (!group) return 0;
-  return /^product details$/i.test(baseGroup(group)) ? 1 : 0;
+const DETAIL_VIEW = /product\s*detail/i;
+
+// Rank of a photo: the flats first, its detail shots after. A photo with no group is a placement's
+// own primary, which -- given only Flat and Product details are ever requested -- is a flat lay.
+// The NAME is checked as well as the group, because a detail shot can arrive as a primary carrying
+// no group at all (the sweatshirt, mesh shorts and joggers each return one that way), and the name
+// is read off Printful's own filename, so it describes the photo rather than the placement.
+export function viewGroupRank(group, displayName) {
+  if (DETAIL_VIEW.test(String(displayName ?? '')) || DETAIL_VIEW.test(baseGroup(group ?? ''))) return 1;
+  return 0;
 }
 
 // Orders and caps a normalised view list: the flats first in angle order, then the detail shots.
 export function orderViews(views, max = MAX_VIEWS) {
   return views
-    .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group), r: viewRank(v.display_name) }))
+    .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group, v.display_name), r: viewRank(v.display_name) }))
     .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i)
     .slice(0, max)
     .map(x => x.v);

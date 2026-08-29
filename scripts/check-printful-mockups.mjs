@@ -117,9 +117,45 @@ function normalise(result) {
   for (const m of ordered) {
     for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
   }
+  // Mirrors the Edge Function: a primary is named from Printful's own filename, because the
+  // placement key does not identify the photo (the track jacket's `front` placement returns its BACK
+  // shot). Only when the filename cannot be read does the placement label stand in, and then a
+  // non-view placement is skipped as it always was.
+  const allUrls = [];
+  const titleByToken = new Map();
+  const wordCasing = new Map();
   for (const m of ordered) {
-    if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
-    push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+    if (m.mockup_url) allUrls.push(m.mockup_url);
+    for (const e of m.extra ?? []) {
+      if (!e.url) continue;
+      allUrls.push(e.url);
+      titleByToken.set(String(e.title).toLowerCase().replace(/ /g, '-'), e.title);
+      String(e.title).split(/\s+/).forEach((w, i) => { if (i > 0 && w) wordCasing.set(w.toLowerCase(), w); });
+    }
+  }
+  const baseName = u => (u.split('/').pop() ?? '').toLowerCase();
+  const viewFromFilename = url => {
+    const names = allUrls.map(baseName);
+    let prefix = names[0] ?? '';
+    for (const n of names) {
+      let i = 0;
+      while (i < prefix.length && i < n.length && prefix[i] === n[i]) i++;
+      prefix = prefix.slice(0, i);
+    }
+    prefix = prefix.replace(/[^-]*$/, '');
+    const token = baseName(url).slice(prefix.length).replace(/-[0-9a-f]{6,}\.(jpg|png)$/, '');
+    return token || null;
+  };
+  const titleFromToken = token => token.split('-').filter(Boolean)
+    .map(w => wordCasing.get(w) ?? w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  for (const m of ordered) {
+    const token = viewFromFilename(m.mockup_url ?? '');
+    if (!token) {
+      if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
+      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+      continue;
+    }
+    push(m.mockup_url, titleByToken.get(token) ?? titleFromToken(token));
   }
   const reserved = new Set(raw.map(r => r.name));
   const taken = new Set();
