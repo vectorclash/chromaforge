@@ -330,10 +330,18 @@ Deno.serve(async req => {
       // labelled "Outside label". Measured: asking for more camera angles made this routine, since
       // leftover photos outnumber the placements that can claim them. Its extras still count --
       // those carry Printful's own view titles.
-      if (!NON_VIEW_PLACEMENTS.has(m.placement)) push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
-      // option_group is what makes the filmstrip groupable by TYPE rather than by angle --
-      // v1 puts it only on the extras, and the primary mockup_url is the placement's own default.
+      //
+      // EXTRAS FIRST, primary second, and the order is the whole point. `push` drops a URL it has
+      // already seen, and a placement's default photo is usually the SAME FILE as one of the style
+      // group's photos -- Printful picks that default from the styles. Pushing the primary first
+      // therefore won the URL and threw the grouped copy away, so a photo that belongs to Flat
+      // arrived carrying no option_group at all and could not be grouped by type. On the zip hoodie
+      // that ate both of Flat's views, which is why its filmstrip was the worst in the catalogue
+      // while the windbreaker -- whose Men's group supplies four views on its own -- looked fine.
+      // Extras first means the grouped copy claims the URL and the primary is dropped as the
+      // duplicate it is; a primary survives only when it is genuinely a photo no group supplied.
       for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
+      if (!NON_VIEW_PLACEMENTS.has(m.placement)) push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
     }
     const reserved = new Set(raw.map(r => r.name));
     const taken = new Set<string>();

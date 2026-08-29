@@ -1051,7 +1051,40 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     Sorting them last costs nothing: they are near-duplicates of angles the requested groups already
     supply, so on a product with a full set they fall past `MAX_VIEWS` and never appear. On a product
     where `chooseOptionGroups` matched nothing, EVERY view is ungrouped, they all tie, and the order
-    is by angle exactly as before. **`VIEW_POLICY_VERSION` is 3.**
+    is by angle exactly as before.
+    **But sorting them last only exposed the real fault, which is in the NORMALISER's push order.**
+    `push` drops a URL it has already seen, and a placement's default photo is usually the SAME FILE
+    as one of the style group's photos — Printful picks that default from the styles. Pushing the
+    primary first therefore won the URL and threw the GROUPED copy away, so a photo belonging to Flat
+    arrived carrying no `option_group` at all and could not be grouped by anything. Extras are pushed
+    first now; a primary survives only when it is genuinely a photo no group supplied.
+    Two real sightings, and the second is what proved it rather than any reasoning: the zip hoodie
+    (717) lost BOTH of Flat's views that way and trailed two ungrouped bare-garment shots, while the
+    windbreaker (615) looked fine beside it purely because its Men's group supplies four views on its
+    own; and the pillow read **`person, person, flat, flat`** — Person is rank 9 and Flat is rank 0,
+    so that ordering is unreachable unless those flats had lost their group.
+    **At most half the strip comes from any ONE group** (`orderViews`, scaled off `max` rather than a
+    constant so the reversible hat's doubled budget still reaches its inside faces, which sit inside
+    the same groups as its outside ones). The beanie's Flat group has SIX views and the bucket hat's
+    has EIGHT, so both filled the strip with flat lays and showed **no on-model shot at all** while
+    fourteen other products led flat and then went to a model. Measured at caps of 2 and 3 across all
+    18: **3 costs nothing** — no product loses a view, and eight trade a fourth near-identical model
+    shot for a ghost, a detail or an on-hanger view. 2 is worse, dropping the beanie, gaiter, women's
+    tee and pants to four views.
+    **Audited against the live catalogue, all 18 products x every variant: 14 are now identical in
+    shape** — `Flat, Flat, Men's, Men's, Men's, [Ghost|Details|On Hanger]`, with 420/458/654 at
+    `Flat x3, Men's x3` and 717/801 at `Flat x2, Men's x2, Ghost x2`. The four that still differ are
+    limited by what Printful HAS, not by policy, and are not worth chasing: the pillow (83) shows
+    2 views on two sizes and 4 on three, because its Person styles are `restricted_to_variants`; the
+    bandana (630) has 2, its Lifestyle groups being deliberately excluded; the pants (604) have 5,
+    only Flat and Men's existing; and the tote (274) has no on-model group at all, so it runs on the
+    non-apparel vocabulary (Default, Standing, On Hanger). **One improvement is left on the table:**
+    the women's tee (261) shows 4 because `Women's` has 2 views while `Women's 2` has 4, and
+    `baseGroup` keeps the unnumbered sibling. Preferring whichever sibling has more views would give
+    it 6 — deliberately not done, since the unnumbered-first rule is a determinism call and whether
+    those photos are as good is a taste one.
+    **`VIEW_POLICY_VERSION` is 4**, and the normaliser change means `printful-mockup` must be
+    deployed with any frontend carrying it.
     **The track jacket's five-back filmstrip was NOT the policy — v1 returns the same photograph at a
     DIFFERENT URL under every submitted placement.** One flat back and three detail shots arrived six
     times over, and de-duplicating by URL alone cannot see it. `normalise` now also de-dupes by

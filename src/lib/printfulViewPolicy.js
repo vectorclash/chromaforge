@@ -98,7 +98,7 @@ export const MAX_VIEWS = 6;
 // option_group on its entries, which makes orderViews silently fall back to sorting by angle alone.
 // That is exactly how it surfaced: a filmstrip that still jumped between image types after the fix
 // had shipped, on a page whose cached copy predated it.
-export const VIEW_POLICY_VERSION = 3;
+export const VIEW_POLICY_VERSION = 4;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -179,10 +179,32 @@ export function viewGroupRank(group) {
 // angles of its own -- so ordering by group and taking them in rank order cannot repeat an angle
 // several times before showing anything else. The strip now reads: the garment flat (front, back),
 // then worn, then ghosted, then its detail.
+// At most half the strip from any ONE group, so a group with a lot of views cannot crowd out every
+// other type. Measured across all 18 products: the beanie's Flat group has SIX views and the bucket
+// hat's has EIGHT, so both filled the entire strip with flat lays and showed no on-model shot at all
+// -- while fourteen other products led flat and then went to a model. Capping at half fixes exactly
+// that without costing anything: no product loses a view (every one that showed six still shows six,
+// and the short ones -- pillow, bandana, women's tee, pants -- are limited by what Printful has, not
+// by this), and eight products trade a fourth near-identical model shot for a ghost, a detail or an
+// on-hanger view. A cap of 2 was measured too and is worse: it drops the beanie, gaiter, women's tee
+// and pants to four views.
+//
+// It scales with `max` rather than being a constant because the reversible bucket hat asks for
+// double when a genuinely different second design is in play, and its inside faces come back inside
+// the SAME groups as its outside ones -- a fixed cap would trim precisely the views that choice
+// exists to show.
 export function orderViews(views, max = MAX_VIEWS) {
+  const perGroup = Math.max(1, Math.ceil(max / 2));
+  const taken = new Map();
   return views
     .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group), r: viewRank(v.display_name) }))
     .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i)
+    .filter(x => {
+      const n = taken.get(x.g) ?? 0;
+      if (n >= perGroup) return false;
+      taken.set(x.g, n + 1);
+      return true;
+    })
     .slice(0, max)
     .map(x => x.v);
 }
