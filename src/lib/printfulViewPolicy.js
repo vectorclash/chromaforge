@@ -98,7 +98,7 @@ export const MAX_VIEWS = 6;
 // option_group on its entries, which makes orderViews silently fall back to sorting by angle alone.
 // That is exactly how it surfaced: a filmstrip that still jumped between image types after the fix
 // had shipped, on a page whose cached copy predated it.
-export const VIEW_POLICY_VERSION = 4;
+export const VIEW_POLICY_VERSION = 5;
 
 // Which option_groups to send with a v1 mockup task, given the group names this product actually
 // has (from /v2/catalog-products/{id}/mockup-styles). Returns [] when nothing matches, which the
@@ -193,18 +193,48 @@ export function viewGroupRank(group) {
 // double when a genuinely different second design is in play, and its inside faces come back inside
 // the SAME groups as its outside ones -- a fixed cap would trim precisely the views that choice
 // exists to show.
+// A back view is worth much less than its slot suggests, because on every product carrying
+// `mirrorPlacements` the back print DEFAULTS to a mirror of the front -- so a second and third one
+// are near-copies of pictures already in the strip (Aaron, 2026-08-29: "not that it gets you much to
+// see a reverse of the front"). Measured across the catalogue, backs took 23 of 99 slots, and the
+// zip hoodie and track jacket spent HALF their strip on them -- Flat Back, Men's Back and Ghost
+// Right Back -- while their detail shots never appeared at all.
+//
+// One is kept, never zero: a customer must be able to see the panel they are paying for, which is
+// the whole lesson of the mesh shorts shipping for months with no back view at all.
+const BACK_VIEW = /\bback\b/i;
+const MAX_BACK_VIEWS = 1;
+
 export function orderViews(views, max = MAX_VIEWS) {
   const perGroup = Math.max(1, Math.ceil(max / 2));
-  const taken = new Map();
-  return views
+  const ranked = views
     .map((v, i) => ({ v, i, g: viewGroupRank(v.option_group), r: viewRank(v.display_name) }))
-    .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i)
-    .filter(x => {
-      const n = taken.get(x.g) ?? 0;
-      if (n >= perGroup) return false;
-      taken.set(x.g, n + 1);
-      return true;
-    })
+    .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i);
+
+  // Both caps DEMOTE rather than drop: an over-quota view goes to the back of the queue and still
+  // fills a slot nothing better wants. That is what keeps the short products whole -- the pillow,
+  // bandana, women's tee and pants are limited by what Printful has, and a hard filter would take
+  // views away from exactly the products that can least afford it.
+  const taken = new Map();
+  let backs = 0;
+  const preferred = [];
+  const spare = [];
+  for (const x of ranked) {
+    const used = taken.get(x.g) ?? 0;
+    const isBack = BACK_VIEW.test(String(x.v.display_name ?? ''));
+    if (used >= perGroup || (isBack && backs >= MAX_BACK_VIEWS)) {
+      spare.push(x);
+      continue;
+    }
+    taken.set(x.g, used + 1);
+    if (isBack) backs += 1;
+    preferred.push(x);
+  }
+
+  // Re-sorted after the cut, so whatever survives is still in strict type-then-angle order and a
+  // backfilled view cannot land out of sequence at the tail.
+  return [...preferred, ...spare]
     .slice(0, max)
+    .sort((a, b) => a.g - b.g || a.r - b.r || a.i - b.i)
     .map(x => x.v);
 }

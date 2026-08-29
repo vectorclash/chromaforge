@@ -1083,7 +1083,20 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     `baseGroup` keeps the unnumbered sibling. Preferring whichever sibling has more views would give
     it 6 — deliberately not done, since the unnumbered-first rule is a determinism call and whether
     those photos are as good is a taste one.
-    **`VIEW_POLICY_VERSION` is 4**, and the normaliser change means `printful-mockup` must be
+    **At most ONE back view per strip**, for the same reason and by the same mechanism (Aaron,
+    2026-08-29: "not that it gets you much to see a reverse of the front"). On every product carrying
+    `mirrorPlacements` the back print DEFAULTS to a mirror of the front, so a second and third back
+    are near-copies of pictures already on screen. Measured: backs took **23 of 99 slots**, and the
+    zip hoodie and track jacket spent HALF their strips on them (Flat Back, Men's Back, Ghost Right
+    Back) while their detail shots never appeared. Now 19 of 99, and 693/717/801 surface Product
+    details for the first time. **One is kept, never zero** — a customer must see the panel they are
+    paying for, which is the whole lesson of the mesh shorts shipping for months with no back view.
+    **Both caps DEMOTE rather than drop**, and that is what makes them safe: an over-quota view goes
+    to the back of the queue and still fills a slot nothing better wants, so no product loses a view
+    (verified across all 18 x every variant, before and after). A hard filter would have taken views
+    from the pillow, bandana, women's tee and pants — the four that can least afford it. The survivors
+    are re-sorted after the cut so a backfilled view cannot land out of type order at the tail.
+    **`VIEW_POLICY_VERSION` is 5**, and the normaliser change at 4 means `printful-mockup` must be
     deployed with any frontend carrying it.
     **The track jacket's five-back filmstrip was NOT the policy — v1 returns the same photograph at a
     DIFFERENT URL under every submitted placement.** One flat back and three detail shots arrived six
