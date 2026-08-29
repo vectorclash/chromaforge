@@ -13,7 +13,7 @@ import {
   capRenderStrategy,
   warmRenderService
 } from '../lib/printful';
-import { chooseOptionGroups, orderViews, MAX_VIEWS } from '../lib/printfulViewPolicy';
+import { chooseOptionGroups, orderViews, MAX_VIEWS, VIEW_POLICY_VERSION } from '../lib/printfulViewPolicy';
 import { isSameDesign } from '../render/designSettings';
 import { useStudio } from '../context/StudioContext';
 
@@ -153,7 +153,9 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   // ones. v1 photographs the inside for real, and the hat now submits those placements, so the
   // choice genuinely changes the returned photos and a stale preview would misrepresent them.
   const secondarySignature = secondaryDesign ? JSON.stringify(secondaryDesign) : 'none';
-  return `${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}`;
+  // VIEW_POLICY_VERSION first, so a policy or normalisation change invalidates every stored
+  // preview rather than leaving browsers replaying a filmstrip built under the old rules.
+  return `v${VIEW_POLICY_VERSION}:${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}`;
 }
 
 
