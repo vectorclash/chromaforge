@@ -13,13 +13,7 @@ import {
   capRenderStrategy,
   warmRenderService
 } from '../lib/printful';
-import {
-  chooseOptionGroups,
-  orderViews,
-  typePrimaryViews,
-  MAX_VIEWS,
-  VIEW_POLICY_VERSION
-} from '../lib/printfulViewPolicy';
+import { chooseOptionGroups, orderViews, MAX_VIEWS, VIEW_POLICY_VERSION } from '../lib/printfulViewPolicy';
 import { isSameDesign } from '../render/designSettings';
 import { useStudio } from '../context/StudioContext';
 
@@ -312,13 +306,8 @@ export function useMockup() {
         // Best-effort: if the catalogue read fails there is no reason to fail the whole mockup, so
         // it falls through to v1's own default, which is what shipped before this existed.
         let optionGroups = [];
-        let styleViews = {};
         try {
-          const styles = await getMockupStyleGroups(product.id);
-          optionGroups = chooseOptionGroups(styles.groups);
-          // Kept for typePrimaryViews below, which needs each group's own view names to work out
-          // which group an ungrouped primary photo belongs to.
-          styleViews = styles.views;
+          optionGroups = chooseOptionGroups(await getMockupStyleGroups(product.id));
         } catch {
           optionGroups = [];
         }
@@ -392,7 +381,7 @@ export function useMockup() {
         // are as important as its outside ones, and they sort late, so a flat cap would trim exactly
         // the views that choice exists to show.
         const ordered = hideUnsubmittedViews(task2.mockups || [], entriesWorthShowing, printfileSpecs);
-        const unique = orderViews(typePrimaryViews(ordered, styleViews), showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS);
+        const unique = orderViews(ordered, showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS);
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --

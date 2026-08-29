@@ -303,10 +303,10 @@ Deno.serve(async req => {
     // That list gives Front / Front 3 / Front 2. Found by scripts/check-printful-mockups.mjs
     // across all 14 windbreaker variants -- the sort of thing hand-testing reads as fine,
     // because it is only a tooltip.
-    const raw: Array<{ url: string; name: string; optionGroup?: string; fromPanel?: boolean }> = [];
+    const raw: Array<{ url: string; name: string; optionGroup?: string }> = [];
     const seenUrls = new Set<string>();
     const seenViews = new Set<string>();
-    const push = (url: string | undefined, name: string, optionGroup?: string, fromPanel = false) => {
+    const push = (url: string | undefined, name: string, optionGroup?: string) => {
       if (!url || seenUrls.has(url)) return;
       // ALSO de-duplicate by group+title, not URL alone. v1 repeats a product's camera angles under
       // EVERY submitted placement, and gives the same photograph a different URL each time -- so on
@@ -316,23 +316,16 @@ Deno.serve(async req => {
       if (seenViews.has(viewKey)) return;
       seenViews.add(viewKey);
       seenUrls.add(url);
-      raw.push({ url, name, optionGroup, fromPanel });
+      raw.push({ url, name, optionGroup });
     };
     const ordered = [...(result.mockups ?? [])].sort(
       (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
     );
-    // A placement's primary is the camera angle Printful chose for it, and it arrives with NO
-    // option_group -- v1 puts that only on the extras. It cannot be typed from the response alone
-    // (a first attempt guessed "the group missing this angle" and, with three groups requested,
-    // handed every primary to Product details -- the track jacket's whole strip came back as detail
-    // shots). The client does it instead, against the catalog's own view names.
+    // Only Flat (or Default) and Product details are ever requested, and Printful returns the flats
+    // as each placement's primary `mockup_url` with `option_group` set only on the detail extras. So
+    // an untyped primary IS a flat lay -- no inference, which is the whole point of asking for those
+    // two groups and nothing else. See src/lib/printfulViewPolicy.js for what asking for more costs.
     //
-    // What CAN be decided here is whether a primary is a panel worth leading with. `from_panel` is
-    // true only for the front and back, the two angles every product is photographed from; a sleeve
-    // or hood primary is an incidental extra shot and the client ranks it last. Measured on the
-    // sweatshirt: its sleeve primaries were sorting between the two flat lays.
-    const PANEL_PLACEMENTS = new Set(["default", "front", "back", "outside_front", "outside_back"]);
-
     // Extras across EVERY placement first, so a grouped copy always claims a URL a primary would.
     for (const m of ordered) {
       for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
@@ -347,17 +340,17 @@ Deno.serve(async req => {
       // leftover photos outnumber the placements that can claim them. Its extras still count --
       // those carry Printful's own view titles.
       if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
-      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement, undefined, PANEL_PLACEMENTS.has(m.placement));
+      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
     }
     const reserved = new Set(raw.map(r => r.name));
     const taken = new Set<string>();
-    for (const { url, name, optionGroup, fromPanel } of raw) {
+    for (const { url, name, optionGroup } of raw) {
       let final = name;
       if (taken.has(final)) {
         for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
       }
       taken.add(final);
-      byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null, from_panel: !!fromPanel });
+      byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null });
     }
     return Response.json(
       {

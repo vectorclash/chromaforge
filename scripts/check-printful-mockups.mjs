@@ -38,7 +38,7 @@ import {
   buildMockupFiles,
   hideUnsubmittedViews
 } from '../src/lib/printfulPlacements.js';
-import { chooseOptionGroups, orderViews, typePrimaryViews, MAX_VIEWS } from '../src/lib/printfulViewPolicy.js';
+import { chooseOptionGroups, orderViews, MAX_VIEWS } from '../src/lib/printfulViewPolicy.js';
 
 const KEY = process.env.PRINTFUL_API_KEY;
 if (!KEY) {
@@ -96,20 +96,18 @@ const LABEL_PLACEMENTS = new Set(['label_inside', 'label_outside', 'label_panel'
 const NON_VIEW_PLACEMENTS = new Set([
   ...LABEL_PLACEMENTS, 'pocket', 'details', 'inside_pocket', 'hood_inner', 'facing'
 ]);
-const PANEL_PLACEMENTS = new Set(['default', 'front', 'back', 'outside_front', 'outside_back']);
-
 function normalise(result) {
   const byUrl = new Map();
   const raw = [];
   const seenUrls = new Set();
   const seenViews = new Set();
-  const push = (url, name, optionGroup, fromPanel = false) => {
+  const push = (url, name, optionGroup) => {
     if (!url || seenUrls.has(url)) return;
     const viewKey = `${optionGroup ?? ''}|${name}`;
     if (seenViews.has(viewKey)) return;
     seenViews.add(viewKey);
     seenUrls.add(url);
-    raw.push({ url, name, optionGroup, fromPanel });
+    raw.push({ url, name, optionGroup });
   };
   const ordered = [...(result.mockups ?? [])].sort(
     (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
@@ -121,17 +119,17 @@ function normalise(result) {
   }
   for (const m of ordered) {
     if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
-    push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement, undefined, PANEL_PLACEMENTS.has(m.placement));
+    push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
   }
   const reserved = new Set(raw.map(r => r.name));
   const taken = new Set();
-  for (const { url, name, optionGroup, fromPanel } of raw) {
+  for (const { url, name, optionGroup } of raw) {
     let final = name;
     if (taken.has(final)) {
       for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
     }
     taken.add(final);
-    byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null, from_panel: !!fromPanel });
+    byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null });
   }
   return { status: result.status, error: result.error ?? null, mockups: [...byUrl.values()] };
 }
@@ -228,14 +226,10 @@ async function styleGroups(productId) {
   if (!styleGroupCache.has(productId)) {
     const { body } = await pf(`/v2/catalog-products/${productId}/mockup-styles`);
     const names = new Set();
-    const views = {};
     for (const e of body?.data ?? []) for (const st of e?.mockup_styles ?? []) {
-      if (!st?.category_name) continue;
-      names.add(st.category_name);
-      if (!st?.view_name) continue;
-      (views[st.category_name] ??= []).includes(st.view_name) || views[st.category_name].push(st.view_name);
+      if (st?.category_name) names.add(st.category_name);
     }
-    styleGroupCache.set(productId, { groups: [...names], views });
+    styleGroupCache.set(productId, [...names]);
   }
   return styleGroupCache.get(productId);
 }
@@ -260,8 +254,7 @@ async function checkVariant(productId, cfg, specs, variant) {
     if (!(p.width > 0 && p.height > 0)) return fail(`placement ${f.placement} has a zero-size position`);
   }
 
-  const styles = await styleGroups(productId);
-  const groups = chooseOptionGroups(styles.groups);
+  const groups = chooseOptionGroups(await styleGroups(productId));
 
   // v1 wants product_options as a JSON object; our config carries the [{name,value}] shape the
   // order path also uses. Same conversion the Edge Function does.
@@ -300,10 +293,7 @@ async function checkVariant(productId, cfg, specs, variant) {
   if (!result) return fail(`still pending after ${(POLL_TRIES * POLL_MS) / 1000}s`);
   if (result.status !== 'completed') return fail(`status ${result.status}: ${result.error ?? 'no reason given'}`);
 
-  const views = orderViews(
-    typePrimaryViews(hideUnsubmittedViews(normalise(result).mockups, entries, specs), styles.views),
-    MAX_VIEWS
-  );
+  const views = orderViews(hideUnsubmittedViews(normalise(result).mockups, entries, specs), MAX_VIEWS);
   if (!views.length) return fail('completed but produced no views');
   const urls = new Set(views.map(v => v.mockup_url));
   if (urls.size !== views.length) return fail('duplicate view URLs survived de-duplication');

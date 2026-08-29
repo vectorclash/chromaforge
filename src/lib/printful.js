@@ -177,10 +177,7 @@ export async function getMockupStyleGroups(productId) {
   return cachedFetch(path, async () => {
     const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
     if (error) throw error;
-    // `views` maps each group to its own view names, which typePrimaryViews needs to work out
-    // which group an ungrouped primary photo came from. Absent on an older function deploy, in
-    // which case inference simply finds no candidate and the primary stays where it was.
-    return { groups: data.result || [], views: data.views || {} };
+    return data.result || [];
   });
 }
 
