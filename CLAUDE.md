@@ -2809,6 +2809,28 @@ load for an unrelated reason and every count is meaningless.
     **Automating the grid read was tried and thrown away** — with 216 cells the hue formula repeats,
     so pixels classify into the wrong cells (residuals of 4-6 CELLS). Read the labels by eye; the
     confirm mockup is what makes that rigorous.
+    **The bucket hat's `label_inside` is transparent too — `labelInsideRegion` (2026-08-29, Aaron's
+    call).** It is the ONLY product whose `label_inside` is a visible printed patch rather than a
+    sewn tag: the hat is reversible, so the inside face is worn outward half the time, and the mark
+    landed there as an opaque **300x300 dark panel plus a 150x300 accent block** — a third of the
+    patch a solid colour block, in the middle of a panel someone chose to show. Both label files are
+    **identical** (printfile 411, 450x300px, 3x2in, aspect 1.50), so the asymmetry was purely our own
+    rendering choice, not Printful's. Setting `labelInsideRegion` makes it render like
+    `label_outside`: transparent, over the artwork, ink chosen from what it is printed over.
+    Three things worth not re-deriving:
+    (1) **The two labels sample DIFFERENT artwork, and that is the whole reason the choice is its own
+    function.** `label_outside` sits on the front face, `label_inside` on the inside face — and on
+    this product those carry different designs whenever the customer picks a second one. Sampling the
+    front for both would choose the inside mark's ink from artwork that is not underneath it, with no
+    symptom but an occasionally illegible printed mark. `labelBackdropChoice` lives in
+    `printfulPlacements.js` (Node-safe, unlike `lib/printful.js` with its Supabase import) and
+    `scripts/check-label-backdrop.mjs` pins all eight cases — no key, no network, no canvas.
+    (2) **The region is NOT independently calibrated.** It inherits the outside rect, on the grounds
+    that both labels are 3x2in on the same printfile and both sit centrally on their face. Good
+    enough to choose an ink; run `scripts/calibrate-label-outside.mjs`'s two-round grid process
+    before trusting it for anything finer.
+    (3) **Every other product is untouched** — a null `labelInsideRegion` keeps the opaque dark tag,
+    which is correct for a label nobody sees, and the check asserts it.
     **Transparent label_outside + heavier mark (2026-07-15, `LABEL_MARK_GENERATOR_VERSION
     = 4`, Aaron-approved from real track-jacket draft mockups — orders 166996698/166999659):**
     Printful composites label placements OVER the garment's own print (confirmed on a real

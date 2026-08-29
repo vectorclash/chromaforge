@@ -17,6 +17,7 @@ import {
   hasTwoLegCanvas,
   getLegWrap,
   getLabelOutsideRegion,
+  getLabelInsideRegion,
   getLegPanel,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
@@ -402,6 +403,9 @@ export default function ProductPage() {
   // Resolved ONCE here like the values around it, not at each call site: a first version inlined
   // getLabelOutsideRegion(cfg) into all three, and `cfg` is only in scope in one of them -- which
   // broke every product page with a ReferenceError rather than just the products that have a label.
+  const labelInsideRegion = detail?.product
+    ? getLabelInsideRegion(getMockupConfigForProduct(detail.product.id))
+    : null;
   const labelOutsideRegion = detail?.product
     ? getLabelOutsideRegion(getMockupConfigForProduct(detail.product.id))
     : null;
@@ -935,6 +939,7 @@ export default function ProductPage() {
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
+      labelInsideRegion,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1181,6 +1186,7 @@ export default function ProductPage() {
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
+      labelInsideRegion,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1222,6 +1228,7 @@ export default function ProductPage() {
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
+      labelInsideRegion,
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,

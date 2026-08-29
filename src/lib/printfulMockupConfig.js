@@ -440,6 +440,19 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // right on some products and 1.21x out on the track jacket, because the front file is
     // cover-fitted to its print area and so is not at 1:1 scale with it.
     labelOutsideRegion: { x: 0.416, y: 0.415, w: 0.167, h: 0.171 },
+    // THE ONLY PRODUCT WHOSE `label_inside` IS A VISIBLE PRINTED PATCH rather than a sewn-in tag.
+    // The hat is reversible, so the inside face is worn outward half the time, and the mark landed
+    // there as an opaque 300x300 dark panel plus a 150x300 accent block -- a third of the patch a
+    // solid colour block, in the middle of a panel someone chose to show (Aaron, 2026-08-29: "if you
+    // reverse it you have this big block and a logo and on the other side it's the regular logo with
+    // transparency"). Setting a region here makes it render like `label_outside` instead:
+    // transparent, over the artwork, with its ink chosen from what it is printed over.
+    //
+    // NOT independently calibrated -- it inherits the outside rect, on the grounds that both labels
+    // are 3x2in on the same printfile (411) and both sit centrally on their face, which is what that
+    // rect describes. Good enough to choose an ink; verify with a real grid mockup before trusting
+    // it for anything finer, the same two-round process scripts/calibrate-label-outside.mjs runs.
+    labelInsideRegion: { x: 0.416, y: 0.415, w: 0.167, h: 0.171 },
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     // Reversible: outside_front/outside_back and inside_front/inside_back are four
     // separately printed panels, and the customer wears either face out. But NO mockup

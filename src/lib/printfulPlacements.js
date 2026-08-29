@@ -119,3 +119,39 @@ export function hideUnsubmittedViews(views, entries, printfileSpecs) {
   // than a wrong-looking one, and the customer still needs something to approve.
   return kept.length ? kept : views;
 }
+
+// Which artwork a label mark is printed over, and therefore how it should be drawn. Pulled out as a
+// pure function so the choice is testable without a canvas, a network call or a Supabase client --
+// the wiring is the part that was easy to get wrong, not the sampling.
+//
+// Two labels, two different backdrops, and that is the whole point: `label_outside` sits on the
+// front face, `label_inside` on the inside face, and on the reversible bucket hat those carry
+// DIFFERENT designs whenever the customer has picked a second one. Sampling the front for both
+// would have chosen the inside mark's ink from artwork that is not underneath it.
+//
+// `transparent` false means the mark paints its own dark panel and is legible by construction -- a
+// sewn-in tag on a garment whose inside nobody sees. A region is what says otherwise.
+export function labelBackdropChoice(placementKey, opts) {
+  const {
+    design,
+    secondaryDesign = null,
+    hasSecondary = false,
+    frontKey = null,
+    frontSpec = null,
+    insideFaceKey = null,
+    insideFaceSpec = null,
+    labelOutsideRegion = null,
+    labelInsideRegion = null
+  } = opts;
+  const insideLabel = placementKey === 'label_inside';
+  const region = insideLabel ? labelInsideRegion : labelOutsideRegion;
+  const overArtwork = placementKey === 'label_outside' || (insideLabel && !!labelInsideRegion);
+  return {
+    transparent: overArtwork,
+    region: overArtwork ? region : null,
+    backdropKey: insideLabel ? insideFaceKey || frontKey : frontKey,
+    backdropDesign: insideLabel && hasSecondary ? secondaryDesign : design,
+    backdropSpec: insideLabel ? insideFaceSpec || frontSpec : frontSpec
+  };
+}
+

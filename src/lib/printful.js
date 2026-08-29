@@ -16,6 +16,7 @@ import {
 export { resolvePlacementEntries, mockupPlacementEntries, buildMockupFiles, hideUnsubmittedViews };
 import { generateLabelMark } from '../render/generateLabelMark';
 import { sampleLabelBackdrop, wantsLightInk } from '../render/labelBackdrop';
+import { labelBackdropChoice } from './printfulPlacements';
 import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../render/hatWrap';
 import { drawLegWrap, legWrapSourceSize } from '../render/legWrap';
 import renderLabelMark from '../render/renderLabelMark';
@@ -335,6 +336,13 @@ export function getLabelOutsideRegion(cfg) {
   return cfg?.labelOutsideRegion || null;
 }
 
+// Where a VISIBLE inside label lands on the inside face. Set on the reversible bucket hat alone;
+// null everywhere else, which keeps `label_inside` as the opaque dark tag it is on a garment whose
+// inside nobody sees.
+export function getLabelInsideRegion(cfg) {
+  return cfg?.labelInsideRegion || null;
+}
+
 
 // Mockups are previews, not the final print file -- cap render size well below Printful's
 // real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
@@ -514,6 +522,11 @@ export async function renderAndUploadPrintFiles(
     // Where this product's outside label lands on the front sheet, so the mark can sample the
     // artwork underneath and pick its ink -- see PRODUCT_MOCKUP_CONFIG's labelOutsideRegion.
     labelOutsideRegion = null,
+    // Set only where `label_inside` is a visible printed patch rather than a sewn tag (the
+    // reversible bucket hat). When set, that label renders transparent over the artwork and picks
+    // its ink the same way label_outside does -- but sampled against the INSIDE face, which carries
+    // the secondary design whenever the customer has chosen a different one.
+    labelInsideRegion = null,
     // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
@@ -544,28 +557,47 @@ export async function renderAndUploadPrintFiles(
   const frontKey = frontPlacementKey(entries);
   const frontSpec =
     frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === entries.find(([k]) => k === frontKey)[1]);
+  // The face a visible inside label is printed on -- the first placement the product's secondary
+  // design covers (the hat's `inside_front`). Only used to sample that label's backdrop.
+  const insideFaceEntry = secondaryPlacements?.length
+    ? entries.find(([k]) => secondaryPlacements.includes(k))
+    : null;
+  const insideFaceKey = insideFaceEntry?.[0] || null;
+  const insideFaceSpec = insideFaceEntry
+    ? printfileSpecs.printfiles.find(f => f.printfile_id === insideFaceEntry[1])
+    : null;
 
   const tasks = entries.map(([placementKey, printfileId]) => {
     if (LABEL_MARK_PLACEMENTS.has(placementKey)) {
       const cacheKey = `label:${placementKey}`;
       if (!rendered[cacheKey]) {
         const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
+        const choice = labelBackdropChoice(placementKey, {
+          design,
+          secondaryDesign,
+          hasSecondary,
+          frontKey,
+          frontSpec,
+          insideFaceKey,
+          insideFaceSpec,
+          labelOutsideRegion,
+          labelInsideRegion
+        });
         rendered[cacheKey] = spec
-          ? renderLabelMarkBlob(design, spec, {
-              transparent: placementKey === 'label_outside',
-              // Only label_outside is printed over the artwork; label_inside paints its own dark
-              // panel and is legible by construction. Null region (every product without a visible
-              // outside label) or a failed sample keeps the dark ink that shipped before this.
+          ? renderLabelMarkBlob(choice.backdropDesign, spec, {
+              transparent: choice.transparent,
+              // Null region (every product without a visible label of this kind) or a failed sample
+              // keeps the dark ink that shipped before this existed.
               lightInk:
-                placementKey === 'label_outside' &&
+                choice.transparent &&
                 wantsLightInk(
-                  sampleLabelBackdrop(design, frontSpec, labelOutsideRegion, {
-                    includeGeometry: includesGeometry(frontKey, frontKey, geometryPlacements),
+                  sampleLabelBackdrop(choice.backdropDesign, choice.backdropSpec, choice.region, {
+                    includeGeometry: includesGeometry(choice.backdropKey, frontKey, geometryPlacements),
                     geometryLayout,
                     sizeFrame,
                     legSymmetry,
-                    legWrap: legWrap?.placements?.includes(frontKey) ? legWrap : null,
-                    hatWrap: hatWrap?.placements?.includes(frontKey) ? hatWrap : null
+                    legWrap: legWrap?.placements?.includes(choice.backdropKey) ? legWrap : null,
+                    hatWrap: hatWrap?.placements?.includes(choice.backdropKey) ? hatWrap : null
                   })
                 )
             }).then(blob =>

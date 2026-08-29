@@ -224,6 +224,7 @@ export function useMockup() {
       // A fixed property of the product, so deliberately NOT in cacheKey below -- the ink it
       // produces varies with the DESIGN, and the design is already part of the key.
       labelOutsideRegion = null,
+      labelInsideRegion = null,
       productOptions = null,
       secondaryDesign = null
     }) => {
@@ -300,6 +301,7 @@ export function useMockup() {
           legSymmetry,
           legWrap,
           labelOutsideRegion,
+          labelInsideRegion,
           secondaryDesign,
           secondaryPlacements: getSecondaryDesignConfig(cfg)?.placements || null
         });
@@ -431,6 +433,7 @@ export function useMockup() {
       // A fixed property of the product, so deliberately NOT in cacheKey below -- the ink it
       // produces varies with the DESIGN, and the design is already part of the key.
       labelOutsideRegion = null,
+      labelInsideRegion = null,
       productOptions = null,
       secondaryDesign = null
     }) => {
