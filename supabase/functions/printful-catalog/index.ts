@@ -47,6 +47,11 @@ Deno.serve(async req => {
   //   one panel's physical location to another's, e.g. where the hoodie pocket sits
   //   relative to the front panel for lib/printful.js's pocketCrop continuity math)
   // /printful-catalog?id=123&sizes=1         -> GET /products/123/sizes
+  // /printful-catalog?id=123&styles=1        -> GET /v2/catalog-products/123/mockup-styles,
+  //     reduced to the distinct style GROUP names. The client turns those into the
+  //     option_groups a mockup task asks for (src/lib/printfulViewPolicy.js) -- deciding it
+  //     client-side keeps ONE implementation of that policy, shared with the checker, instead
+  //     of a Deno copy that would drift the way the placements list did.
   //   (the published size guide: body measurements per size, flat garment measurements,
   //   and Printful's own measuring diagrams -- see components/ui/SizeGuideModal.jsx)
   const productId = url.searchParams.get("id");
@@ -54,12 +59,15 @@ Deno.serve(async req => {
   const wantsPrintfiles = url.searchParams.get("printfiles") === "1";
   const wantsTemplates = url.searchParams.get("templates") === "1";
   const wantsSizes = url.searchParams.get("sizes") === "1";
+  const wantsStyles = url.searchParams.get("styles") === "1";
 
   let printfulUrl;
   if (productId && wantsPrintfiles) {
     printfulUrl = new URL(`${PRINTFUL_API_BASE}/mockup-generator/printfiles/${productId}`);
   } else if (productId && wantsTemplates) {
     printfulUrl = new URL(`${PRINTFUL_API_BASE}/mockup-generator/templates/${productId}`);
+  } else if (productId && wantsStyles) {
+    printfulUrl = new URL(`${PRINTFUL_API_BASE}/v2/catalog-products/${productId}/mockup-styles`);
   } else if (productId && wantsSizes) {
     // unit is fixed to inches; the modal converts to cm client-side rather than spending a
     // second upstream request (and a second cache entry) on the same numbers.
@@ -75,6 +83,19 @@ Deno.serve(async req => {
   });
 
   const data = await printfulRes.json();
+
+  // Reduce the mockup-styles payload to the distinct group names before it leaves here. The raw
+  // response is hundreds of style entries repeated per variant group (358 on the hoodie), and the
+  // only thing the policy needs is the set of names.
+  if (wantsStyles) {
+    const names = new Set<string>();
+    for (const entry of (data?.data ?? [])) {
+      for (const style of (entry?.mockup_styles ?? [])) {
+        if (style?.category_name) names.add(style.category_name);
+      }
+    }
+    return Response.json({ result: [...names] }, { status: printfulRes.status, headers: corsHeaders });
+  }
 
   // Single-product responses carry each variant's cost price -- mark it up here so the
   // price the customer sees on the product page matches what create-checkout-session

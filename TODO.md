@@ -33,6 +33,13 @@ flat garment, with no version bump to catch it).
       its `preview:ok` proves the order path, not the artwork.
 - [x] Full `check-printful-mockups.mjs` — **129/129 variants, 22.7 min**.
 
+**Camera-angle policy (2026-08-29, same day).** `src/lib/printfulViewPolicy.js` now derives which
+style groups a mockup asks for from each product's own live style list, replacing v1's unchosen
+default. View spread across the catalogue went from **2-10 to 2-6**, twelve products landing on six
+with real angle variety. Deployed: `printful-catalog` (new `styles=1`), `printful-mockup` (accepts
+`optionGroups`, and no longer lets a non-visible placement name a view). Verified one variant per
+product, 18/18.
+
 **Still unexercised, and it needs a browser:** the client-side composite path
 (`renderDesignBlob` -> `createImageBitmap` -> `drawLegWrap` -> `toBlob` -> Supabase upload) and the
 `:legwrap` render cache key. Generate one mockup on the mesh shorts while signed in and confirm the

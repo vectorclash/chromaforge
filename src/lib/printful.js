@@ -161,6 +161,25 @@ export async function getPrintfileSpecs(productId) {
   });
 }
 
+// The distinct mockup STYLE GROUP names this product has ("Flat", "Men's", "Ghost", ...). Feeds
+// chooseOptionGroups (src/lib/printfulViewPolicy.js), which turns them into the option_groups a
+// mockup task asks for. Cached like every other catalog read, so this costs one small request per
+// product per session against a 30-90s mockup round trip.
+//
+// Fetched rather than configured ON PURPOSE. A per-product list in PRODUCT_MOCKUP_CONFIG would be
+// the same structure as the old `placements` list, which silently drifted out of date at the v1
+// migration and cost customers the mesh shorts' whole back panel. A rule reading the live
+// catalogue cannot drift.
+export async function getMockupStyleGroups(productId) {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  const path = `printful-catalog?id=${productId}&styles=1`;
+  return cachedFetch(path, async () => {
+    const { data, error } = await supabase.functions.invoke(path, { method: 'GET' });
+    if (error) throw error;
+    return data.result || [];
+  });
+}
+
 // Printful's published size guide for a product: body measurements per size
 // ('measure_yourself'), flat garment measurements ('product_measure'), and the diagrams that
 // give those measurements meaning. Fetched LAZILY -- only when the customer opens the size
@@ -1010,11 +1029,11 @@ export async function unwrapFunctionsError(error) {
 // parameter: v1 chooses the camera angles itself and returns four on-model views at no extra
 // time cost, which is exactly why the per-product (and per-variant) style-id tables v2 needed
 // are gone.
-export async function createMockupTask({ productId, variantIds, files, productOptions }) {
+export async function createMockupTask({ productId, variantIds, files, productOptions, optionGroups }) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.functions.invoke('printful-mockup', {
     method: 'POST',
-    body: { productId, variantIds, files, productOptions, format: 'jpg' }
+    body: { productId, variantIds, files, productOptions, optionGroups, format: 'jpg' }
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Mockup task creation failed');

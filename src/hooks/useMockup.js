@@ -4,6 +4,7 @@ import {
   getMockupTask,
   getMockupConfigForProduct,
   getSecondaryDesignConfig,
+  getMockupStyleGroups,
   buildMockupFiles,
   hideUnsubmittedViews,
   mockupPlacementEntries,
@@ -12,6 +13,7 @@ import {
   capRenderStrategy,
   warmRenderService
 } from '../lib/printful';
+import { chooseOptionGroups, orderViews, MAX_VIEWS } from '../lib/printfulViewPolicy';
 import { isSameDesign } from '../render/designSettings';
 import { useStudio } from '../context/StudioContext';
 
@@ -292,6 +294,18 @@ export function useMockup() {
 
         const files = buildMockupFiles(entries, printfileSpecs, urls);
 
+        // Which camera angles to ask for, derived from THIS product's own style list rather than
+        // configured per product -- see src/lib/printfulViewPolicy.js for the rule and why a
+        // hardcoded list would be the same drift hazard the old `placements` list turned out to be.
+        // Best-effort: if the catalogue read fails there is no reason to fail the whole mockup, so
+        // it falls through to v1's own default, which is what shipped before this existed.
+        let optionGroups = [];
+        try {
+          optionGroups = chooseOptionGroups(await getMockupStyleGroups(product.id));
+        } catch {
+          optionGroups = [];
+        }
+
         // Printful's mockup generator has been confirmed live to occasionally return a bare
         // "Internal Server Error" failure for some all-over-print products (the track jacket,
         // 801) that then succeeds immediately on a second attempt with the exact same inputs
@@ -307,7 +321,8 @@ export function useMockup() {
               productId: product.id,
               variantIds: [variant.id],
               files,
-              productOptions: productOptions || cfg.productOptions
+              productOptions: productOptions || cfg.productOptions,
+              optionGroups
             },
             onWait
           );
@@ -351,7 +366,16 @@ export function useMockup() {
         const entriesWorthShowing = showsSecondary
           ? entries
           : entries.filter(([placementKey]) => !secondaryPlacements.includes(placementKey));
-        const unique = hideUnsubmittedViews(task2.mockups || [], entriesWorthShowing, printfileSpecs);
+        // Ordered into one canonical sequence (front -> three-quarters -> back -> detail) so every
+        // product's filmstrip reads the same way, and capped so a product with many angles does not
+        // hand a phone 10 photos at ~154KB each.
+        //
+        // The cap is applied HERE and not in the Edge Function because only this side knows about
+        // the reversible hat: when a genuinely different second design is in play its inside views
+        // are as important as its outside ones, and they sort late, so a flat cap would trim exactly
+        // the views that choice exists to show.
+        const ordered = hideUnsubmittedViews(task2.mockups || [], entriesWorthShowing, printfileSpecs);
+        const unique = orderViews(ordered, showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS);
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --

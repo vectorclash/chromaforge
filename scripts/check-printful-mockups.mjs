@@ -38,6 +38,7 @@ import {
   buildMockupFiles,
   hideUnsubmittedViews
 } from '../src/lib/printfulPlacements.js';
+import { chooseOptionGroups, orderViews, MAX_VIEWS } from '../src/lib/printfulViewPolicy.js';
 
 const KEY = process.env.PRINTFUL_API_KEY;
 if (!KEY) {
@@ -84,6 +85,17 @@ const PLACEMENT_LABELS = {
   label_inside: 'Inside label', label_outside: 'Outside label', label_panel: 'Lining'
 };
 const LABEL_PLACEMENTS = new Set(['label_inside', 'label_outside', 'label_panel']);
+
+// Placements that never correspond to a photograph a customer can be shown: brand marks, and
+// interior surfaces (the track jacket's pocket is its inside lining, the windbreaker's
+// hood_inner and facing likewise). Printful still associates SOME camera angle with each of
+// them, so letting them name a view produces a photo of the jacket labelled "Pocket" -- which
+// is exactly what happened once mockups started asking for more style groups and leftover
+// photos began outnumbering the placements that could claim them. Their `extra` entries still
+// count; those carry Printful's own view titles, which are real.
+const NON_VIEW_PLACEMENTS = new Set([
+  ...LABEL_PLACEMENTS, 'pocket', 'details', 'inside_pocket', 'hood_inner', 'facing'
+]);
 function normalise(result) {
   const byUrl = new Map();
   const raw = [];
@@ -97,7 +109,7 @@ function normalise(result) {
     (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
   );
   for (const m of ordered) {
-    push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+    if (!NON_VIEW_PLACEMENTS.has(m.placement)) push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
     for (const e of m.extra ?? []) push(e.url, e.title);
   }
   const reserved = new Set(raw.map(r => r.name));
@@ -197,6 +209,22 @@ function checkCoverage(productId, cfg, specs, variant) {
   }
 }
 
+// The style groups a product has, fetched once per product and reused across its variants -- the
+// same list printful-catalog?styles=1 hands the browser, so the checker and the app feed the policy
+// identical input.
+const styleGroupCache = new Map();
+async function styleGroups(productId) {
+  if (!styleGroupCache.has(productId)) {
+    const { body } = await pf(`/v2/catalog-products/${productId}/mockup-styles`);
+    const names = new Set();
+    for (const e of body?.data ?? []) for (const st of e?.mockup_styles ?? []) {
+      if (st?.category_name) names.add(st.category_name);
+    }
+    styleGroupCache.set(productId, [...names]);
+  }
+  return styleGroupCache.get(productId);
+}
+
 async function checkVariant(productId, cfg, specs, variant) {
   const label = `${productId}/${variant.id} ${variant.size ?? ''}${variant.color ? ' ' + variant.color : ''}`.trim();
   const fail = msg => failures.push(`${label}: ${msg}`);
@@ -217,6 +245,8 @@ async function checkVariant(productId, cfg, specs, variant) {
     if (!(p.width > 0 && p.height > 0)) return fail(`placement ${f.placement} has a zero-size position`);
   }
 
+  const groups = chooseOptionGroups(await styleGroups(productId));
+
   // v1 wants product_options as a JSON object; our config carries the [{name,value}] shape the
   // order path also uses. Same conversion the Edge Function does.
   const options = Array.isArray(cfg.productOptions)
@@ -227,7 +257,10 @@ async function checkVariant(productId, cfg, specs, variant) {
     variant_ids: [variant.id],
     format: 'jpg',
     files,
-    ...(options && Object.keys(options).length ? { product_options: options } : {})
+    ...(options && Object.keys(options).length ? { product_options: options } : {}),
+    // The same groups the app asks for, from the same policy module -- so a green run here reflects
+    // the filmstrip a customer actually gets, not v1's unchosen default.
+    ...(groups.length ? { option_groups: groups } : {})
   });
   let created = null;
   for (let attempt = 1; attempt <= 4 && !created; attempt++) {
@@ -251,7 +284,7 @@ async function checkVariant(productId, cfg, specs, variant) {
   if (!result) return fail(`still pending after ${(POLL_TRIES * POLL_MS) / 1000}s`);
   if (result.status !== 'completed') return fail(`status ${result.status}: ${result.error ?? 'no reason given'}`);
 
-  const views = hideUnsubmittedViews(normalise(result).mockups, entries, specs);
+  const views = orderViews(hideUnsubmittedViews(normalise(result).mockups, entries, specs), MAX_VIEWS);
   if (!views.length) return fail('completed but produced no views');
   const urls = new Set(views.map(v => v.mockup_url));
   if (urls.size !== views.length) return fail('duplicate view URLs survived de-duplication');

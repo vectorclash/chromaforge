@@ -981,6 +981,59 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     label / Lining). `check-printful-mockups.mjs` now fails on any view whose name is a raw key
     from `available_placements` — keyed off the real key list, not a regex on "label", so a
     placement Printful adds later is caught the same way.
+  - **Which camera angles a mockup asks for is now a DERIVED POLICY, not v1's unchosen default
+    (`src/lib/printfulViewPolicy.js`, 2026-08-29, Aaron: "it's weird how some products have just a
+    flat front and back and some have a wide range of angles ... so inconsistent").** He was right
+    and the cause was that nobody was choosing: v2 needed a hand-picked style id per product, the v1
+    migration dropped that deliberately (those ids broke every pillow size but 18x18), and v1's own
+    default ranged from **2 views** (zip hoodie, track jacket, pants, pillow) to **10** (beanie) with
+    no pattern. The zip hoodie has TEN style groups and was returning two flats.
+    **The target is consistency, not abundance.** "Take everything" fixes scarcity and leaves the
+    inconsistency, just larger; it also costs real money on a phone — measured over 28 real mockups,
+    **154KB each**, so ten views is ~1.5MB against ~750KB for six. The policy aims at one shape —
+    the garment flat, worn, and in detail — and **nine of eighteen products now request the identical
+    set** (Flat, Men's, Ghost, Product details), the rest differing only where a group genuinely does
+    not exist. It pulls outliers in BOTH directions: the beanie and hat come down, the flat-two
+    products come up.
+    **The policy is client-side and shared, which is the load-bearing structural choice.** The group
+    names come from `printful-catalog?id=N&styles=1` (new, cached), the browser computes
+    `chooseOptionGroups`, and `printful-mockup` merely forwards and validates. That keeps ONE
+    implementation, imported by both the app and `check-printful-mockups.mjs`. A Deno copy in the
+    Edge Function would be the `_shared/compactDesign.ts` mirroring pattern, and mirroring is exactly
+    the drift that cost the shorts their back panel.
+    Five things worth not re-deriving, four of them errors the dry run or a real task caught:
+    (1) **A whitelist of "good" group names is the wrong shape.** The first version matched
+    **nothing** on the pillow (whose groups are Default/Person/Lifestyle, no "Flat") and cut the tote
+    from three views to one, because non-apparel uses a different vocabulary (Default, Standing, On
+    Hanger, In Hand). It is exclude-then-rank now: an unrecognised group is KEPT and ranked last.
+    Dropping is the dangerous direction — same lesson as `placements`.
+    (2) **Printful numbers repeats of one set** — "Men's", "Men's 2", "Men's 3", "Flat 2". These are
+    more shots of the same thing; treating them as distinct defeated the one-on-model rule outright
+    (the beanie requested all three Men's groups). Collapsed to a base name.
+    (3) **Rank-only ordering fills the strip with one angle.** The track jacket came back "Front,
+    Back, Back 2, Back 3, Back 4, Product details 2" — several style groups each supply their own
+    back shot. `orderViews` round-robins by base view name so variety of ANGLE wins over a second
+    opinion on the same angle. Note the base must strip digits **anywhere**, not just trailing: the
+    hat's "Front Outside" / "Front 2 Outside" / "Right Front Outside" stayed three distinct bases and
+    refilled the strip with fronts.
+    (4) **A placement may not name a view unless it is a camera-visible panel** (`NON_VIEW_PLACEMENTS`
+    — labels plus `pocket`, `details`, `inside_pocket`, `hood_inner`, `facing`). Printful associates
+    some angle with every placement, so once more groups are requested and leftover photos outnumber
+    the placements that can claim them, you get a photo of the jacket labelled **"Pocket"** (its
+    invisible inside lining). Their `extra` entries still count — those carry Printful's real titles.
+    (5) **The view CAP is applied client-side, not in the Edge Function**, because only the client
+    knows about the reversible hat: with a genuinely different second design its inside views matter,
+    and they sort late, so a flat cap would trim exactly the views that choice exists to show.
+    **Deliberately excluded groups, with reasons**, so "why is this missing?" needs no Printful round
+    trip: Lifestyle/Flat Lifestyle/Person/Couple's/Duet/Boy's/Girl's (staged scenes — a mood, often a
+    sliver of garment at an angle that says nothing about the buyer's artwork); Halloween/Holiday/
+    seasonal (would date the page and change under us); and **Product specs, which are not
+    photographs at all** — on the track jacket they are size-chart cards in English/French/German/
+    Italian/Japanese/Spanish.
+    **Known weak spot: the track jacket (801)** lands at 5 views with two detail shots and no
+    three-quarter, despite its Ghost group advertising Left Front and Right Back. Whether those
+    dedupe onto existing photos or get retitled has not been chased. Still better than the two flats
+    it had.
   **`scripts/check-printful-mockups.mjs` exists because of all of this** — it generates a real
   mockup for **every variant of every product (129 as of 2026-08-28)** and asserts the pipeline
   end to end. Run it

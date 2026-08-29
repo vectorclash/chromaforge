@@ -31,11 +31,13 @@
 //   - No X-PF-Store-Id header.
 //   - Polling is by `task_key`, and the result is normalized here (see GET) so the client
 //     never sees v1's mockups/extra split.
-// Deliberately NOT sending `option_groups`: v1's default output is four on-model angles
-// (front, back, both three-quarters) at no extra time cost -- measured 6.6s either way --
-// and the three-quarter views are the only ones that ever show a customer their sleeve
-// artwork. Passing option_groups: ["Flat"] reproduces v2's old flat lay near-exactly
-// (RMSE 2.72) if that is ever wanted back.
+// `option_groups` IS sent as of 2026-08-29, and the values come from the client (see the POST
+// handler). It used to be omitted on the grounds that v1's default is four on-model angles at no
+// extra time cost -- true of the t-shirt it was measured on, and false as a generalisation. Across
+// the catalogue that default ranged from 2 views (zip hoodie, track jacket, pants, pillow) to 10
+// (beanie), with no pattern, because nobody was choosing: the zip hoodie has TEN style groups and
+// was returning two flats. Asking for a consistent set costs nothing measurable -- the zip hoodie
+// returned 10 photos in 8.6s against 8.9s for its two.
 //
 // Deploy with: npx supabase functions deploy printful-mockup
 
@@ -80,6 +82,17 @@ const PLACEMENT_LABELS: Record<string, string> = {
 // on the track jacket a photo of the JACKET came back named "label_outside", because naming is
 // first-wins by URL and that placement happened to be ordered first.
 const LABEL_PLACEMENTS = new Set(["label_inside", "label_outside", "label_panel"]);
+
+// Placements that never correspond to a photograph a customer can be shown: brand marks, and
+// interior surfaces (the track jacket's pocket is its inside lining, the windbreaker's
+// hood_inner and facing likewise). Printful still associates SOME camera angle with each of
+// them, so letting them name a view produces a photo of the jacket labelled "Pocket" -- which
+// is exactly what happened once mockups started asking for more style groups and leftover
+// photos began outnumbering the placements that could claim them. Their `extra` entries still
+// count; those carry Printful's own view titles, which are real.
+const NON_VIEW_PLACEMENTS = new Set([
+  ...LABEL_PLACEMENTS, "pocket", "details", "inside_pocket", "hood_inner", "facing"
+]);
 
 const GLOBAL_USER_ID = "00000000-0000-0000-0000-000000000000";
 const GLOBAL_RATE_LIMIT = 10;
@@ -181,7 +194,17 @@ Deno.serve(async req => {
     // -- the array shape is what PRODUCT_MOCKUP_CONFIG carries and what the v1 ORDER path also
     // consumes, so it stays the one representation everything else speaks.
     const body = await req.json();
-    const { productId, variantIds, files, format = "jpg", productOptions } = body;
+    const { productId, variantIds, files, format = "jpg", productOptions, optionGroups } = body;
+
+    // Which camera-angle groups to ask for. Decided CLIENT-side (src/lib/printfulViewPolicy.js)
+    // from the product's own style list, so the policy has one implementation shared with
+    // scripts/check-printful-mockups.mjs rather than a Deno copy that would drift. Validated
+    // rather than trusted: it reaches Printful verbatim, and an empty array would ask for no
+    // styles at all and return a filmstrip with no photos -- so an empty or malformed value falls
+    // through to v1's own default, which is what shipped before this existed.
+    const groups = Array.isArray(optionGroups)
+      ? optionGroups.filter((g: unknown) => typeof g === "string" && g.length > 0 && g.length < 64).slice(0, 8)
+      : [];
 
     if (!files?.length) {
       return Response.json(
@@ -205,7 +228,8 @@ Deno.serve(async req => {
           files,
           ...(productOptionsObject && Object.keys(productOptionsObject).length
             ? { product_options: productOptionsObject }
-            : {})
+            : {}),
+          ...(groups.length ? { option_groups: groups } : {})
         })
       }
     );
@@ -290,7 +314,15 @@ Deno.serve(async req => {
       (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
     );
     for (const m of ordered) {
-      push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+      // A label placement's own mockup_url is never a photograph OF the label -- a sewn-in tag has
+      // no camera angle on any product, and the one label that IS visible (the mesh shorts'
+      // label_outside, a 3in patch on the leg) shows up inside the FRONT photo, which `front`
+      // already names. What that url actually points at is some garment angle Printful chose to
+      // associate with the placement, so naming a view from it produces a photo of the jacket
+      // labelled "Outside label". Measured: asking for more camera angles made this routine, since
+      // leftover photos outnumber the placements that can claim them. Its extras still count --
+      // those carry Printful's own view titles.
+      if (!NON_VIEW_PLACEMENTS.has(m.placement)) push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
       for (const e of m.extra ?? []) push(e.url, e.title);
     }
     const reserved = new Set(raw.map(r => r.name));
