@@ -120,6 +120,29 @@ export function hideUnsubmittedViews(views, entries, printfileSpecs) {
   return kept.length ? kept : views;
 }
 
+// Every product's front placement key ('front', 'default' on t-shirts, or 'outside_front' on the
+// reversible bucket hat, whose four faces are all named for which side they are on).
+//
+// 'outside_front' was missing until 2026-08-29 and it was a real, customer-visible bug: this key is
+// what resolves the FRONT SHEET a `label_outside` mark samples to choose its ink, so on the hat the
+// spec came back null, sampleLabelBackdrop bailed, and the outside label printed the dark ink over
+// any artwork however dark it was -- while the inside label, which resolves its face through
+// `secondaryPlacements` instead, correctly went light. One hat, two marks, opposite inks. Nothing
+// else this key feeds changes for the hat: it has no 'pocket' placement and no pocketCrop.
+//
+// IT LIVES HERE, BESIDE labelBackdropChoice, BECAUSE THAT IS WHAT LET THE BUG SHIP. The choice
+// function TAKES frontKey as an input, so check-label-backdrop.mjs could pin every branch of it
+// green while the real caller in lib/printful.js -- which cannot run in plain Node, since it
+// imports the Supabase client -- derived that input as null. Same lesson as
+// mockupPlacementEntries: a checker can only compare against the world if the thing it imports is
+// the thing the app runs.
+const FRONT_PLACEMENT_KEYS = ['front', 'default', 'outside_front'];
+
+export function frontPlacementKey(entries) {
+  const entry = entries.find(([key]) => FRONT_PLACEMENT_KEYS.includes(key));
+  return entry?.[0] ?? null;
+}
+
 // Which artwork a label mark is printed over, and therefore how it should be drawn. Pulled out as a
 // pure function so the choice is testable without a canvas, a network call or a Supabase client --
 // the wiring is the part that was easy to get wrong, not the sampling.

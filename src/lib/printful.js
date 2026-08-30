@@ -16,7 +16,7 @@ import {
 export { resolvePlacementEntries, mockupPlacementEntries, buildMockupFiles, hideUnsubmittedViews };
 import { generateLabelMark } from '../render/generateLabelMark';
 import { sampleLabelBackdrop, wantsLightInk } from '../render/labelBackdrop';
-import { labelBackdropChoice } from './printfulPlacements';
+import { labelBackdropChoice, frontPlacementKey } from './printfulPlacements';
 import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../render/hatWrap';
 import { drawLegWrap, legWrapSourceSize } from '../render/legWrap';
 import renderLabelMark from '../render/renderLabelMark';
@@ -397,11 +397,6 @@ export function warmRenderService() {
   }
 }
 
-// Every product's front placement key ('front' or 'default' for t-shirts).
-function frontPlacementKey(entries) {
-  const entry = entries.find(([key]) => key === 'front' || key === 'default');
-  return entry?.[0] ?? null;
-}
 
 // Whether a placement should include the geometry layer. `geometryPlacements` (a Set of
 // placement keys, or null) is the customer's choice from ProductPage.jsx's per-placement

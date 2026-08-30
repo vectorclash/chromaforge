@@ -11,7 +11,7 @@
 //
 // It also pins the other half: on every product but the hat, `label_inside` is a sewn-in tag that
 // paints its own dark panel and samples nothing at all.
-import { labelBackdropChoice } from '../src/lib/printfulPlacements.js';
+import { labelBackdropChoice, frontPlacementKey } from '../src/lib/printfulPlacements.js';
 import { PRODUCT_MOCKUP_CONFIG } from '../src/lib/printfulMockupConfig.js';
 
 const OUT = { id: 'outside', seed: 'aaaa' };
@@ -73,6 +73,25 @@ check('shorts / outside label samples the front',
 check('shorts / inside label untouched by this change',
   sig(labelBackdropChoice('label_inside', shorts)),
   { transparent: false, design: 'outside', spec: 'front', region: false });
+
+// --- and the input the choice function TAKES, derived the way the real caller derives it ---
+//
+// This is the case that was missing, and its absence is why a real bug shipped green: every check
+// above hands frontKey in, so all of them passed while lib/printful.js resolved it to null on the
+// hat -- whose front face is 'outside_front', not 'front' -- and the outside label printed dark
+// ink over any artwork, however dark. A null front key silently disables the whole feature for a
+// product, so it is asserted per product rather than in the abstract.
+const FRONT_ENTRIES = {
+  654: [['outside_front', 410], ['outside_back', 410], ['inside_front', 410], ['label_outside', 411]],
+  693: [['front', 472], ['back', 472], ['label_outside', 400]],
+  257: [['default', 94], ['label_inside', 64]]
+};
+check('hat / the front face resolves (it is outside_front, not front)',
+  frontPlacementKey(FRONT_ENTRIES[654]), 'outside_front');
+check('shorts / the front face resolves', frontPlacementKey(FRONT_ENTRIES[693]), 'front');
+check('t-shirt / the front face resolves (default)', frontPlacementKey(FRONT_ENTRIES[257]), 'default');
+check('a label-only entry list resolves to no front face',
+  frontPlacementKey([['label_outside', 411]]), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
