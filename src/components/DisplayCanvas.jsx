@@ -341,6 +341,12 @@ export default class DisplayCanvas extends React.Component {
       // geometry setting change, tell the user editing branches a new design rather than
       // touching the one they opened -- see onGeometrySettingChange.
       showBranchNotice: false,
+      // Presentation state for every block that comes and goes inside the controls column,
+      // keyed by name -> { mounted, open } and driven off the real conditions by
+      // componentDidUpdate's syncCollapse. `mounted` keeps a block in the DOM for the length
+      // of its exit transition after its condition has already gone false, and `open` is
+      // applied a frame after mount so the collapse has a closed state to run from.
+      collapse: {},
       // "Reset to defaults" is behind a confirmation because it throws away a palette that
       // can represent real work and cannot be undone -- the same bar the gallery's delete
       // uses, and the same shared dialog.
@@ -501,6 +507,8 @@ export default class DisplayCanvas extends React.Component {
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);
     clearTimeout(this.adoptDesignTimer);
+    Object.values(this.collapseTimers || {}).forEach(t => clearTimeout(t));
+    Object.values(this.collapseRafs || {}).forEach(r => r && cancelAnimationFrame(r));
   }
 
   componentDidUpdate(prevProps, prevState) {
@@ -519,6 +527,84 @@ export default class DisplayCanvas extends React.Component {
     ) {
       this.adoptInitialDesign();
     }
+    this.syncPanelCollapses();
+  }
+
+  // Keep every collapsible block in the controls column in step with the condition that
+  // decides whether it belongs on screen. Named rather than per-block state so a new block
+  // costs one line here and one renderCollapse() call in the JSX -- see the .panel-collapse
+  // rules in components.css for the transition itself and why the two-frame open is needed.
+  syncPanelCollapses() {
+    const {
+      showBranchNotice, animationMode, threeDMode, settingsDirty, animationFrames,
+      generateDisabled, isExporting
+    } = this.state;
+    this.syncCollapse('branchNotice', showBranchNotice);
+    this.syncCollapse(
+      'dirtyNotice',
+      animationMode && !threeDMode && settingsDirty && animationFrames.length > 0 && !generateDisabled
+    );
+    this.syncCollapse('animationProgress', animationMode && (generateDisabled || isExporting));
+  }
+
+  syncCollapse(name, shouldShow) {
+    const current = this.state.collapse[name] ?? { mounted: false, open: false };
+    this.collapseRafs = this.collapseRafs || {};
+    this.collapseTimers = this.collapseTimers || {};
+
+    if (shouldShow) {
+      clearTimeout(this.collapseTimers[name]);
+      this.collapseTimers[name] = null;
+      if (!current.mounted) {
+        this.setCollapse(name, { mounted: true, open: false });
+        return;
+      }
+      if (!current.open && !this.collapseRafs[name]) {
+        // Two frames, for the same reason FadeImage's reveal defers twice: an element that
+        // has never been painted in its closed state has no previous value to transition
+        // from, and would land open with no animation.
+        this.collapseRafs[name] = requestAnimationFrame(() => {
+          this.collapseRafs[name] = requestAnimationFrame(() => {
+            this.collapseRafs[name] = null;
+            this.setCollapse(name, { mounted: true, open: true });
+          });
+        });
+      }
+      return;
+    }
+
+    if (this.collapseRafs[name]) {
+      cancelAnimationFrame(this.collapseRafs[name]);
+      this.collapseRafs[name] = null;
+    }
+    if (current.open) {
+      this.setCollapse(name, { mounted: true, open: false });
+      clearTimeout(this.collapseTimers[name]);
+      this.collapseTimers[name] = setTimeout(() => {
+        this.collapseTimers[name] = null;
+        this.setCollapse(name, { mounted: false, open: false });
+      }, DURATION_BASE * 1000);
+    } else if (current.mounted && !this.collapseTimers[name]) {
+      // Switched off before it ever opened (e.g. a Generate landing inside the two-frame
+      // deferral) -- nothing has been painted, so there is nothing to animate out.
+      this.setCollapse(name, { mounted: false, open: false });
+    }
+  }
+
+  setCollapse(name, value) {
+    this.setState(s => ({ collapse: { ...s.collapse, [name]: value } }));
+  }
+
+  // Wrap a collapsible block in the grid the transition runs on, or render nothing at all
+  // while it is neither open nor exiting.
+  renderCollapse(name, children) {
+    const state = this.state.collapse[name];
+    if (!state?.mounted) return null;
+    return (
+      <div className={'panel-collapse' + (state.open ? ' is-open' : '')}>
+        <div className="panel-collapse-clip">{children}</div>
+      </div>
+    );
   }
 
   // Render whatever StudioContext now says is the active design. Called whenever the
@@ -2631,7 +2717,6 @@ export default class DisplayCanvas extends React.Component {
       geometrySettings,
       galleryStatus,
       galleryError,
-      showBranchNotice,
       confirmResetOpen,
     } = this.state;
 
@@ -2827,7 +2912,13 @@ export default class DisplayCanvas extends React.Component {
                     : 'Generate'}
                 </button>
               </div>
-              {animationMode && (generateDisabled || isExporting) && (
+              {/* The three blocks that come and go in this column all animate their own
+                  height in and out (renderCollapse / .panel-collapse) rather than mounting
+                  at full height and shoving the rows below them in one frame. Their real
+                  conditions live in syncPanelCollapses, since a block has to outlive its own
+                  condition by the length of its exit. */}
+              {this.renderCollapse(
+                'animationProgress',
                 <div className="animation-progress">
                   <div
                     className="animation-progress-bar"
@@ -2839,14 +2930,14 @@ export default class DisplayCanvas extends React.Component {
                   />
                 </div>
               )}
-              {animationMode && !threeDMode && settingsDirty && animationFrames.length > 0 && !generateDisabled && (
-                <div className="settings-dirty-notice animate-reveal-quick">
-                  Regenerate to apply new settings
-                </div>
+              {this.renderCollapse(
+                'dirtyNotice',
+                <div className="settings-dirty-notice">Regenerate to apply new settings</div>
               )}
-              {showBranchNotice && (
-                <div className="branch-notice animate-reveal-quick">
-                  <span>Editing creates a new design — your saved version is unchanged.</span>
+              {this.renderCollapse(
+                'branchNotice',
+                <div className="branch-notice">
+                  <span>Editing creates a new design — your saved version is{'\u00a0'}unchanged.</span>
                   <button
                     onClick={this.onDismissBranchNotice.bind(this)}
                     aria-label="Dismiss"

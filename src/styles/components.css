@@ -1214,6 +1214,50 @@
   margin-bottom: 10px;
   letter-spacing: 0.04em;
 }
+/* Every block that comes and goes inside the controls column -- the branch notice, the
+   regenerate-to-apply notice, the animation progress bar -- shares one collapse.
+
+   They used to mount plainly, which in a flex column with the Save/Download rows directly
+   underneath meant taking their full height in a single frame and shoving everything below
+   down with them, while the element itself faded in over its own 8px. That read as a pop,
+   not an entrance, and unmounting on the state flip gave them no exit at all.
+
+   Same mechanism as ProductPage's Print options disclosure: a one-row grid interpolating
+   `grid-template-rows: 0fr -> 1fr` around an `overflow: hidden; min-height: 0` child, so the
+   rows below ease against the block's OWN height with no measured pixel value to go stale
+   when a notice rewraps to two lines on a phone. Each block is mounted closed and opened a
+   frame later (see DisplayCanvas's syncCollapse), because an element that mounts already
+   open has no previous painted value to transition from -- the same two-frame deferral
+   FadeImage and SkeletonFadeOut need. The exit is the same transition run backwards, which
+   is why the element stays mounted for its duration rather than unmounting on the flip. */
+.display-canvas .controls-inner .panel-collapse {
+  width: 100%;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--duration-base) cubic-bezier(0.16, 1, 0.3, 1),
+    opacity var(--duration-fast) ease-in;
+}
+.display-canvas .controls-inner .panel-collapse.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows var(--duration-base) cubic-bezier(0.16, 1, 0.3, 1),
+    opacity var(--duration-base) ease-out;
+}
+/* Load-bearing pair: a grid item's default `min-height: auto` refuses to shrink below its
+   content, so the 0fr row would never collapse, and without the clip its content would
+   spill out of it. */
+.display-canvas .controls-inner .panel-collapse-clip {
+  overflow: hidden;
+  min-height: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .display-canvas .controls-inner .panel-collapse {
+    transition: none;
+  }
+}
 .display-canvas .controls-inner .branch-notice {
   width: 100%;
   display: flex;
@@ -1233,6 +1277,15 @@
      occupies the same slot with no margin-top for the same reason. */
   margin-bottom: 10px;
   letter-spacing: 0.02em;
+}
+/* At 390px and 430px -- the two commonest phone widths -- this sentence wrapped with
+   "unchanged." alone on its second line. `balance` splits it at the em dash instead, which
+   is both even and a real clause boundary, at every width down to 320. The message also
+   glues its last two words with a non-breaking space, which is what holds the floor on an
+   engine too old for `balance` (it is the difference between a one-word orphan and a
+   two-word last line there; measured, `balance` overrides it wherever it is supported). */
+.display-canvas .controls-inner .branch-notice > span {
+  text-wrap: balance;
 }
 .display-canvas .controls-inner .branch-notice-dismiss {
   flex: 0 0 auto;
