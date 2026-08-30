@@ -448,11 +448,14 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // transparency"). Setting a region here makes it render like `label_outside` instead:
     // transparent, over the artwork, with its ink chosen from what it is printed over.
     //
-    // NOT independently calibrated -- it inherits the outside rect, on the grounds that both labels
-    // are 3x2in on the same printfile (411) and both sit centrally on their face, which is what that
-    // rect describes. Good enough to choose an ink; verify with a real grid mockup before trusting
-    // it for anything finer, the same two-round process scripts/calibrate-label-outside.mjs runs.
-    labelInsideRegion: { x: 0.416, y: 0.415, w: 0.167, h: 0.171 },
+    // MEASURED on 2026-08-29 by the same two-round grid process as the outside rect, run against the
+    // INSIDE face (scripts/calibrate-label-outside.mjs --label label_inside). It first inherited the
+    // outside rect on the assumption that both 3x2in labels sit centrally on their own face; the
+    // measurement says x matches (0.418 vs 0.416) but y was ~5% of the sheet too high and h was 70%
+    // too tall. Round two: the label reads 0.964x the predicted width, centre off by (-0.007,
+    // -0.016), and the 2x reference box comes back 2x wide but only 1.65x tall -- the crown's
+    // vertical curvature, the same non-linearity that made the outside height 1.8x its naive value.
+    labelInsideRegion: { x: 0.418, y: 0.468, w: 0.161, h: 0.100 },
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     // Reversible: outside_front/outside_back and inside_front/inside_back are four
     // separately printed panels, and the customer wears either face out. But NO mockup

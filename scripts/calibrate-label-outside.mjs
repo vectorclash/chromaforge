@@ -5,6 +5,7 @@
 //   PRINTFUL_API_KEY=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
 //     node scripts/calibrate-label-outside.mjs --product 693
 //   ... --product 693 --predict 0.749,0.749       # round two, refine
+//   ... --product 654 --label label_inside        # a VISIBLE inside label (the reversible hat)
 //
 // RUN THIS FOR ANY NEW PRODUCT THAT HAS A `label_outside` PLACEMENT. Without a region the mark
 // keeps its dark ink unconditionally, which is wrong on most artwork -- measured across the five
@@ -57,6 +58,13 @@ const arg = name => {
   return i === -1 ? null : args[i + 1];
 };
 const productId = Number(arg('product'));
+// Which label to calibrate. `label_inside` is only meaningful where that label is a VISIBLE printed
+// patch rather than a sewn tag -- the reversible bucket hat, whose inside face is worn outward half
+// the time. It grids the inside placements instead of the front, since that is the face the photo
+// has to show. Verified 2026-08-29: on v1 the hat's inside views are genuinely different photographs
+// (10 views, 10 distinct images on a controlled task with different artwork per face), so the inside
+// really is photographable -- an older note claiming those views were byte-identical was true of v2.
+const labelKey = arg('label') === 'label_inside' ? 'label_inside' : 'label_outside';
 if (!productId) {
   console.error('--product <id> is required');
   process.exit(1);
@@ -174,14 +182,20 @@ function markerFile(w, h, hollow) {
 const specs = await printful(`/mockup-generator/printfiles/${productId}`);
 const variant = specs.variant_printfiles[0];
 const dims = Object.fromEntries(specs.printfiles.map(p => [p.printfile_id, p]));
-if (!variant.placements.label_outside) {
-  console.log(`Product ${productId} has no label_outside placement — nothing to calibrate.`);
+if (!variant.placements[labelKey]) {
+  console.log(`Product ${productId} has no ${labelKey} placement — nothing to calibrate.`);
   process.exit(0);
 }
-// The bucket hat calls its front `outside_front`; everything else uses `front`.
-const frontKey = variant.placements.front ? 'front' : 'outside_front';
+// The face the label is printed on, which is the face the mockup photo must show. The bucket hat
+// calls its front `outside_front`; everything else uses `front`.
+const frontKey =
+  labelKey === 'label_inside' && variant.placements.inside_front
+    ? 'inside_front'
+    : variant.placements.front
+      ? 'front'
+      : 'outside_front';
 const front = dims[variant.placements[frontKey]];
-const label = dims[variant.placements.label_outside];
+const label = dims[variant.placements[labelKey]];
 const naive = { w: label.width / front.width, h: label.height / front.height };
 console.log(`product ${productId}: front ${front.width}x${front.height} (${frontKey}), label ${label.width}x${label.height}`);
 console.log(`naive size fractions: ${naive.w.toFixed(4)} x ${naive.h.toFixed(4)}  (a STARTING POINT — verify in round two)`);
@@ -199,7 +213,7 @@ const position = p => ({ area_width: p.width, area_height: p.height, width: p.wi
 const files = Object.keys(variant.placements)
   .filter(k => !k.startsWith('label_'))
   .map(k => ({ placement: k, image_url: frontUrl, position: position(dims[variant.placements[k]]) }));
-files.push({ placement: 'label_outside', image_url: labelUrl, position: position(label) });
+files.push({ placement: labelKey, image_url: labelUrl, position: position(label) });
 
 const task = await printful(`/mockup-generator/create-task/${productId}`, {
   method: 'POST',
