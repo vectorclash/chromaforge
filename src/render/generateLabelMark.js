@@ -33,7 +33,12 @@ import { resolveDesignPalette } from './resolvedPalette';
 // always inverting, which was correct only on light artwork -- four of six real designs measured
 // dark where the shorts' label lands. The light ink is not a new treatment: it is exactly what the
 // inside tag already prints, minus the tag's own dark panel.
-export const LABEL_MARK_GENERATOR_VERSION = 8;
+// v9 (2026-08-29): the reversible bucket hat's `label_inside` renders transparent over the artwork
+// like its `label_outside`, instead of painting an opaque dark panel plus an accent block. It is the
+// only product whose inside label is a visible printed patch rather than a sewn tag, and the two
+// faces read as different marks when the hat is reversed. Driven by PRODUCT_MOCKUP_CONFIG's
+// `labelInsideRegion`, so every other product's inside tag is byte-identical.
+export const LABEL_MARK_GENERATOR_VERSION = 9;
 
 // Layout rule (Aaron, 2026-07-30): **the mark gets a square, and whatever is left over is
 // accent.** A square dark panel holds the mark; the remaining rectangle is filled flat with
