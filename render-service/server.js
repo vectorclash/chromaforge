@@ -152,15 +152,19 @@ const server = http.createServer(async (req, res) => {
   // hatWrap is: it drives the size of a SOURCE canvas this machine has to hold alongside the
   // output, so a malformed fraction is a memory question and not just a wrong picture. Both are
   // fractions of the printfile's width; shift is bounded below 0.5 because a half-sheet slide
-  // would carry each half clean past the centre.
+  // would carry each half clean past the centre. shiftBottom is optional (a product that omits it
+  // gets the un-tapered map) and is bounded exactly like shift, since it is the same quantity read
+  // at the other end of the sheet.
   if (legWrap != null) {
     const num = (n, lo, hi) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
     const valid =
       num(legWrap.shift, 0, 0.49) && num(legWrap.width, 0.05, 2) &&
+      (legWrap.shiftBottom === undefined || legWrap.shiftBottom === null ||
+        num(legWrap.shiftBottom, 0, 0.49)) &&
       width <= MAX_AXIS && height <= MAX_AXIS && width * height <= MAX_PIXELS;
     if (!valid) {
       send(res, 400, {
-        error: 'Invalid legWrap: expected { shift, width } as fractions of the printfile width'
+        error: 'Invalid legWrap: expected { shift, width, shiftBottom? } as fractions of the printfile width'
       });
       return;
     }

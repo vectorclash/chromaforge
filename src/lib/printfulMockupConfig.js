@@ -249,10 +249,18 @@ export const PRODUCT_MOCKUP_CONFIG = {
     //            waist, three bands of 24 unaccounted for: real fabric turning away from the
     //            camera at the centre front (seam allowance, the rise curving under the body, and
     //            this product's gathered elastic waist). Overshooting hides that in a narrow strip
-    //            that repeats down in the crotch, where nothing is visible, and buys a front that
-    //            reads continuous from waist to crotch. Aaron's call, 2026-08-29, from the
-    //            mockups -- the same trade he took on the hoodie pouch.
-    legWrap: { placements: ['front', 'back'], shift: 0.14161, width: 0.49882 },
+    //            that repeats down in the crotch, and buys a front that reads continuous from the
+    //            waist down. Aaron's call, 2026-08-29, from the mockups -- the same trade he took
+    //            on the hoodie pouch.
+    //   shiftBottom -- 2026-09-01. Held constant, that overshoot does NOT stay confined to the
+    //            crotch: it puts 3.40in of design on both legs at every height, which on a busy
+    //            artwork reads as a mirror symmetry the design does not contain (Aaron: "in the
+    //            middle we see some repeat across both legs"). The hidden fabric it cancels is a
+    //            waist effect -- gathered elastic, the rise curving under -- so the overshoot is
+    //            now ramped out down the sheet, landing on the templates' own zero point. Approved
+    //            from real mockups of three stored designs. Front only, in effect: the back wants
+    //            MORE shift, not less, and cannot have its own (see legWrap.js).
+    legWrap: { placements: ['front', 'back'], shift: 0.14161, shiftBottom: 0.09623, width: 0.49882 },
     legPanel: { width: 0.250, height: 0.926 }
   }, // mesh shorts
   717: {
@@ -330,6 +338,10 @@ export const PRODUCT_MOCKUP_CONFIG = {
     //            template 382466) is 0.07033; the shipped value overshoots it for the reason
     //            spelled out on the shorts (693) above. This product needed the least correction
     //            of the three -- its ruler was already closed outright from mid-rise down.
+    //            DELIBERATELY NO `shiftBottom` (2026-09-01), unlike the shorts and pants: the
+    //            overshoot here duplicates only 1.15in per leg, so a taper would buy little while
+    //            costing the same widening of the centre-BACK gap that one shared shift forces
+    //            (see legWrap.js). Omitting the field leaves this product byte-identical.
     legWrap: { placements: ['front', 'back'], shift: 0.08804, width: 0.56667 },
     legPanel: { width: 0.276, height: 0.989 }
   }, // wide-leg joggers
@@ -590,10 +602,15 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // Fractions of the printfile's width.
     //   width -- spans both leg panels once they have slid together, taken from the wider of this
     //            product's front and back sheets so a mirrored back is covered too.
-    //   shift -- how far each half slides toward the centre. Zero point (half the discarded wedge,
-    //            off template 127919) is 0.07133; the shipped value overshoots it, same reasoning
-    //            as the shorts (693) above, calibrated on this product's own ruler mockup.
-    legWrap: { placements: ['front', 'back'], shift: 0.10158, width: 0.58067 },
+    //   shift -- how far each half slides toward the centre AT THE WAIST. Zero point (half the
+    //            discarded wedge, off template 127919) is 0.07133; the shipped value overshoots it,
+    //            same reasoning as the shorts (693) above, calibrated on this product's own ruler
+    //            mockup.
+    //   shiftBottom -- 2026-09-01, the same fix as the shorts', for the same reason: held constant
+    //            the overshoot puts 2.06in of design on both legs at every height. Ramped out to
+    //            the template zero point. NOT separately mockup-checked -- the shorts are, and this
+    //            product's geometry is the same shape; re-render one if it ever looks wrong.
+    legWrap: { placements: ['front', 'back'], shift: 0.10158, shiftBottom: 0.07133, width: 0.58067 },
     legPanel: { width: 0.296, height: 0.924 }
   }, // wide-leg pants
   458: {

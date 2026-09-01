@@ -3326,6 +3326,61 @@ load for an unrelated reason and every count is meaningless.
     to catch it. Exactly the `density` / `mirrorX` / `legSymmetry` / `hatWrap` hazard. No thumbnail
     backfill (composition is unchanged for every stored design) and no Printful payload change, so
     `check-printful-catalog`/`-mockups`/`-draft-orders` are unaffected.
+  - **The overshoot is ramped out down the leg — `legWrap.shiftBottom`, shorts and pants (2026-09-01,
+    Aaron: "in the middle we see some repeat across both legs and it can look weird on some
+    designs").** Held constant, `shift`'s overshoot of its zero point puts a band of design on BOTH
+    legs at every height, `2 x (shift - zero)` wide — **3.40in per leg on the shorts, 2.06 on the
+    pants, 1.15 on the joggers** (measured by decoding a column-index ramp back out of a real sheet;
+    it is arithmetic, not calibration drift). On a busy artwork that reads as a mirror symmetry the
+    design does not contain. The fabric the overshoot cancels is a WAIST effect — gathered elastic,
+    the rise curving under — and the original ruler mockup was read at the waist only, so a constant
+    value outlives what it was cancelling. `shiftBottom` ramps it to the templates' own zero point.
+    Approved from real Printful mockups, three stored designs x two rules on the shorts and one pair
+    on the pants; the flat butted-panel previews built first were rejected as unjudgeable, which is
+    the reusable half — **for this decision only a real mockup is an instrument.**
+    Six things worth not re-deriving:
+    (1) **It is an affine shear, and the tidier alternative was built, measured and thrown away.**
+    Without a taper the map is an integer 1:1 blit, and two properties fall out free: byte-identical
+    under `@napi-rs/canvas`/Chromium/WebKit, and a mirrored sheet is a pixel-exact flip (what the
+    SIDE seams rest on). A shear gives both up. Quantising the shift into whole-pixel horizontal
+    bands restores them exactly — and needs one draw per pixel of drift, 510 per half on a true
+    shorts printfile, with `@napi-rs/canvas` materialising a source copy per call that V8 frees only
+    lazily: **15GB peak RSS and 3.2s against 360MB and 15ms**. On a 4096MB Fly machine that is an
+    OOM kill on every checkout of these products, not a purity trade. Coarser bands buy the memory
+    back and put a visible jog on straight edges (a fixed 32 bands steps 0.14% of the sheet width at
+    once, in the mockup and the print alike).
+    (2) **What the shear actually costs, measured, so nobody re-litigates it from first principles:**
+    the mirror differs on **0.0076% of subpixels, max delta 1** (a rounding LSB), and the engines on
+    0.381% (max delta 12, Chromium) and 1.662% (max delta 2, WebKit). A print pixel is 1/150in.
+    (3) **The clamps must OVERLAP the composition by a pixel, not abut it.** Under a taper `left` is
+    fractional, so clamp and composition share a subpixel column, and two antialiased edges
+    composited in sequence do not add up to full coverage — a hairline of alpha 144–240 down both
+    outer edges, 836 subpixels at mockup size. The composition draws last and covers the overlap, so
+    the un-tapered path is unchanged.
+    (4) **A product that omits `shiftBottom` is byte-identical, and that is enforced.** The constant
+    path still rounds to a whole pixel and never sets a transform. `scripts/check-legwrap-taper.mjs`
+    stage 1 compares it against the previous commit at mockup cap and true printfile size, mirrored
+    and not, on all three products — run it after anything touching `legWrap.js`. Its stages run as
+    separate processes because one process doing all four is OOM-killed part way, which would read
+    as a pass.
+    (5) **The joggers are deliberately left flat.** 1.15in per leg is little to win, and a taper
+    costs the same widening of the centre-BACK gap that one shared shift forces on every product.
+    (6) **THE BACK IS A KNOWN LIMIT, NOT A CALIBRATION MISS, and tapering slightly widens it**
+    (Aaron: "the back still seems a bit off"). Flood-measuring the shorts' own templates, the front
+    rise is straight — half-wedge **0.0930** of sheet width the whole way down, which is where the
+    0.09623 zero point came from — while the **back is a different pattern piece**: its rise is
+    longer and its wedge wider near the waist (**0.1052**, converging by mid-rise). The back sheet
+    has to be an exact mirror of the front or the SIDE seams reopen, so one shift serves both faces,
+    and the back sits about **1.8in under-shifted across the seat**. Closing it needs the back to
+    shift differently from the front, which trades one seam for two. Accepted.
+    **No `GENERATOR_VERSION` bump** (no `rng()`, `generateArtwork` untouched — `check-render-regression.mjs`
+    passes on all 87 stored designs, 0 changed) and no thumbnail backfill. **DEPLOY ORDER:
+    render-service before the frontend** — it ignores an unknown field, so a browser sending
+    `shiftBottom` against an old Fly bundle shows a tapered mockup and prints a flat garment, with no
+    version check to catch it. Same hazard as `density` / `mirrorX` / `hatWrap` / `legWrap` itself,
+    plus the stale-tab case (a mockup approved under the old rule, bought under the new one), so
+    `STORE_ENABLED=false` for the window. `render-service/server.js` validates `shiftBottom` on the
+    same bounds as `shift` and treats it as optional.
   - **ProductPage's options collapsed into one "Print options" disclosure, 2026-07-25**
     (Aaron: the page felt cluttered — fairly, since two of the sections had landed that same
     day). Five refinement sections (inside artwork, geometry placement, geometry layout, side
