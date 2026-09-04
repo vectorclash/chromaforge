@@ -65,9 +65,10 @@ function GenerateShine() {
 
 // The panel's top edge: the site's spectrum hairline (.cf-spectrum-line, the one under the
 // wordmark) but built from the ACTIVE design's own colours, so the widget carries a trace of
-// the artwork it just made instead of a fixed brand stripe. The last stop repeats the first --
-// the brand line does the same (it opens and closes on #4c00ff), and without it a two- or
-// three-stop palette reads as a hard left-to-right ramp rather than a band of the design.
+// the artwork it just made instead of a fixed brand stripe. The stops run once, straight
+// through: the brand line's closing #4c00ff exists so the studio panel's rounded ends meet the
+// colour they started on, and nothing here has rounded ends, so repeating the first colour
+// would just spend half the bar walking back to where it began.
 //
 // Two stacked copies rather than one whose background is swapped: a CSS gradient cannot be
 // transitioned between arbitrary stop lists, and even where it could, a swap would snap. The
@@ -75,7 +76,9 @@ function GenerateShine() {
 // dip-out) the artwork itself gets.
 function edgeGradient(colors) {
   if (!colors || colors.length === 0) return null;
-  const stops = colors.length === 1 ? [colors[0], colors[0]] : [...colors, colors[0]];
+  // A one-colour palette still needs two stops to be a valid gradient at all -- that
+  // duplicate is a syntax requirement, not the decorative repeat removed above.
+  const stops = colors.length === 1 ? [colors[0], colors[0]] : colors;
   return `linear-gradient(90deg, ${stops.join(', ')})`;
 }
 
