@@ -65,7 +65,7 @@ import { capMockupRenderSize } from '../lib/printful';
 // mockup's ~61%-of-reference density (RENDER_CAP=2000's own comment has the math), so the
 // shirt visibly showed fewer stars/geometry and a different color structure than an actual
 // Printful mockup of the same design (Aaron, live comparison). Rendering at the mockup
-// pipeline's own resolution and then downscaling into the small UV islands (via drawCover,
+// pipeline's own resolution and then downscaling into the small UV islands (via drawSlice,
 // below) keeps the generated COMPOSITION itself density-matched to a real mockup; only the
 // on-screen presentation is small, same as thumbnailing any other full-resolution image.
 const TEXTURE_SIZE = 1024;
@@ -85,34 +85,90 @@ const SLEEVE_ISLANDS = [
   { x: 125, y: 30, w: 729, h: 385 },
   { x: 1196, y: 33, w: 729, h: 385 }
 ];
-// The 8 thin trim strips (flood-fill measured like the islands above; identities confirmed
-// on a headless harness render with each strip painted a distinct color): the two 918-wide
-// strips are the front/back hem trim, the two 725-wide are the sleeve cuffs, and the
-// remaining four are collar ribbing/interior facings (two of those never show on the
-// exterior at any angle -- interior facings; painting them the same way is harmless).
-// Each strip gets a thin edge-band slice of the composition it sits against on the worn
-// garment (hem = body bottom, cuff = sleeve bottom, collar = body top) so the trim reads
-// as the print continuing over the seam -- previously they sampled arbitrary rows of the
-// unrelated full-bleed base layer, which read as random off-design stripes (user-caught).
-// Each cuff strip winds around its cuff in the SAME horizontal direction as its sleeve
-// island's UVs, so a cuff band must mirror exactly when its sleeve's draw does: the
-// y1879 strip belongs to the second sleeve island (the one drawn flipX for worn
-// left/right symmetry) and takes the same `flip`; the y1919 strip belongs to the
-// unmirrored sleeve and draws as-is. Confirmed by live user feedback both ways —
-// flipping the y1919 band instead made BOTH cuffs read as mismatched ("wearer's left"
-// = viewer-right = the y1879/mirrored-sleeve cuff was the off one).
+// Which islands draw horizontally mirrored, indexed the same way as BODY_ISLANDS/
+// SLEEVE_ISLANDS -- the single source of truth STRIP_ISLANDS' `island` field reads from
+// below, so a strip's flip can never drift out of sync with its panel's own (see the
+// 2026-09-04 sleeve note past STRIP_ISLANDS for why that drift already happened once).
+//
+// BODY_FLIP[1] mirrors the back panel, matching every real order's own default
+// (PRODUCT_MOCKUP_CONFIG[257].mirrorPlacements: ['back']) -- see the merch-pipeline
+// section's seam-mirroring notes for why a mirrored back is correct on this product.
+const BODY_FLIP = [false, true];
+// SLEEVE_FLIP is [false, false] -- see the note below STRIP_ISLANDS for why NEITHER
+// sleeve island is code-flipped, despite that reading like it reintroduces the
+// left/right-mismatch bug a 2026-07-17 fix "corrected".
+const SLEEVE_FLIP = [false, false];
+// The thin trim strips, flood-fill measured like the islands above. `island` names which
+// BODY_ISLANDS/SLEEVE_ISLANDS entry (0 or 1) each one is sewn to, and `edge` which end of
+// the composition it sits at ('bottom' = the garment's hem/cuff, 'top' = its neckline).
+//
+// EVERY FIELD HERE IS MEASURED OFF THE MESH, not inferred from the atlas layout (2026-09-04,
+// harness below). Atlas position tells you nothing: the two hems sit at nearly the same x
+// despite belonging to opposite panels, and UV islands are packed wherever they fit. What
+// was measured, per seam, by finding vertex POSITIONS shared between two islands and reading
+// back each island's UV at those vertices:
+//   * which panel each strip is actually sewn to, and along which edge of each one's rect;
+//   * whether the two u-axes run the same direction across the seam (they all do -- fitted
+//     u_strip = m * u_panel + c gives m = +1.00 on both hems and both cuffs, r^2 = 1.00);
+//   * per-island TEXEL DENSITY (atlas px per world unit), from each triangle's UV area over
+//     its 3D area: body 1774-1808, sleeves 1811-1813, hems 1765-1781, cuffs 1754-1756 --
+//     uniform within ~3%, which is what makes atlas heights a valid stand-in for real-world
+//     heights in the `continues` split below.
+// Corrections it forced: the back collar was assigned to the FRONT panel, and two entries
+// ("interior facings", 1219x1811 and 1209x1848) had ZERO triangles mapped to them -- unused
+// atlas space, now dropped. The base layer underneath covers those pixels as it always did.
+//
+// `continues: true` marks a strip whose seam is a straight, full-width line lying on BOTH
+// islands' rect edges (verified: within ~2px on all four) -- the precondition for the
+// composition to genuinely run across it, see the split in the render effect. The collars
+// are deliberately NOT marked: their seam is a CURVE (the neckline), spanning only a
+// sub-range of the panel's width (front collar: panel u 358.6-674.7 mapped across the
+// collar's full 494) and sitting well inside the panel's rect rather than on its edge, so
+// no horizontal band of the composition corresponds to them. They keep a thin edge slice.
 const STRIP_ISLANDS = [
-  { x: 29, y: 1797, w: 918, h: 34, from: 'body', edge: 'bottom', flip: true }, // back hem (mirrored body panel)
-  { x: 30, y: 1838, w: 917, h: 34, from: 'body', edge: 'bottom' }, // front hem
-  { x: 29, y: 1879, w: 725, h: 34, from: 'sleeve', edge: 'bottom', flip: true }, // cuff (mirrored sleeve)
-  { x: 29, y: 1919, w: 725, h: 34, from: 'sleeve', edge: 'bottom' }, // cuff
-  { x: 1219, y: 1811, w: 634, h: 26, from: 'body', edge: 'top' }, // facing (interior)
-  { x: 1209, y: 1848, w: 646, h: 26, from: 'body', edge: 'top' }, // facing (interior)
-  { x: 29, y: 1960, w: 494, h: 25, from: 'body', edge: 'top' }, // collar
-  { x: 30, y: 1993, w: 329, h: 26, from: 'body', edge: 'top' } // collar
+  { x: 29, y: 1797, w: 918, h: 34, from: 'body', edge: 'bottom', island: 1, continues: true }, // back hem
+  { x: 30, y: 1838, w: 917, h: 34, from: 'body', edge: 'bottom', island: 0, continues: true }, // front hem
+  { x: 29, y: 1879, w: 725, h: 34, from: 'sleeve', edge: 'bottom', island: 1, continues: true }, // cuff
+  { x: 29, y: 1919, w: 725, h: 34, from: 'sleeve', edge: 'bottom', island: 0, continues: true }, // cuff
+  { x: 29, y: 1960, w: 494, h: 25, from: 'body', edge: 'top', island: 0 }, // collar (front)
+  { x: 30, y: 1993, w: 329, h: 26, from: 'body', edge: 'top', island: 1 } // collar (back)
 ];
-// Fraction of the source composition's height a trim strip samples from its edge.
-const STRIP_BAND_FRAC = 0.06;
+// The trim that continues a given panel past the composition's bottom edge, if any.
+function continuationFor(from, island) {
+  return STRIP_ISLANDS.find(s => s.continues && s.from === from && s.island === island) || null;
+}
+// How a panel and its continuing trim split one composition. The composition is cover-fit to
+// the COMBINED region (the panel's width by panel.h + trim.h, both in atlas units, which the
+// uniform texel density above makes proportional to real-world size), then cut at the seam:
+// the panel takes the first `panel.h / combined` of it, the trim takes the rest. Because both
+// slices come from one fit, they land at the same source-px-per-texture-px rate with no
+// arithmetic needed to force it -- and the trim shows rows the panel never drew, which is
+// what makes it a continuation rather than a second copy of the panel's own edge.
+function compositionSplit(img, panel, trim) {
+  const combinedH = panel.h + (trim ? trim.h : 0);
+  const crop = coverSampleRect(img, panel.w / combinedH);
+  return { ...crop, panelSh: crop.sh * (panel.h / combinedH) };
+}
+// SLEEVE_FLIP REVERSED, 2026-09-04 (Aaron: "the sleeves are both facing the same way, but
+// one should be flipped like the actual Printful shirt sleeves"). The 2026-07-17 fix above
+// (`flipX: i === 1`, see git history) assumed both sleeves should read identically and
+// "corrected" a mismatch it found on the bare model into that. A real mockup task settles
+// which was right: product 257's own checkout NEVER mirrors either sleeve file --
+// PRODUCT_MOCKUP_CONFIG[257].mirrorPlacements only lists 'back' -- so `sleeve_left` and
+// `sleeve_right` receive byte-identical uploads. Submitting one directional test image
+// (arrow + 4 distinct corner colors) to both placements and pulling a real v1 "Flat" mockup
+// shows the TWO SLEEVES COME BACK MIRRORED ANYWAY -- Printful's own garment construction
+// mirrors the shared file between the two sewn sleeve pieces, the same way the back panel
+// is mirrored by default. (Corner check: the source's top-right corner lands nearest the
+// collar on the viewer-right sleeve in the flat photo, and the top-LEFT corner lands
+// nearest the collar on the viewer-left sleeve -- opposite corners, i.e. a horizontal flip
+// between the two, not a rotation.) This model's own "opposite orientation" UV winding
+// (see the comment the old fix left, still true, git blame it) produces exactly that
+// mirror for free when BOTH islands draw unflipped -- which is what identical-draws did
+// before the 2026-07-17 fix, and is restored here. So the fix that shipped then had the
+// right diagnosis (the two sleeve UV islands do wind oppositely) and the wrong target (it
+// should have left that alone, not cancelled it).
+
 const BODY_PRINTFILE = { width: 4200, height: 5400 }; // product 257, printfile 94 (front+back)
 const SLEEVE_PRINTFILE = { width: 3000, height: 1800 }; // product 257, printfile 95 (both sleeves)
 const bodyCap = capMockupRenderSize(BODY_PRINTFILE.width, BODY_PRINTFILE.height);
@@ -120,30 +176,39 @@ const sleeveCap = capMockupRenderSize(SLEEVE_PRINTFILE.width, SLEEVE_PRINTFILE.h
 const BODY_RENDER = { w: bodyCap.width, h: bodyCap.height };
 const SLEEVE_RENDER = { w: sleeveCap.width, h: sleeveCap.height };
 
-// Crops `img` to `dw`x`dh`'s aspect (centered) and draws it filling the dest rect exactly
-// -- no stretching. Needed now that each render's aspect intentionally matches the real
-// print file rather than the destination island's own shape.
-//
-// Every island in this model's atlas is UV-mapped VERTICALLY FLIPPED on the garment
-// (confirmed on a headless harness render with orientation-marked test textures: a
-// top-of-rect marker lands at the hem, and labels read as vertical mirrors, not 180°
-// rotations) -- so all body/sleeve draws pass flipY to counter it, otherwise the design
-// appears upside down on the shirt relative to the hero background (user-caught).
-function drawCover(ctx, img, dx, dy, dw, dh, { flipX = false, flipY = false } = {}) {
+// The centered "cover" crop window that fills a `destAspect` rect from `img` with no
+// stretching. Callers slice this window up themselves (see compositionSplit) rather than
+// each computing their own fit, which is what lets a panel and its trim share one.
+function coverSampleRect(img, destAspect) {
   const srcAspect = img.width / img.height;
-  const destAspect = dw / dh;
-  let sx, sy, sw, sh;
   if (srcAspect > destAspect) {
-    sh = img.height;
-    sw = sh * destAspect;
-    sx = (img.width - sw) / 2;
-    sy = 0;
-  } else {
-    sw = img.width;
-    sh = sw / destAspect;
-    sx = 0;
-    sy = (img.height - sh) / 2;
+    const sh = img.height;
+    return { sx: (img.width - sh * destAspect) / 2, sy: 0, sw: sh * destAspect, sh };
   }
+  const sw = img.width;
+  return { sx: 0, sy: (img.height - sw / destAspect) / 2, sw, sh: sw / destAspect };
+}
+
+// Draws an explicit source rect into an explicit dest rect, optionally mirrored on either
+// axis. Every body/sleeve/trim draw passes flipY, because every island in this model's atlas
+// is UV-mapped VERTICALLY FLIPPED on the garment (confirmed on a headless harness with
+// orientation-marked test textures -- a top-of-rect marker lands at the hem, and labels read
+// as vertical mirrors, not 180° rotations; re-confirmed 2026-09-04 by measuring the seams
+// directly, which put the front panel's hem seam on its rect's TOP edge and its neckline on
+// the BOTTOM). Without it the design appears upside down on the shirt (user-caught).
+function drawSlice(
+  ctx,
+  img,
+  sx,
+  sy,
+  sw,
+  sh,
+  dx,
+  dy,
+  dw,
+  dh,
+  { flipX = false, flipY = false } = {}
+) {
   ctx.save();
   ctx.translate(dx + (flipX ? dw : 0), dy + (flipY ? dh : 0));
   ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
@@ -835,50 +900,107 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const ctx = canvas.getContext('2d');
         const sc = TEXTURE_SIZE / ATLAS;
         ctx.drawImage(base, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-        // flipY on every island counters the atlas's flipped UV mapping (see drawCover).
-        // flipX on index 1 (the BACK panel) mirrors it, matching what a real order does:
-        // PRODUCT_MOCKUP_CONFIG's mirrorPlacements puts every product with a distinct back
-        // on a flipped back panel by default, so an unmirrored back here showed the shirt
-        // differently from the thing you would actually receive (Aaron, 2026-08-02).
-        BODY_ISLANDS.forEach((r, i) =>
-          drawCover(ctx, body, r.x * sc, r.y * sc, r.w * sc, r.h * sc, {
-            flipY: true,
-            flipX: i === 1
-          })
-        );
-        // The two sleeve islands map onto the garment in opposite orientations, so the
-        // second draw is additionally horizontally mirrored -- identical draws made one
-        // worn sleeve read as flipped relative to the other (user-caught); mirroring
-        // restores left/right symmetry on the shirt.
-        SLEEVE_ISLANDS.forEach((r, i) =>
-          drawCover(ctx, sleeve, r.x * sc, r.y * sc, r.w * sc, r.h * sc, {
-            flipY: true,
-            flipX: i === 1
-          })
-        );
-        // Trim strips: a thin edge-band of the adjacent panel's composition, stretched to
-        // the strip (see STRIP_ISLANDS). Slight overdraw past the measured rect so the
-        // base layer can't peek through at the rounded strip ends.
+        // ONE composition per island family, cut along the real garment seams (see
+        // compositionSplit and STRIP_ISLANDS above): a panel takes the first
+        // panel.h / (panel.h + trim.h) of the fitted composition, and the trim sewn to it
+        // takes the remainder. So the design genuinely RUNS ACROSS the hem and cuff seams --
+        // the trim is showing rows the panel never drew, at the panel's own scale, at the
+        // panel's own horizontal registration, none of which needs forcing: it falls out of
+        // both slices coming from a single cover-fit of the combined region.
+        //
+        // THREE EARLIER ATTEMPTS FAILED HERE, 2026-09-04, all reported against the running
+        // component. Worth reading, because two of them looked convincing on their own
+        // evidence and the third is only "correct" if you accept a smear:
+        // (1) Aaron: "the lower strip at the bottom of the shirt is off a bit and you see the
+        //     design repeat by a little bit". Fixed the trim's horizontal sample window to
+        //     match its panel's crop. Real, necessary, and nowhere near sufficient.
+        // (2) Aaron: "it doesn't appear that anything has changed". Diagnosed as a vertical
+        //     SCALE mismatch (the old flat 6%-of-height band did compress ~1.9x harder than
+        //     the body panel, and ~1.8x LESS on a cuff) and fixed by deriving the band from
+        //     the panel's own rate. Verified on the real mesh with a ruler pattern, which is
+        //     the one test that cannot see the actual bug: a ruler is uniform along x.
+        // (3) Tested against a converging star with its apex at the seam: the trim showed the
+        //     star fanning back OUT and re-converging to a SECOND, smaller apex. THE CAUSE,
+        //     which no scale factor addresses: the panel was cover-fit to its OWN rect, so it
+        //     consumed the whole composition, and every one of these attempts then had to
+        //     invent trim content by re-sampling rows the panel had ALREADY drawn. Shrinking
+        //     that band to a 3px sliver (attempt 3) does kill the repeat, but only by
+        //     stretching one row flat -- Aaron: "the design appearing to melt across it".
+        // The fix is to stop taking the whole composition for the panel in the first place.
+        // Nothing is re-sampled, so nothing can repeat, and nothing is stretched, so nothing
+        // melts.
+        const drawPanels = (islands, flips, img, from) =>
+          islands.forEach((r, i) => {
+            const { sx, sy, sw, panelSh } = compositionSplit(img, r, continuationFor(from, i));
+            drawSlice(ctx, img, sx, sy, sw, panelSh, r.x * sc, r.y * sc, r.w * sc, r.h * sc, {
+              flipY: true,
+              flipX: flips[i]
+            });
+          });
+        // flipX per BODY_FLIP/SLEEVE_FLIP mirrors BODY_ISLANDS[1] (the back panel), matching
+        // what a real order does by default (Aaron, 2026-08-02), and neither sleeve, matching
+        // what a real order's identical sleeve_left/sleeve_right uploads produce once Printful
+        // sews them (Aaron, 2026-09-04) -- see the long note below STRIP_ISLANDS.
+        drawPanels(BODY_ISLANDS, BODY_FLIP, body, 'body');
+        drawPanels(SLEEVE_ISLANDS, SLEEVE_FLIP, sleeve, 'sleeve');
+        // A trim strip that `continues` its panel takes the leftover slice exactly; the
+        // collars, whose seam is a curve rather than a rect edge (see STRIP_ISLANDS), keep a
+        // thin edge slice, small enough that no 2D structure can show across it.
+        const EDGE_SLICE_SRC_PX = 3;
         STRIP_ISLANDS.forEach(s => {
           const img = s.from === 'body' ? body : sleeve;
-          const bandH = img.height * STRIP_BAND_FRAC;
-          const srcY = s.edge === 'bottom' ? img.height - bandH : 0;
-          const dx = s.x * sc - 2;
-          const dy = s.y * sc - 2;
-          const dw = s.w * sc + 4;
-          const dh = s.h * sc + 4;
-          ctx.save();
-          // The vertical flip is the SAME atlas-UV correction every panel island needs
-          // (see drawCover) -- without it a trim reads upside down against the panel it
-          // continues from, which is exactly how it shipped (Aaron, 2026-08-03: front hem
-          // and both cuffs upside down). The horizontal `flip` additionally matches a
-          // strip to a panel that is itself drawn mirrored: the cuff of the flipX sleeve,
-          // and the back hem, which had been left unmirrored when the back panel gained
-          // its flipX and so wound opposite the print above it.
-          ctx.translate(dx + (s.flip ? dw : 0), dy + dh);
-          ctx.scale(s.flip ? -1 : 1, -1);
-          ctx.drawImage(img, 0, srcY, img.width, bandH, 0, 0, dw, dh);
-          ctx.restore();
+          const islands = s.from === 'body' ? BODY_ISLANDS : SLEEVE_ISLANDS;
+          const flips = s.from === 'body' ? BODY_FLIP : SLEEVE_FLIP;
+          const panel = islands[s.island];
+          // The horizontal `flip` matches a strip to a panel that is itself drawn mirrored,
+          // read from BODY_FLIP/SLEEVE_FLIP via `s.island` so it cannot go stale against its
+          // panel's own flip the way a separately-hardcoded bool already did once. Measured
+          // to be right rather than inherited: every hem/cuff seam runs its u-axis in the
+          // SAME direction on both sides (fitted slope +1.00, r^2 = 1.00), so a mirrored
+          // panel needs an equally mirrored trim to meet it.
+          const flip = flips[s.island];
+          const { sx, sy, sw, sh, panelSh } = compositionSplit(
+            img,
+            panel,
+            continuationFor(s.from, s.island)
+          );
+          if (s.continues) {
+            // Exactly the rows the panel did not draw. No overdraw on the seam edge: the
+            // measured seam sits ~2px INSIDE both rects already, so the bbox is a hair
+            // generous, and an exact edge is what keeps registration exact.
+            drawSlice(
+              ctx,
+              img,
+              sx,
+              sy + panelSh,
+              sw,
+              sh - panelSh,
+              s.x * sc - 2,
+              s.y * sc,
+              s.w * sc + 4,
+              s.h * sc,
+              { flipY: true, flipX: flip }
+            );
+            return;
+          }
+          // Collar: a thin slice off the composition's own top (the neckline end), stretched
+          // over the band. flipY is NOT applied here -- measured, the collars are the one
+          // family whose seam sits on their rect's TOP edge, so the seam-adjacent row has to
+          // land at the top. Unobservable either way at a 3px slice, but correct costs
+          // nothing. Overdraw stays on all four sides since this one is approximate anyway.
+          drawSlice(
+            ctx,
+            img,
+            sx,
+            sy,
+            sw,
+            EDGE_SLICE_SRC_PX,
+            s.x * sc - 2,
+            s.y * sc - 2,
+            s.w * sc + 4,
+            s.h * sc + 4,
+            { flipX: flip }
+          );
         });
         [base, body, sleeve].forEach(b => b.close());
         stateRef.current.stagedSheet = canvas;

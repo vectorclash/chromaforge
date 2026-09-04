@@ -1621,17 +1621,118 @@ own material_baseColor.jpeg). **Every island in this atlas is UV-mapped vertical
 on the garment** (2026-07-17, user-caught as "the shirt's design is upside down vs the
 background"; proven with a headless Playwright harness rendering orientation-marked test
 textures on the real model — top-of-rect markers land at the hem, labels read as vertical
-mirrors not 180° rotations), so every body/sleeve draw counter-flips via drawCover's
-flipY. The 8 thin trim strips (identities also confirmed via that harness: 2 hem, 2 cuff,
-rest collar/interior facings — see STRIP_ISLANDS) each get a thin edge-band slice of the
-adjacent panel's composition (hem = body bottom, cuff = sleeve bottom, collar = body top)
-so trims read as the print continuing over the seam; before that they sampled arbitrary
-rows of the unrelated full-bleed base layer (user-caught as "the little strips look off").
-Cuff bands wind the same horizontal direction as their sleeve's UVs, so the cuff strip
-belonging to the sleeve drawn flipX (for worn left/right symmetry) must be drawn flipX
-too (STRIP_ISLANDS' `flip`) — settled by live user feedback after a first attempt flipped
-the wrong cuff's band; note the user's "left cuff" meant the WEARER's left, i.e.
-viewer-right.
+mirrors not 180° rotations), so every body/sleeve draw counter-flips via drawSlice's
+flipY. The thin trim strips (6 of them — 2 hem, 2 cuff, 2 collar; see STRIP_ISLANDS) carry
+the composition across their seam onto the garment's trim, rather than sampling arbitrary
+rows of the unrelated full-bleed base layer as they originally did (user-caught as "the
+little strips look off"). How they get their content is the whole subject of the
+2026-09-04 bullet below — the panel reserves a slice for its trim rather than the trim
+re-sampling the panel.
+Cuff bands wind the same horizontal direction as their sleeve's UVs, so a cuff strip must
+mirror exactly when its sleeve's own draw does — enforced by reading a strip's flip from
+`BODY_FLIP`/`SLEEVE_FLIP` via its `island` index rather than a separately hardcoded bool,
+after the two drifted apart once (see the sleeve-mirroring bullet below); note "left cuff"
+in user reports means the WEARER's left, i.e. viewer-right.
+**Sleeve mirroring reversed, and the hem/cuff/collar strips' sample WINDOW fixed to match
+their panel's own crop — both 2026-09-04, Aaron: "the sleeves are both facing the same way,
+but one should be flipped like the actual Printful shirt sleeves" / "the lower strip at the
+bottom of the shirt is off a bit and you see the design repeat by a little bit".**
+Sleeves: the 2026-07-17 fix (`flipX: i === 1` on the second `SLEEVE_ISLANDS` draw) assumed
+both sleeves should read identically and "corrected" a mismatch it found on the bare model
+into exactly that. It had the right diagnosis (the two sleeve UV islands wind oppositely)
+and the wrong target — that mismatch is what a REAL Printful sleeve does. Checked against
+reality rather than reasoned about: product 257's own checkout never mirrors either sleeve
+file (`PRODUCT_MOCKUP_CONFIG[257].mirrorPlacements` lists only `'back'`), so
+`sleeve_left`/`sleeve_right` get byte-identical uploads — yet a real v1 "Flat" mockup task
+fed one directional test image (arrow + 4 distinct corner colors) to both placements comes
+back with the two sleeves MIRRORED anyway (the source's top-right corner lands nearest the
+collar on the viewer-right sleeve, top-left nearest the collar on the viewer-left sleeve —
+a horizontal flip, not a rotation), because Printful's own construction mirrors the shared
+file between the two sewn sleeve pieces, same as the back panel. The model's opposite UV
+winding reproduces that mirror for free once both islands draw unflipped, so `SLEEVE_FLIP`
+is now `[false, false]` — back to what identical draws did before the 2026-07-17 fix.
+Strips: the cover-crop math was factored out (`coverSampleRect`) so a trim strip
+samples from the SAME window its panel actually shows, instead of the full source image —
+previously wrong on whichever axis a strip's family crops: a BODY panel's crop narrows the
+WIDTH (destAspect ≈0.688 < srcAspect ≈0.778, so only the center ~88% of the source shows),
+so a strip sampling the full width carried ~12% more content squeezed into the same
+destination width than the panel directly above it, reading as the design jumping/
+repeating at the seam; a SLEEVE panel's crop narrows the HEIGHT instead (destAspect ≈1.894
+> srcAspect ≈1.667), so a strip's "bottom edge" sampled off the raw image's true bottom
+row rather than the row the panel's own bottom actually shows — an unrelated chunk, not a
+continuation. `island` (0/1) on each `STRIP_ISLANDS` entry says which panel a strip
+continues from (identities per the same colored-strip harness, not derivable from atlas
+x-position — the two cuffs and the two hems each sit at nearly the same x despite
+continuing different panels), and both the crop window AND the flip are now derived from
+that one index into `BODY_FLIP`/`SLEEVE_FLIP`/`BODY_ISLANDS`/`SLEEVE_ISLANDS` — no
+strip-local flip bool left to drift out of sync with its panel's, which is exactly the
+class of bug the cuff's hardcoded `flip: true` had already been silently carrying (it
+matched the pre-fix `SLEEVE_FLIP`, unnoticed until this session touched it).
+**That crop-window fix alone was NOT enough, and it took two more rounds to find the real
+cause — both of the intermediate fixes looked convincing on their own evidence, so the
+sequence is worth keeping.** Aaron, after round 1: "it doesn't appear that anything has
+changed in the bottom strip... the artwork should be aligned as precisely as possible."
+Round 2 diagnosed a vertical SCALE mismatch — the old flat `STRIP_BAND_FRAC` (6% of the
+panel's crop height) squeezed into the strip's own tiny `dh` did compress ~1.9x harder than
+the body panel renders at, and ~1.8x LESS on a cuff (opposite directions, so one flat
+fraction could never suit both) — and derived the band from the panel's own rate instead. It
+verified clean on a synthetic ruler pattern on the real mesh, which is the one test that
+cannot see the actual bug: **a ruler is uniform along x, so it only ever exercises the
+y-scale.** Round 3 tested a converging star with its apex at the seam and the trim showed the
+star fanning back OUT and re-converging to a SECOND, smaller apex — the "repeat", intact.
+**THE CAUSE, which no scale factor addresses: the panel was cover-fit to its own rect, so it
+consumed the entire composition, and every fix then had to invent trim content by re-sampling
+rows the panel had ALREADY drawn.** Shrinking that to a 3px sliver does kill the repeat, but
+only by stretching one row flat — Aaron: "the design appearing to melt across it."
+**THE ACTUAL FIX (Aaron's own framing: "just take the whole thing into account and slice and
+place accordingly"): stop giving the panel the whole composition.** `compositionSplit`
+cover-fits the composition to the COMBINED region — the panel's width by `panel.h + trim.h`
+— and cuts it at the seam: the panel takes the first `panel.h / combined`, the trim takes the
+remainder. The trim is then showing rows the panel never drew, at the panel's own scale and
+horizontal registration, none of which needs forcing — all three fall out of both slices
+coming from a single fit. Nothing is re-sampled so nothing can repeat; nothing is stretched
+so nothing melts. Costs the panel ~2.5% of its height on the body and ~8% on a sleeve, which
+is not a loss — it is the composition being mapped across the whole garment piece assembly
+instead of the panel alone.
+**What made this solvable was measuring the mesh instead of the atlas** (harness: load the
+real `tshirt.glb`, and for every triangle take its 3D area, its UV area, and which island rect
+its UV centroid lands in; then find vertex POSITIONS shared between two islands and read back
+each island's UV there). That yielded, in one pass:
+- **Texel density per island** — body 1774–1808, sleeves 1811–1813, hems 1765–1781, cuffs
+  1754–1756 atlas px per world unit, i.e. uniform within ~3%. This is the fact that licenses
+  using atlas heights as a stand-in for real-world heights in the split (using the densities
+  explicitly moves the reserve by 2.4% OF ITSELF, i.e. 0.0006 of the composition — not worth
+  a table in the code).
+- **Which strip is sewn to which panel, and along which edge of each rect.** All four
+  hem/cuff seams are straight, full-width lines sitting within ~2px of BOTH islands' rect
+  edges — the precondition for a horizontal band of the composition to correspond to the
+  trim at all. Notably the front panel's HEM seam is on its rect's TOP edge and its neckline
+  on the BOTTOM, which is the same vertical inversion `flipY` already corrected, now
+  measured rather than inferred.
+- **The u-axis direction across each seam**, by fitting `u_strip = m·u_panel + c` over the
+  shared vertices: m = +1.00, r² = 1.00 on both hems and both cuffs. So a mirrored panel
+  needs an equally mirrored trim — confirming (not merely inheriting) the rule that a strip
+  reads its flip from its panel's.
+- Two corrections it forced: **the back collar was assigned to the FRONT panel**, and the two
+  "interior facing" rects have **ZERO triangles mapped to them** — unused atlas space, now
+  dropped (the base layer covers those pixels as it always did).
+**The collars are deliberately left on the thin edge slice**, and this is a measured decision
+rather than an omission: their seam is a CURVE (the neckline), it sits well inside the panel's
+rect rather than on its edge, and it spans only a sub-range of the panel's width (front
+collar: panel u 358.6–674.7 stretched across the collar's full 494). No horizontal band of the
+composition corresponds to it, so the split cannot be applied; a 3px slice is small enough
+that no 2D structure shows across it. They are also the one family whose seam sits on their
+rect's TOP edge, so they draw without `flipY`.
+**Verified on the real mesh at each round, never on the flat atlas** — a same-canvas "does the
+pattern continue across this boundary" check answers a question the mesh never asks, because
+a strip's atlas position (packed wherever it fit) has no relation to which panel edge it is
+sewn against. Final state, on the converging star: wedge boundaries and the concentric rings
+run continuously through the hem, no second apex, no kink. On the ruler: stripe period and
+phase carry through the seam unbroken. Then re-confirmed against REAL generated designs by
+forcing full geometry coherence via `localStorage['cf-studio:design']` and generating until
+lattices landed on the hem — facets run straight through it. Harnesses not saved (one-off
+diagnostics, same treatment as `star-tuner.html`); if the trim is touched again, rebuild
+BOTH source patterns, because the ruler alone passed a version that was still visibly broken.
 The base layer still underlies everything as a fallback for unmeasured atlas pixels. Texture
 updates key off `currentDesign`; a pending-bitmap handoff covers whichever of
 scene-init/first-render finishes last. The scene fades in wearing the model's own white baseColor sheet the moment it loads
