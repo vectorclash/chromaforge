@@ -1845,6 +1845,44 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
 
+### A clean build is not evidence a page renders — `scripts/check-routes-smoke.mjs` (2026-09-05)
+
+```
+node scripts/check-routes-smoke.mjs        # builds, serves dist/, loads every route
+```
+
+Loads all ten routes of the **production** build in a real browser and fails on an uncaught
+error, a console error, or the ErrorBoundary's own "Something went wrong" text. ~40s, needs only
+`.env.local`. **Run it before pushing any component change**, alongside `npm run build`.
+
+**It exists because a green build shipped a page that could not render at all** (Aaron: "I'm
+getting the something went wrong error when viewing products... maybe we need to make sure
+nothing is broken rather than just seeing a build go through without error"). A `useRef` was
+added below ProductPage's `if (loading)` early return, so the loading render ran fewer hooks than
+the loaded one — React error #310 on the second render of **every** product page, with zero build
+output. That is the recurring shape here: route-level faults that only exist while a component
+RUNS (a hook after an early return, a null deref during a loading phase, a renamed prop), all
+visible within a second of loading the page and none of them visible to a bundler.
+Four things worth not re-deriving:
+(1) **The rule the bug broke, stated plainly: ProductPage has early returns at `if (loading)` /
+`if (error)`, so EVERY hook must be declared above them.** The file is ~2300 lines and the busy-
+scrim state sits a thousand lines below its own hooks, which is exactly how the two got separated.
+(2) **It runs the production build, not the dev server**, because dev's StrictMode double-mounts
+components — a second mount can paper over an ordering fault, and it invents warnings no visitor
+sees.
+(3) **Network failures are reported but never fail the run.** These routes call live Supabase and
+Printful, so a flaky remote would otherwise make the check untrustworthy noise. Rendering
+essentially nothing DOES fail, whatever the console says.
+(4) **`IGNORED_CONSOLE` must stay tiny and exact.** Its only entry is Cloudflare Turnstile's
+deliberately-invisible `font-size:0;color:transparent` log on /account — confirmed as theirs
+(the page's only third-party hosts are `challenges.cloudflare.com` and `hagen.challenges.
+cloudflare.com`) rather than assumed. A broad pattern here turns the whole check into a rubber
+stamp, which is the one way it can be worse than useless.
+**Verified to FAIL before being trusted**: with the hook put back below the early return it
+reports all three product routes red with React #310 and the boundary text, and 10/10 clean with
+it fixed.
+It does NOT cover anything behind sign-in, and never generates a mockup or touches checkout.
+
 ### The mockup-wait narration retypes itself (`TerminalText`, 2026-08-16)
 `components/ui/TerminalText.jsx` replaced a GSAP `TextPlugin` tween on ProductPage's two
 narration lines (the mockup scrim and BuyNowModal's checkout wait). Aaron's report: going from
@@ -1887,10 +1925,44 @@ Five things worth not re-deriving:
    Measured through the real component: the narration box is **292px** at a 390px viewport,
    where one `STATUS_TIMELINE` line needs three rows; from `sm` up it is capped at `max-w-xs`
    (320px) and two always suffice. Don't "simplify" it to one value.
-6. **The `queued` line is deliberately NOT animated.** `useMockup` ticks its retry countdown
-   once a second, so that string changes every second — retyping it each tick would never
-   settle and the countdown would spend its life as an underscore. Static sentence, live number.
+6. **A counter is never animated; a SENTENCE always is** (settled 2026-09-05, Aaron: "can any
+   text that changes be animated like the message field"). The `queued` line and both `Ns
+   elapsed` readouts and BuyNowModal's `print file N of M` stay static, because `useMockup`
+   ticks them roughly once a second and a ~1.1s sweep would never settle — the number the
+   customer wants would spend its life as an underscore. The scrim's **phase label**
+   (`STATUS_LABEL`, rendering → creating → polling) now retypes, since it is the other
+   changing sentence in that column and having one line sweep while its neighbour hard-cut was
+   the remaining inconsistency. It cost the label its proportional face — cells only hold their
+   width in a monospace one — measured at **177.2px** for the longest label, fitting the scrim's
+   available width at every viewport down to 320px.
+7. **A change arriving mid-sweep is QUEUED, coalescing to the latest string** (same date).
+   Interrupting has to rebuild the grid from the outgoing string, which snaps a half-erased line
+   back to its full text for a frame — and the phase label, which can go creating → polling
+   inside a second, is exactly what would do it. Verified in a real browser on a 300ms-apart
+   burst: it settles on the last string, and both strings are shown whole. Cost is at most one
+   extra sweep of lag; nothing in the app changes a narration string fast enough to queue more
+   than one.
 Frames + measurements: https://claude.ai/code/artifact/73cfce43-9e68-4131-86cf-84d29551ec6a
+
+**The scrim freezes what it SAYS at completion, not just which mode it is in** (2026-09-05,
+Aaron: the transition to the images "feels a bit odd"). `scrimModeRef` already froze the mode so
+the loader would fade out intact under the arriving mockup — but every string inside it kept
+reading live state that had already moved on, for the 300ms fade plus however long the hero
+image preloads. At the instant `status` hits `completed`: `STATUS_LABEL` has no `completed` key
+so the bold phase line went **blank**; `useMockup` resets `elapsedSeconds` to 0 the moment the
+run stops being busy so the counter snapped **"17s elapsed" → "0s elapsed"**; and
+`statusNarration(0)` resolves to the FIRST threshold, whose line is already in the picks map —
+so the narration **rewound to "Initiating mockup sequence." and TerminalText started a full
+~1.1s retype underneath the fade**. One `busyViewRef` snapshot (label, narration, elapsed,
+queued) now freezes alongside the mode, so the scrim leaves exactly as it stood.
+
+**`STATUS_TIMELINE`'s thresholds are tuned to the v1 mockup API and were retuned for it**
+(2026-09-05): a typical run is **14–18s**, not the 30–90s the v2 beta took, so the original
+0/6/14/22/32/45… spacing meant most customers saw three lines and the run ended mid-sentence
+about transmitting files — the report never reached the part where it assembles a preview. Now
+0/5/10/15/21/28 puts all six "the machine is working" beats inside ~30s, and the
+composure-thinning lines start at **38s**, which is over twice the average where the old 60s was
+merely average. Line CONTENT is unchanged; if the API's speed moves again, move the numbers.
 
 ### `user === null` is two different facts, and the UI used to assert the wrong one (2026-08-27)
 Aaron caught the account icon showing the signed-out state and no avatar while he was signed in.

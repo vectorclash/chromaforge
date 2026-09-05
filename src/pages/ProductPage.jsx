@@ -55,9 +55,21 @@ const STATUS_LABEL = {
 };
 
 // Mockup generation is a multi-step round trip through Printful's servers that can run
-// well past its typical 30-90s (the track jacket's automatic retry, see useMockup, can
+// well past its typical time (the track jacket's automatic retry, see useMockup, can
 // roughly double it) -- silence past that estimate reads as "broken," so this narrates
-// progress the whole way through. Voice is deliberately a bit Data-from-TNG: precise,
+// progress the whole way through.
+//
+// THRESHOLDS ARE TUNED TO THE V1 MOCKUP API, WHICH IS 1.4-3.9x FASTER THAN THE V2 BETA THESE
+// WERE FIRST WRITTEN FOR (2026-09-05). A typical run now completes in 14-18s, not 30-90s, so
+// the original spacing (0/6/14/22/32/45...) meant most customers only ever saw the first three
+// lines and the run ended mid-sentence about transmitting files -- the report never got to the
+// part where it is assembling a preview. The six "the machine is working" lines now fit inside
+// ~30s (0/5/10/15/21/28), so a typical run lands somewhere in the seam-alignment or
+// pattern-library beat, and the composure-thinning lines start where being late is now
+// actually true: 38s is over twice the average, where 60s was merely average before.
+// Line CONTENT is unchanged; if the API's speed moves again, move these numbers, not the copy.
+//
+// Voice is deliberately a bit Data-from-TNG: precise,
 // faintly amused by the concept of waiting, never breaks character -- but the composure
 // thins as elapsed time grows, from crisp status reports early on to thinly-veiled concern
 // by the later thresholds. Ordered by elapsed seconds; statusNarration below picks the
@@ -75,7 +87,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 6,
+    at: 5,
     texts: [
       'Rendering your artwork at full resolution. A trivial calculation.',
       'Composing pixel values from your seed. Elementary, but not instantaneous.',
@@ -83,7 +95,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 14,
+    at: 10,
     texts: [
       "Transmitting to Printful's production servers.",
       'Uploading the rendered artwork now.',
@@ -91,7 +103,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 22,
+    at: 15,
     texts: [
       'Calculating optimal seam and panel alignment.',
       "Mapping your artwork onto the garment's cut pattern.",
@@ -99,7 +111,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 32,
+    at: 21,
     texts: [
       'Cross-referencing thousands of textile patterns. None match yours precisely.',
       'Comparing against the production catalog. Yours remains unique.',
@@ -107,7 +119,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 45,
+    at: 28,
     texts: [
       'Compiling photographic angles of the finished garment.',
       'Assembling mockup renders from several camera angles.',
@@ -115,7 +127,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 60,
+    at: 38,
     texts: [
       'Running within expected parameters, slightly behind my initial estimate.',
       'This is taking marginally longer than projected. Continuing.',
@@ -123,7 +135,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 80,
+    at: 50,
     texts: [
       'Apologies for the delay. The production servers require additional time.',
       'The servers are proving more deliberate than usual today.',
@@ -131,7 +143,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 105,
+    at: 65,
     texts: [
       'I assure you: I have not malfunctioned. Still computing.',
       'Rest assured, no errors have been detected. Merely a slow process.',
@@ -139,7 +151,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 135,
+    at: 85,
     texts: [
       'Curious. This is taking longer than most prior attempts. Continuing.',
       'This exceeds ninety-seven percent of prior runs. Noted, with mild concern.',
@@ -147,7 +159,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 165,
+    at: 110,
     texts: [
       'Patience, I am told, is a virtue. I am simulating it admirably.',
       'I confess a small degree of concern is now warranted. Continuing to monitor.',
@@ -155,7 +167,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 200,
+    at: 140,
     texts: [
       'This is now well outside normal parameters. I remain hopeful.',
       'I have double-checked my calculations. The delay is not mine.',
@@ -163,7 +175,7 @@ const STATUS_TIMELINE = [
     ]
   },
   {
-    at: 240,
+    at: 175,
     texts: [
       'I recommend against abandoning hope. Not yet, at least.',
       'Still no response from the production servers. Still trying.',
@@ -853,6 +865,11 @@ export default function ProductPage() {
   // changes readyHeroUrl non-null -> non-null and must NOT reset this, or the visible image
   // would drop to transparent and flash before coming back.
   const scrimModeRef = useRef('generate');
+  // Snapshot of what the busy scrim SAYS, frozen alongside scrimModeRef below. Declared up
+  // here with the other hooks on purpose: everything from `if (loading)` down runs only on
+  // some renders, so a hook added there changes the hook COUNT between the loading render and
+  // the loaded one, which React rejects outright -- it took down every product page once.
+  const busyViewRef = useRef(null);
   const [mockupFadedIn, setMockupFadedIn] = useState(false);
   useEffect(() => {
     if (!readyHeroUrl) {
@@ -1170,6 +1187,31 @@ export default function ProductPage() {
           : 'generate';
   if (!hasMockup) scrimModeRef.current = scrimMode;
   const displayedScrimMode = hasMockup ? scrimModeRef.current : scrimMode;
+
+  /*
+   * ...and the same freeze applied to what the busy state SAYS, for the same reason: the mode
+   * alone is not the whole picture, and every field below reads from state that has already
+   * moved on by the time the scrim starts fading (Aaron, 2026-09-05: the completion "feels a
+   * bit odd"). At the instant status hits 'completed', with the mockup image still preloading
+   * and the scrim on screen for another 300ms:
+   *   - STATUS_LABEL has no 'completed' key, so the bold phase line went BLANK;
+   *   - useMockup resets elapsedSeconds to 0 the moment the run stops being busy, so the
+   *     counter snapped "17s elapsed" -> "0s elapsed"...
+   *   - ...and statusNarration(0) is the FIRST threshold, whose line is already in the picks
+   *     map -- so the narration rewound to "Initiating mockup sequence." and TerminalText,
+   *     seeing a changed string, started a ~1.1s retype underneath the fade.
+   * Frozen, the scrim leaves exactly as it stood: the last line it was telling you, the
+   * elapsed time it took, fading out under the arriving image.
+   */
+  const liveBusyView = {
+    label: STATUS_LABEL[status],
+    queued: status === 'queued',
+    retryWaitSeconds,
+    narration: statusNarration(elapsedSeconds, narrationPicksRef.current),
+    elapsedSeconds
+  };
+  if (!hasMockup) busyViewRef.current = liveBusyView;
+  const busyView = (hasMockup && busyViewRef.current) || liveBusyView;
 
 
 
@@ -1838,9 +1880,17 @@ export default function ProductPage() {
                         instead of a veil over it. Don't move the z-index onto the loader
                         instead -- its `z-[1]` is load-bearing in DisplayCanvas and
                         CheckoutSuccessPage, where it lifts the loader over the artwork. */}
-                    <p className="relative z-[2] animate-reveal-quick text-sm font-bold" style={{ animationDelay: '60ms' }}>
-                      {STATUS_LABEL[status]}
-                    </p>
+                    {/* Retyped like the narration below it -- it is the other string in this
+                        column that changes on its own (rendering -> creating -> polling), and
+                        having one line sweep while its neighbour hard-cuts was the remaining
+                        inconsistency here. That costs it the proportional face: TerminalText's
+                        per-character cells only hold their width in a monospace one (see that
+                        component). Bold mono at this size reads as the phase readout it is. */}
+                    <TerminalText
+                      text={busyView.label || ''}
+                      className="relative z-[2] animate-reveal-quick font-mono text-sm font-bold"
+                      style={{ animationDelay: '60ms' }}
+                    />
                     {/* Height is reserved for the tallest narration line this box can hold, so a
                         one-line line giving way to a two-line one never moves the loader above
                         it or the counter below. TerminalText additionally keeps the wrap fixed
@@ -1854,7 +1904,7 @@ export default function ProductPage() {
                       className="relative z-[2] flex min-h-12 max-w-xs animate-reveal-quick items-center justify-center sm:min-h-8"
                       style={{ animationDelay: '120ms' }}
                     >
-                      {status === 'queued' ? (
+                      {busyView.queued ? (
                         /* Deliberately NOT animated: useMockup ticks retryWaitSeconds down
                            once a second, so this string changes every second. Retyping the
                            whole sentence each tick would never settle, and the countdown --
@@ -1863,18 +1913,18 @@ export default function ProductPage() {
                            live number. */
                         <p className="font-mono text-[11px] leading-4 text-text-secondary">
                           Printful's preview service is busy. Retrying automatically in{' '}
-                          <span className="tabular-nums">{retryWaitSeconds ?? '…'}</span>s.
+                          <span className="tabular-nums">{busyView.retryWaitSeconds ?? '…'}</span>s.
                         </p>
                       ) : (
                         <TerminalText
-                          text={statusNarration(elapsedSeconds, narrationPicksRef.current)}
+                          text={busyView.narration}
                           className="font-mono text-[11px] leading-4 text-text-secondary"
                         />
                       )}
                     </div>
-                    {status !== 'queued' && (
+                    {!busyView.queued && (
                       <p className="relative z-[2] animate-reveal-quick font-mono text-[11px] text-text-muted" style={{ animationDelay: '180ms' }}>
-                        {elapsedSeconds}s elapsed
+                        {busyView.elapsedSeconds}s elapsed
                       </p>
                     )}
                   </div>

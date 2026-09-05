@@ -159,30 +159,30 @@ export default function TerminalText({ text, className = '', style }) {
   const hostRef = useRef(null);
   const prevText = useRef(null);
   const tweenRef = useRef(null);
+  // Latest string requested while a sweep is already running (see the effect below).
+  const queuedText = useRef(null);
+  // Lets a finished sweep start the queued one without run() having to close over itself.
+  const runRef = useRef(null);
 
-  useEffect(() => {
+  const run = nextText => {
     const host = hostRef.current;
-    if (!host) return undefined;
+    if (!host) return;
 
     const prev = prevText.current;
-    if (prev === text) return undefined;
-    prevText.current = text;
-
-    tweenRef.current?.kill();
-    tweenRef.current = null;
+    prevText.current = nextText;
 
     // First mount has nothing to erase, and reduced motion asks for no transition at all --
     // both land straight on the settled string.
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (prev === null || reduced) {
-      buildGrid(host, text, 'erase'); // 'erase' mode == every cell showing its own character
-      return undefined;
+      buildGrid(host, nextText, 'erase'); // 'erase' mode == every cell showing its own character
+      return;
     }
 
     const erase = buildGrid(host, prev, 'erase');
     // The print pass's own timing depends on the NEW string's length, which is known now even
     // though its grid is not built until the handover.
-    const printMs = buildGrid(document.createElement('p'), text, 'print').passMs;
+    const printMs = buildGrid(document.createElement('p'), nextText, 'print').passMs;
     const totalMs = erase.passMs + printMs;
 
     let printing = null;
@@ -202,23 +202,52 @@ export default function TerminalText({ text, className = '', style }) {
         // Handover. Every cell of the outgoing grid is blank by now, so this is the one moment
         // the line can be re-wrapped without it being visible -- which is exactly why the
         // transition is split in two.
-        if (!printing) printing = buildGrid(host, text, 'print');
+        if (!printing) printing = buildGrid(host, nextText, 'print');
         for (let i = 0; i < printing.cells.length; i++) {
           const cell = printing.cells[i];
           paint(cell, printPhase((driver.t - erase.passMs - cell.start) / PRINT_CELL_MS));
         }
       },
       onComplete: () => {
-        if (!printing) printing = buildGrid(host, text, 'print');
+        if (!printing) printing = buildGrid(host, nextText, 'print');
         for (let i = 0; i < printing.cells.length; i++) paint(printing.cells[i], CHAR);
+        tweenRef.current = null;
+        const queued = queuedText.current;
+        queuedText.current = null;
+        if (queued !== null && queued !== prevText.current) runRef.current(queued);
       }
     });
+  };
+  runRef.current = run;
 
-    return () => {
+  useEffect(() => {
+    if (!hostRef.current) return;
+    /*
+     * A change arriving mid-sweep is QUEUED, not cut in. Interrupting would have to rebuild
+     * the grid from the outgoing string, which snaps the half-erased line back to its full
+     * text for a frame before eating it again -- and the strings that change fastest here
+     * (the scrim's phase label goes rendering -> creating -> polling, sometimes inside a
+     * second) are exactly the ones that would do it most. Queueing coalesces to the LATEST
+     * string, so a burst costs at most one extra sweep and every line is shown whole.
+     */
+    if (tweenRef.current) {
+      queuedText.current = text;
+      return;
+    }
+    if (prevText.current === text) return;
+    run(text);
+  }, [text]);
+
+  // Unmount only -- a cleanup keyed on `text` would kill the very sweep the queue above
+  // exists to let finish.
+  useEffect(
+    () => () => {
       tweenRef.current?.kill();
       tweenRef.current = null;
-    };
-  }, [text]);
+      queuedText.current = null;
+    },
+    []
+  );
 
   return (
     <>
