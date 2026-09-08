@@ -1081,10 +1081,9 @@ export async function unwrapFunctionsError(error) {
 
 
 // Creates a Printful v1 mockup-generation task (see printful-mockup/index.ts's header for why
-// v1 rather than the v2 beta). `files` comes from buildMockupFiles above. There is no style
-// parameter: v1 chooses the camera angles itself and returns four on-model views at no extra
-// time cost, which is exactly why the per-product (and per-variant) style-id tables v2 needed
-// are gone.
+// v1 rather than the v2 beta). `files` comes from buildMockupFiles above, and `optionGroups` from
+// chooseOptionGroups -- there are no per-product (or per-variant) style IDs the way v2 needed, only
+// group NAMES read from the live catalogue.
 export async function createMockupTask({ productId, variantIds, files, productOptions, optionGroups }) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.functions.invoke('printful-mockup', {
@@ -1096,9 +1095,13 @@ export async function createMockupTask({ productId, variantIds, files, productOp
   return data; // { id, status }
 }
 
-export async function getMockupTask(taskId) {
+// `productId` is only used to look up the generated style table, which is what names an untyped
+// primary's group (and so decides whether a photo is a flat lay or an on-model shot). Omitting it
+// is safe -- those photos then come back ungrouped and rank last -- but the strip loses its order.
+export async function getMockupTask(taskId, productId) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.functions.invoke(`printful-mockup?id=${taskId}`, {
+  const query = productId ? `printful-mockup?id=${taskId}&productId=${productId}` : `printful-mockup?id=${taskId}`;
+  const { data, error } = await supabase.functions.invoke(query, {
     method: 'GET'
   });
   if (error) throw await unwrapFunctionsError(error);

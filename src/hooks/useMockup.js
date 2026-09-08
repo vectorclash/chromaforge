@@ -15,7 +15,6 @@ import {
 } from '../lib/printful';
 import {
   chooseOptionGroups,
-  correctViewNames,
   orderViews,
   MAX_VIEWS,
   VIEW_POLICY_VERSION
@@ -315,7 +314,7 @@ export function useMockup() {
         // it falls through to v1's own default, which is what shipped before this existed.
         let optionGroups = [];
         try {
-          optionGroups = chooseOptionGroups(await getMockupStyleGroups(product.id));
+          optionGroups = chooseOptionGroups(await getMockupStyleGroups(product.id), product.id);
         } catch {
           optionGroups = [];
         }
@@ -344,7 +343,7 @@ export function useMockup() {
           setStatus('polling');
           for (let i = 0; i < POLL_MAX_TRIES; i++) {
             await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-            const polled = await getMockupTask(task.id);
+            const polled = await getMockupTask(task.id, product.id);
             if (polled.status === 'completed' || polled.status === 'failed') {
               task2 = polled;
               break;
@@ -380,19 +379,18 @@ export function useMockup() {
         const entriesWorthShowing = showsSecondary
           ? entries
           : entries.filter(([placementKey]) => !secondaryPlacements.includes(placementKey));
-        // Ordered into one canonical sequence (front -> three-quarters -> back -> detail) so every
-        // product's filmstrip reads the same way, and capped so a product with many angles does not
-        // hand a phone 10 photos at ~154KB each.
+        // Ordered into one canonical sequence (flats in angle order -> detail shots -> on-model
+        // shots) so every product's filmstrip reads the same way, and capped so a product with many
+        // angles does not hand a phone photo after photo at ~154KB each. The product id is what lets
+        // an untyped primary be classified through the generated style table; a photo neither
+        // Printful nor that table can name ranks last rather than being guessed at.
         //
         // The cap is applied HERE and not in the Edge Function because only this side knows about
         // the reversible hat: when a genuinely different second design is in play its inside views
         // are as important as its outside ones, and they sort late, so a flat cap would trim exactly
         // the views that choice exists to show.
         const ordered = hideUnsubmittedViews(task2.mockups || [], entriesWorthShowing, printfileSpecs);
-        const unique = orderViews(
-          correctViewNames(product.id, ordered),
-          showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS
-        );
+        const unique = orderViews(ordered, showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS, product.id);
         mockupCache.set(key, unique);
         persistMockup(key, unique);
         // Only drive the visible state if this run's selection is still the one showing --

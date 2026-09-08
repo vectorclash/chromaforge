@@ -981,53 +981,155 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
     label / Lining). `check-printful-mockups.mjs` now fails on any view whose name is a raw key
     from `available_placements` — keyed off the real key list, not a regex on "label", so a
     placement Printful adds later is caught the same way.
-  - **A mockup asks for exactly two style groups — the garment FLAT and its PRODUCT DETAILS — and
-    shows them in that order** (`src/lib/printfulViewPolicy.js`, 2026-08-29, Aaron: "let's just do
-    the flats, and details if available. keep it simple"). Every product asks for the same two, so a
-    filmstrip reads identically across the shop and nothing is derived from how a given product
-    happens to be photographed. `Default` is the non-apparel synonym for `Flat` (pillow, tote).
-    **Read this before adding a third group back, because a whole day went into learning it.** An
-    earlier version requested four (Flat + an on-model group + Ghost + Product details) and tried to
-    ORDER the mixed result. That cannot be made to work, for a structural reason rather than a want
-    of a better heuristic: **ask v1 for SEVERAL groups in one task and each placement's photo comes
-    back as an untyped `mockup_url` primary, with `option_group` present only on the `extra`
-    entries.** So the most important photos — the front, the back — arrive saying nothing about what
-    they show. Four ordering rules were tried against real responses and every one left some product
-    jumping between flat lays and model shots. The worst, inferring "the group missing this angle",
-    handed every primary to Product details (which lacks every angle by definition) and turned the
-    track jacket's whole strip into detail shots; matching against the catalog's own view names does
-    better and still fails wherever Printful's vocabulary differs from ours ("Right Front" vs
-    "Right").
-    **Ask for ONE group and the ambiguity does not exist** — measured, and the finding the design now
-    rests on: there are no `extra` entries at all, every photo is a placement primary, and every one
-    belongs to the group asked for. The sweatshirt returns 2 photos for `Flat` (front, back) and 4
-    for `Men's` (front, back, both sleeves), clean either way. Flat + Product details keeps that
-    property in the one combination that matters: the flats come back as primaries and the details as
-    extras, so the two are told apart with no inference (verified on the sweatshirt and the track
-    jacket).
-    **Model shots would cost a SECOND TASK per preview** — Printful's create limit is 10/60s shared
-    store-wide, so peak preview throughput would halve — and that is the lever to reach for if the
-    shop wants them back, never another ordering rule.
-    **Expect 2–4 views per product**, the accepted cost: the sweatshirt returns 2, the track jacket 4.
+  - **A mockup asks for three style TIERS in ONE task — the garment FLAT, its PRODUCT DETAILS, and
+    one ON-MODEL group — and shows them in that order** (`src/lib/printfulViewPolicy.js`; two tiers
+    from 2026-08-29, the model tier added 2026-09-07 on Aaron's ask for on-model shots "after" the
+    existing ones, without spending a second mockup call). Every product asks for the same three, so
+    a filmstrip reads identically across the shop and nothing is derived from how a given product
+    happens to be photographed. Each tier contributes AT MOST ONE group; the patterns inside a tier
+    are a preference order, not a list to collect. `Default` is the non-apparel synonym for `Flat`
+    (pillow, tote), and the model tier needs several patterns because no single name covers the
+    catalogue: 14 of 18 publish `Men's`, the women's tee `Women's`, the pillow `Person`, the tote
+    `Standing`.
+    **The structural problem that kept this to two groups for a year is REAL and still true** — do
+    not conclude from the tier existing that it went away. **Ask v1 for several groups in one task
+    and each placement's photo comes back as an untyped `mockup_url` primary, with `option_group`
+    present only on the `extra` entries**, so the most important photos — the front, the back —
+    arrive saying nothing about what they show. Re-measured 2026-09-07, and the tempting lever does
+    not work either: `["Flat","Product details","Men's"]` and `["Men's","Flat","Product details"]`
+    give **byte-identical** assignment on the sweatshirt, so **request order does not decide which
+    group owns a placement's primary** — Printful has its own fixed notion. Four ordering heuristics
+    were tried against real responses and every one left some product jumping between flat lays and
+    model shots; the worst, inferring "the group missing this angle", handed every primary to Product
+    details and turned the track jacket's whole strip into detail shots. **Filenames are not a
+    substitute and were checked**: the flat back and the on-model back are both
+    `...-white-back-<hash>.jpg`.
+    **WHAT UNLOCKED IT: `generator_mockup_id`, which is on every photo — primary and extra alike —
+    and is STABLE across tasks.** So asking for ONE group at a time LEARNS exactly the classification
+    a combined task refuses to state, and the learned table then places every photo in a combined
+    task exactly, with no inference. Measured on the track jacket: `["Flat"]` returns 57206/57214,
+    `["Men's"]` returns 57252/57260, and a task asking for both returns **those same four ids** as
+    untyped primaries. Same on the sweatshirt (2291/2292/2295/2296 across three separate tasks).
+    That table is `src/lib/printfulMockupStyleGroups.js`, built by
+    `scripts/build-mockup-style-groups.mjs` (one task per product per group, ~50 in total, ~6 min).
+    **It is NOT the v2 `/mockup-styles` ids** — a different numbering entirely, checked: 0 of 7 ids
+    matched.
+    Seven things worth not re-deriving:
+    (1) **The alternative was a SECOND TASK per preview**, and it was rejected on throughput, not
+    effort: Printful's create limit is 10/60s shared store-wide, so peak preview capacity would have
+    permanently halved. This costs nothing per preview.
+    (2) **"No group" has two opposite causes and `rankView` is the one place that separates them.**
+    An id the table does not know is real drift — the strip holds a photo nobody can place, and last
+    is where it goes. But a response that could not be classified AT ALL (an Edge Function older than
+    the table, which returns no `generator_mockup_id` for anything, or a product the table does not
+    cover and so is never asked for model shots) means what untyped meant before any of this existed:
+    a placement's own primary, i.e. a FLAT, ranked first.
+    **This was shipped wrong first and Aaron caught it live**: ranking the second case last put the
+    track jacket's four detail shots ahead of its two flats ("the two flats are no longer first as
+    they need to be"), because he was running a new frontend against the not-yet-deployed function.
+    A product with no `MODEL_GROUPS_BY_PRODUCT` entry is separately never asked for a model group, so
+    it keeps the two-group strip it had.
+    (3) **The gate is `MODEL_GROUPS_BY_PRODUCT`, not "is this product in the table"**, because those
+    are different facts. 16 of 18 products get the model tier; the bandana has no suitable group, and
+    the pillow's `Person` covers only 3 of its 5 sizes.
+    (3b) **STYLE IDS ARE PER-VARIANT ON A PRODUCT WITH `restricted_to_variants` STYLES, and learning
+    one variant is then not enough.** Exactly two products restrict styles — the pillow (83) and the
+    bandana (630), the same pair whose per-variant style ids broke under v2 — and one free catalog
+    read (`/v2/catalog-products/{id}/mockup-styles`) says which. The builder walks every variant for
+    those and only the first for the other sixteen, so the cost stays ~50 tasks rather than 129.
+    Shipped wrong first and caught live: the bandana's M and S returned ids learned from L, the flat
+    was therefore unclassifiable, and it sorted BEHIND the Printful-tagged close-up (Aaron: "the flat
+    is now second which feels wrong. it's closeup then flat"). Two corollaries. **A group that does
+    not cover EVERY variant is never requested at all** — v1 answers a task for an uncovered variant
+    with a 400 and the customer gets no preview — which is what keeps the pillow's `Person` out.
+    And **`--variants=1` cannot see this class of bug**: only a run covering the restricted products'
+    other variants can, and the checker's unclassified-view assertion is what catches it there.
+    (3c) **View names are derived PER VARIANT, never pooled across them.** The common-prefix trim
+    strips the product slug, and on a restricted product that slug carries the SIZE — so pooling two
+    variants' filenames leaves it in, and the filmstrip reads "L Front" and "14x14 Back".
+    (3d) **The builder MERGES into the table on disk, it does not replace it.** Writing the whole map
+    from a `--products=` run deleted the other sixteen products, and a 429 mid-run deleted a group's
+    ids while still writing a file that looked complete. (Recovered by downloading the deployed Edge
+    Function — `npx supabase functions download printful-mockup` — since the generated file is the
+    only copy and it is not committed until it is committed.)
+    (4) **The de-dup key moved from group+title to `generator_mockup_id`, and it had to.** The old
+    key could not tell a flat back from an on-model back — same title, both untyped — so one of the
+    two was silently dropped, which is precisely the photo the model tier exists to add. The id is
+    per style-view, so its repeats across placements are genuinely the same photo (it still solves
+    the original track-jacket case: one flat back and three detail shots arriving six times over).
+    (5) **The label is a SUFFIX — "Front on model" — and that is load-bearing, not wording.**
+    `viewRank` orders a strip by matching the START of a title, so "On model — Front" would rank as
+    unrecognised and the model shots would come back in whatever order Printful chose.
+    (6) **Deploy the Edge Function BEFORE the frontend — this is not advisory, it was hit.** The
+    frontend decides `option_groups`, so a new frontend against an old `printful-mockup` requests
+    model shots that come back untyped with no `generator_mockup_id` to classify them by, and they
+    interleave with the flats. `rankView` (above) is what keeps that merely untidy rather than
+    scrambled; it does not make the ordering right, only the flats first.
+    `VIEW_POLICY_VERSION` (now 14) invalidates persisted previews but does nothing about a stale
+    function. Same hazard shape as render-service's.
+    (7) **A longer strip blew the product grid open, and the cause was a latent layout bug this
+    change merely triggered.** ProductPage's gallery column is a grid item, so it defaulted to
+    `min-width: auto` and refused to shrink below its min-content width — and the thumbnail rail is
+    a flex row of fixed 64px items, so its min-content is the entire strip laid out flat. Past a
+    certain count the column takes space from its neighbour, and because the hero is `aspect-square`
+    it grows in BOTH directions. Measured on the real built page at 1680px: 8 thumbnails give a
+    638px hero, 16 give **1144px with the purchase column crushed from 426px to 132px**, 24 give
+    1720px (Aaron, live, on the bucket hat with two artworks: "the entire image container seems to
+    break open and take over the entire page"). Fixed with `min-w-0` on that column, which is what
+    lets the `overflow-x: auto` rail scroll as it was always meant to; verified stable at 0/8/16/24
+    thumbnails, and verified to FAIL at 16 with the class removed. **Any scroller inside a grid or
+    flex item needs this** — the strip only fitted before because there were never enough views.
+    (8) **`MAX_VIEWS` went 6 → 8**, because the track jacket alone needs exactly 8 (2 flat + 4 detail
+    + 2 model) and would otherwise have had its model shots trimmed by the very cap meant to keep the
+    strip short. Not raised further: ProductPage preloads every thumbnail at full mockup size
+    (~154KB) before the strip appears, so each extra view is paid for in wait, on a phone.
     **Measure a real task before reasoning about what a filmstrip contains.**
     `/v2/catalog-products/{id}/mockup-styles` says which styles EXIST; only a task says what comes
     back, and the two disagree. Three rounds of fixes shipped against the catalog before one real
     task overturned the premise. A throwaway sweep — one task per product, first variant, raw
     responses saved to a file — then let four candidate rules be tested in minutes; build that first.
-    **Unchanged by all of it, and still load-bearing:** the strip de-duplicates by URL **and** by
-    group+title, because v1 repeats a product's camera angles under EVERY submitted placement and
-    gives the same photograph a different URL each time — the track jacket returned one flat back and
-    three detail shots six times over, which de-duplicating by URL alone cannot see. And a placement
-    may not name a view unless it is a camera-visible panel (`NON_VIEW_PLACEMENTS` — labels plus
-    `pocket`, `details`, `inside_pocket`, `hood_inner`, `facing`), or a photo of the jacket comes back
-    labelled "Pocket".
+    **Still load-bearing, with one change:** a placement may not NAME a view unless it is a
+    camera-visible panel (`NON_VIEW_PLACEMENTS` — labels plus `pocket`, `details`, `inside_pocket`,
+    `hood_inner`, `facing`), or a photo of the jacket comes back labelled "Pocket". It used to be
+    dropped outright; now, if the style table can name it, it is KEPT and named from the table
+    instead. Dropping it cost the sweatshirt and the joggers their Product details shot the moment
+    the model tier landed — those photos had been riding in on a sleeve placement, the model shots
+    took those placements, and the only remaining copy sat under a label placement.
+    **Measured before/after on all 18 products** (old two-group policy and old normalisation against
+    the new, both strips built through the real helpers, compared by `generator_mockup_id` because
+    URLs are per-task): **no product loses a single photo**, and the leading flats hold their
+    position everywhere. Eight strips do change, and every change is a gain or a correction: 274
+    gains Inside Pocket, 458 gains Inside, 320/693/784 gain the Product details shot described above,
+    744 gains both a fourth detail shot and its real flat BACK (which had never been in the strip —
+    what sat in that slot was a detail shot named "Back"), and 801's mislabelled "Left" turns out to
+    be a detail shot and moves into the detail group where it belongs.
+    **A view is named from the STYLE TABLE, not from the placement key it arrived under
+    (`MOCKUP_STYLE_VIEWS`, same session, Aaron's go-ahead), and `VIEW_NAME_FIXUPS` is GONE with its
+    cause rather than patched.** A placement key is not a statement about what a photo shows: 801's
+    `front` placement returns the garment's back, which is why a hand-written per-product name swap
+    lived in the policy for a year — and measuring found the same fault silently affecting the
+    joggers (784) and crossbody (744), where two different flats both arrived on a placement labelled
+    "Front" and one was shown as "Front 2". The table's name comes off Printful's own FILENAME, which
+    is honest in every case measured, including the ones where the placement is wrong. That is what
+    makes it a fix and not a second guess — and it is only trustworthy because the mapping is learned
+    per id and pinned in the repo, where `check-printful-mockups.mjs` can see it drift. Deriving a
+    name from a filename AT RUNTIME was tried years earlier and made things worse; this is not that.
+    Measured over all 18: **801, 784 and 744 now read `Front | Back`** where two of them read
+    `Front | Front 2`, and the reversible bucket hat's views finally distinguish
+    `Front Outside`/`Front Inside` instead of calling both faces "Front" (which also keeps
+    `hideUnsubmittedViews` working, since it hides on the word "inside"). **Extras keep Printful's
+    own title**, which is authoritative for them — unlike a primary, an extra states its own view.
     **The pillow (83) still returns fewer views on some sizes**, because Printful marks styles
-    `restricted_to_variants` — the same hazard that broke every pillow size but 18x18 under v2. That
-    is theirs, not the policy's.
+    `restricted_to_variants` — the same hazard that broke every pillow size but 18x18 under v2, and
+    the same one that costs it a model tier. That is theirs, not the policy's.
   **`scripts/check-printful-mockups.mjs` exists because of all of this** — it generates a real
   mockup for **every variant of every product (129 as of 2026-08-28)** and asserts the pipeline
   end to end. Run it
   after any `PRODUCT_MOCKUP_CONFIG` change; ~18 min, needs only `PRINTFUL_API_KEY`.
+  **It is also the drift alarm for the style table** (added 2026-09-07): it fails on any view no
+  style group could name, listing the `generator_mockup_id`s, and the fix is to re-run
+  `build-mockup-style-groups.mjs --products=<id>` — never to loosen the check. Unclassified photos
+  still render, they just sort last, so nothing about this is visible from the site.
   **`--variants=N` samples the first N variants per product.** Every run leaves a file in
   Printful's library permanently (no delete or list API), so a full 129-variant sweep is not
   casual. Use the sample when what changed is a property of the PRODUCT (a placement list, an

@@ -39,6 +39,7 @@ import {
   hideUnsubmittedViews
 } from '../src/lib/printfulPlacements.js';
 import { chooseOptionGroups, orderViews, MAX_VIEWS } from '../src/lib/printfulViewPolicy.js';
+import { MOCKUP_STYLE_GROUPS, MODEL_GROUPS_BY_PRODUCT, MOCKUP_STYLE_VIEWS } from '../src/lib/printfulMockupStyleGroups.js';
 
 const KEY = process.env.PRINTFUL_API_KEY;
 if (!KEY) {
@@ -96,40 +97,53 @@ const LABEL_PLACEMENTS = new Set(['label_inside', 'label_outside', 'label_panel'
 const NON_VIEW_PLACEMENTS = new Set([
   ...LABEL_PLACEMENTS, 'pocket', 'details', 'inside_pocket', 'hood_inner', 'facing'
 ]);
-function normalise(result) {
+function normalise(result, productId) {
+  const styleGroups = MOCKUP_STYLE_GROUPS[String(productId)] ?? {};
+  const modelGroup = MODEL_GROUPS_BY_PRODUCT[String(productId)] ?? null;
+  const styleViews = MOCKUP_STYLE_VIEWS[String(productId)] ?? {};
   const byUrl = new Map();
   const raw = [];
   const seenUrls = new Set();
   const seenViews = new Set();
-  const push = (url, name, optionGroup) => {
+  const push = (url, name, optionGroup, id) => {
     if (!url || seenUrls.has(url)) return;
-    const viewKey = `${optionGroup ?? ''}|${name}`;
+    const viewKey = id ? `id:${id}` : `${optionGroup ?? ''}|${name}`;
     if (seenViews.has(viewKey)) return;
     seenViews.add(viewKey);
     seenUrls.add(url);
-    raw.push({ url, name, optionGroup });
+    raw.push({ url, name, optionGroup, id });
   };
   const ordered = [...(result.mockups ?? [])].sort(
     (a, b) => Number(LABEL_PLACEMENTS.has(a.placement)) - Number(LABEL_PLACEMENTS.has(b.placement))
   );
   // Extras across every placement FIRST, so a grouped copy always claims a URL a primary would
-  // otherwise take -- then the primaries, flagged with whether they are a real front/back panel.
+  // otherwise take -- then the primaries.
   for (const m of ordered) {
-    for (const e of m.extra ?? []) push(e.url, e.title, e.option_group);
+    for (const e of m.extra ?? []) push(e.url, e.title, e.option_group, e.generator_mockup_id);
   }
   for (const m of ordered) {
-    if (NON_VIEW_PLACEMENTS.has(m.placement)) continue;
-    push(m.mockup_url, PLACEMENT_LABELS[m.placement] ?? m.placement);
+    const tableName = m.generator_mockup_id ? styleViews[String(m.generator_mockup_id)] : null;
+    if (NON_VIEW_PLACEMENTS.has(m.placement)) {
+      if (tableName) push(m.mockup_url, tableName, undefined, m.generator_mockup_id);
+      continue;
+    }
+    push(m.mockup_url, tableName ?? PLACEMENT_LABELS[m.placement] ?? m.placement, undefined, m.generator_mockup_id);
   }
-  const reserved = new Set(raw.map(r => r.name));
+  const resolved = raw.map(r => ({ ...r, group: r.optionGroup ?? (r.id ? styleGroups[String(r.id)] ?? null : null) }));
+  const named = resolved.map(r => {
+    if (!modelGroup || r.group !== modelGroup) return r;
+    const view = r.id ? styleViews[String(r.id)] : null;
+    return { ...r, name: `${view ?? r.name} on model` };
+  });
+  const reserved = new Set(named.map(r => r.name));
   const taken = new Set();
-  for (const { url, name, optionGroup } of raw) {
+  for (const { url, name, group, id } of named) {
     let final = name;
     if (taken.has(final)) {
       for (let n = 2; taken.has(final) || (final !== name && reserved.has(final)); n++) final = `${name} ${n}`;
     }
     taken.add(final);
-    byUrl.set(url, { mockup_url: url, display_name: final, option_group: optionGroup ?? null });
+    byUrl.set(url, { mockup_url: url, display_name: final, option_group: group ?? null, generator_mockup_id: id ?? null });
   }
   return { status: result.status, error: result.error ?? null, mockups: [...byUrl.values()] };
 }
@@ -254,7 +268,7 @@ async function checkVariant(productId, cfg, specs, variant) {
     if (!(p.width > 0 && p.height > 0)) return fail(`placement ${f.placement} has a zero-size position`);
   }
 
-  const groups = chooseOptionGroups(await styleGroups(productId));
+  const groups = chooseOptionGroups(await styleGroups(productId), productId);
 
   // v1 wants product_options as a JSON object; our config carries the [{name,value}] shape the
   // order path also uses. Same conversion the Edge Function does.
@@ -293,7 +307,27 @@ async function checkVariant(productId, cfg, specs, variant) {
   if (!result) return fail(`still pending after ${(POLL_TRIES * POLL_MS) / 1000}s`);
   if (result.status !== 'completed') return fail(`status ${result.status}: ${result.error ?? 'no reason given'}`);
 
-  const views = orderViews(hideUnsubmittedViews(normalise(result).mockups, entries, specs), MAX_VIEWS);
+  const all = normalise(result, productId).mockups;
+
+  // Every photo must be classifiable, or the filmstrip's ORDER is a guess. A group Printful states
+  // is trusted; anything else has to be named by the generated style table, and an id missing from
+  // it sorts last -- safe, but it means an on-model shot could land ahead of a detail shot, or a
+  // flat behind one. This is the drift alarm for src/lib/printfulMockupStyleGroups.js: the fix is to
+  // re-run scripts/build-mockup-style-groups.mjs --products=<id>, not to loosen this.
+  //
+  // Scoped to products the table knows at all, because a product with no entry is deliberately never
+  // asked for its on-model group and so keeps the two-group strip that needs no table.
+  if (MOCKUP_STYLE_GROUPS[String(productId)]) {
+    const unclassified = all.filter(v => !v.option_group);
+    if (unclassified.length) {
+      fail(
+        `${unclassified.length} view(s) no style group could name: ` +
+          unclassified.map(v => `${v.display_name} (id ${v.generator_mockup_id ?? 'none'})`).join(', ')
+      );
+    }
+  }
+
+  const views = orderViews(hideUnsubmittedViews(all, entries, specs), MAX_VIEWS, productId);
   if (!views.length) return fail('completed but produced no views');
   const urls = new Set(views.map(v => v.mockup_url));
   if (urls.size !== views.length) return fail('duplicate view URLs survived de-duplication');
