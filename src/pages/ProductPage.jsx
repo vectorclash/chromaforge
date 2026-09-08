@@ -1834,8 +1834,19 @@ export default function ProductPage() {
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[3fr_2fr]">
         {/* Gallery: one large hero image that upgrades in place from blank stock photo to
             the real mockup, instead of a small mockup grid competing with a separate
-            "useless" blank photo elsewhere on the page. */}
-        <div>
+            "useless" blank photo elsewhere on the page.
+
+            min-w-0 is LOAD-BEARING, not tidiness. A grid item defaults to min-width:auto, so this
+            column refuses to shrink below its min-content width -- and the thumbnail rail below the
+            hero is a flex row of fixed 64px items, so its min-content is the WHOLE strip laid out
+            flat, however many views there are. Past a certain count the column stops fitting its
+            3fr share and takes the space from its neighbour, and because the hero is aspect-square
+            it grows in BOTH directions. Measured at 1680px: 8 thumbnails give a 804px hero and a
+            536px purchase column, 16 give a 1144px hero and crush the purchase column to 196px
+            (Aaron, live, on the bucket hat with two artworks: "the entire image container seems to
+            break open and take over the entire page"). The rail is `overflow-x: auto` and is meant
+            to scroll -- min-width:0 is what lets it. */}
+        <div className="min-w-0">
           <div className="relative aspect-square overflow-hidden rounded-xl border border-hairline bg-ink-900">
             {/* BASE LAYER -- the product's stock photo, the scrim and the button. Static: its
                 src never changes and it never animates. It is simply covered by the mockup
