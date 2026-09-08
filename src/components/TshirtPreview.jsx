@@ -329,14 +329,31 @@ const AberrationShader = {
 // crossfade redraws the material's single canvas each frame as an old/new blend
 // (drawSheet with globalAlpha), which sidesteps the z-fighting/depth-sorting artifacts a
 // literal second shirt mesh fading on top of the first would have.
-export default function TshirtPreview({ size = 116, waiting = false, onShopClick }) {
+export default function TshirtPreview({
+  size = 116,
+  waiting = false,
+  revealDelay = null,
+  revealed = true,
+  onShopClick
+}) {
   const mountRef = useRef(null);
   // Bridge between the async scene init and the async texture renders, whichever finishes
   // first: `api` appears once the scene is live; `stagedSheet` holds the latest composited
   // design sheet until it can be committed (scene ready AND background landed).
   // `hasTexture` gates the one-time entrance fade; `waiting` mirrors the prop for the
   // async paths.
-  const stateRef = useRef({ api: null, stagedSheet: null, hasTexture: false, waiting });
+  const stateRef = useRef({
+    api: null,
+    stagedSheet: null,
+    hasTexture: false,
+    waiting,
+    // The hero holds the shirt back until its artwork has painted, so this is a second gate on
+    // the entrance alongside "is the scene up" -- whichever finishes last opens it. See
+    // utils/heroIntro.js; every other host leaves `revealed` true and is unaffected.
+    revealed,
+    revealDelay,
+    revealedAt: revealed ? performance.now() : null
+  });
   // Set by the touch-drag rotation the moment a press turns into a drag, so the click
   // that fires on release doesn't ALSO navigate to the shop (see the button's onClick).
   const dragSuppressClickRef = useRef(false);
@@ -344,6 +361,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
   const { currentDesign, renderDesignBlob } = useStudio();
 
   stateRef.current.waiting = waiting;
+  stateRef.current.revealDelay = revealDelay;
 
   // Commit the staged sheet if every gate is open: scene live, sheet ready, background
   // landed. Called from all three places a gate can open. Always a texture-level
@@ -356,6 +374,72 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
     s.stagedSheet = null;
     s.api.setSheet(sheet, { animate: true });
   };
+
+  // The entrance. Two gates, opened in either order -- the scene has to be up, and the hero
+  // has to have reached the beat where the shirt belongs. Same shape as commitStagedSheet
+  // above, and for the same reason: both halves are async and neither can assume it is last.
+  //
+  // The hero holds this until its artwork has painted, which is also when TshirtPreview's own
+  // staged sheet commits -- so the shirt is revealed ALREADY WEARING the design. Before that
+  // it was on screen from 912ms as a blank white tee running the generate-transition glitch,
+  // for the ~1.6s the first render takes, which read as something broken rather than something
+  // loading.
+  //
+  // On the beat: the sequence's own 500ms, so it arrives as one of the hero's parts. Late (a
+  // slow connection -- the model is a lazy three.js chunk plus a 708KB .glb, and had still not
+  // landed 22s in when throttled to 400kbps): nothing else on the page is moving any more, so
+  // the same 500ms would read as something switching on, and it gets a longer, deeper ease
+  // instead. That difference is the only reason the two numbers are not shared.
+  const revealShirt = () => {
+    const s = stateRef.current;
+    if (!s.sceneReady || !s.revealed || s.hasTexture) return;
+    s.hasTexture = true;
+    const mount = mountRef.current;
+    if (!mount) return;
+    const waited = performance.now() - (s.revealedAt ?? performance.now());
+    const onBeat = s.revealDelay !== null && waited < s.revealDelay;
+    const fade = onBeat ? DURATION_SLOW : DURATION_SLOW * 1.5;
+    gsap.fromTo(
+      mount,
+      { autoAlpha: 0, scale: onBeat ? 0.96 : 0.9 },
+      {
+        autoAlpha: 1,
+        scale: 1,
+        duration: fade,
+        delay: onBeat ? (s.revealDelay - waited) / 1000 : 0,
+        ease: 'power3.out',
+        // The shirt does not merely fade -- it resolves out of the shockwave pass, which is
+        // the same effect a Generate already puts it through (Aaron: "couldn't you do
+        // something fun with the existing shader animation too? have it rippling and fading
+        // in?"). No new code path: uAmount drives the pass's aberration and its lens sweep
+        // together, so the entrance just owns that uniform for its own length.
+        //
+        // It has to be re-struck HERE rather than left to run down on its own, and that is
+        // the whole reason this is not a one-liner. The pass is already at peak when the page
+        // mounts (the first build counts as a generate, so `waiting` is true), and `waiting`
+        // flips false on the ARTWORK beat -- which starts uAmount decaying at +0ms while the
+        // shirt is still held until its own beat at +300. By the time it appeared the ripple
+        // was nearly spent, which is exactly why it read as a plain fade.
+        //
+        // onStart, not before: the tween carries the beat's delay, so this fires on the frame
+        // the shirt actually starts appearing rather than when the tween is created.
+        // Outlasts the fade by 60%, so the shirt is fully opaque and still settling rather
+        // than arriving and stopping dead on the same frame.
+        onStart: () => stateRef.current.api?.setAberration(0, fade * 1.6, ABERRATION_PEAK)
+      }
+    );
+  };
+  stateRef.current.revealShirt = revealShirt;
+
+  // The hero opening its reveal phase is the second gate. Recorded with a timestamp, not just
+  // a flag, because the shirt's own beat is an offset from that instant.
+  useEffect(() => {
+    if (!revealed || stateRef.current.revealed) return;
+    stateRef.current.revealed = true;
+    stateRef.current.revealedAt = performance.now();
+    revealShirt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed]);
 
   // Chromatic aberration rides the same signal: snaps up when a generate starts, eases
   // back to zero over the same span as the texture crossfade when the new design lands.
@@ -374,6 +458,7 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
     if (!mount) return undefined;
     let disposed = false;
     let cleanup = null;
+    const mountedAt = performance.now();
 
     (async () => {
       try {
@@ -761,9 +846,16 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         const aberrationPass = new ShaderPass(AberrationShader);
         composer.addPass(aberrationPass);
         let aberrationTween = null;
-        const setAberration = (value, duration) => {
+        // `from` re-strikes the uniform before the tween starts, for a caller that wants a
+        // ramp DOWN from a known peak rather than from wherever the effect happens to be
+        // sitting (the entrance does -- see revealShirt). It is a direct assignment rather
+        // than a second setAberration call with duration 0, which does not work: the two
+        // calls land in the same frame and the second kills the first before a zero-duration
+        // tween has ticked, so the peak may never be reached at all.
+        const setAberration = (value, duration, from) => {
           aberrationTween?.kill();
           stateRef.current.wake?.();
+          if (from !== undefined) aberrationPass.uniforms.uAmount.value = from;
           aberrationTween = gsap.to(aberrationPass.uniforms.uAmount, {
             value,
             duration,
@@ -846,10 +938,8 @@ export default function TshirtPreview({ size = 116, waiting = false, onShopClick
         // The white tee is already on the canvas -- show the shirt now. hasTexture is set
         // here (not on the first design commit) so that first commit crossfades from
         // white instead of applying instantly.
-        if (!stateRef.current.hasTexture) {
-          stateRef.current.hasTexture = true;
-          gsap.to(mount, { autoAlpha: 1, scale: 1, duration: DURATION_SLOW, ease: 'power2.out' });
-        }
+        stateRef.current.sceneReady = true;
+        stateRef.current.revealShirt?.();
         commitStagedSheet();
 
         cleanup = () => {

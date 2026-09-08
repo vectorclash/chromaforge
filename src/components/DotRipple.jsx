@@ -48,7 +48,11 @@ const spun = () =>
     .spin(Math.random() * 360)
     .toHexString();
 
-function DotRipple() {
+// `introDelay` (ms, or null) holds the ripple back to its beat in the homepage hero's
+// entrance -- the ripple sits on the dot grid, so appearing before the grid does is exactly
+// the pop that entrance exists to remove. Every other host passes nothing and is unchanged.
+// It rides the wrapper, not the layers: those already carry a GSAP opacity fade of their own.
+function DotRipple({ introDelay = null }) {
   const mount = useRef(null);
 
   useEffect(() => {
@@ -99,7 +103,14 @@ function DotRipple() {
   }, []);
 
   return (
-    <div className="dot-ripple-mount" aria-hidden ref={mount}>
+    <div
+      className={
+        'dot-ripple-mount' + (introDelay === null ? '' : ' hero-intro animate-hero-fade-in')
+      }
+      style={introDelay === null ? undefined : { animationDelay: `${introDelay}ms` }}
+      aria-hidden
+      ref={mount}
+    >
       <div className="dot-ripple" />
       <div className="dot-ripple" />
     </div>

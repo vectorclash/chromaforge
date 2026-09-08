@@ -1900,6 +1900,82 @@ with the "Go to studio" link directly beneath them (`.controls-compact .go-to-st
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
 
+### The hero has ONE entrance, and it is keyed to the artwork, not to page mount (2026-09-08)
+`src/utils/heroIntro.js` owns the beats; the nav, the panel, the shirt and the three controls
+all read them. Aaron: "the entire hero just needs a unified intro animation, right now it's
+just a bit chaotic with things just popping in... this is a site wide issue that I have asked
+to avoid as much as possible."
+
+**Measured before touching anything, on the production build:** the nav, the panel, the dot
+grid and all three buttons appeared in the SAME frame with no animation on any of them (592ms
+local, 9.0s throttled to 400kbps), the shirt separately at 912ms, and the artwork alone at
+2169ms. Three arrivals, two of them hard snaps, and 1.6 seconds of chrome sitting on a black
+page beside a blank white shirt.
+
+**A first version keyed the cascade to MOUNT and was rejected on sight** ("I don't see any
+change"), correctly: it ran 0→870ms, entirely inside the black gap, and finished 1.3s before
+the artwork — the hero's actual main event — arrived. **An entrance whose beats start at mount
+cannot be unified with content that is not ready at mount.** So there are two phases:
+- **wait**, from mount: the dot grid and its `DotRipple`, and nothing else. This is the
+  loading state the project already had; it is the only thing on screen while the render runs.
+- **reveal**, from the first artwork paint (`startHeroReveal`, called where `setImage` starts
+  `.image-container`'s fade): artwork → nav +150 → shirt +300 → Generate +430 → Save +560 →
+  Go to studio +690.
+
+Seven things worth not re-deriving:
+(1) **The signal crosses components via a subscribe module**, the same shape as
+`subscribeScrollLock`: the artwork lands inside DisplayCanvas and the nav is rendered by
+HomePage, three components away. `heroRevealStarted()` exists for anything mounting late.
+(2) **Holding costs nothing usable** — Generate is disabled during the first build anyway —
+and it buys the shirt: its texture commits on the same signal, so it is revealed ALREADY
+wearing the design. The blank white tee running the generate-transition glitch for 1.6s, which
+looked broken rather than loading, is gone by construction.
+(3) **`HERO_REVEAL_CAP` (3.2s) is a bound, not a target.** A pathological render, or a build
+that fails outright, must never leave the hero without a nav; `recoverFromFailedBuild` also
+opens the phase.
+(4) **A browser back-restore cannot be seen at mount.** The document needs its full height
+before the engine can scroll to the saved offset, so React renders first and the scroll lands a
+frame or two later — measured, a load that ends at y=1500 still reads `scrollY 0`. Both
+HomePage and DisplayCanvas therefore re-check on the next frame AND at 250ms. It matters more
+here than for a normal entrance: this mount HOLDS its controls, so getting it wrong means a
+hero with no Generate button.
+(5) **The three buttons are 130ms apart, not 60** (Aaron: "animate in the ui buttons one at a
+time and not in one block"). At 60 each one is barely past its neighbour's first frame inside
+the same 500ms fade, so the column reads as one object with a soft edge.
+(6) **The entrance rides each BUTTON, never its `.row` wrapper** — the compact Save button
+carries `backdrop-filter`, and this is the wrapper-is-a-backdrop-root trap already recorded in
+the entrance-animation bullet under Working conventions. Under a faded ancestor its blur had no
+backdrop to sample, so it rendered as a flat dark slab and snapped to frosted when the
+animation ended (Aaron: "the drop shadows just appear rather than animate in with the
+buttons"). An element's OWN opacity does not do this.
+(7) **Reduced motion needs `animation-delay: 0` explicitly** (`.hero-intro`, components.css).
+tailwind.css's global block collapses duration and says nothing about delay — right for the
+card grids, but here it would turn one motion into six snaps over 690ms.
+
+**The shirt resolves out of the shockwave pass rather than fading** (Aaron: "couldn't you do
+something fun with the existing shader animation too?"). No new effect: `uAmount` already
+drives TshirtPreview's aberration and lens sweep together. It has to be RE-STRUCK on the
+shirt's own beat, which is the whole subtlety — the pass is at peak from mount (the first build
+counts as a generate) and `waiting` flips false on the ARTWORK beat, so `uAmount` was already
+decaying from +0ms while the shirt stayed held until +300 and arrived with the ripple spent.
+`setAberration` gained an optional `from` that assigns the uniform before the tween; **two
+calls (snap to peak, then tween down) do NOT work** — both land in the same frame and the
+second kills the first before a zero-duration tween has ticked, so the peak may never be
+reached.
+
+Not covered: `/studio` is deliberately untouched (a tool you navigated into, not a landing
+composition being introduced), and the artwork itself is not in the beats table — it cannot be
+scheduled, so it IS beat zero and everything lands into its existing fade.
+
+### `preview.open` defaults to `server.open` — a build preview should never open a window
+`vite.config.mjs` sets `preview.open: false` explicitly. Leaving it unset does not mean "no
+window": Vite falls it back to `server.open`, which is `true` here for `npm start` — so every
+`vite preview` opened a tab, **including the repo's own checks**, since both
+`check-routes-smoke.mjs` and `check-hero-build-race.mjs` spawn a preview server and drive it
+with Playwright. A verification pass therefore threw a browser tab per run at a page nobody
+was going to look at. `CF_NO_OPEN=1` additionally suppresses the dev server's own window
+without changing what `npm start` does for a human.
+
 ### A locked page lies about its scroll position — scroll-driven effects must sit it out
 `useScrollLock` pins the body with `position: fixed` (the only thing that actually stops
 iOS touch-scrolling), which makes the document report **scroll 0** and shifts every element's

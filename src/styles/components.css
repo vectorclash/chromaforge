@@ -2136,3 +2136,28 @@
     transition: none;
   }
 }
+
+/* --- Homepage hero: parts waiting for their phase --------------------------------------
+   The hero holds its nav and controls until the artwork has painted (utils/heroIntro.js), so
+   something has to keep them off the page in the meantime. `visibility` as well as opacity,
+   because an invisible button is still a tab stop -- a keyboard visitor must not be able to
+   land on a Generate that is not there yet, and Generate is disabled during that first build
+   regardless. Removing the class hands both properties back, and the entrance animation's
+   `backwards` fill takes over the opacity from there. */
+.hero-hold {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* --- Homepage hero: the entrance's stagger under reduced motion ------------------------
+   tailwind.css's global prefers-reduced-motion block collapses animation-duration but says
+   nothing about animation-delay -- correct for the card grids, where a stagger of near-zero
+   animations still lands as one settled page. The hero is a sequence rather than a grid, so
+   the same treatment would replace one motion with six snaps spread over 370ms. Zeroing the
+   delays here makes the whole thing arrive at once instead, which is what "no motion" should
+   mean. Scoped to .hero-intro so the site's card staggers keep their existing behaviour. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-intro {
+    animation-delay: 0ms !important;
+  }
+}

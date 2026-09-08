@@ -75,6 +75,13 @@
      the lift effect on every card forever after its entrance played once. */
   --animate-fade-slide-up: fade-slide-up var(--duration-slow) ease-out backwards;
 
+  /* Homepage hero's single entrance (see utils/heroIntro.js). A plain fade for the parts
+     that are ambient rather than content -- the dot grid and its loading ripple, which are
+     a field behind the panel, not an object arriving in it. Everything in the hero that IS
+     an object uses --animate-fade-slide-up above, at the same duration, so the whole
+     sequence is one motion at different offsets. */
+  --animate-hero-fade-in: fade-in var(--duration-slow) ease-out backwards;
+
   /* Hero mockup swap (ProductPage) -- a quick scale-overshoot "pop" rather than a
      plain fade, so cycling through multiple returned mockup angles reads as a
      deliberate, snappy switch instead of just content replacing itself. `both`

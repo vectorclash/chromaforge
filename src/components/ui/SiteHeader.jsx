@@ -7,11 +7,23 @@ import HamburgerIcon from '../buttons/HamburgerIcon';
 import FadeImage from './FadeImage';
 import Wordmark from './Wordmark';
 import MobileNav from './MobileNav';
+import { HERO_REVEAL, heroIntroStyle } from '../../utils/heroIntro';
 
 // Site-wide sticky nav. Used both inside SiteLayout (store/account/gallery routes, always
 // solid) and standalone on the homepage (HomePage.jsx owns scroll tracking on its own
 // scroll container -- the document itself can't scroll, see tailwind.css -- and passes
 // `transparent` while the hero showcase is still in view).
+//
+// `intro` opts this into the hero's entrance (utils/heroIntro.js): 'hold' while the hero's
+// first artwork renders, 'reveal' once it has painted, 'off' everywhere else -- which is every
+// other route, since the hero is the only place the nav has a sequence to belong to.
+//
+// It animates the <header> itself rather than the bar inside it, which is safe ONLY because
+// the homepage renders `transparent` at the top of the page: the solid layer's backdrop-blur
+// sits at opacity 0 for the whole animation, so the usual trap (an ancestor with opacity < 1
+// becomes a backdrop root and empties the filter -- see MobileNav/MiniGenerator) has nothing
+// to break here. HomePage drops back to 'off' if the page turns out to be scrolled, which is
+// exactly the case where that layer would be visible.
 //
 // Transition architecture, after several rounds of real-device jank ("flashes", "pops"):
 // the solid bar is forced into its gradient look for as long as the mobile nav panel is
@@ -31,7 +43,11 @@ const navClass = ({ isActive }) =>
   'font-quicksand text-sm transition ' +
   (isActive ? 'text-text' : 'text-text-muted hover:text-text');
 
-export default function SiteHeader({ transparent = false, overlay = false }) {
+export default function SiteHeader({
+  transparent = false,
+  overlay = false,
+  intro = 'off'
+}) {
   const { user, authResolved, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const showGradient = transparent || menuOpen;
@@ -41,8 +57,11 @@ export default function SiteHeader({ transparent = false, overlay = false }) {
       <header
         className={
           (overlay ? 'fixed inset-x-0 top-0' : 'sticky top-0') +
-          ' z-20 shrink-0'
+          ' z-20 shrink-0' +
+          (intro === 'hold' ? ' hero-hold' : '') +
+          (intro === 'reveal' ? ' hero-intro animate-fade-slide-up' : '')
         }
+        style={intro === 'reveal' ? heroIntroStyle(HERO_REVEAL.nav) : undefined}
       >
         {/* Solid scrolled-state bar, crossfaded with the gradient scrim below via opacity
             on two always-mounted layers -- see the header comment above for why opacity,

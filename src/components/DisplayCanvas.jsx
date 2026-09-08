@@ -50,6 +50,16 @@ import ArrowIcon from './buttons/ArrowIcon';
 import ColorField from './ColorField';
 
 import { StudioWordmark } from './ui/Wordmark';
+import {
+  HERO_WAIT,
+  HERO_REVEAL,
+  HERO_REVEAL_CAP,
+  HERO_REVEAL_END,
+  heroIntroEnabled,
+  heroIntroStyle,
+  notifyHeroReveal,
+  resetHeroReveal
+} from '../utils/heroIntro';
 
 gsap.registerPlugin(TextPlugin);
 
@@ -60,6 +70,9 @@ gsap.registerPlugin(TextPlugin);
 // produces a file whose audio track is broken/ignored by players with NO error thrown
 // (export "succeeds", music is silently missing — the iOS symptom). Synthesizing it
 // ourselves is byte-identical to what Chrome sends, so it's safe to apply everywhere.
+// The hero entrance's phases in order (see render()'s heroBeat and utils/heroIntro.js).
+const HERO_PHASE_ORDER = { wait: 0, reveal: 1, off: 2 };
+
 const AAC_SAMPLE_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 function aacAudioSpecificConfig(sampleRate, numberOfChannels) {
   const freqIndex = AAC_SAMPLE_RATES.indexOf(sampleRate);
@@ -266,9 +279,19 @@ export default class DisplayCanvas extends React.Component {
     // anyway keeps the panel's own defaults and the restored design from ever disagreeing.
     // The Video tab has no such carrier: it is playback/export state, never part of a design,
     // so this IS its only restore path.
+    // Whether this mount is the first beat-driven paint of the homepage hero. Decided once,
+    // here, so a scroll during the sequence cannot retract it half way through; compact-only,
+    // because the full studio at /studio is a tool the visitor navigated INTO, not a landing
+    // composition being introduced. See utils/heroIntro.js.
+    this.playIntro = props.compact && heroIntroEnabled();
+    if (this.playIntro) resetHeroReveal();
     const designPrefs = readDesignPrefs();
     const videoPrefs = readVideoPrefs(ANIM_LIMIT, Object.keys(EXPORT_ASPECTS));
     this.state = {
+      // 'wait' while the first artwork renders (only the dot grid and its ripple are on
+      // screen), 'reveal' from the moment it paints, 'off' when this mount is not introducing
+      // anything -- the full studio, or a hero restored mid-page. See utils/heroIntro.js.
+      heroPhase: this.playIntro ? 'wait' : 'off',
       generateDisabled: false,
       isLoading: false,
       isSaving: false,
@@ -379,6 +402,27 @@ export default class DisplayCanvas extends React.Component {
     // depends on settled layout -- it queries an already-mounted element, reads the URL, and
     // kicks off a build, and buildImage is token-guarded against overlap either way.
     this.init();
+
+    // The reveal normally fires from the first artwork paint (see startHeroReveal). This is
+    // the bound for when that never comes -- a pathologically slow render, or a build that
+    // fails outright -- so the hero can never be left without a nav or a Generate button.
+    if (this.playIntro) {
+      this.heroCapTimer = setTimeout(() => this.startHeroReveal(), HERO_REVEAL_CAP);
+
+      // A browser back-restore cannot be seen at mount: the document needs its full height
+      // before the engine can scroll to the saved offset, so React renders first and the
+      // scroll lands a frame or two later -- measured, a load that ends at y=1500 still reads
+      // scrollY 0 here. That matters because this mount HOLDS its controls, so getting it
+      // wrong means a hero with no Generate button until its artwork lands. Two checks, both
+      // inside the wait: the next frame catches a same-frame restore, the timeout a slower one.
+      const standDownIfRestored = () => {
+        if (window.scrollY > 40 && this.state.heroPhase === 'wait') {
+          this.setState({ heroPhase: 'off' });
+        }
+      };
+      this.heroRestoreRaf = requestAnimationFrame(standDownIfRestored);
+      this.heroRestoreTimer = setTimeout(standDownIfRestored, 250);
+    }
 
     this.checkAudioExportSupport();
 
@@ -504,6 +548,10 @@ export default class DisplayCanvas extends React.Component {
       this.heroParallaxObserver?.disconnect();
       this.unsubscribeHeroParallaxLock?.();
     }
+    clearTimeout(this.heroCapTimer);
+    clearTimeout(this.heroPhaseTimer);
+    clearTimeout(this.heroRestoreTimer);
+    cancelAnimationFrame(this.heroRestoreRaf);
     clearTimeout(this.geometryRegenTimer);
     clearTimeout(this.threeDColorTimer);
     clearTimeout(this.adoptDesignTimer);
@@ -1231,6 +1279,29 @@ export default class DisplayCanvas extends React.Component {
   }
 
   // A build that can't produce a usable image: put the artwork that's already on screen back
+  // Opens the hero's reveal phase (utils/heroIntro.js). Called from the first artwork paint --
+  // the instant .image-container starts its fade up, which is the one moment that genuinely
+  // means "the piece is on screen" -- and from the cap timer if that never arrives.
+  //
+  // Idempotent, and it must be: setImage runs on every build, the cap can fire alongside a
+  // paint, and a failed build recovers through a third path. Only the first caller opens the
+  // phase; the rest are no-ops, so a Generate click a minute later cannot re-run the entrance.
+  startHeroReveal() {
+    clearTimeout(this.heroCapTimer);
+    if (this.state.heroPhase !== 'wait') return;
+    this.setState({ heroPhase: 'reveal' });
+    // The nav lives in HomePage, three components up, with no path to this event.
+    notifyHeroReveal();
+    // Drop the entrance classes once the last beat has finished. This panel re-renders for
+    // reasons unrelated to the sequence (isLoading flipping on every generate), and a later
+    // render must not hand a fresh entrance to a control that arrived a minute ago.
+    // fade-slide-up's `backwards` fill holds no end state, so removing it changes no pixel.
+    this.heroPhaseTimer = setTimeout(
+      () => this.setState({ heroPhase: 'off' }),
+      HERO_REVEAL_END + 100
+    );
+  }
+
   // (every build path fades .image-container out before starting, so without this the user is
   // left staring at a blank canvas) and hand the controls back. Guarded on the token like
   // everything else -- a failed build that has already been superseded should do nothing at
@@ -1239,6 +1310,9 @@ export default class DisplayCanvas extends React.Component {
     if (token !== this.buildToken) return;
     gsap.to('.image-container', { duration: DURATION_FAST, alpha: 1, ease: 'power2.inOut' });
     this.setState({ isLoading: false, generateDisabled: false });
+    // A first build that dies must not also cost the hero its nav and controls. The cap timer
+    // would get there eventually; this hands them back at the moment we know to.
+    this.startHeroReveal();
   }
 
   // `token` is the buildImage generation this blob belongs to (see this.buildToken). Every
@@ -1343,6 +1417,9 @@ export default class DisplayCanvas extends React.Component {
             alpha: 1,
             ease: 'power2.inOut'
           });
+          // Beat zero of the hero's entrance: the artwork is on screen, so the rest of the
+          // hero can land into it. No-op after the first paint, and on every non-hero mount.
+          this.startHeroReveal();
         });
       });
     });
@@ -2718,7 +2795,26 @@ export default class DisplayCanvas extends React.Component {
       galleryStatus,
       galleryError,
       confirmResetOpen,
+      heroPhase,
     } = this.state;
+
+    // The hero's entrance (utils/heroIntro.js), as one helper the compact branch reads.
+    // A part belongs to a phase; before that phase opens it is held unpainted and untabbable,
+    // from the moment it opens it carries its animation and its delay, and once the whole
+    // sequence is over the classes come off. The comparison is ordered rather than an equality
+    // check because a phase, once open, stays open -- the dot grid must not be un-revealed the
+    // instant the artwork arrives and moves the hero into its next phase.
+    const heroBeat = (phase, delay, base, anim = 'animate-fade-slide-up') => {
+      if (heroPhase === 'off') return { className: base };
+      if (HERO_PHASE_ORDER[heroPhase] < HERO_PHASE_ORDER[phase]) {
+        return { className: base + ' hero-hold' };
+      }
+      return { className: base + ' hero-intro ' + anim, style: heroIntroStyle(delay) };
+    };
+
+    // Save needs its beat as a value rather than a spread -- it already carries a style of
+    // its own, and the two have to merge.
+    const saveBeat = heroBeat('reveal', HERO_REVEAL.save, 'button-small');
 
     // `user` now comes from the auth provider via props (StudioPage), not local state.
     const user = this.props.user;
@@ -2830,19 +2926,44 @@ export default class DisplayCanvas extends React.Component {
                 (controlsBlurred ? ' controls-blurred' : '')
               }
             >
-              <div className="dot-grid" aria-hidden />
-              {isLoading && <DotRipple />}
+              {/* The hero's entrance (utils/heroIntro.js). The dot grid and its ripple are the
+                  WAIT phase -- during the first render they are the only thing on screen, and
+                  they fade without sliding because they are an ambient field behind the
+                  controls rather than an object arriving in it. Everything else belongs to the
+                  REVEAL phase and is held until the artwork paints, so the hero assembles onto
+                  the piece instead of waiting around on a black page for it.
+                  The panel itself is never animated: with the glass backing gone it has no
+                  visible surface of its own, so fading it would only stack a second opacity on
+                  top of its children's. */}
+              <div {...heroBeat('wait', HERO_WAIT.grid, 'dot-grid', 'animate-hero-fade-in')} aria-hidden />
+              {isLoading && (
+                <DotRipple introDelay={heroPhase === 'wait' ? HERO_WAIT.grid : null} />
+              )}
               <div className="hero-compact-row flex flex-row items-center gap-4">
                 <TshirtPreview
                   size={190}
                   waiting={isLoading}
+                  revealDelay={heroPhase === 'off' ? null : HERO_REVEAL.shirt}
+                  revealed={heroPhase === 'reveal' || heroPhase === 'off'}
                   onShopClick={() => this.props.onNavigate?.('/shop')}
                 />
                 <div className="flex w-[220px] flex-col gap-2.5">
+                  {/* The entrance rides each BUTTON, never its .row wrapper. Save carries
+                      backdrop-filter, and an ancestor at opacity < 1 becomes a backdrop root:
+                      through the whole fade the blur would have nothing to sample, so the
+                      button rendered as a flat dark slab and then snapped to frosted the
+                      instant the animation ended (Aaron, 2026-09-08: "the drop shadows just
+                      appear rather than animate in with the buttons"). An element's OWN
+                      opacity does not do that -- the same fix MobileNav's mini-generator
+                      needed, and the same reason the rule is worth keeping. */}
                   <div className="row">
                     <button
                       onClick={this.onGenerateButtonClick.bind(this)}
-                      className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
+                      {...heroBeat(
+                        'reveal',
+                        HERO_REVEAL.generate,
+                        'button-large' + (generateDisabled ? ' disabled' : ' enabled')
+                      )}
                     >
                       {generateDisabled ? 'Generating' : 'Generate'}
                     </button>
@@ -2850,15 +2971,15 @@ export default class DisplayCanvas extends React.Component {
                   <div className="row">
                     <button
                       onClick={this.onSaveButtonClick.bind(this)}
-                      className="button-small"
-                      style={{ width: '100%' }}
+                      className={saveBeat.className}
+                      style={{ width: '100%', ...saveBeat.style }}
                     >
                       {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
                     </button>
                   </div>
                   <button
                     onClick={() => this.props.onNavigate?.('/studio', { state: { from: '/' } })}
-                    className="go-to-studio-btn"
+                    {...heroBeat('reveal', HERO_REVEAL.studioLink, 'go-to-studio-btn')}
                   >
                     Go to studio <ArrowIcon />
                   </button>
