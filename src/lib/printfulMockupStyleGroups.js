@@ -37,13 +37,20 @@ export const MOCKUP_STYLE_GROUPS = {
     "965": "Men's",
     "966": "Men's",
     "7173": "Flat",
-    "7174": "Flat"
+    "7174": "Flat",
+    "27339": "Men's 5",
+    "27340": "Men's 5",
+    "27341": "Men's 5"
   },
   "261": {
     "3437": "Flat",
     "3438": "Flat",
     "26024": "Women's",
-    "26025": "Women's"
+    "26025": "Women's",
+    "26305": "Women's 3",
+    "26306": "Women's 3",
+    "26307": "Women's 3",
+    "26308": "Women's 3"
   },
   "274": {
     "1107": "Default",
@@ -59,6 +66,10 @@ export const MOCKUP_STYLE_GROUPS = {
     "2296": "Men's",
     "11466": "Flat",
     "11467": "Flat",
+    "14525": "Men's 3",
+    "14526": "Men's 3",
+    "14527": "Men's 3",
+    "14528": "Men's 3",
     "51583": "Product details"
   },
   "388": {
@@ -85,6 +96,9 @@ export const MOCKUP_STYLE_GROUPS = {
     "8021": "Flat",
     "8022": "Flat",
     "8023": "Flat",
+    "8113": "Men's 2",
+    "8114": "Men's 2",
+    "8115": "Men's 2",
     "8116": "Men's",
     "8117": "Men's",
     "8118": "Men's"
@@ -99,14 +113,21 @@ export const MOCKUP_STYLE_GROUPS = {
     "11663": "Men's",
     "11664": "Men's",
     "11665": "Men's",
-    "11666": "Men's"
+    "11666": "Men's",
+    "11758": "Men's 2",
+    "11759": "Men's 2",
+    "11760": "Men's 2",
+    "11761": "Men's 2"
   },
   "604": {
     "22364": "Flat",
     "22368": "Flat",
+    "22443": "Women's",
+    "22444": "Women's",
     "22445": "Men's",
     "22446": "Men's",
-    "22453": "Men's"
+    "22453": "Men's",
+    "22481": "Women's"
   },
   "615": {
     "22544": "Flat",
@@ -123,7 +144,10 @@ export const MOCKUP_STYLE_GROUPS = {
     "23280": "Flat",
     "23346": "Product details",
     "23347": "Product details",
-    "23348": "Product details"
+    "23348": "Product details",
+    "23355": "Lifestyle 2",
+    "23356": "Lifestyle 2",
+    "23357": "Lifestyle 2"
   },
   "654": {
     "26051": "Flat",
@@ -143,6 +167,14 @@ export const MOCKUP_STYLE_GROUPS = {
     "26163": "Men's",
     "26164": "Men's",
     "26165": "Men's",
+    "26176": "Women's",
+    "26177": "Women's",
+    "26178": "Women's",
+    "26179": "Women's",
+    "26180": "Women's",
+    "26181": "Women's",
+    "26182": "Women's",
+    "26183": "Women's",
     "26200": "Flat",
     "26201": "Flat",
     "26226": "Flat"
@@ -196,17 +228,18 @@ export const MOCKUP_STYLE_GROUPS = {
 };
 
 export const MODEL_GROUPS_BY_PRODUCT = {
-  "257": "Men's",
-  "261": "Women's",
+  "257": "Men's 5",
+  "261": "Women's 3",
   "274": "Standing",
-  "320": "Men's",
+  "320": "Men's 3",
   "388": "Men's",
   "390": "Men's",
-  "420": "Men's",
-  "458": "Men's",
-  "604": "Men's",
+  "420": "Men's 2",
+  "458": "Men's 2",
+  "604": "Women's",
   "615": "Men's",
-  "654": "Men's",
+  "630": "Lifestyle 2",
+  "654": "Women's",
   "693": "Men's",
   "717": "Men's",
   "744": "Men's",
@@ -233,13 +266,20 @@ export const MOCKUP_STYLE_VIEWS = {
     "965": "Right",
     "966": "Left",
     "7173": "Front",
-    "7174": "Back"
+    "7174": "Back",
+    "27339": "Front",
+    "27340": "Back",
+    "27341": "Left"
   },
   "261": {
     "3437": "Front",
     "3438": "Back",
     "26024": "Front",
-    "26025": "Back"
+    "26025": "Back",
+    "26305": "Front",
+    "26306": "Back",
+    "26307": "Right",
+    "26308": "Left"
   },
   "274": {
     "1107": "Front",
@@ -255,6 +295,10 @@ export const MOCKUP_STYLE_VIEWS = {
     "2296": "Left Front",
     "11466": "Front",
     "11467": "Back",
+    "14525": "Front",
+    "14526": "Back",
+    "14527": "Right Front",
+    "14528": "Left Front",
     "51583": "Product Details 2"
   },
   "388": {
@@ -281,6 +325,9 @@ export const MOCKUP_STYLE_VIEWS = {
     "8021": "Back",
     "8022": "Folded",
     "8023": "On Tube",
+    "8113": "Front",
+    "8114": "Right",
+    "8115": "Left",
     "8116": "Front",
     "8117": "Right",
     "8118": "Left"
@@ -295,14 +342,21 @@ export const MOCKUP_STYLE_VIEWS = {
     "11663": "Front",
     "11664": "Right Front",
     "11665": "Left Front",
-    "11666": "Back"
+    "11666": "Back",
+    "11758": "Front",
+    "11759": "Back",
+    "11760": "Right Front",
+    "11761": "Left Front"
   },
   "604": {
     "22364": "Front",
     "22368": "Back",
+    "22443": "Front",
+    "22444": "Back",
     "22445": "Front",
     "22446": "Back",
-    "22453": "Right Front"
+    "22453": "Right Front",
+    "22481": "Left Front"
   },
   "615": {
     "22544": "Front",
@@ -319,7 +373,10 @@ export const MOCKUP_STYLE_VIEWS = {
     "23280": "Front",
     "23346": "Product Details",
     "23347": "Product Details",
-    "23348": "Product Details"
+    "23348": "Product Details",
+    "23355": "Front",
+    "23356": "Front",
+    "23357": "Front"
   },
   "654": {
     "26051": "Front Outside",
@@ -339,6 +396,14 @@ export const MOCKUP_STYLE_VIEWS = {
     "26163": "Front 2 Inside",
     "26164": "Right Inside",
     "26165": "Right Front Inside",
+    "26176": "Front Outside",
+    "26177": "Back Outside",
+    "26178": "Left Front Outside",
+    "26179": "Right Outside",
+    "26180": "Back Inside",
+    "26181": "Front Inside",
+    "26182": "Left Front Inside",
+    "26183": "Right Inside",
     "26200": "Right Inside",
     "26201": "Right Outside",
     "26226": "Front Inside"

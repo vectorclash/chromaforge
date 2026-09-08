@@ -54,14 +54,34 @@ const MODEL_GROUPS_BY_PRODUCT = styleTable.MODEL_GROUPS_BY_PRODUCT ?? {};
 // Everything else a product publishes -- ghost, on-hanger, seasonal, size-chart cards -- is
 // deliberately not requested.
 //
-// LIFESTYLE groups are deliberately absent, which leaves the bandana (630) with no model tier at
-// all. Its three Lifestyle styles were looked at when it was added and rejected on their merits:
-// they photograph it knotted in hair or on a bag handle, i.e. a twisted sliver of the artwork.
-// Nothing here would have picked them up anyway -- "Lifestyle 1" reads as a numbered repeat to the
-// unnumbered-only rule below -- but it should not be an accident that it does not.
+// LIFESTYLE groups are otherwise deliberately absent from the pattern list -- "Lifestyle 1" reads
+// as a numbered repeat to the unnumbered-only rule below, so nothing here would pick one up on its
+// own. The bandana (630) is the one exception, via MODEL_GROUP_OVERRIDES: its three Lifestyle
+// styles were rejected sight-unseen when the product was added ("knotted in hair or on a bag
+// handle, a twisted sliver of the artwork"), and reviewing real photos of all three in 2026-09-08's
+// roster overturned that -- Lifestyle 2 is a real on-model shot worth showing.
 const FLAT_GROUPS = [/^flat$/i, /^default$/i];
 const DETAIL_GROUPS = [/^product details$/i];
 const MODEL_GROUPS = [/^men's$/i, /^women's$/i, /^person$/i, /^standing$/i, /^in hand$/i];
+
+// Which SPECIFIC model group a product's on-model tier uses, when it isn't the first-alphabetical
+// match the pattern order above would pick. 2026-09-08: every candidate group Printful publishes
+// per product (98 of them, incl. numbered repeats -- "Men's 2", "Men's 3"...) was pulled as a real
+// photo into a comparison roster and Aaron picked one per product by looking at the actual model,
+// not just the first name that happened to match. A numbered group is NOT "more of the same photo
+// shoot" here the way it is for FLAT_GROUPS/DETAIL_GROUPS (that assumption is real for a garment
+// lying flat, photographed twice -- it does not hold for a person, who is a different photo shoot
+// each time), so this deliberately bypasses `pickGroup`'s unnumbered-only rule.
+export const MODEL_GROUP_OVERRIDES = {
+  257: "Men's 5",
+  261: "Women's 3",
+  320: "Men's 3",
+  420: "Men's 2",
+  458: "Men's 2",
+  604: "Women's",
+  630: "Lifestyle 2",
+  654: "Women's"
+};
 
 // Printful numbers repeats of the same set -- "Flat 2", "Product details 2". Those are more shots of
 // the same thing, so only the unnumbered group is asked for; its own extra views still come back.
@@ -80,7 +100,7 @@ export const MAX_VIEWS = 8;
 // useMockup persists finished previews in localStorage against a cache key that otherwise describes
 // only the ORDER (product, variant, design, print options), so without this a browser holding a
 // preview from before a policy change replays it for 12 hours.
-export const VIEW_POLICY_VERSION = 14;
+export const VIEW_POLICY_VERSION = 15;
 
 // The first group a product actually has for each pattern in `patterns`, or null.
 function pickGroup(availableGroups, patterns) {
@@ -95,14 +115,24 @@ function pickGroup(availableGroups, patterns) {
   return null;
 }
 
+// The model group for one product: the exact override above when the catalog actually carries it,
+// otherwise the ordinary first-match pattern pick. Falling back (rather than erroring) is what keeps
+// this safe if Printful ever renames or drops a chosen group -- the product quietly reverts to the
+// old default instead of losing its model tier outright.
+function pickModelGroup(availableGroups, productId) {
+  const override = MODEL_GROUP_OVERRIDES[Number(productId)];
+  if (override && (availableGroups ?? []).includes(override)) return override;
+  return pickGroup(availableGroups, MODEL_GROUPS);
+}
+
 // Every group this policy would ever request for a product, ignoring whether it can be classified.
 // Used by scripts/build-mockup-style-groups.mjs, which is the thing that MAKES a product
 // classifiable -- so it must not be gated on the table it is about to write.
-export function catalogGroupsFor(availableGroups) {
+export function catalogGroupsFor(availableGroups, productId) {
   return [
     pickGroup(availableGroups, FLAT_GROUPS),
     pickGroup(availableGroups, DETAIL_GROUPS),
-    pickGroup(availableGroups, MODEL_GROUPS)
+    pickModelGroup(availableGroups, productId)
   ].filter(Boolean);
 }
 
@@ -123,7 +153,7 @@ export function chooseOptionGroups(availableGroups, productId) {
     pickGroup(availableGroups, FLAT_GROUPS),
     pickGroup(availableGroups, DETAIL_GROUPS)
   ];
-  if (MODEL_GROUPS_BY_PRODUCT[String(productId)]) chosen.push(pickGroup(availableGroups, MODEL_GROUPS));
+  if (MODEL_GROUPS_BY_PRODUCT[String(productId)]) chosen.push(pickModelGroup(availableGroups, productId));
   return [...new Set(chosen.filter(Boolean))];
 }
 

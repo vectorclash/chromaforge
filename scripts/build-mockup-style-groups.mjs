@@ -34,7 +34,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PRODUCT_MOCKUP_CONFIG } from '../src/lib/printfulMockupConfig.js';
 import { mockupPlacementEntries, buildMockupFiles } from '../src/lib/printfulPlacements.js';
-import { catalogGroupsFor, viewGroupRank } from '../src/lib/printfulViewPolicy.js';
+import { catalogGroupsFor, viewGroupRank, MODEL_GROUP_OVERRIDES } from '../src/lib/printfulViewPolicy.js';
 
 const KEY = process.env.PRINTFUL_API_KEY;
 const HEADERS = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
@@ -144,9 +144,23 @@ function writeTable(table, views) {
   // so the tier definition lives in exactly one place (printfulViewPolicy.js) and a product whose
   // model task failed -- the pillow's Person styles are restricted to variants this build cannot
   // reach -- simply has no entry here, which is the gate working as intended.
+  //
+  // A product can carry ids from MORE than one model group once its override group has been learned
+  // -- the table is merge-only and never deletes an old group's ids (see the comment above this
+  // function). Iteration order over a numeric-keyed object is ascending numeric id, not learn order,
+  // so picking "whichever rank-2 group is seen last" silently picked whichever group happened to
+  // have the higher id, not the one Aaron actually chose. The override wins outright whenever its
+  // ids are present; only a product with no override (or whose override was never learned) falls
+  // back to "any rank-2 group this table knows".
   const modelGroups = {};
   for (const [productId, ids] of Object.entries(table)) {
-    for (const group of new Set(Object.values(ids))) {
+    const groupsPresent = new Set(Object.values(ids));
+    const override = MODEL_GROUP_OVERRIDES[Number(productId)];
+    if (override && groupsPresent.has(override)) {
+      modelGroups[productId] = override;
+      continue;
+    }
+    for (const group of groupsPresent) {
       if (viewGroupRank(group) === 2) modelGroups[productId] = group;
     }
   }
@@ -214,7 +228,7 @@ async function styleCoverage(productId, variantIds) {
 // The groups this product can be asked for: the tiers the policy wants, minus any that cannot
 // render every variant.
 function requestableGroups({ coverage, names }, variantIds, productId, problems) {
-  return catalogGroupsFor(names).filter(group => {
+  return catalogGroupsFor(names, productId).filter(group => {
     const covered = variantIds.filter(v => coverage.get(group)?.has(v));
     if (covered.length === variantIds.length) return true;
     problems.push(
