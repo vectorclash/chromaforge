@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { routeIntroClaimed } from '../../utils/routeIntro';
 
 // Standard page wrapper for content routes: an optional display title/subtitle header
 // over the page body. Keeps headings consistent across Shop/Gallery/Account.
@@ -10,8 +12,15 @@ import React from 'react';
 // A page section that runs its own cascade over a list marks itself `.intro-skip` and takes
 // its delays from utils/routeIntro.js instead.
 export default function PageContainer({ title, subtitle, actions, breadcrumb, children }) {
+  const { pathname } = useLocation();
+  // Read once, during render, so it still sees a claim the outgoing Suspense fallback is
+  // about to release -- see claimRouteIntro. A route whose fallback already showed this
+  // chrome enters nothing: the header is the one already on screen, and the only genuinely
+  // new content (a card grid) carries .intro-item and animates on its own regardless.
+  const [alreadyEntered] = useState(() => routeIntroClaimed(pathname));
+
   return (
-    <div className="intro-stagger">
+    <div className={alreadyEntered ? undefined : 'intro-stagger'}>
       {breadcrumb && <div className="mb-4">{breadcrumb}</div>}
       {(title || subtitle || actions) && (
         <header className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">

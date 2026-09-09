@@ -35,3 +35,35 @@ export function introDelay(section, item = 0) {
 export function introStyle(section, item = 0) {
   return { animationDelay: `${introDelay(section, item)}ms` };
 }
+
+// ---------------------------------------------------------------------------------------
+// A route whose Suspense fallback shows the page's OWN chrome has already played its
+// entrance by the time the page itself mounts, and must not play it again.
+//
+// The shop and gallery skeletons render the REAL header (their headings are compile-time
+// constants) and a grid in the final geometry, so the handover is invisible -- which is what
+// makes a second entrance read as the page animating in twice. Measured before the fix: two
+// header entrances on one load of /shop and /gallery, against one everywhere else (Aaron,
+// 2026-09-09: "the full page appears and animates in then again").
+//
+// THE PRODUCT PAGE DELIBERATELY DOES NOT CLAIM, and that asymmetry is the whole point. Its
+// skeleton is placeholder bars with no title at all, so the real page arriving IS new content
+// and has to enter -- that 808ms cascade is the thing this whole system exists to deliver.
+// The rule is "do not re-animate what the visitor has already seen", not "animate once".
+//
+// The claim is RELEASED when the fallback unmounts, so returning to the route later enters
+// again. That ordering is safe: React renders the incoming page (where PageContainer reads
+// this, during render) before it commits the swap that unmounts the fallback.
+let claimedPath = null;
+
+export function claimRouteIntro(pathname) {
+  claimedPath = pathname;
+}
+
+export function releaseRouteIntro(pathname) {
+  if (claimedPath === pathname) claimedPath = null;
+}
+
+export function routeIntroClaimed(pathname) {
+  return claimedPath === pathname;
+}

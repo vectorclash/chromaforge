@@ -1954,6 +1954,26 @@ Conventions the audit settled, worth holding:
   knows before the fetch. Side benefit: a loading page now announces its real heading instead of
   a grey bar. Verified 0px at 11 widths from 320 to 1440 on both routes, and the same harness
   reports +24px on the previous commit, so it can see the defect it claims to have fixed.
+- **AND IT MADE THE ENTRANCE PLAY TWICE, which is the cost of a faithful fallback.** Once the
+  skeleton renders the real header, the handover is invisible -- so the page re-entering the
+  identical thing reads as the page animating in twice (Aaron, 2026-09-09, on refreshing
+  /shop and /gallery). Measured: **two header entrances on one load** of those two routes,
+  against one everywhere else.
+  `claimRouteIntro`/`releaseRouteIntro` (routeIntro.js) fix it -- `GridRouteSkeleton` claims
+  the route's entrance on mount, and PageContainer drops `.intro-stagger` when it finds a
+  claim. **The product skeleton deliberately does NOT claim, and that asymmetry is the point:**
+  it is placeholder bars with no title, so the real page arriving IS new content and must
+  enter. The rule is "do not re-animate what the visitor has already seen", NOT "animate once".
+  Two things worth not re-deriving:
+  (1) **Reading the claim during RENDER is what makes the ordering safe.** PageContainer reads
+  it in a `useState` initialiser, and React renders the incoming page before it commits the
+  swap that unmounts the fallback -- so the claim is still standing. Releasing on unmount is
+  what lets a later visit enter again; a claim that persisted would kill the entrance for the
+  rest of the session.
+  (2) **A card grid is unaffected either way**, because `.intro-item` is its own selector
+  rather than a child of `.intro-stagger` -- so the cards still cascade when they arrive, which
+  is the one genuinely new thing on that handover. Verified: shop 65/110/155ms, gallery
+  130/175/220ms, with the header entering exactly once.
 
 ### Every content route assembles on ONE entrance, and it is the same one (2026-09-09)
 `--animate-resolve-in` (tailwind.css) is the site-wide entrance; `.intro-stagger` on

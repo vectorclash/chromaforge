@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import PageContainer from './PageContainer';
+import { claimRouteIntro, releaseRouteIntro } from '../../utils/routeIntro';
 import SkeletonGrid from './SkeletonGrid';
 
 // Placeholders for the SiteLayout routes, shown by the Suspense boundary while a lazy page's
@@ -219,7 +220,16 @@ export function SkeletonFadeOut({ children }) {
 // A card grid behind its page header. Both card routes have the same shape at this stage --
 // a title, a subtitle or a tab strip, then the grid -- so they share one component and differ
 // only in geometry and tile count.
-function GridRouteSkeleton({ header, gridClass, count, extra = null, after = null }) {
+function GridRouteSkeleton({ pathname, header, gridClass, count, extra = null, after = null }) {
+  // This fallback shows the page's own header, at its final size, in its final place -- so
+  // the entrance it plays IS the route's entrance, and the page must not repeat it when it
+  // takes over. Released on unmount so a later visit enters again. See routeIntro.js; the
+  // product skeleton deliberately does not do this, because it shows placeholder bars.
+  useEffect(() => {
+    claimRouteIntro(pathname);
+    return () => releaseRouteIntro(pathname);
+  }, [pathname]);
+
   return (
     <PageContainer title={header.title} subtitle={header.subtitle}>
       {extra}
@@ -282,6 +292,7 @@ export default function RouteSkeleton({ pathname }) {
   if (pathname === '/shop') {
     return (
       <GridRouteSkeleton
+        pathname={pathname}
         header={SHOP_HEADER}
         gridClass={SHOP_GRID_CLASS}
         count={SHOP_TILE_COUNT}
@@ -291,6 +302,7 @@ export default function RouteSkeleton({ pathname }) {
   if (pathname === '/gallery') {
     return (
       <GridRouteSkeleton
+        pathname={pathname}
         header={GALLERY_HEADER}
         gridClass={GALLERY_GRID_CLASS}
         count={GALLERY_TILE_COUNT}
