@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import PageContainer from './PageContainer';
 import { claimRouteIntro, releaseRouteIntro } from '../../utils/routeIntro';
 import SkeletonGrid from './SkeletonGrid';
@@ -72,8 +72,22 @@ export const GALLERY_TILE_COUNT = 20;
 // If you change the real layout's block heights, change them here too; there is no way to
 // derive one from the other, and a divergence shows up as exactly the pop this removes.
 export function ProductPageSkeleton() {
+  // This route mounts this component up to THREE times on a cold load -- the Suspense
+  // fallback, the page's own `loading` render once its chunk lands, and the copy inside
+  // SkeletonFadeOut during the crossfade -- and a fresh mount replays `.intro-stagger`, so
+  // the placeholder visibly animated in two or three times over. Claiming the route's
+  // entrance as a `placeholder` means only the first of them enters; the real page claims
+  // nothing of the sort and still enters in full, which is the whole point of this route not
+  // sharing the shop/gallery treatment. See routeIntro.js.
+  const { pathname } = useLocation();
+  useEffect(() => {
+    claimRouteIntro(pathname, 'placeholder');
+    return () => releaseRouteIntro(pathname, 'placeholder');
+  }, [pathname]);
+
   return (
     <PageContainer
+      introKind="placeholder"
       breadcrumb={
         // Real, not a placeholder: "Shop" is a working way back out while the page loads, and
         // it is the one part of this route that is already known.

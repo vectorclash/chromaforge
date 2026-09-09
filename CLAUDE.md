@@ -2023,6 +2023,114 @@ Conventions the audit settled, worth holding:
   rather than a child of `.intro-stagger` -- so the cards still cascade when they arrive, which
   is the one genuinely new thing on that handover. Verified: shop 65/110/155ms, gallery
   130/175/220ms, with the header entering exactly once.
+- **A CLAIM CARRIES A KIND, because the product route mounts its skeleton up to THREE times on
+  one cold load** (2026-09-09, Aaron: "on the first load I see the skeleton content animate
+  twice as it loads in... it doesn't seem to happen again when returning to the same page").
+  The three are the Suspense fallback, the page's own `loading` render once the chunk lands,
+  and the copy inside `SkeletonFadeOut` during the crossfade -- three separate MOUNTS of the
+  same component, and a fresh mount replays `.intro-stagger`. Measured on a cold
+  `/shop/257`: **4 cascades on one load**, against the 2 it should play.
+  **A plain claim cannot express this**, which is why the mechanism grew a kind rather than the
+  product skeleton simply calling `claimRouteIntro`: silencing the second placeholder that way
+  would also silence the REAL page that replaces it, killing the one entrance this route
+  actually wants. `ProductPageSkeleton` claims `'placeholder'` and PageContainer skips only on
+  a MATCHING kind, so placeholders two and three enter nothing while the real page (kind
+  `'content'`) still enters in full. The shop/gallery claim is unchanged -- both sides of that
+  handover are `'content'`.
+  Three things worth not re-deriving:
+  (1) **It only reproduces on a load that HAS a fallback phase.** A return visit has the chunk
+  cached, so the fallback never mounts and the count drops by one -- which is exactly the
+  "doesn't happen again" half of the report, and why the check has to DELAY the route's chunk
+  to see it at all.
+  (2) **The fade-out copy was the third one, and it is the least obvious** -- it mounts at the
+  instant `loading` flips, so it replayed the whole cascade underneath its own 500ms fade.
+  (3) **`scripts/check-route-intro-once.mjs` uses TWO detectors, because neither sees both
+  halves.** Cascade ROOTS: `.intro-stagger` is applied per container, so one container is one
+  entrance however many sections it staggers -- counting `animationstart` events instead would
+  just measure section count and report a number that moves whenever a page gains a section,
+  and per-NODE counting is blind to a remount, since the replacement is a different node.
+  Per-node repeats: the same element running the same entrance twice, which a root count
+  cannot see because both runs share one root (this is also how the two-owners-of-opacity
+  class of bug shows up -- see ProductPage's hero note). Verified to FAIL on the previous
+  commit before being trusted, on **7 of its 33 checks**; after, the product route plays one
+  placeholder cascade at 321ms and the real page's full five-section cascade at 1225ms.
+  (4) **IT WAS HAPPENING ON RETURN VISITS TOO, just one replay fewer** -- the check reports
+  2 cascades against a max of 1 on the warm `shop -> product` navigation pre-fix. "It doesn't
+  happen again when returning" was the symptom being less visible, not absent, which is worth
+  remembering as a shape: a fallback phase changes the COUNT of a repeat, not its existence.
+- **The whole site was swept for the same fault and is clean (2026-09-09, Aaron: "check the
+  full site... make sure none of them are running multiple times like this one was").** The
+  check covers, in one run: all **11 routes** cold with the route chunk delayed so the Suspense
+  fallback really paints; **7 client-side navigations** including back/forward and a warm
+  re-entry (a different mount path from a cold load, and the one the original bug survived in);
+  the overlays and appended content (size guide, print options, artwork picker, gallery modal,
+  infinite-scroll append); **mobile at 390x844** including the mobile nav; and
+  prefers-reduced-motion. **No node anywhere runs the same entrance animation twice.**
+  Four findings from the sweep worth not re-deriving, three of which look like defects and are
+  not:
+  (1) **Two cascades on `/terms` and `/privacy` is CORRECT and for an unrelated reason to the
+  product page's two** -- those pages NEST the mechanism (their section list is
+  `intro-skip intro-stagger`), so both roots start in the same frame. One motion, two
+  containers.
+  (2) **The size guide firing `pop-in` and `fade-in` in the same frame is two NODES**, the
+  panel inside its backdrop -- the standard modal pattern here, not two owners of one opacity.
+  (3) **Reduced motion does not suppress anything**: tailwind.css collapses
+  `animation-duration` to 0.01ms, so every entrance still fires and the counts match the normal
+  ones exactly. A first version of the check asserted zero there and failed on its own
+  expectation.
+  (4) **A gallery tab switch cannot be exercised signed out** -- the My Designs button only
+  renders for a signed-in user, so a click finds nothing and records zero. That is the harness
+  being blind, not the tab being silent.
+- **The signed-in surfaces are covered too, behind `--signed-in`, and they are the ones with
+  the precedent** (2026-09-09, Aaron: "would it be worth running the tests signed in, at least
+  for everything gated for that?"). Yes, because the one bug of this class already found by
+  hand lives there -- AccountPage's banners appear BETWEEN cascade items, and a changed
+  `animation-delay` from `:nth-child` RESTARTS an animation. That page is also the densest
+  late-arriving content in the app: three `introStyle` cards, two OrderLists, and an avatar
+  that uploads after mount. All clean: account cold **1 cascade**, plus a deliberate second
+  3s idle window measuring **0** (a late arrival that shifted `:nth-child` would replay there,
+  not on the first window), gallery and its tab switches 1 each, the product page 2, the
+  artwork picker's saved-designs tab 1.
+  Coverage: My designs' real CARD GRID (186 starts, 93 designs, 0 repeats), OrderList's ROW
+  STAGGER via the Order history tab (16 rows, then a 2.5s idle window measuring 0 -- that tab
+  is where the rows are, because an account with nothing in production renders "No orders in
+  progress" on Active), and the artwork picker's saved-designs tiles.
+  Six things worth not re-deriving:
+  (1) **THE ACCOUNT IS `aaron@vectorclash.com`, and `--email` is REQUIRED with no default.**
+  The first run was pointed at the address in the agent's own session context
+  (`aaron.sterczewski@gmail.com`), which is Aaron's identity for attribution and **was not an
+  app account at all**. `generate_link` with type `magiclink` SILENTLY CREATES the user when the
+  address is unknown, the signup trigger then made it a profile, and AccountPage generated and
+  uploaded an avatar for it -- so the "read-only" claim was false, and the run reported
+  "0 saved designs, no orders" as a fixture gap rather than as the contradiction it was
+  (Aaron: "No saved designs? I have like 80"). The phantom user, its profile and its avatar
+  object were deleted. `mintSession` now lists the existing accounts and REFUSES an address
+  that is not among them.
+  **The tell to trust next time: an account that renders EMPTY EVERYWHERE is far more likely to
+  be the wrong account than a real fixture gap.**
+  (2) **It cannot use a password.** Turnstile is enforced on every password-based auth call,
+  sign-in included, so a scripted sign-in cannot pass. It mints a magic-link OTP with the
+  service-role key and redeems it through the app's OWN redirect path -- tokens in the URL
+  hash, consumed by supabase-js exactly as a real emailed link would be. No credential in the
+  repo.
+  (3) **`email_otp`, NOT `hashed_token`.** GoTrue's `/verify` rejects the hashed token from
+  `generate_link` with `otp_expired` immediately, while the OTP from that same response works.
+  (4) **One Playwright CONTEXT, not `browser.newPage()`** -- that makes a fresh context each
+  time, so the session in localStorage would be gone on the next page and every "signed-in"
+  assertion would silently be measuring a signed-out page.
+  (5) **Loading /account is only read-only for a profile that already HAS an avatar** --
+  AccountPage generates and uploads one for any profile with none. Check before running, not
+  after.
+  (6) **THE CHECK COULD PASS VACUOUSLY, and did.** Pointed at a dead server it reported 11/11
+  ok on zero animations. Cold route loads now assert a MINIMUM start count as well as a
+  maximum; an overlay close or an idle window is legitimately zero, so only the loads set it.
+  A checker that passes when nothing renders is worse than no checker -- the same lesson as
+  `checkCoverage` in the Printful section.
+  **One thing found and deliberately left:** the profile card plays `resolve-in` on
+  "Loading profile..." and then again on the form that replaces it. Two nodes in one slot,
+  inside ONE cascade -- the same placeholder-then-content shape as the product route's two, and
+  correct by the same rule ("do not re-animate what the visitor has already SEEN"; the form is
+  content they have not).
 
 ### Every content route assembles on ONE entrance, and it is the same one (2026-09-09)
 `--animate-resolve-in` (tailwind.css) is the site-wide entrance; `.intro-stagger` on

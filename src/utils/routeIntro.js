@@ -46,24 +46,34 @@ export function introStyle(section, item = 0) {
 // header entrances on one load of /shop and /gallery, against one everywhere else (Aaron,
 // 2026-09-09: "the full page appears and animates in then again").
 //
-// THE PRODUCT PAGE DELIBERATELY DOES NOT CLAIM, and that asymmetry is the whole point. Its
-// skeleton is placeholder bars with no title at all, so the real page arriving IS new content
-// and has to enter -- that 808ms cascade is the thing this whole system exists to deliver.
-// The rule is "do not re-animate what the visitor has already seen", not "animate once".
+// THE PRODUCT PAGE'S REAL PAGE DELIBERATELY DOES NOT INHERIT THAT CLAIM, and that asymmetry
+// is the whole point. Its skeleton is placeholder bars with no title at all, so the real page
+// arriving IS new content and has to enter -- that 808ms cascade is the thing this whole
+// system exists to deliver. The rule is "do not re-animate what the visitor has already
+// seen", not "animate once".
 //
-// The claim is RELEASED when the fallback unmounts, so returning to the route later enters
-// again. That ordering is safe: React renders the incoming page (where PageContainer reads
-// this, during render) before it commits the swap that unmounts the fallback.
-let claimedPath = null;
+// WHICH IS WHY A CLAIM CARRIES A KIND, and a container skips its entrance only when the
+// standing claim MATCHES its own. The product route mounts its skeleton up to three separate
+// times on a cold load -- the Suspense fallback, then the page's own `loading` render, then
+// the copy inside SkeletonFadeOut -- and each is a fresh mount, so each replayed the cascade
+// (Aaron, 2026-09-09: "the skeleton content animate twice as it loads in", cold load only,
+// because a warm visit has no fallback phase). Those three are all `placeholder`, so the
+// second and third enter nothing; the real page is `content`, does not match, and still
+// enters in full.
+//
+// The claim is RELEASED when the claiming tree unmounts, so returning to the route later
+// enters again. That ordering is safe: React renders the incoming tree (where PageContainer
+// reads this, during render) before it commits the swap that unmounts the outgoing one.
+let claim = null;
 
-export function claimRouteIntro(pathname) {
-  claimedPath = pathname;
+export function claimRouteIntro(pathname, kind = 'content') {
+  claim = { pathname, kind };
 }
 
-export function releaseRouteIntro(pathname) {
-  if (claimedPath === pathname) claimedPath = null;
+export function releaseRouteIntro(pathname, kind = 'content') {
+  if (claim && claim.pathname === pathname && claim.kind === kind) claim = null;
 }
 
-export function routeIntroClaimed(pathname) {
-  return claimedPath === pathname;
+export function routeIntroClaimed(pathname, kind = 'content') {
+  return claim !== null && claim.pathname === pathname && claim.kind === kind;
 }

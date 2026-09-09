@@ -11,13 +11,22 @@ import { routeIntroClaimed } from '../../utils/routeIntro';
 // tailwind.css for why the container is the right place for it and why it needs no trigger.
 // A page section that runs its own cascade over a list marks itself `.intro-skip` and takes
 // its delays from utils/routeIntro.js instead.
-export default function PageContainer({ title, subtitle, actions, breadcrumb, children }) {
+export default function PageContainer({
+  title,
+  subtitle,
+  actions,
+  breadcrumb,
+  introKind = 'content',
+  children
+}) {
   const { pathname } = useLocation();
-  // Read once, during render, so it still sees a claim the outgoing Suspense fallback is
-  // about to release -- see claimRouteIntro. A route whose fallback already showed this
-  // chrome enters nothing: the header is the one already on screen, and the only genuinely
-  // new content (a card grid) carries .intro-item and animates on its own regardless.
-  const [alreadyEntered] = useState(() => routeIntroClaimed(pathname));
+  // Read once, during render, so it still sees a claim the outgoing tree is about to release
+  // -- see claimRouteIntro. A route whose fallback already showed this chrome enters nothing:
+  // the header is the one already on screen, and the only genuinely new content (a card grid)
+  // carries .intro-item and animates on its own regardless. The kind is what keeps that from
+  // over-reaching: a placeholder's claim silences a SECOND placeholder, never the real page
+  // that replaces it.
+  const [alreadyEntered] = useState(() => routeIntroClaimed(pathname, introKind));
 
   return (
     <div className={alreadyEntered ? undefined : 'intro-stagger'}>
