@@ -27,6 +27,30 @@ const SKEL = 'animate-pulse rounded-lg bg-ink-800';
 export const SHOP_GRID_CLASS = 'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3';
 export const GALLERY_GRID_CLASS = 'grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4';
 
+// The real heading each of these two routes will render, owned here and imported BACK by the
+// pages themselves so there is exactly one copy of the words.
+//
+// The skeleton renders them FOR REAL rather than as grey bars, which is what removes the last
+// layout shift on these routes instead of tuning it away. A placeholder bar has to guess how
+// many lines the sentence takes, and a sentence wraps at a width no breakpoint knows about:
+// reserving one line (what this did) cost 24px of jump at 390px and below on both routes, and
+// reserving two would have made the footer RISE into view on every wider screen, which is the
+// same jolt in reverse (see the note above GENERIC_BODY_MIN). Rendering the real text through
+// the real PageContainer makes the geometry identical by construction, at every width, with
+// nothing to re-measure when the copy changes.
+//
+// Only these two routes can do this: their headings are compile-time constants. The product
+// page's title is the product's, which nothing knows before the fetch.
+export const SHOP_HEADER = {
+  title: 'Shop',
+  subtitle: 'Wear the algorithm. Generated from a seed, printed to order.'
+};
+
+export const GALLERY_HEADER = {
+  title: 'Gallery',
+  subtitle: 'Designs saved by the community and by you.'
+};
+
 // Mirrors STARTER_PRODUCT_IDS.length. Deliberately a literal and not that array's length:
 // importing it would drag lib/printful (and with it the whole render pipeline) into the main
 // bundle. ShopPage imports this constant back and warns in dev if the two ever drift.
@@ -195,21 +219,13 @@ export function SkeletonFadeOut({ children }) {
 // A card grid behind its page header. Both card routes have the same shape at this stage --
 // a title, a subtitle or a tab strip, then the grid -- so they share one component and differ
 // only in geometry and tile count.
-function GridRouteSkeleton({ gridClass, count, subtitleWidth, extra = null, after = null }) {
+function GridRouteSkeleton({ header, gridClass, count, extra = null, after = null }) {
   return (
-    <div aria-hidden="true">
-      <header className="mb-10">
-        <div className="flex h-10 items-center">
-          <div className={`${SKEL} h-7 w-40`} />
-        </div>
-        <div className="mt-2 flex h-6 items-center">
-          <div className={`${SKEL} h-3.5 ${subtitleWidth}`} />
-        </div>
-      </header>
+    <PageContainer title={header.title} subtitle={header.subtitle}>
       {extra}
       <SkeletonGrid count={count} className={gridClass} />
       {after}
-    </div>
+    </PageContainer>
   );
 }
 
@@ -266,23 +282,23 @@ export default function RouteSkeleton({ pathname }) {
   if (pathname === '/shop') {
     return (
       <GridRouteSkeleton
+        header={SHOP_HEADER}
         gridClass={SHOP_GRID_CLASS}
         count={SHOP_TILE_COUNT}
-        subtitleWidth="w-96 max-w-full"
       />
     );
   }
   if (pathname === '/gallery') {
     return (
       <GridRouteSkeleton
+        header={GALLERY_HEADER}
         gridClass={GALLERY_GRID_CLASS}
         count={GALLERY_TILE_COUNT}
-        subtitleWidth="w-72 max-w-full"
         // The Public/My Designs tab strip above the grid, and below it the infinite-scroll
         // sentinel's own 80px -- a full page of tiles is exactly the evidence `hasMore` is set
         // from, and GalleryPage's own skeleton reserves the same row for the same reason.
-        extra={<div className="mb-6 h-[31px] border-b border-hairline" />}
-        after={<div className="py-10" />}
+        extra={<div className="mb-6 h-[31px] border-b border-hairline" aria-hidden="true" />}
+        after={<div className="py-10" aria-hidden="true" />}
       />
     );
   }

@@ -4,7 +4,7 @@ import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
-import { SHOP_GRID_CLASS, SHOP_TILE_COUNT } from '../components/ui/RouteSkeleton';
+import { SHOP_GRID_CLASS, SHOP_HEADER, SHOP_TILE_COUNT } from '../components/ui/RouteSkeleton';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { preloadImages } from '../utils/preloadImages';
@@ -94,15 +94,11 @@ export default function ShopPage() {
   }, [revealed]);
 
   return (
-    // Subtitle kept SHORT on purpose: RouteSkeleton reserves one line for it (h-6), so every
-    // extra wrapped line is a layout jump when the real page lands -- measured at 48px on a
-    // 360px phone with a longer draft. It also borrows the two phrases the rest of the site
-    // already uses, "computed from a single seed" (About) and "printed to order" (the
-    // homepage shop carousel), so the three read as one voice.
-    <PageContainer
-      title="Shop"
-      subtitle="Wear the algorithm. Generated from a seed, printed to order."
-    >
+    // Heading text comes from RouteSkeleton, which renders the identical header while this
+    // page's chunk downloads -- one copy of the words, so the handover cannot shift. The
+    // subtitle borrows the two phrases the rest of the site already uses, "computed from a
+    // single seed" (About) and "printed to order" (the homepage shop carousel).
+    <PageContainer title={SHOP_HEADER.title} subtitle={SHOP_HEADER.subtitle}>
       {/* Placeholder and real grid share one relative box and overlap for the crossfade.
           While waiting the placeholder is in normal flow and gives the page its height; on
           reveal it flips to absolute so the real grid takes over layout without the page

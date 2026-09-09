@@ -5,7 +5,11 @@ import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
-import { GALLERY_GRID_CLASS, GALLERY_TILE_COUNT } from '../components/ui/RouteSkeleton';
+import {
+  GALLERY_GRID_CLASS,
+  GALLERY_HEADER,
+  GALLERY_TILE_COUNT
+} from '../components/ui/RouteSkeleton';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import GalleryModal from '../components/ui/GalleryModal';
 import { useCrossfadeImage } from '../hooks/useCrossfadeImage';
@@ -283,7 +287,9 @@ export default function GalleryPage() {
     (active ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text');
 
   return (
-    <PageContainer title="Gallery" subtitle="Designs saved by the community and by you.">
+    // Heading text comes from RouteSkeleton, which renders the identical header while this
+    // page's chunk downloads -- one copy of the words, so the handover cannot shift.
+    <PageContainer title={GALLERY_HEADER.title} subtitle={GALLERY_HEADER.subtitle}>
       <div className="mb-6 flex gap-6 border-b border-hairline">
         <button className={tabClass(tab === 'public')} onClick={() => setTab('public')}>
           Public

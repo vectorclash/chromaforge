@@ -1940,10 +1940,20 @@ Conventions the audit settled, worth holding:
   lands: an 84-character draft measured **48px of shift at 360px**, against 24px for the
   60-character line that shipped. It also reuses the two phrases the site already has --
   "computed from a single seed" (About) and "printed to order" (the homepage shop carousel).
-- **Still open, and pre-existing:** that same skeleton reserves one subtitle line while Shop
-  and Gallery both wrap to two at <=390px, so both carry a 24px shift on phones. Closing it
-  needs per-route reserved heights, since over-reserving makes the footer RISE into view --
-  see RouteSkeleton's own note on the two directions not being symmetric.
+- **Closed the same day, and the fix was to stop approximating.** That skeleton reserved ONE
+  line for the subtitle (`h-6`), so both routes jumped **24px** when the real page landed --
+  shop at <=480px, gallery at <=375px, measured. Per-route reserved heights were the obvious
+  fix and are the wrong one: a sentence wraps at a width no breakpoint knows about, and
+  over-reserving makes the footer RISE into view, which is the same jolt in reverse (see
+  RouteSkeleton's note on the two directions not being symmetric).
+  **`GridRouteSkeleton` now renders the REAL header through the REAL PageContainer**, because
+  these two routes' headings are compile-time constants. `SHOP_HEADER`/`GALLERY_HEADER` are
+  exported from RouteSkeleton and imported BACK by the pages, so there is one copy of the words
+  and the geometry is identical by construction at every width, with nothing to re-measure when
+  the copy changes. The product page cannot do this -- its title is the product's, which nothing
+  knows before the fetch. Side benefit: a loading page now announces its real heading instead of
+  a grey bar. Verified 0px at 11 widths from 320 to 1440 on both routes, and the same harness
+  reports +24px on the previous commit, so it can see the defect it claims to have fixed.
 
 ### Every content route assembles on ONE entrance, and it is the same one (2026-09-09)
 `--animate-resolve-in` (tailwind.css) is the site-wide entrance; `.intro-stagger` on
