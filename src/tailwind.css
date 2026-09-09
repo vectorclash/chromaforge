@@ -78,8 +78,9 @@
   /* Homepage hero's single entrance (see utils/heroIntro.js). A plain fade for the parts
      that are ambient rather than content -- the dot grid and its loading ripple, which are
      a field behind the panel, not an object arriving in it. Everything in the hero that IS
-     an object uses --animate-fade-slide-up above, at the same duration, so the whole
-     sequence is one motion at different offsets. */
+     an object carries .intro-item -- the same entrance every other route uses -- so the
+     sequence is one motion at different offsets, and the homepage is not the one page in
+     the site speaking a different motion language. */
   --animate-hero-fade-in: fade-in var(--duration-slow) ease-out backwards;
 
   /* Hero mockup swap (ProductPage) -- a quick scale-overshoot "pop" rather than a
@@ -97,14 +98,40 @@
      since the fast duration doesn't give a longer slide room to read cleanly. */
   --animate-reveal-quick: reveal-quick var(--duration-fast) ease-out backwards;
 
-  /* Route-enter transition -- SiteLayout keys <main> on the pathname so every store/
-     account/gallery navigation replays this. Short and subtle on purpose: it should read
-     as the page "settling in", not as a loading effect competing with the per-card
-     fade-slide-up staggers that follow it. `backwards` (same reasoning as fade-slide-up
-     above) so the transform doesn't stay held on <main> after the animation -- a held
-     transform makes <main> the containing block for any position:fixed descendant a page
-     might ever add, silently pinning it to the page instead of the viewport. */
-  --animate-page-enter: page-enter 0.25s ease-out backwards;
+  /* THE SITE-WIDE ENTRANCE. Every content route's sections arrive on this, staggered by
+     .intro-stagger below -- so a page assembles as one cascade instead of appearing in a
+     single frame. Chosen by Aaron on 2026-09-09 from a four-way comparison played against
+     real captures of the live shop/product/gallery pages
+     (https://claude.ai/code/artifact/91147058-d8ed-42db-b4b7-7b08996c2838).
+
+     It resolves OUT OF BLUR rather than sliding, which is the generative language this app
+     already speaks: --animate-bloom-in does the same thing to the artwork in the gallery
+     modal, where the blur is literally true (a stored thumbnail on screen while a full
+     render finishes). The travel is only 8px because the blur is carrying the motion --
+     fade-slide-up's 16px on top of a blur reads as two effects, not one.
+
+     `backwards` (same reasoning as fade-slide-up below) so no end state is held: a held
+     `filter` would make every animated section a containing block for any position:fixed
+     descendant, and would out-rank the hover-lift transform on .cf-card forever after. */
+  --animate-resolve-in: resolve-in 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+
+  /* The same entrance for an element that ALREADY HAS A `filter` OF ITS OWN. Animating
+     `filter` replaces that declaration wholesale for the length of the animation, so the
+     element loses its shadow or glow while it arrives and snaps back the instant the
+     animation ends -- the exact "the drop shadows just appear rather than animate in with
+     the buttons" report the hero's entrance drew twice, from two unrelated causes (Aaron,
+     2026-08 and again 2026-09-09).
+
+     THIS IS NOT THE BACKDROP-FILTER TRAP, though it produces the same complaint and the
+     same elements are involved, which is why it is worth writing down separately. Measured
+     against a striped backdrop: an element's own non-zero `filter` does NOT break its own
+     `backdrop-filter` (contrast inside the glass was 4 with a 6px self-blur against 7
+     without one, on a 255 control). The frosting keeps working. What goes missing is
+     whatever the element's static `filter` was drawing.
+
+     Same duration, curve and travel as --animate-resolve-in, so the two read as one motion.
+     Only the blur is dropped, and only where it could not have been worn. */
+  --animate-resolve-flat: resolve-flat 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 
   /* Toast (AuthContext notices, ...) -- snappy on purpose, same "fun" overshoot bezier as
      pop-in above but on the fast tier: a status banner should feel immediate, not like it's
@@ -235,7 +262,7 @@
   }
 }
 
-@keyframes page-enter {
+@keyframes resolve-flat {
   from {
     opacity: 0;
     transform: translateY(8px);
@@ -243,6 +270,22 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes resolve-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    /* Radius is a custom property so a dense grid can dial it down without a second
+       keyframe -- a blur is a real paint, and 18 shop cards at 10px is a different cost
+       from 5 page sections at 10px. --intro-blur is defined on .intro-item below. */
+    filter: blur(var(--intro-blur, 10px));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 
@@ -291,6 +334,97 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0) scale(1);
   }
+}
+
+/* ---------------------------------------------------------------------------------------
+   THE ROUTE ENTRANCE CASCADE
+   ---------------------------------------------------------------------------------------
+   A content route assembles top-to-bottom: its sections arrive one after another on
+   --animate-resolve-in instead of the whole page appearing in one frame.
+
+   WHY IT IS A CONTAINER RULE AND NOT A PER-PAGE CHORE. Every content route renders through
+   PageContainer, whose root div's direct children ARE the sections a visitor perceives
+   arriving -- measured on the real built pages: the product page's are breadcrumb / title /
+   Choose artwork / Print options / gallery+purchase grid; the shop's are its header and its
+   card grid. Putting the cascade on that one container means a route gets it by existing,
+   and a page added later cannot forget to opt in.
+
+   WHY IT NEEDS NO TRIGGER, which is the part that took a measurement to get right. The old
+   --animate-page-enter sat on <main>, which is keyed on the pathname -- so it replayed on
+   navigation, and it ran on whatever <main> held AT THAT MOMENT, which is the Suspense
+   fallback. Measured on a shop -> product navigation in the production build: page-enter ran
+   59ms -> 306ms entirely on RouteSkeleton, and the real page committed at 810ms, half a
+   second after the only page-level motion had finished. Every content route was arriving in
+   a single unanimated frame. A CSS animation starts when the element mounts, and a section
+   that waits on a fetch does not mount until the fetch lands -- so "keyed to the content"
+   falls out for free here, with none of the subscribe/notify machinery the hero's own
+   entrance needs (utils/heroIntro.js), where the artwork lands in a different component
+   from the things waiting on it.
+
+   THE INDEX-SHIFT HAZARD, since these delays come from :nth-child. Changing an element's
+   animation-delay RESTARTS its animation -- so a child that stays mounted while an earlier
+   sibling unmounts (a skeleton giving way to real content) would replay. Every page that
+   swaps children that way marks the swapping ones .intro-skip, which is also what they need
+   for the reason below, so the two requirements coincide rather than compete.
+
+   .intro-skip is for a section that runs its OWN cascade over its items -- a card grid,
+   the artwork tiles. Without it the section blurs while its children blur inside it, which
+   composites as two blurs and reads as mush. Such a section takes no animation at all; its
+   items carry .intro-item and their delays come from utils/routeIntro.js, continuing the
+   same rhythm so the page still reads as one cascade.
+
+   .intro-skip ALSO means "I bring my own animation". The container rule out-ranks a bare
+   `animate-*` utility on specificity, so a child carrying one -- an error line's pop-in, say
+   -- would have it silently replaced rather than combined.
+
+   :not(.fixed) keeps every overlay out of it. A modal is a direct child of the page that
+   opened it, so without this one would arrive blurred, translated, and up to half a second
+   late, with its own animate-fade-in overridden. It is written as a rule rather than a class
+   on each of the five modal roots deliberately: a modal added later is covered by having
+   been written the way every other one already is, instead of by someone remembering.
+
+   THE PER-POSITION RULES REPEAT THE FULL SELECTOR, and that verbosity is load-bearing.
+   `animation` is a SHORTHAND, so the rule above resets animation-delay to 0 -- and at (0,3,0)
+   it out-ranks a bare `.intro-stagger > *:nth-child(n)` at (0,2,0). Written the short way,
+   every cascade on the site silently ran with NO stagger at all. Repeating the :not() pair
+   brings each delay to (0,4,0), which wins outright rather than by source order.
+
+   A NESTED var() INSIDE A THEME TOKEN DOES NOT FIX THIS, and it is worth knowing why, because
+   it looks like it should. Putting `var(--intro-at, 0ms)` in --animate-resolve-in's own value
+   and setting --intro-at per position resolves the inner var where the token is DECLARED --
+   :root, where --intro-at is unset -- so 0ms is baked in and inherits down. Measured: an
+   element reporting `--intro-at: 65ms` still computed `animation-delay: 0s`.
+
+   The cap at nine is deliberate: past that a section is below the fold on any viewport, and
+   an item nobody can see must not sit waiting out a delay it will never be watched through.
+   Terms and Privacy have a dozen sections each and are the reason it exists. */
+.intro-stagger > *:not(.intro-skip):not(.fixed),
+.intro-item {
+  animation: var(--animate-resolve-in);
+}
+
+/* For an element carrying a `filter` of its own -- see --animate-resolve-flat above. The
+   hero's controls are all of them: the compact buttons draw their drop shadow with one, the
+   t-shirt preview draws its own, and "Go to studio" draws its violet glow with three. */
+.intro-item-flat {
+  animation: var(--animate-resolve-flat);
+}
+
+.intro-stagger > *:nth-child(1):not(.intro-skip):not(.fixed) { animation-delay: 0ms; }
+.intro-stagger > *:nth-child(2):not(.intro-skip):not(.fixed) { animation-delay: 65ms; }
+.intro-stagger > *:nth-child(3):not(.intro-skip):not(.fixed) { animation-delay: 130ms; }
+.intro-stagger > *:nth-child(4):not(.intro-skip):not(.fixed) { animation-delay: 195ms; }
+.intro-stagger > *:nth-child(5):not(.intro-skip):not(.fixed) { animation-delay: 260ms; }
+.intro-stagger > *:nth-child(6):not(.intro-skip):not(.fixed) { animation-delay: 325ms; }
+.intro-stagger > *:nth-child(7):not(.intro-skip):not(.fixed) { animation-delay: 390ms; }
+.intro-stagger > *:nth-child(8):not(.intro-skip):not(.fixed) { animation-delay: 455ms; }
+.intro-stagger > *:nth-child(n + 9):not(.intro-skip):not(.fixed) { animation-delay: 520ms; }
+
+/* A grid of cards is many small elements arriving at once, not a few big slabs -- a 10px
+   blur on eighteen shop tiles is a genuinely different paint cost from the same blur on
+   five page sections, and it also reads heavier because the tiles are close together. */
+.intro-item {
+  --intro-blur: 6px;
 }
 
 /* Users who ask the OS for reduced motion get it everywhere: entrances, hovers, pulses,

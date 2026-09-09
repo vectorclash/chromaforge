@@ -110,7 +110,8 @@ export default function BuyNowModal({
                 <span>{elapsedSeconds}s elapsed</span>
               </div>
               <p className="mt-4 text-[11.5px] text-text-muted">
-                Stays open until this finishes -- please don't close the tab.
+                This window stays open until your order is ready &mdash; please don&rsquo;t
+                close the tab.
               </p>
             </>
           )}

@@ -8,7 +8,7 @@ import { useEffect } from 'react';
 const SITE_URL = 'https://chromaforge.app';
 const BASE_TITLE = 'Chromaforge — generative art studio & print shop';
 const BASE_DESCRIPTION =
-  'A generative art studio in your browser. Craft seed-based artwork, save it to a shared gallery, and wear it — printed on demand, never reprinted.';
+  'A generative art studio in your browser. Craft seed-based artwork, save it to a shared gallery, and wear it — printed on demand.';
 const BASE_IMAGE = `${SITE_URL}/og-image.jpg`;
 
 function setMetaContent(selector, content) {

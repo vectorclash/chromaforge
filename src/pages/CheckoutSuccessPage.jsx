@@ -98,7 +98,7 @@ export default function CheckoutSuccessPage() {
         <div className="flex flex-col items-center gap-3 py-12 text-center text-text">
           <HexagonLoader />
           <p className="text-sm font-bold">
-            {timedOut ? 'Still confirming -- this is taking a little longer than usual.' : 'Confirming your order…'}
+            {timedOut ? 'Still confirming — this is taking a little longer than usual.' : 'Confirming your order…'}
           </p>
           <p className="max-w-xs text-xs text-text-secondary">
             {timedOut
@@ -118,7 +118,7 @@ export default function CheckoutSuccessPage() {
   if (order.status === 'failed') {
     return (
       <PageContainer title="We hit a snag">
-        <div className="animate-pop-in max-w-sm rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
+        <div className="max-w-sm rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
           <p className="text-sm font-bold text-accent">
             Your payment went through, but we ran into an issue submitting your order for
             production. We're looking into it -- no action needed from you right now.
@@ -128,8 +128,7 @@ export default function CheckoutSuccessPage() {
           as={Link}
           to="/account"
           variant="secondary"
-          className="mt-6 animate-fade-slide-up"
-          style={{ animationDelay: '80ms' }}
+          className="mt-6"
         >
           Go to order history
         </Button>
@@ -142,7 +141,7 @@ export default function CheckoutSuccessPage() {
   return (
     <PageContainer title="Order confirmed" subtitle="Thanks! Your order is on its way to production.">
       {item && (
-        <div className="animate-fade-slide-up max-w-sm rounded-xl border border-hairline bg-ink-800 p-5">
+        <div className="max-w-sm rounded-xl border border-hairline bg-ink-800 p-5">
           <p className="font-quicksand text-sm font-bold text-text">
             {item.product_title}
             {item.variant_label ? ` (${item.variant_label})` : ''}
@@ -151,7 +150,7 @@ export default function CheckoutSuccessPage() {
           <p className="mt-3 font-display text-xl text-text">${(order.total_cents / 100).toFixed(2)}</p>
         </div>
       )}
-      <div className="mt-6 flex animate-fade-slide-up gap-3" style={{ animationDelay: '80ms' }}>
+      <div className="mt-6 flex gap-3">
         <Button as={Link} to="/account">View order history</Button>
         <Button as={Link} to="/shop" variant="secondary">Keep shopping</Button>
       </div>

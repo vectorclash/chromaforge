@@ -59,7 +59,7 @@ export default function SiteHeader({
           (overlay ? 'fixed inset-x-0 top-0' : 'sticky top-0') +
           ' z-20 shrink-0' +
           (intro === 'hold' ? ' hero-hold' : '') +
-          (intro === 'reveal' ? ' hero-intro animate-fade-slide-up' : '')
+          (intro === 'reveal' ? ' hero-intro intro-item-flat' : '')
         }
         style={intro === 'reveal' ? heroIntroStyle(HERO_REVEAL.nav) : undefined}
       >

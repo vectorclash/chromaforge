@@ -9,12 +9,19 @@ import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
+import { introStyle } from '../utils/routeIntro';
 
 // One source of truth for the grid geometry, shared with SiteLayout's route-level fallback:
 // three placeholders hand over to each other on a cold load (chunk download -> this page's
 // own skeleton -> the real cards), and any divergence in columns, gaps or tile count would
 // show as the placeholder sliding sideways or the page jumping as it fades.
 const GRID_CLASS = SHOP_GRID_CLASS;
+
+// Where the card grid sits among PageContainer's children, so the cards' own cascade picks up
+// the rhythm exactly where the section they are in would have started rather than restarting
+// at zero. Children here are [header, grid] -- the skeleton and the grid never both animate,
+// since the skeleton hands over via its own crossfade.
+const GRID_SECTION = 1;
 
 // The route-level fallback can't import STARTER_PRODUCT_IDS -- that would drag lib/printful
 // and the whole render pipeline into the main bundle -- so it mirrors the count as a literal.
@@ -37,7 +44,8 @@ const PRELOAD_COUNT = 6;
 export default function ShopPage() {
   usePageMeta({
     title: 'Shop',
-    description: 'Wear the algorithm. Generative art printed on demand on shirts, hoodies, and more — every piece is generated, never reprinted.',
+    description:
+      'Wear the algorithm. Generative art on shirts, hoodies and more — every design generated from its own seed and printed to order.',
     path: '/shop'
   });
   const [products, setProducts] = useState([]);
@@ -86,7 +94,15 @@ export default function ShopPage() {
   }, [revealed]);
 
   return (
-    <PageContainer title="Shop" subtitle="Wear the algorithm. Every piece is generated, never reprinted.">
+    // Subtitle kept SHORT on purpose: RouteSkeleton reserves one line for it (h-6), so every
+    // extra wrapped line is a layout jump when the real page lands -- measured at 48px on a
+    // 360px phone with a longer draft. It also borrows the two phrases the rest of the site
+    // already uses, "computed from a single seed" (About) and "printed to order" (the
+    // homepage shop carousel), so the three read as one voice.
+    <PageContainer
+      title="Shop"
+      subtitle="Wear the algorithm. Generated from a seed, printed to order."
+    >
       {/* Placeholder and real grid share one relative box and overlap for the crossfade.
           While waiting the placeholder is in normal flow and gives the page its height; on
           reveal it flips to absolute so the real grid takes over layout without the page
@@ -104,16 +120,19 @@ export default function ShopPage() {
           />
         </div>
       )}
-      {error && <p className="animate-pop-in text-accent">{error}</p>}
+      {/* intro-skip on both: this paragraph brings its own animation (the container cascade
+          would out-rank it on specificity and silently replace it), and the grid runs its own
+          per-card cascade below. */}
+      {error && <p className="intro-skip animate-pop-in text-accent">{error}</p>}
       {revealed && !error && (
-        <div className={GRID_CLASS}>
+        <div className={`intro-skip ${GRID_CLASS}`}>
           {products.map((product, i) => (
             <Card
               key={product.id}
               as={Link}
               to={`/shop/${product.id}`}
-              className="group animate-fade-slide-up"
-              style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
+              className="group intro-item"
+              style={introStyle(GRID_SECTION, Math.min(i, 10))}
             >
               <div className="relative isolate aspect-square overflow-hidden bg-ink-900">
                 <FadeImage

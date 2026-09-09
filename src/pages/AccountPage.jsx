@@ -22,6 +22,11 @@ import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { introDelay, introStyle } from '../utils/routeIntro';
+
+// Where the profile/stats/orders block sits among PageContainer's children: [banners, block].
+// Its three cards continue the page's rhythm from there rather than restarting at zero.
+const CARDS_SECTION = 1;
 
 const AVATAR_SIZE = 256;
 
@@ -141,7 +146,7 @@ function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
   return (
     <div
       style={{ animationDelay: `${delay}ms` }}
-      className="animate-fade-slide-up flex items-center gap-3 rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
+      className="intro-item flex items-center gap-3 rounded-lg border border-hairline bg-ink-800 p-4 font-quicksand text-sm"
     >
       {showSlot && (
         // 64px rather than the 48-56 a list row would normally take: Printful's preview is a
@@ -433,11 +438,12 @@ export default function AccountPage() {
                 column. Collapses to one column below lg, which is what it already was.
                 Every block now shares the same card treatment; previously only stats had
                 one, so the page read as a single card plus some loose content. */}
-            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+            <div className="intro-skip grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
               <div className="space-y-6">
                 <form
                   onSubmit={onSaveProfile}
-                  className="animate-fade-slide-up space-y-5 rounded-xl border border-hairline bg-ink-800 p-5"
+                  className="intro-item space-y-5 rounded-xl border border-hairline bg-ink-800 p-5"
+                  style={introStyle(CARDS_SECTION)}
                 >
                   <div className="flex items-center gap-5">
                     <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
@@ -514,8 +520,8 @@ export default function AccountPage() {
 
                 {stats && (
                   <div
-                    className="animate-fade-slide-up rounded-xl border border-hairline bg-ink-800 p-5"
-                    style={{ animationDelay: '60ms' }}
+                    className="intro-item rounded-xl border border-hairline bg-ink-800 p-5"
+                    style={introStyle(CARDS_SECTION, 1)}
                   >
                     <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
                       Your stats
@@ -536,8 +542,8 @@ export default function AccountPage() {
 
               {(!activeOrdersLoading || activeOrders.length > 0) && (
                 <div
-                  className="animate-fade-slide-up rounded-xl border border-hairline bg-ink-800 p-5"
-                  style={{ animationDelay: '120ms' }}
+                  className="intro-item rounded-xl border border-hairline bg-ink-800 p-5"
+                  style={introStyle(CARDS_SECTION, 2)}
                 >
                   <div className="flex items-center gap-4 border-b border-hairline">
                     <button
@@ -572,7 +578,7 @@ export default function AccountPage() {
                         <OrderRow
                           key={order.id}
                           order={order}
-                          delay={180 + Math.min(i, 10) * 50}
+                          delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))}
                           previewUrl={orderPreviews[order.id] ?? null}
                           // Reserve the thumbnail slot from the first paint for any order
                           // that will have one -- same condition printful-order-preview
@@ -591,7 +597,7 @@ export default function AccountPage() {
                         <p className="text-sm text-text-secondary">No past orders.</p>
                       )}
                       {historyOrders.map((order, i) => (
-                        <OrderRow key={order.id} order={order} delay={180 + Math.min(i, 10) * 50} />
+                        <OrderRow key={order.id} order={order} delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))} />
                       ))}
                       {historyHasMore && (
                         <Button
@@ -683,20 +689,28 @@ export default function AccountPage() {
       }
     >
       {/* Prominent, hard-to-miss confirmation/error banner -- placed above the form so
-          submitting never looks like it did nothing, even on a fast local response. */}
-      {message && (
-        <div className="mb-6 max-w-sm animate-pop-in rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
-          <p className="text-sm font-bold text-text">
-            <span className="text-accent">✓ </span>
-            {message}
-          </p>
-        </div>
-      )}
-      {error && (
-        <div className="mb-6 max-w-sm animate-pop-in rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
-          <p className="text-sm font-bold text-accent">{error}</p>
-        </div>
-      )}
+          submitting never looks like it did nothing, even on a fast local response.
+
+          The always-present wrapper is load-bearing, not tidiness: these banners appear on
+          submit, and a child appearing shifts every later sibling's nth-child index in the
+          route cascade -- which changes their animation-delay, which RESTARTS the animation.
+          Without it, submitting the sign-in form replayed the entrance of everything below.
+          intro-skip keeps the banners' own pop-in, which the container rule would out-rank. */}
+      <div className="intro-skip">
+        {message && (
+          <div className="mb-6 max-w-sm animate-pop-in rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
+            <p className="text-sm font-bold text-text">
+              <span className="text-accent">✓ </span>
+              {message}
+            </p>
+          </div>
+        )}
+        {error && (
+          <div className="mb-6 max-w-sm animate-pop-in rounded-lg border border-accent/30 bg-accent/10 px-4 py-3">
+            <p className="text-sm font-bold text-accent">{error}</p>
+          </div>
+        )}
+      </div>
 
       {mode === 'forgot' ? (
         <form onSubmit={onForgotPassword} className="max-w-sm space-y-4">

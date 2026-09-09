@@ -13,7 +13,12 @@ export default function TermsPage() {
     <PageContainer title="Terms of Service">
       <p className="text-xs text-text-muted">Last updated: June 30, 2026</p>
 
-      <div className="mt-8 space-y-8">
+      {/* intro-skip AND intro-stagger: the cascade nests. This block opts out of being a
+          single item in the page's own cascade (a dozen sections arriving as one slab was
+          the thing being fixed) and becomes a container in its own right, so each
+          LegalSection gets its own delay from the same nth-child rules -- no per-section
+          index to hand-maintain as sections are added or reordered. See tailwind.css. */}
+      <div className="intro-skip intro-stagger mt-8 space-y-8">
         <LegalSection title="Agreement to Terms">
           <p>
             Chromaforge (chromaforge.app) is operated by Aaron Ezra Sterczewski ("we," "us"). By
@@ -128,7 +133,7 @@ export default function TermsPage() {
         </LegalSection>
 
         <LegalSection title="Governing Law">
-          <p>These Terms are governed by the laws of [state/country — to be confirmed].</p>
+          <p>These Terms are governed by the laws of the State of California, USA.</p>
         </LegalSection>
 
         <LegalSection title="Contact">

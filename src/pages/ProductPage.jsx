@@ -35,12 +35,18 @@ import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import ArtworkPickerModal from '../components/ui/ArtworkPickerModal';
 import BuyNowModal from '../components/ui/BuyNowModal';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { introStyle } from '../utils/routeIntro';
 import { useJsonLd } from '../hooks/useJsonLd';
 import SizeGuideModal from '../components/ui/SizeGuideModal';
 import ScrollStrip from '../components/ui/ScrollStrip';
 import TerminalText from '../components/ui/TerminalText';
 import { ProductPageSkeleton, SkeletonFadeOut } from '../components/ui/RouteSkeleton';
 import { DURATION_SLOW } from '../utils/motionTokens';
+
+// Where the "Choose artwork" step sits among PageContainer's children -- breadcrumb, title,
+// artwork, print options, then the gallery/purchase grid -- so its own tile cascade continues
+// the page's rhythm rather than restarting at zero. Update it if a section is added above it.
+const ARTWORK_SECTION = 2;
 
 // How long the hero's mockup layer takes to fade OUT -- must stay in step with the
 // duration-200 class on it. Only used to keep the <img> mounted long enough to animate
@@ -113,9 +119,9 @@ const STATUS_TIMELINE = [
   {
     at: 21,
     texts: [
-      'Cross-referencing thousands of textile patterns. None match yours precisely.',
-      'Comparing against the production catalog. Yours remains unique.',
-      'Consulting the pattern library. No duplicates found, as expected.'
+      'Cross-referencing the pattern against the production catalog.',
+      'Confirming the artwork holds up at full print resolution.',
+      'Checking color separation across the panel set.'
     ]
   },
   {
@@ -228,7 +234,7 @@ const CHECKOUT_TIMELINE = [
   {
     at: 8,
     texts: [
-      'Rendering each panel at true print resolution -- far larger than your screen.',
+      'Rendering each panel at true print resolution — far larger than your screen.',
       'Composing production files from your seed. These are print-sized; patience.',
       'Rendering print files. Every panel, full resolution, no shortcuts.'
     ]
@@ -246,7 +252,7 @@ const CHECKOUT_TIMELINE = [
     texts: [
       'Running long, but within expected parameters. Do not close this page.',
       'Slightly behind my estimate. Your order is safe; the renders continue.',
-      'Taking longer than projected. Nothing is broken -- these files are enormous.'
+      'Taking longer than projected. Nothing is broken — these files are enormous.'
     ]
   },
   {
@@ -577,7 +583,7 @@ export default function ProductPage() {
   // page, just surface it through BuyNowModal's error stage.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('checkout') === 'canceled') {
-      setCheckoutNotice('Checkout canceled -- your card was not charged.');
+      setCheckoutNotice('Checkout canceled — your card was not charged.');
       setBuyModalStage('error');
       // Strip the param once consumed so a refresh/bookmark doesn't re-show the notice.
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -913,7 +919,7 @@ export default function ProductPage() {
           '@type': 'Product',
           name: product.title,
           image: [heroImage].filter(Boolean),
-          description: `${product.title} — generative art printed on demand, one of a kind.`,
+          description: `${product.title} — generative art from Chromaforge, printed to order with your own seed-based design.`,
           offers: {
             '@type': 'Offer',
             url: `https://chromaforge.app/shop/${product.id}`,
@@ -1368,23 +1374,39 @@ export default function ProductPage() {
           The common cases (current studio design; a "Print this" hand-off) stay pinned as
           their own always-one-click tiles; everything else is behind the dashed "Browse
           gallery" tile's modal (Public + My Designs, paginated) -- see ArtworkPickerModal. */}
-      <div className="mb-8">
-        <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+      {/* intro-skip: this section cascades its own tiles, and a section blurring while its
+          children blur inside it composites as two blurs. The heading and each tile take
+          their delays from introStyle instead, continuing the page's rhythm from where this
+          section would itself have started. */}
+      <div className="intro-skip mb-8">
+        <h2
+          className="intro-item font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary"
+          style={introStyle(ARTWORK_SECTION)}
+        >
           1. Choose artwork
         </h2>
         <div className="mt-3 flex flex-wrap gap-3">
           {choices.map((c, i) => {
             const selected = c.key === selectedKey;
             return (
-              <div key={c.key} className="flex w-24 flex-col gap-1.5">
+              // The entrance rides the WRAPPER, not the button: the tile and the label
+              // beneath it are one object, and animating only the button slid a thumbnail
+              // up over a caption that never moved (Aaron, 2026-09-09). Safe on the wrapper
+              // here -- GenerateGlow's blur is a `filter` on itself, not a backdrop-filter,
+              // so this is not the backdrop-root trap that keeps MobileNav's animation off
+              // its MiniGenerator wrapper.
+              <div
+                key={c.key}
+                className="intro-item flex w-24 flex-col gap-1.5"
+                style={introStyle(ARTWORK_SECTION, 1 + i)}
+              >
                 <button
                   type="button"
                   onClick={() => setSelectedKey(c.key)}
                   aria-pressed={selected}
                   title={c.label}
-                  style={{ animationDelay: `${i * 50}ms` }}
                   className={
-                    'group relative h-24 w-24 cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 transition animate-fade-slide-up focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    'group relative h-24 w-24 cursor-pointer overflow-hidden rounded-xl border-2 bg-ink-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                     (selected ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
@@ -1444,8 +1466,8 @@ export default function ProductPage() {
           <button
             type="button"
             onClick={() => openPicker('primary')}
-            className="flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-hairline text-text-secondary transition animate-fade-slide-up hover:border-accent hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
-            style={{ animationDelay: `${choices.length * 50}ms` }}
+            className="intro-item flex h-24 w-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-hairline text-text-secondary transition hover:border-accent hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
+            style={introStyle(ARTWORK_SECTION, 1 + choices.length)}
           >
             <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="currentColor" strokeWidth="1.6">
               <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -2124,7 +2146,8 @@ export default function ProductPage() {
                 </p>
               )}
               <p className="text-xs leading-tight text-text-muted">
-                Printed on demand and shipped by Printful. No returns on custom prints.
+                Printed on demand and shipped by Printful. Custom prints aren&rsquo;t
+                returnable for change of mind; we replace or refund defects.
               </p>
             </div>
           </div>

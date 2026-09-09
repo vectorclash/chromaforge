@@ -13,7 +13,12 @@ export default function PrivacyPage() {
     <PageContainer title="Privacy Policy">
       <p className="text-xs text-text-muted">Last updated: June 30, 2026</p>
 
-      <div className="mt-8 space-y-8">
+      {/* intro-skip AND intro-stagger: the cascade nests. This block opts out of being a
+          single item in the page's own cascade (a dozen sections arriving as one slab was
+          the thing being fixed) and becomes a container in its own right, so each
+          LegalSection gets its own delay from the same nth-child rules -- no per-section
+          index to hand-maintain as sections are added or reordered. See tailwind.css. */}
+      <div className="intro-skip intro-stagger mt-8 space-y-8">
         <LegalSection title="Overview">
           <p>
             This page explains what information Chromaforge (chromaforge.app, operated by Aaron

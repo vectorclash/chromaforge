@@ -1900,6 +1900,162 @@ with the "Go to studio" link directly beneath them (`.controls-compact .go-to-st
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
 
+### Copy: what the site may not claim, and the conventions it holds (2026-09-09)
+A site-wide copy audit, prompted by Aaron spotting one line on the shop page: "the never
+reprinted line is a lie and we removed that from the home page a long time ago."
+
+**"Never reprinted" was in SIX places, not one**, which is the reason to grep rather than fix
+what was pointed at: the shop subtitle and its meta description, `index.html`'s description AND
+both social cards (the copy that actually gets shared), and `usePageMeta`'s `BASE_DESCRIPTION`
+-- the fallback every route without its own description inherits. Removing it from the visible
+homepage in an earlier session left all five of the others standing.
+
+**THE CLAIM IS FALSE IN A WAY THE ARCHITECTURE MAKES OBVIOUS, so do not let it back in under
+another wording.** A design is `{ seed, colors, settings }` and is regenerated on every render
+-- the whole system exists to reproduce a piece identically -- an order can be placed again,
+and the gallery's own "Print this design" button hands any public design to another customer.
+About says as much on the homepage: "a handful of numbers that rebuilds the identical
+composition at any size." Two more of the same family went with it: **"one of a kind"** in
+ProductPage's JSON-LD (structured data, so Google reads it), and a whole beat of the
+mockup-wait narration asserting "Yours remains unique" / "No duplicates found, as expected",
+now reframed onto work the pipeline actually does.
+
+**A contradiction with our own Terms, which mattered more than the marketing lines.**
+ProductPage said "No returns on custom prints." flat, while the Terms page promises a
+replacement or refund for a genuine production defect within 14 days. The product page was
+overstating the policy AGAINST US. It now says custom prints aren't returnable for change of
+mind and that we replace or refund defects, which is what Terms says.
+
+**Terms' governing law was a literal placeholder on the live site** -- `[state/country -- to be
+confirmed]` -- found by grepping the legal pages for bracketed text. Now the State of
+California, USA (Aaron, 2026-09-09, his location). If the business is ever operated from
+somewhere else this needs revisiting, and it is worth a lawyer's eye rather than an edit here.
+
+Conventions the audit settled, worth holding:
+- **American spelling in user-facing copy** -- `colors`, `catalog`, `favorites`. The codebase's
+  own comments use British freely; the copy does not.
+- **Em dashes, never `--`, in anything a visitor reads.** Five strings had the double hyphen.
+- **The shop subtitle is kept SHORT for a layout reason, not a stylistic one.** RouteSkeleton
+  reserves ONE line for it (`h-6`), so every extra wrapped line is a jump when the real page
+  lands: an 84-character draft measured **48px of shift at 360px**, against 24px for the
+  60-character line that shipped. It also reuses the two phrases the site already has --
+  "computed from a single seed" (About) and "printed to order" (the homepage shop carousel).
+- **Still open, and pre-existing:** that same skeleton reserves one subtitle line while Shop
+  and Gallery both wrap to two at <=390px, so both carry a 24px shift on phones. Closing it
+  needs per-route reserved heights, since over-reserving makes the footer RISE into view --
+  see RouteSkeleton's own note on the two directions not being symmetric.
+
+### Every content route assembles on ONE entrance, and it is the same one (2026-09-09)
+`--animate-resolve-in` (tailwind.css) is the site-wide entrance; `.intro-stagger` on
+PageContainer's root staggers it across that page's sections. Aaron: "the entire site needs an
+animation audit... I need the entire site to feel cohesive with fast and fun animations across
+the board being the default."
+
+**The fault, measured, because it is not what it looks like.** The site DID have a route
+transition — `--animate-page-enter` on SiteLayout's `<main>`, keyed on the pathname. On a real
+shop → product navigation in the production build it ran **59ms → 306ms**, and the real page
+committed at **810ms**. `<main>` remounts when the SUSPENSE FALLBACK mounts, so the entire
+route transition was spent on `RouteSkeleton` and was over half a second before there was any
+content to animate. Every content route arrived in a single unanimated frame; the product
+page's two artwork tiles were the **only** animated elements on it, which is exactly why they
+read as odd (Aaron: the thumbnail "slides up but the title below it stays in place"). That
+tile's `fade-slide-up` was also on the `<button>` rather than the tile+label wrapper, so it
+literally slid over its own caption. Coverage elsewhere was patchy: shop/gallery cards and
+three account cards cascaded, while terms, privacy, 404, checkout-success and the whole
+product body had no motion of their own at all.
+
+**Why the fix needs no trigger, which is the part worth not re-deriving.** A CSS animation
+starts when its element mounts, and a section that waits on a fetch does not mount until the
+fetch lands — so "keyed to the content" falls out for free from putting the cascade on
+PageContainer. None of the subscribe/notify machinery `heroIntro.js` needs applies here; that
+exists because the hero's artwork lands in a different component from the things waiting on
+it. Verified: on the same navigation, content and cascade now both land at **808ms**.
+
+**The character was chosen by Aaron from a four-way comparison**, not picked here — real
+captures of the live shop/product/gallery pages, sliced at their real section boundaries and
+replayed in each candidate:
+https://claude.ai/code/artifact/91147058-d8ed-42db-b4b7-7b08996c2838
+He picked **Resolve**: 420ms `cubic-bezier(.16,1,.3,1)`, 8px of travel, out of a blur. It is
+the generative language the app already speaks — `--animate-bloom-in` does the same thing to
+the artwork in the gallery modal. Travel is only 8px *because* the blur carries the motion;
+fade-slide-up's 16px on top of a blur reads as two effects.
+
+Eight things worth not re-deriving:
+(1) **The blur is free, measured, so do not "optimise" it away.** It was flagged as the one
+candidate with a real paint cost; that turned out not to bite. Median frame interval across
+/shop, /gallery and /shop/257, blur off vs on: **16.6 → 16.7ms on desktop and on a 390px
+viewport at 4x CPU throttle**, worst frame 23.1 → 24.0ms. It composites.
+(2) **`.intro-skip` means "I am not one of the container's items", and it covers three
+different cases that all need the same thing** — a section running its own cascade over a list
+(a card grid, the artwork tiles), a child bringing its own `animate-*` class (the container
+rule out-ranks a bare utility on specificity and would silently REPLACE it), and a child that
+mounts and unmounts. A nested cascade without it composites two blurs and reads as mush.
+(3) **Changing `animation-delay` RESTARTS an animation, and these delays come from
+`:nth-child`** — so a child appearing shifts every later sibling's index and replays them.
+Found on AccountPage: submitting the sign-in form replayed the entrance of everything below
+its banner. The banners now live in an always-present `intro-skip` wrapper, which is
+load-bearing rather than tidiness. Every other page's swapping children are already
+`.intro-skip` for reason (2), so the two requirements coincide.
+(4) **`:not(.fixed)` in the container rule keeps overlays out.** A modal is a direct child of
+the page that opened it, so without it one would arrive blurred, translated and up to half a
+second late with its own `animate-fade-in` overridden. Written as a rule rather than a class
+on each of the five modal roots deliberately: a modal added later is covered by having been
+written the way every other one already is, rather than by someone remembering.
+(5) **`introStyle`/`introDelay` (utils/routeIntro.js) exist only for items inside an
+`.intro-skip` section**, so a card grid continues the page's rhythm instead of restarting at
+zero — otherwise the grid arrives at the same instant as the header above it and the page reads
+as two entrances. Section step 65ms, item step 45ms (peers arriving together, not a sequence
+being read — at the section rate a full shop grid would take 650ms after its section started).
+(6) **The nth-child cap at nine is deliberate**: past that a section is below the fold on any
+viewport, and an item nobody can see must not sit out a delay it will never be watched through.
+Terms and Privacy are why it exists -- 13 and 11 sections, cascading 0 -> 520ms and then flat.
+**Those two NEST the mechanism rather than using it once**: their section list carries
+`intro-skip intro-stagger` together, so it opts out of being a single item in the page's
+cascade (arriving as one slab was the complaint) and becomes a container in its own right,
+with no per-section index to hand-maintain as sections are added or reordered.
+(6b) **THE PER-POSITION DELAY RULES MUST REPEAT THE FULL `:not()` PAIR.** `animation` is a
+shorthand, so the rule applying it resets `animation-delay` to 0, and at (0,3,0) it out-ranks
+a bare `.intro-stagger > *:nth-child(n)` at (0,2,0) -- written the short way, **every cascade
+on the site silently ran with no stagger at all**, which is how it first shipped here and what
+the legal pages exposed. And the tempting fix does not work: nesting `var(--intro-at, 0ms)` in
+the theme token resolves the inner var where the token is DECLARED (`:root`, where it is
+unset), so 0ms bakes in and inherits down -- measured, an element reporting `--intro-at: 65ms`
+still computed `animation-delay: 0s`.
+(7) **The homepage hero was converted too, and only its CHARACTER changed** — every beat and
+delay in `heroIntro.js` is untouched; `heroBeat`'s default and SiteHeader's class point at the
+shared entrance. Leaving it would have made the homepage the one page in the site speaking a
+different motion language, which is the thing being complained about.
+(7b) **IT TAKES `.intro-item-flat`, AND THAT IS A CORRECTNESS REQUIREMENT, NOT A PREFERENCE.
+An element that already has a `filter` cannot take an entrance that animates `filter`** — the
+animation replaces that declaration for its whole run, so the element loses whatever the static
+filter was drawing and snaps back the instant it ends. Every control in the compact panel is
+one: the buttons draw their drop shadow with a `filter`, the t-shirt preview draws its own, and
+"Go to studio" draws its violet glow with three stacked `drop-shadow()`s. Shipped wrong first
+and Aaron caught it live — "the drop shadow seems to just pop in at the end", the same words as
+the 2026-08 report, from an unrelated cause.
+**IT IS NOT THE BACKDROP-FILTER TRAP, and diagnosing it as one wastes the session.** Measured
+against a striped backdrop: an element's own non-zero `filter` does NOT break its own
+`backdrop-filter` (contrast inside the glass 4 with a 6px self-blur, 7 without, against a 255
+control). The frosting keeps working; only the static filter's own drawing goes.
+**Two traps in verifying this, both hit here.** Testing `filter: blur(0px)` proves nothing —
+that is the animation's END state and reads as no filter at all; test a non-zero value, which
+is what actually runs. And a still screenshot cannot see it either: the fault exists only while
+the animation runs. The check that works samples `getComputedStyle().filter` every frame
+through the whole reveal and counts frames where `drop-shadow` is missing — **53/412, 60/412
+and 68/412 on the broken build against 0/412 on the fix**, confirmed by running it against
+both.
+(8) **`--animate-page-enter` is gone entirely**, not merely moved. `<main>` still keys on the
+pathname — that remount is what restarts each route's cascade — but it carries no animation,
+because animating it AND the sections inside it composites two blurs over one another.
+
+Verified: `check-routes-smoke.mjs` 10/10 clean and `check-hero-build-race.mjs` all green;
+every cascade item settles at opacity 1 with no residual blur in both normal and
+`prefers-reduced-motion` across all eight routes; and the delays were read off the real
+built pages rather than assumed -- sections 0/65/130..., shop cards 65 -> 515 capped, and the
+product page's artwork section correctly `null` (skipped) with its own heading and tiles
+picking up at 130/175/220. No `check-render-regression.mjs`
+run — nothing here touches `src/render`, `generateArtwork` or any print path.
+
 ### The hero has ONE entrance, and it is keyed to the artwork, not to page mount (2026-09-08)
 `src/utils/heroIntro.js` owns the beats; the nav, the panel, the shirt and the three controls
 all read them. Aaron: "the entire hero just needs a unified intro animation, right now it's

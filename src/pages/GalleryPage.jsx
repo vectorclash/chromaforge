@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { introStyle } from '../utils/routeIntro';
 import AuthorBadge from '../components/ui/AuthorBadge';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
@@ -36,6 +37,11 @@ const PAGE_SIZE = GALLERY_TILE_COUNT;
 // own skeleton -> the real cards), and any divergence between their column counts or gaps
 // would show up as the placeholder sliding sideways as it fades.
 const GRID_CLASS = GALLERY_GRID_CLASS;
+
+// Where the grid sits among PageContainer's children once the skeleton has handed over --
+// [header, tab strip, grid] -- so the cards' own cascade continues the page's rhythm instead
+// of restarting at zero. The empty state stands in the same slot and takes the same index.
+const GRID_SECTION = 2;
 
 // How many thumbnails to warm before revealing. Four columns x two rows is roughly the
 // first screenful on a desktop viewport; the rest stream in under their own per-card
@@ -319,7 +325,7 @@ export default function GalleryPage() {
         </div>
       )}
       {error && (
-        <p className="animate-pop-in text-accent">
+        <p className="intro-skip animate-pop-in text-accent">
           {error}{' '}
           <button onClick={() => load(tab)} className="cursor-pointer underline">
             Retry
@@ -327,7 +333,10 @@ export default function GalleryPage() {
         </p>
       )}
       {revealed && !error && designs.length === 0 && (
-        <div className="flex animate-fade-slide-up flex-col items-center gap-5 py-12 text-center">
+        <div
+          className="intro-item flex flex-col items-center gap-5 py-12 text-center"
+          style={introStyle(GRID_SECTION)}
+        >
           {/* The studio's own live preview, not a stock illustration -- an empty gallery
               should still look like this is a generative art tool, not a blank state from
               any other app. Same previewUrl the ambient MiniGenerator widget shows. */}
@@ -366,12 +375,12 @@ export default function GalleryPage() {
       )}
 
       {revealed && designs.length > 0 && (
-        <div className={GRID_CLASS}>
+        <div className={`intro-skip ${GRID_CLASS}`}>
           {designs.map((design, i) => (
             <Card
               key={design.id}
-              className="group cursor-pointer animate-fade-slide-up"
-              style={{ animationDelay: `${Math.min(i, 10) * 50}ms` }}
+              className="group cursor-pointer intro-item"
+              style={introStyle(GRID_SECTION, Math.min(i, 10))}
               onClick={() => setOpenDesignId(design.id)}
             >
               <div className="relative aspect-square overflow-hidden bg-ink-900">

@@ -25,9 +25,18 @@ export default function SiteLayout() {
   return (
     <div className="flex min-h-dvh flex-col bg-ink-950 text-text">
       <SiteHeader />
-      {/* Keyed on the path so navigation replays the enter animation (and remounts the
-          page, which is what a route change does anyway for distinct routes). */}
-      <main key={pathname} className="animate-page-enter mx-auto w-full max-w-6xl flex-1 px-6 py-24">
+      {/* Keyed on the path so a navigation remounts the page, which is what a route change
+          does anyway for distinct routes -- and which is what restarts each route's own
+          entrance cascade (PageContainer's .intro-stagger).
+
+          It deliberately carries NO animation of its own any more. It used to run
+          --animate-page-enter, and measured on a shop -> product navigation that ran
+          59ms -> 306ms on the Suspense fallback below, finishing half a second before the
+          real page committed at 810ms: the site's one route transition was spent entirely on
+          a loading skeleton, and every content route then arrived unanimated. Animating this
+          element AND the sections inside it would also composite two blurs over one another.
+          See tailwind.css. */}
+      <main key={pathname} className="mx-auto w-full max-w-6xl flex-1 px-6 py-24">
         {/* Every route rendered here is React.lazy (see App.jsx) -- this Suspense boundary
             is what shows while its chunk downloads. Scoped to just <Outlet />, not the
             whole layout, so the header/footer/mini-generator never flash away mid-navigation.

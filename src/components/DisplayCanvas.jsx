@@ -2804,7 +2804,19 @@ export default class DisplayCanvas extends React.Component {
     // sequence is over the classes come off. The comparison is ordered rather than an equality
     // check because a phase, once open, stays open -- the dot grid must not be un-revealed the
     // instant the artwork arrives and moves the hero into its next phase.
-    const heroBeat = (phase, delay, base, anim = 'animate-fade-slide-up') => {
+    // The default is the site's shared entrance, so the hero speaks the same motion language
+    // as every other route rather than being the one page that slides while the rest resolve.
+    // Only the CHARACTER changed here; every beat and delay in heroIntro.js is untouched.
+    //
+    // The FLAT variant, not .intro-item, and that is a correctness requirement rather than a
+    // preference: every control in this panel already draws with a `filter` -- the buttons
+    // their drop shadow, the shirt preview its own, "Go to studio" its three-layer glow --
+    // and an entrance that animates `filter` replaces that declaration for its whole run, so
+    // the shadow is simply absent while the button arrives and snaps in the moment the
+    // animation ends. It looks exactly like the backdrop-filter bug this hero already had
+    // once, and is unrelated to it: an element's own filter does not break its own
+    // backdrop-filter (measured). See tailwind.css.
+    const heroBeat = (phase, delay, base, anim = 'intro-item-flat') => {
       if (heroPhase === 'off') return { className: base };
       if (HERO_PHASE_ORDER[heroPhase] < HERO_PHASE_ORDER[phase]) {
         return { className: base + ' hero-hold' };
