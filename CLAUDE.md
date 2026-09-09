@@ -1900,6 +1900,21 @@ with the "Go to studio" link directly beneath them (`.controls-compact .go-to-st
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
 
+### Tailwind v4 scans the docs too (2026-09-09)
+`@source not "../**/*.md";` sits under the `@import 'tailwindcss'` in `src/tailwind.css`.
+Tailwind v4 scans every non-gitignored file in the project, markdown included, so a utility
+quoted in prose becomes a real candidate class: TODO.md's backticked
+`duration-[var(--duration-*)]` -- a wildcard standing in for a family of names, not a class
+anyone writes -- generated an invalid rule and **two "warnings while optimizing generated CSS"
+on every single build**, which had been scrolling past unread for long enough that they read
+as normal.
+Two things worth not re-deriving: the path is relative to the CSS FILE, so it needs the `../`
+to reach the repo root where the docs live (`"**/*.md"` alone silently matches nothing and the
+warnings stay); and excluding docs was verified to cost nothing rather than assumed -- diffing
+the generated stylesheet before and after, exactly five selectors disappear
+(`.bg-neutral-900`, `.bg-red-900`, `.drop-shadow`, `.flex-shrink`, `.w-14`), every one of them
+used in no source file, only in CLAUDE.md and TODO.md. 666 bytes of dead CSS went with them.
+
 ### Copy: what the site may not claim, and the conventions it holds (2026-09-09)
 A site-wide copy audit, prompted by Aaron spotting one line on the shop page: "the never
 reprinted line is a lie and we removed that from the home page a long time ago."

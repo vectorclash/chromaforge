@@ -11,6 +11,14 @@
  * stack, font smoothing) are restored explicitly below so nothing shifts. */
 @import 'tailwindcss';
 
+/* Documentation is not a source of classes. Tailwind v4 scans every non-gitignored file,
+   markdown included, so a backticked utility quoted in prose becomes a real candidate --
+   TODO.md's `duration-[var(--duration-*)]` (a wildcard standing in for a family of names,
+   not a class anyone writes) generated an invalid rule and two build warnings on every
+   build. Excluding docs removes the whole class of problem rather than rewording one line,
+   and costs nothing: no class is only ever written in a .md file. */
+@source not "../**/*.md";
+
 /* Design tokens -- the locked ChromaForge foundation (design-session hand-off, applied
    verbatim from the brief). Studio green is now the SINGLE brand accent everywhere
    (previously the store/account/gallery chrome used a separate magenta accent while the
