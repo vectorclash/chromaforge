@@ -31,6 +31,7 @@ import { introStyle } from '../utils/routeIntro';
 import AuthorBadge from '../components/ui/AuthorBadge';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
+import { humanError } from '../lib/errorMessage';
 
 // Kept in step with GALLERY_TILE_COUNT, which the route-level fallback uses to reserve the
 // same grid before this page's chunk has even loaded.
@@ -134,7 +135,7 @@ export default function GalleryPage() {
         );
       } catch (err) {
         if (isStale()) return;
-        setError(err.message);
+        setError(humanError(err, "We couldn't load the gallery."));
       } finally {
         if (!isStale()) setRevealed(true);
       }
@@ -164,7 +165,7 @@ export default function GalleryPage() {
       setDesigns(d => [...d, ...more]);
       setHasMore(more.length === PAGE_SIZE);
     } catch (err) {
-      setError(err.message);
+      setError(humanError(err, "We couldn't load any more designs."));
     } finally {
       setLoadingMore(false);
     }
@@ -222,7 +223,7 @@ export default function GalleryPage() {
       // active -- only its saved copy is gone.
       markDesignDeleted(design.id);
     } catch (err) {
-      setError(err.message);
+      setError(humanError(err, "We couldn't delete that design."));
     }
   };
 

@@ -10,6 +10,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { introStyle } from '../utils/routeIntro';
+import { humanError } from '../lib/errorMessage';
 
 // One source of truth for the grid geometry, shared with SiteLayout's route-level fallback:
 // three placeholders hand over to each other on a cold load (chunk download -> this page's
@@ -74,7 +75,7 @@ export default function ShopPage() {
         // Bounded and never rejecting, so a slow CDN cannot keep the shop from appearing.
         await preloadImages(starter.slice(0, PRELOAD_COUNT).map(p => p.image).filter(Boolean));
       } catch (err) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setError(humanError(err, "We couldn't load the shop right now."));
       } finally {
         if (!cancelled) setRevealed(true);
       }

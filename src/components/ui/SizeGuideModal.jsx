@@ -3,6 +3,7 @@ import SolidPanel from './SolidPanel';
 import Button from './Button';
 import useScrollLock from '../../hooks/useScrollLock';
 import { getSizeGuide } from '../../lib/printful';
+import { humanError } from '../../lib/errorMessage';
 
 // Printful's published size guide, surfaced on the product page. This exists because
 // "which size am I?" is a real question the store previously left entirely unanswered, and
@@ -231,7 +232,7 @@ export default function SizeGuideModal({ open, productId, productTitle, onClose 
     setError(null);
     getSizeGuide(productId)
       .then(result => !cancelled && setGuide(result))
-      .catch(err => !cancelled && setError(err.message))
+      .catch(err => !cancelled && setError(humanError(err, "We couldn't load the size guide.")))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;

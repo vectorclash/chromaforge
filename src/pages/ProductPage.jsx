@@ -42,6 +42,7 @@ import ScrollStrip from '../components/ui/ScrollStrip';
 import TerminalText from '../components/ui/TerminalText';
 import { ProductPageSkeleton, SkeletonFadeOut } from '../components/ui/RouteSkeleton';
 import { DURATION_SLOW } from '../utils/motionTokens';
+import { humanError } from '../lib/errorMessage';
 
 // Where the "Choose artwork" step sits among PageContainer's children -- breadcrumb, title,
 // artwork, print options, then the gallery/purchase grid -- so its own tile cascade continues
@@ -656,7 +657,7 @@ export default function ProductPage() {
           setSelectedVariantId(d.variants[0]?.id ?? null);
         }
       } catch (err) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setError(humanError(err, "We couldn't load this product."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1328,7 +1329,7 @@ export default function ProductPage() {
       window.location.href = url;
     } catch (err) {
       if (!isMountedRef.current) return;
-      setCheckoutNotice(err.message);
+      setCheckoutNotice(humanError(err, "We couldn't start checkout. Try again."));
       setBuyModalStage('error');
     }
   };
@@ -1963,7 +1964,9 @@ export default function ProductPage() {
                   </div>
                 ) : displayedScrimMode === 'failed' ? (
                   <div className="flex animate-pop-in flex-col items-center gap-3 text-center">
-                    <p className="max-w-xs text-sm text-accent">{mockupError}</p>
+                    <p className="max-w-xs text-sm text-accent">
+                      {humanError(mockupError, "We couldn't generate a preview just now.")}
+                    </p>
                     <Button onClick={onGenerateClick} disabled={!selectedDesign}>
                       Try again
                     </Button>

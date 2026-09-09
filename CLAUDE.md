@@ -1915,6 +1915,40 @@ the generated stylesheet before and after, exactly five selectors disappear
 (`.bg-neutral-900`, `.bg-red-900`, `.drop-shadow`, `.flex-shrink`, `.w-14`), every one of them
 used in no source file, only in CLAUDE.md and TODO.md. 666 bytes of dead CSS went with them.
 
+### A raw error message is never rendered (`src/lib/errorMessage.js`, 2026-09-09)
+`humanError(err, fallback)` sits between every caught error and the page. Aaron: "make sure
+all user facing error messages sound like they are meant for a human to read. some of the ones
+I've seen are very machine only feeling."
+
+**Seventeen call sites rendered `err.message` straight into the DOM, and the errors reaching
+them are not ours.** `signInWithEmail` does `if (error) throw error`, so a failed sign-in put
+GoTrue's own wording on screen. The one that prompted this, hit during the sweep:
+`captcha protection: request disallowed (no captcha_token found)` -- it names an internal
+parameter, blames the request rather than explaining anything, and offers nothing to act on.
+
+**The rule: map it or fall back, never pass it through.** Every call site supplies a fallback
+that says what specifically failed ("We couldn't load your orders", "We couldn't update your
+avatar"), so the generic path still tells the reader something true. The raw text goes to
+`console.warn` -- warn, not error, because `check-routes-smoke.mjs` treats a console error as
+a broken page.
+Four things worth not re-deriving:
+(1) **Matching is on substring patterns, not equality.** These providers reword their messages
+without warning; a pattern survives a rewording an equality check would not.
+(2) **`PASSTHROUGH` is an explicit list, not a "does this look human?" heuristic.** Whether a
+string is fit to show someone is a decision, and that list is where it is recorded. Our own
+authored messages ("You must be signed in to save a design.") are on it.
+(3) **Rule ORDER is load-bearing in one specific place.** GoTrue uses "token has expired or is
+invalid" for a spent EMAIL LINK, and that has to be matched before the session rule, which
+would otherwise answer "Sign in again" -- wrong advice for someone who just clicked a
+confirmation link and has no session to return to.
+(4) **`AuthContext`'s OAuth/email-link path goes through it too.** That one renders Supabase's
+`error_description` straight off the URL hash, where "Database error saving new user" is a real
+possible value.
+Verified against 26 real provider strings (every GoTrue auth error, all three browsers'
+wording for a network failure, RLS, payload, rate-limit and gateway cases) plus the three
+machine strings that must NOT leak, and end to end in a browser with the real requests aborted:
+shop, product and gallery each show their own human sentence.
+
 ### Copy: what the site may not claim, and the conventions it holds (2026-09-09)
 A site-wide copy audit, prompted by Aaron spotting one line on the shop page: "the never
 reprinted line is a lie and we removed that from the home page a long time ago."

@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import { getMyProfile } from '../lib/profiles';
 import { useToastNotice } from '../hooks/useToastNotice';
 import Toast from '../components/ui/Toast';
+import { humanError } from '../lib/errorMessage';
 
 // App-wide auth state, reachable from any route (header, account, gallery, studio save).
 // Also owns the Supabase auth-redirect handling (moved here from DisplayCanvas) so it works
@@ -85,7 +86,14 @@ export function AuthProvider({ children }) {
     const params = new URLSearchParams(hash.replace(/^#/, ''));
     const errorDescription = params.get('error_description');
     if (errorDescription) {
-      setNotice({ type: 'error', message: decodeURIComponent(errorDescription.replace(/\+/g, ' ')) });
+      // Supabase's own wording, straight off the URL, so it goes through the same mapper as
+      // every other error the visitor can meet -- "Database error saving new user" is not a
+      // sentence to put in front of someone who just clicked a link in their email.
+      const raw = decodeURIComponent(errorDescription.replace(/\+/g, ' '));
+      setNotice({
+        type: 'error',
+        message: humanError(raw, "That sign-in link didn't work. Try requesting a new one.")
+      });
     } else if (params.get('type') === 'recovery') {
       awaitingRecovery.current = true;
       navigate('/account');

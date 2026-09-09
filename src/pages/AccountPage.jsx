@@ -23,6 +23,7 @@ import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { introDelay, introStyle } from '../utils/routeIntro';
+import { humanError } from '../lib/errorMessage';
 
 // Where the profile/stats/orders block sits among PageContainer's children: [banners, block].
 // Its three cards continue the page's rhythm from there rather than restarting at zero.
@@ -254,7 +255,7 @@ export default function AccountPage() {
       const url = await uploadMyAvatar(blob);
       setAvatarUrl(url);
     } catch (err) {
-      setAvatarError(err.message);
+      setAvatarError(humanError(err, "We couldn't update your avatar. Try again."));
     } finally {
       setAvatarBusy(false);
     }
@@ -271,7 +272,7 @@ export default function AccountPage() {
         setAvatarUrl(profile.avatar_url || null);
         if (!profile.avatar_url) regenerateAvatar();
       })
-      .catch(err => !cancelled && setProfileError(err.message))
+      .catch(err => !cancelled && setProfileError(humanError(err, "We couldn't load your profile.")))
       .finally(() => !cancelled && setProfileLoading(false));
     getMyDesignStats()
       .then(s => !cancelled && setStats(s))
@@ -317,7 +318,7 @@ export default function AccountPage() {
         setHistoryHasMore(rows.length === HISTORY_PAGE_SIZE);
         setHistoryLoaded(true);
       })
-      .catch(err => !cancelled && setHistoryError(err.message))
+      .catch(err => !cancelled && setHistoryError(humanError(err, "We couldn't load your orders.")))
       .finally(() => !cancelled && setHistoryLoading(false));
     return () => {
       cancelled = true;
@@ -333,7 +334,7 @@ export default function AccountPage() {
       setHistoryOrders(rows => [...rows, ...more]);
       setHistoryHasMore(more.length === HISTORY_PAGE_SIZE);
     } catch (err) {
-      setHistoryError(err.message);
+      setHistoryError(humanError(err, "We couldn't load your orders."));
     } finally {
       setHistoryLoadingMore(false);
     }
@@ -348,7 +349,7 @@ export default function AccountPage() {
       await updateMyProfile({ username: username.trim(), display_name: displayName.trim() });
       setProfileSaved(true);
     } catch (err) {
-      setProfileError(err.message);
+      setProfileError(humanError(err, "We couldn't save your profile. Try again."));
     } finally {
       setProfileBusy(false);
     }
@@ -379,7 +380,7 @@ export default function AccountPage() {
         showNotice({ type: 'success', message: 'Password updated.' });
         clearRecoveryMode();
       } catch (err) {
-        setResetError(err.message);
+        setResetError(humanError(err, "We couldn't set your new password. Try again."));
       } finally {
         setResetBusy(false);
       }
@@ -644,7 +645,14 @@ export default function AccountPage() {
         await signInWithEmail(email, password, captchaToken);
       }
     } catch (err) {
-      setError(err.message);
+      setError(
+        humanError(
+          err,
+          mode === 'signup'
+            ? "We couldn't create your account. Try again."
+            : "We couldn't sign you in. Try again."
+        )
+      );
     } finally {
       setCaptchaToken(null);
       setCaptchaReset(n => n + 1);
@@ -663,7 +671,7 @@ export default function AccountPage() {
       await requestPasswordReset(email, captchaToken);
       setMessage('If an account exists for that email, a reset link is on its way.');
     } catch (err) {
-      setError(err.message);
+      setError(humanError(err, "We couldn't send the reset link. Try again."));
     } finally {
       setCaptchaToken(null);
       setCaptchaReset(n => n + 1);

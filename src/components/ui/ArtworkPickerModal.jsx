@@ -7,6 +7,7 @@ import useScrollLock from '../../hooks/useScrollLock';
 import { listMyDesigns, listPublicDesigns, countDesigns, getThumbnailUrl } from '../../lib/designs';
 import { useAuth } from '../../context/AuthContext';
 import { authorName } from './AuthorBadge';
+import { humanError } from '../../lib/errorMessage';
 
 // Fixed page size for the carousel-style pager below. 8 = a clean 4x2 grid on desktop and
 // 2x4 on mobile -- deliberately a fixed-size page ("carousel": prev/next + dots + "n / m"),
@@ -186,7 +187,7 @@ export default function ArtworkPickerModal({ open, onClose, onSelect, inUseId = 
       setSlideDir(null);
     } catch (err) {
       if (fetchTokenRef.current !== token) return;
-      updateTab(which, { loading: false, error: err.message });
+      updateTab(which, { loading: false, error: humanError(err, "We couldn't load these designs.") });
     }
   };
 
