@@ -98,8 +98,10 @@ export const MODEL_GROUP_OVERRIDES = {
 // matched and all three shared one cached preview -- whichever size was selected when the preview
 // was first generated decided the whole filmstrip, and later size changes silently reused it. The
 // photos genuinely differ: measured, the flat lay is shot TO SCALE and the bandana fills 37% of the
-// frame at S against 80.7% at L, and "Lifestyle 2" is a different shoot per size (a French bulldog
-// at S, a man at M and L). So someone picking L was shown the S bandana at under half its size.
+// frame at S against 80.7% at L, and "Lifestyle 2" is THREE separate shoots, one per size -- a
+// French bulldog at S, a man wearing it as a face covering at M, a man in a denim jacket at L, each
+// pair differing by RMSE 95-119. So someone picking L was shown the S bandana at under half its
+// size, with a dog on it.
 //
 // The pillow was never affected and is in the set for correctness rather than as a fix: its five
 // sizes each have their OWN printfile, so the key's placement signature already separated them. The

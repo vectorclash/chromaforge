@@ -918,8 +918,9 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   leaves the strip standing. The photos genuinely differ, measured on real tasks: the flat lay is
   shot **TO SCALE** — the bandana fills **37.0% of the frame at S, 57.6% at M, 80.7% at L** (RMSE 89
   S vs L) — the detail macro maps the design at a different scale (RMSE 30), and **"Lifestyle 2" is
-  a different photo shoot per size**: a French bulldog at S, a man in a face covering at M, a man in
-  a denim jacket at L. So a customer picking L was shown the S bandana at under half its size.
+  three separate photo shoots, one per size** (each pair RMSE 95–119, so no two are near-repeats): a
+  French bulldog at S, a man wearing it as a face covering at M, a man in a denim jacket at L. So a
+  customer picking L was shown the S bandana at under half its size, with a dog on it.
   Four things worth not re-deriving:
   (a) **The discriminator is `restricted_to_variants`, and it is DERIVED, not listed** —
   `PER_VARIANT_MOCKUP_PRODUCTS` in the generated style table, swept by
