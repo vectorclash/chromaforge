@@ -1315,7 +1315,12 @@ export default class DisplayCanvas extends React.Component {
 
   animateSettingsTab() {
     gsap.set('#controls-settings .color-container', { opacity: 1 });
-    const els = '#controls-settings .settings-field, #controls-settings .row';
+    // .palette-picker is neither a .settings-field nor a .row (it is its own label +
+    // strip block), so it has to be named explicitly or it is the one control in the panel
+    // that hard-cuts in while everything around it flies up. A comma selector resolves in
+    // document order, so it still takes its own place in the stagger.
+    const els =
+      '#controls-settings .settings-field, #controls-settings .row, #controls-settings .palette-picker';
     // The entrance starts every row 20px low, and a transform still counts toward a scroll
     // container's scrollable overflow -- so .settings-scroll briefly gains 20px it doesn't
     // have at rest and flashes a scrollbar on every tab switch, at ANY viewport size, not
