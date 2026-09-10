@@ -6,6 +6,7 @@ import * as styleTable from './printfulMockupStyleGroups.js';
 
 const MOCKUP_STYLE_GROUPS = styleTable.MOCKUP_STYLE_GROUPS ?? {};
 const MODEL_GROUPS_BY_PRODUCT = styleTable.MODEL_GROUPS_BY_PRODUCT ?? {};
+const PER_VARIANT_MOCKUP_PRODUCTS = new Set(styleTable.PER_VARIANT_MOCKUP_PRODUCTS ?? []);
 
 // Decides which camera angles a mockup asks Printful for, and in what order they are shown.
 //
@@ -82,6 +83,30 @@ export const MODEL_GROUP_OVERRIDES = {
   630: "Lifestyle 2",
   654: "Women's"
 };
+
+// Whether this product's mockup photos are per-VARIANT, so one variant's preview must never be
+// shown for another. Everything else shares a photo across sizes, which is what useMockup's cache
+// key assumes -- see there for why that assumption is right for a garment and wrong here.
+//
+// The set is the catalogue's own `restricted_to_variants` products, swept by
+// scripts/build-mockup-style-groups.mjs. Two of eighteen: the pillow (83) and the bandana (630).
+// Deriving it rather than listing it here is what makes a product Printful later re-photographs
+// per size pick this up on the next build instead of silently keeping a stale preview.
+//
+// FOUND VIA THE BANDANA (2026-09-09, Aaron: the third photo is "sometimes the man I chose, and
+// sometimes a cute dog"). Its three sizes all print from printfile 380, so every key component
+// matched and all three shared one cached preview -- whichever size was selected when the preview
+// was first generated decided the whole filmstrip, and later size changes silently reused it. The
+// photos genuinely differ: measured, the flat lay is shot TO SCALE and the bandana fills 37% of the
+// frame at S against 80.7% at L, and "Lifestyle 2" is a different shoot per size (a French bulldog
+// at S, a man at M and L). So someone picking L was shown the S bandana at under half its size.
+//
+// The pillow was never affected and is in the set for correctness rather than as a fix: its five
+// sizes each have their OWN printfile, so the key's placement signature already separated them. The
+// bandana is the only product where the mockup varies by size and nothing in the key said so.
+export function mockupVariesByVariant(productId) {
+  return PER_VARIANT_MOCKUP_PRODUCTS.has(String(productId));
+}
 
 // Printful numbers repeats of the same set -- "Flat 2", "Product details 2". Those are more shots of
 // the same thing, so only the unnumbered group is asked for; its own extra views still come back.

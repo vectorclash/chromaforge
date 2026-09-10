@@ -16,6 +16,7 @@ import {
 import {
   chooseOptionGroups,
   orderViews,
+  mockupVariesByVariant,
   MAX_VIEWS,
   VIEW_POLICY_VERSION
 } from '../lib/printfulViewPolicy';
@@ -142,15 +143,32 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   // getHatWrap this is a customer choice (ProductPage's Artwork row), which is exactly why it
   // has to be in the key rather than read from the product's config at render time.
   const legWrapSignature = legWrap ? `wrap${legWrap.shift}x${legWrap.width}` : 'flat';
-  // The variant COLOUR, deliberately not the variant id. Sizes are meant to share a mockup --
-  // they share printfile ids and Printful photographs one garment for all of them, which is
-  // what `signature` above already expresses. Colours are not: Printful photographs each one,
-  // so the returned photo genuinely differs. Colours on these products share their printfiles,
-  // so without this they collided on one key and switching colour silently restored the
+  // The variant COLOUR, and on most products deliberately not the variant id. Sizes are meant to
+  // share a mockup -- they share printfile ids and Printful photographs one garment for all of
+  // them, which is what `signature` above already expresses. Colours are not: Printful photographs
+  // each one, so the returned photo genuinely differs. Colours on these products share their
+  // printfiles, so without this they collided on one key and switching colour silently restored the
   // previous colour's mockup (found on the windbreaker, 615, whose two "colours" are the
   // stitching choice -- picking the other one appeared to do nothing at all). Also affects the
   // tote (274), the only other multi-colour product.
-  const colorSignature = variant?.color || 'single';
+  //
+  // A PER-VARIANT product appends the variant id, because for those the premise above is false:
+  // Printful photographs each variant separately, so its sizes are no more interchangeable than two
+  // colours are. Only the bandana (630) actually needed it -- its three sizes all print from
+  // printfile 380, so every other component of this key matched and ONE cached preview served all
+  // three. Whichever size happened to be selected when the preview was first generated decided the
+  // whole filmstrip, and every later size change silently reused it (Aaron, 2026-09-09: the third
+  // photo is "sometimes the man I chose, and sometimes a cute dog"). The photos genuinely differ --
+  // the flat lay is shot TO SCALE, 37.0% of the frame at S against 80.7% at L, so someone picking L
+  // was shown the S bandana at under half its size. The pillow (83) is in the set too and was never
+  // affected: its five sizes have their own printfiles, so `signature` already separated them.
+  //
+  // The set is derived from the catalogue's own restricted_to_variants styles rather than listed
+  // here -- see printfulViewPolicy's mockupVariesByVariant. Cost is that a size change on those two
+  // products now misses the cache and needs another Generate click, exactly as a colour change
+  // already does; `sync` clears to idle rather than auto-spending a task.
+  const perVariantSignature = mockupVariesByVariant(product.id) ? `#${variant?.id ?? 'none'}` : '';
+  const colorSignature = (variant?.color || 'single') + perVariantSignature;
   // The second design printed on a physically separate face (the reversible bucket hat's
   // inside). This USED to be deliberately excluded, on the grounds that the mockup only
   // requested the outside placements so a second design could not change any preview pixel --

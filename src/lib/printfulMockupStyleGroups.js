@@ -14,6 +14,10 @@
 // those: the flats keep the placement-derived names they have always had, so this cannot reorder or
 // relabel a single photo the filmstrip already carried.
 //
+// PER_VARIANT_MOCKUP_PRODUCTS lists the products Printful photographs ONE VARIANT AT A TIME, so a
+// preview may not be shared between two variants that happen to print from the same file. It is the
+// restricted_to_variants set, refreshed from the catalog on every run of the builder.
+//
 // A product missing from MODEL_GROUPS_BY_PRODUCT is never asked for an on-model group, so it keeps
 // exactly the two-group filmstrip it has today. An id missing from a product's entry sorts last.
 // Both degradations are deliberate: neither can reorder the flats.
@@ -455,3 +459,8 @@ export const MOCKUP_STYLE_VIEWS = {
     "73671": "Product Details 4"
   }
 };
+
+export const PER_VARIANT_MOCKUP_PRODUCTS = [
+  "83",
+  "630"
+];

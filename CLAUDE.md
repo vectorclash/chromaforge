@@ -909,6 +909,38 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   photo). Both windbreaker colours share printfile ids, so they collided on one key and switching
   colour silently restored the previous photo. Worst there because that product's two "colours" ARE
   the stitching choice, so the control looked completely inert. Pre-existing, not migration-caused.
+  (3b) **...and, on a product Printful photographs PER VARIANT, the variant id too (2026-09-09,
+  Aaron: the bandana's third photo is "sometimes the man I chose, and sometimes a cute dog").**
+  "Sizes share a photo" is true for a garment and false for the bandana (630), whose three sizes all
+  print from printfile **380** — so every component of the key matched and ONE cached preview served
+  all three. Whichever size happened to be selected when the preview was first generated decided the
+  whole filmstrip, and every later size change silently reused it; `sync` finds the same key and
+  leaves the strip standing. The photos genuinely differ, measured on real tasks: the flat lay is
+  shot **TO SCALE** — the bandana fills **37.0% of the frame at S, 57.6% at M, 80.7% at L** (RMSE 89
+  S vs L) — the detail macro maps the design at a different scale (RMSE 30), and **"Lifestyle 2" is
+  a different photo shoot per size**: a French bulldog at S, a man in a face covering at M, a man in
+  a denim jacket at L. So a customer picking L was shown the S bandana at under half its size.
+  Four things worth not re-deriving:
+  (a) **The discriminator is `restricted_to_variants`, and it is DERIVED, not listed** —
+  `PER_VARIANT_MOCKUP_PRODUCTS` in the generated style table, swept by
+  `build-mockup-style-groups.mjs` from a free catalog read per product (no mockup tasks, which is
+  what lets `--regenerate` produce it). A product Printful later re-photographs per size is picked
+  up on the next build instead of silently keeping a stale preview. Exactly two of eighteen: the
+  pillow (83) and the bandana (630) — the same pair whose per-variant style ids broke under v2, and
+  the same fact the builder already used to decide it must walk every variant.
+  (b) **The pillow was never affected and is in the set for correctness, not as a fix.** Its five
+  sizes each have their OWN printfile (1701/1702/32/72/214), so the key's placement signature
+  already separated them — verified with real per-variant data: 3 distinct keys before AND after.
+  The tote (274) is one size in three colours, so the colour discriminator already covered it. **The
+  bandana is the only product in the catalogue where the mockup varies by size and nothing in the
+  key said so.**
+  (c) **It costs no automatic mockup tasks.** `sync` clears to idle on a key miss rather than
+  generating, so a size change on those two products needs another Generate click — exactly what a
+  colour change already does. Every other product keeps sharing one preview across sizes: measured
+  against the previous commit with the real `cacheKey` extracted from both builds, **16 of 18
+  products' keys are byte-identical** and a t-shirt's S and 2XL still resolve to one key.
+  (d) **No `VIEW_POLICY_VERSION` bump.** The key changes for exactly the two products affected;
+  bumping would throw away every other product's stored preview to fix a bandana.
   (4) **View labels are collected first and named second**, with every name Printful uses reserved
   before any suffix is handed out. Counting occurrences collided with Printful's own numbered
   titles ("Front", "Front 2") and produced "Front 2 2" on all 14 windbreaker variants.
