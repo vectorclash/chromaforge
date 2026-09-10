@@ -130,8 +130,7 @@ export const DEFAULT_VIDEO_PREFS = {
   speedRamp: true,
   logoMark: false,
   exportAspect: '16:9',
-  exportFps: 24,
-  musicEnabled: false
+  exportFps: 24
 };
 
 // `limits` is the caller's resolved ANIM_LIMIT (device-dependent: a phone caps frames,
@@ -154,8 +153,7 @@ export function readVideoPrefs(limits, aspects) {
     speedRamp: stored.speedRamp !== false,
     logoMark: stored.logoMark === true,
     exportAspect: aspects.includes(stored.exportAspect) ? stored.exportAspect : d.exportAspect,
-    exportFps: limits.fps.includes(stored.exportFps) ? stored.exportFps : d.exportFps,
-    musicEnabled: stored.musicEnabled === true
+    exportFps: limits.fps.includes(stored.exportFps) ? stored.exportFps : d.exportFps
   };
 }
 

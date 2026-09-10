@@ -1496,7 +1496,7 @@
   text-transform: none;
 }
 
-/* Music on/off toggle switch */
+/* Settings on/off toggle switch (3D, Speed Ramp, Logo, Stars in front) */
 .display-canvas .controls-inner .settings-toggle {
   position: relative;
   width: 46px;

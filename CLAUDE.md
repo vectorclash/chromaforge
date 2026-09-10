@@ -1227,9 +1227,8 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   reason to add render-service cost to something already free and good enough for picking
   artwork/variant.
 ### MP4 export: client-side (WebCodecs), not server-side
-Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`,
-`AudioEncoder`/`AudioData`) muxed with `mp4-muxer`. All in
-`src/components/DisplayCanvas.jsx` (`exportAnimationVideo`, `encodeAudioTrack`). **There
+Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`) muxed with
+`mp4-muxer`. All in `src/components/DisplayCanvas.jsx` (`exportAnimationVideo`). **There
 is no `server/` directory, no `/api/export`, no Vite proxy** — an earlier server-side
 FFmpeg design was fully removed; don't reintroduce it from old assumptions. Prefers H.264
 Constrained Baseline (`avc1.42E034`) specifically to avoid B-frame reordering, which
@@ -1293,11 +1292,15 @@ rates — the loop body never runs). Verified against the real gsap module with 
 timeline structure: pre-fix, a step 1.28x `spacing` diverges immediately and caps; post-fix
 it tracks the requested time exactly at up to 12x `spacing`. Watch item, not yet retuned:
 the encoder settings under "Fast-motion blockiness" below were tuned for the old 1.57x peak.
-iOS music export was silently broken: WebKit's AudioEncoder omits the AAC
-`decoderConfig.description`, so mp4-muxer wrote an unplayable audio track with no error —
-`encodeAudioTrack` now synthesizes the AudioSpecificConfig bytes when missing
-(phone-verified fix), and a requested-but-skipped music track alerts instead of failing
-silently. Fast-motion blockiness fixed: `latencyMode: 'quality'` on Constrained Baseline
+**Exports are SILENT, and deliberately so (2026-09-10, Aaron's call).** A generative music
+track shipped alongside this (a `src/audio/` synth — voices, harmony, scheduler — plus a
+WebCodecs `AudioEncoder`/`AudioData` path and a Music toggle in the Video tab) and is now
+removed entirely, along with the AAC `AudioSpecificConfig` workaround WebKit needed. The
+reasoning: a fully random track is not what an ad wants, and the original `sound-generator`
+project scores these by hand afterwards far better. So `exportAnimationVideo` muxes a video
+track only, and nothing in the app touches Web Audio. Don't reintroduce it from the notes
+below; anything about a `musicEnabled` pref or an audio phase of the progress bar is
+history. Fast-motion blockiness fixed: `latencyMode: 'quality'` on Constrained Baseline
 (structurally can't B-frame; only the High Profile fallback keeps 'realtime'), mobile
 bitrate 15→25Mbps, keyframes every 2s. Previews (both modes) freeze during export so a
 live scene never competes with the encoder.
@@ -1391,9 +1394,8 @@ class of problem is one setting away if it ever needs attention.
 **The Video tab is now grouped by what each control affects** (Aaron, same session): the
 scene itself first (3D → Frames → Star Frames → Duration → Speed Ramp — timing last, "how
 long" then "how it's paced"), then a `settings-group-start` rule/gap, then the export group
-(Export ratio+fps → Music). **Music moved into that group because it is an export setting
-and always has been** — previews are silent, so the toggle has never had any effect except
-on the MP4 — and its label says so ("added to the export only"). The group is marked with a
+(Export ratio+fps; a Music toggle sat here too until it was removed — see the MP4 export
+section). The group is marked with a
 gap and a brighter rule rather than a heading, which would spend a whole row saying nothing. Framing now comes from the picker rather than
 the studio canvas, so the same design exports identically from any screen, and mobile HALVES
 the chosen size instead of forcing a flat 1080×1080 — the old rule silently changed a
@@ -1440,8 +1442,8 @@ Key facts:
   3D mode is used. Star sprites are the sound-generator example's INVERTED variants
   (`star-sprite-*-3d.png`, Aaron's explicit call), not the 2D pipeline's — those are
   authored for canvas compositing and read wrong as additive points.
-- In 3D mode only Duration + Include Music remain in the Video tab (Frames/Star Frames
-  are 2D-only, hidden); Duration and the geometry sliders apply LIVE (scene rebuilds are
+- In 3D mode only Duration remains of the scene controls in the Video tab (Frames/Star
+  Frames are 2D-only, hidden); Duration and the geometry sliders apply LIVE (scene rebuilds are
   instant) rather than via the 2D "regenerate to apply" notice. Generate is instant (new
   seed, no frame build); the 2D frames stay in state so toggling 3D off restores them
   without a rebuild (or kicks off a build if none were ever made).
@@ -1450,7 +1452,7 @@ Key facts:
   paths can't replay a 3D animation yet.
 - `exportAnimationVideo` branches on 3D: renders the scene per frame into a WebGL canvas
   at export resolution (VideoFrame constructed same-task, so no preserveDrawingBuffer)
-  and shares the entire encoder/muxer/audio path with 2D unchanged.
+  and shares the entire encoder/muxer path with 2D unchanged.
 - WebGL context creation can genuinely fail (GPU blocklists, headless) — found live via a
   flag-less headless run: Animation3DPreview catches init errors and DisplayCanvas falls
   back to 2D with an alert instead of a black screen + unhandled rejection.
@@ -2636,8 +2638,8 @@ the toggle each still produce exactly one regenerate, 0 console errors at 390px.
 
 ### Studio settings are remembered in localStorage (`src/lib/studioPrefs.js`, 2026-08-22)
 Two versioned keys: `cf-studio:design` (palette + geometry sliders) and `cf-studio:video`
-(the Video tab -- 3D, frames, star frames, duration, speed ramp, logo, export ratio, fps,
-music). **The SEED is deliberately not stored** -- a visit still opens on artwork nobody has
+(the Video tab -- 3D, frames, star frames, duration, speed ramp, logo, export ratio, fps).
+**The SEED is deliberately not stored** -- a visit still opens on artwork nobody has
 seen, it just arrives in the style the user last chose.
 - **The design half is read and written in ONE place, StudioContext**, not in each control.
   It seeds `currentDesign`'s `useState` initialiser *synchronously*, so the session's first

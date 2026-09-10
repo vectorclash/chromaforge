@@ -4,7 +4,6 @@ import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
-import { generateAudioBuffer } from '../audio/generateAudioBuffer';
 import { getDesignIdFromUrl, getShareUrlPrefix, buildShareUrl } from '../utils/urlConfig';
 import { getDesign } from '../lib/designs';
 import { randomSeed, meanLuminance, makeRng } from '../render/prng';
@@ -63,94 +62,8 @@ import {
 
 gsap.registerPlugin(TextPlugin);
 
-// AAC-LC AudioSpecificConfig (the esds "description" bytes): 5 bits object type (2 =
-// AAC-LC), 4 bits sampling-frequency index, 4 bits channel config. mp4-muxer requires
-// this to write a playable AAC track. Chrome's AudioEncoder always supplies it in the
-// output meta; WebKit's (iOS/macOS Safari) has been observed to omit it — mp4-muxer then
-// produces a file whose audio track is broken/ignored by players with NO error thrown
-// (export "succeeds", music is silently missing — the iOS symptom). Synthesizing it
-// ourselves is byte-identical to what Chrome sends, so it's safe to apply everywhere.
 // The hero entrance's phases in order (see render()'s heroBeat and utils/heroIntro.js).
 const HERO_PHASE_ORDER = { wait: 0, reveal: 1, off: 2 };
-
-const AAC_SAMPLE_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
-function aacAudioSpecificConfig(sampleRate, numberOfChannels) {
-  const freqIndex = AAC_SAMPLE_RATES.indexOf(sampleRate);
-  if (freqIndex === -1) return null;
-  return new Uint8Array([
-    (2 << 3) | (freqIndex >> 1),
-    ((freqIndex & 1) << 7) | (numberOfChannels << 3),
-  ]);
-}
-
-async function encodeAudioTrack(audioBuffer, muxer, audioCodec, onProgress) {
-  const left        = audioBuffer.getChannelData(0);
-  const right       = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
-  const sampleRate  = audioBuffer.sampleRate;
-  const totalFrames = audioBuffer.length;
-  const isAac       = audioCodec !== 'opus';
-  const CHUNK_FRAMES = 4096;
-  // Estimate output chunks: AAC uses 1024-sample frames, Opus uses 960 or 480.
-  const frameSize = audioCodec === 'opus' ? 960 : 1024;
-  const totalOutputChunks = Math.ceil(totalFrames / frameSize);
-  let outputCount = 0;
-
-  await new Promise((resolve, reject) => {
-    const encoder = new AudioEncoder({
-      output: (chunk, meta) => {
-        // Backfill the AAC decoderConfig description if the encoder omitted it (WebKit —
-        // see aacAudioSpecificConfig above). Without it the muxed audio track is silently
-        // unplayable; with a synthesized one it's exactly what Chrome would have sent.
-        if (isAac && !meta?.decoderConfig?.description) {
-          const description = aacAudioSpecificConfig(sampleRate, 2);
-          if (description) {
-            meta = {
-              ...meta,
-              decoderConfig: {
-                codec: audioCodec,
-                sampleRate,
-                numberOfChannels: 2,
-                ...meta?.decoderConfig,
-                description,
-              },
-            };
-          }
-        }
-        muxer.addAudioChunk(chunk, meta);
-        outputCount++;
-        onProgress?.(Math.min(outputCount / totalOutputChunks, 1));
-      },
-      error: reject,
-    });
-
-    try {
-      encoder.configure({ codec: audioCodec, numberOfChannels: 2, sampleRate, bitrate: 128_000 });
-
-      for (let offset = 0; offset < totalFrames; offset += CHUNK_FRAMES) {
-        const frameCount = Math.min(CHUNK_FRAMES, totalFrames - offset);
-        const timestamp  = Math.round((offset / sampleRate) * 1_000_000);
-        const planar     = new Float32Array(frameCount * 2);
-        planar.set(left.subarray(offset, offset + frameCount), 0);
-        planar.set(right.subarray(offset, offset + frameCount), frameCount);
-
-        const audioData = new AudioData({
-          format: 'f32-planar',
-          sampleRate,
-          numberOfFrames: frameCount,
-          numberOfChannels: 2,
-          timestamp,
-          data: planar,
-        });
-        encoder.encode(audioData);
-        audioData.close();
-      }
-
-      encoder.flush().then(resolve).catch(reject);
-    } catch (e) {
-      reject(e);
-    }
-  });
-}
 
 // Shape-matches a real Supabase row id (a UUID) so the share-link box's id slot always has
 // *something* the right size/shape to show the instant a save starts, rather than looking
@@ -308,8 +221,6 @@ export default class DisplayCanvas extends React.Component {
       animationProgress: 0,
       isExporting: false,
       exportProgress: 0,
-      musicEnabled: videoPrefs.musicEnabled,
-      audioExportSupported: true,
       frameCount: videoPrefs.frameCount,
       // 5s, the stepper's own minimum (Aaron, 2026-08-12: it's what he reaches for). Nothing
       // downstream assumed 10 -- 3D still builds one lap of unique content (FLIGHT_SPEED x 5
@@ -423,8 +334,6 @@ export default class DisplayCanvas extends React.Component {
       this.heroRestoreRaf = requestAnimationFrame(standDownIfRestored);
       this.heroRestoreTimer = setTimeout(standDownIfRestored, 250);
     }
-
-    this.checkAudioExportSupport();
 
     // Compact (homepage hero) only: the artwork renders oversized (HERO_PARALLAX_SCALE)
     // and drifts downward as the hero scrolls up -- a parallax against the rest of the
@@ -702,27 +611,6 @@ export default class DisplayCanvas extends React.Component {
       design.settings ?? null
     );
     this.buildImage(built);
-  }
-
-  async checkAudioExportSupport() {
-    // No user-agent gating: Safari 26+ (iOS 26, fall 2025) ships WebCodecs AudioEncoder,
-    // so a hard iOS block would turn away capable devices. Pure feature detection —
-    // older iOS simply has no AudioEncoder and falls through to unsupported.
-    if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {
-      this.setState({ audioExportSupported: false });
-      return;
-    }
-    const candidates = [
-      { codec: 'mp4a.40.2', sampleRate: 44100 },
-      { codec: 'opus',       sampleRate: 48000 },
-    ];
-    for (const c of candidates) {
-      const { supported } = await AudioEncoder.isConfigSupported({
-        codec: c.codec, numberOfChannels: 2, sampleRate: c.sampleRate, bitrate: 128_000,
-      }).catch(() => ({ supported: false }));
-      if (supported) return;
-    }
-    this.setState({ audioExportSupported: false, musicEnabled: false });
   }
 
   init() {
@@ -1630,51 +1518,6 @@ export default class DisplayCanvas extends React.Component {
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
-    const { musicEnabled } = this.state;
-    const totalDurationSec = TOTAL_FRAMES / FPS;
-
-    // Pre-validate codec support and generate the audio buffer BEFORE creating the muxer.
-    // An audio track declared in the muxer but left empty makes the MP4 unplayable.
-    let audioBuffer = null;
-    // Resolve which audio codec to use. AAC (mp4a.40.2) is preferred for broad
-    // player compatibility, but requires a platform codec — not available on Linux.
-    // Opus is a universal fallback supported by all WebCodecs implementations.
-    let audioCodec = null;
-    let audioSampleRate = 44100;
-    // Why music was dropped, if it was. Both drop paths below used to be console-only —
-    // on iOS (no visible console) that read as "picked music, export worked, file is
-    // silent, no explanation", so a requested-but-missing track is now alerted after the
-    // export finishes (the video itself is still worth keeping).
-    let audioSkipReason = null;
-    if (musicEnabled && typeof AudioEncoder !== 'undefined' && typeof AudioData !== 'undefined') {
-      const candidates = [
-        { encoderCodec: 'mp4a.40.2', muxerCodec: 'aac',  sampleRate: 44100 },
-        { encoderCodec: 'opus',       muxerCodec: 'opus', sampleRate: 48000 },
-      ];
-      for (const c of candidates) {
-        const { supported } = await AudioEncoder.isConfigSupported({
-          codec: c.encoderCodec, numberOfChannels: 2, sampleRate: c.sampleRate, bitrate: 128_000,
-        }).catch(() => ({ supported: false }));
-        if (supported) {
-          audioCodec = c.encoderCodec;
-          audioSampleRate = c.sampleRate;
-          break;
-        }
-      }
-      if (!audioCodec) audioSkipReason = 'no supported audio codec (AAC/Opus) in this browser';
-    }
-
-    if (audioCodec) {
-      audioBuffer = await generateAudioBuffer(totalDurationSec, audioSampleRate).catch(e => {
-        console.warn('[Chromaforge audio] generateAudioBuffer failed:', e);
-        audioSkipReason = 'music generation failed';
-        return null;
-      });
-    }
-
-    const includeAudio = audioBuffer !== null;
-    const muxerAudioCodec = audioCodec === 'mp4a.40.2' ? 'aac' : 'opus';
-
     // Frame source: a 2D canvas compositing the pre-rendered frames, or (3D mode) a WebGL
     // canvas the tunnel scene renders into per frame. Either way, `drawAt(elapsed, rush,
     // logo)` paints the exact frame for that timeline moment and `canvas` is what VideoFrame
@@ -1816,7 +1659,6 @@ export default class DisplayCanvas extends React.Component {
     const muxer = new Muxer({
       target,
       video: { codec: 'avc', width, height, frameRate: FPS },
-      ...(includeAudio ? { audio: { codec: muxerAudioCodec, numberOfChannels: 2, sampleRate: audioSampleRate } } : {}),
       fastStart: 'in-memory'
     });
 
@@ -1960,8 +1802,7 @@ export default class DisplayCanvas extends React.Component {
     }
 
     // encoder.flush() has no progress callbacks — animate the bar while we wait.
-    // With audio, leave room at 93–99 for the audio encoding phase.
-    const crawlTarget = includeAudio ? 93 : 99;
+    const crawlTarget = 99;
     let fakeProgress = 90;
     const crawl = setInterval(() => {
       fakeProgress += (crawlTarget - fakeProgress) * 0.15;
@@ -1971,28 +1812,11 @@ export default class DisplayCanvas extends React.Component {
     await encoder.flush();
     clearInterval(crawl);
 
-    if (includeAudio) {
-      this.setState({ exportProgress: 94 });
-      try {
-        await encodeAudioTrack(audioBuffer, muxer, audioCodec, p => {
-          this.setState({ exportProgress: Math.round(94 + p * 5) });
-        });
-      } catch (e) {
-        console.warn('[Chromaforge] Audio encoding failed:', e);
-        this.setState({ isExporting: false, exportProgress: 0 });
-        alert('Export failed: audio encoding error. Try disabling music in settings.');
-        return;
-      }
-    }
-
     try {
       muxer.finalize();
       this.setState({ exportProgress: 100 });
       const blob = new Blob([target.buffer], { type: 'video/mp4' });
       saveAs(blob, `${FileName()}.mp4`);
-      if (musicEnabled && !includeAudio && audioSkipReason) {
-        alert(`Note: the video was exported WITHOUT music (${audioSkipReason}).`);
-      }
     } catch (e) {
       console.error('[Chromaforge] Export finalize failed:', e);
       alert('Export failed. Please try again.');
@@ -2782,8 +2606,6 @@ export default class DisplayCanvas extends React.Component {
       animationPaused,
       threeDMode,
       threeDDesign,
-      musicEnabled,
-      audioExportSupported,
       speedRamp,
       logoMark,
       exportAspect,
@@ -3490,8 +3312,6 @@ export default class DisplayCanvas extends React.Component {
                     Everything above this point describes the animation itself (what the
                     scene is, how long a loop runs, how it's paced); everything below only
                     affects the FILE that Download produces and changes nothing on screen.
-                    Music belongs here, not up with the scene controls -- previews are
-                    silent, so it has never had any effect except on the exported MP4.
                     The group is marked by a wider gap rather than a heading, which would
                     cost a whole row in a panel Aaron already called cluttered.
 
@@ -3533,22 +3353,6 @@ export default class DisplayCanvas extends React.Component {
                       ))}
                     </select>
                   </div>
-                </div>
-                <div className="settings-field">
-                  <span className="settings-label">
-                    Music
-                    <span className="settings-label-note">
-                      {audioExportSupported ? ' added to the export only' : ' unsupported here'}
-                    </span>
-                  </span>
-                  <button
-                    className={'settings-toggle' + (musicEnabled && audioExportSupported ? ' on' : '')}
-                    onClick={() => audioExportSupported && this.setState({ musicEnabled: !musicEnabled })}
-                    aria-label={!audioExportSupported ? 'Music export not supported in this browser' : musicEnabled ? 'Music on' : 'Music off'}
-                    style={!audioExportSupported ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
-                  >
-                    <span className="settings-toggle-thumb" />
-                  </button>
                 </div>
               </>
             )}
