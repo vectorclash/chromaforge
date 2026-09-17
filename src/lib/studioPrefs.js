@@ -18,6 +18,7 @@
 import {
   DEFAULT_GEOMETRY_SETTINGS,
   STUDIO_DEFAULT_GEOMETRY_CHANCE,
+  STUDIO_DEFAULT_GEOMETRY_SPREAD,
   getGeometrySettings
 } from '../render/designSettings';
 
@@ -86,6 +87,10 @@ function sanitizeGeometry(geometry) {
     pointsMax: Math.max(pointsMin, pointsMax),
     coherence: clampNumber(geometry.coherence, 0, 1, d.coherence),
     size: clampNumber(geometry.size, 0, 1, d.size),
+    // Falls back to the STUDIO default rather than the resolution one, like chance above --
+    // this key is newer than the stored entries it has to read, so an absent value here means
+    // "written before Spread existed", not "deliberately chose the old generator's 0.5".
+    spread: clampNumber(geometry.spread, 0, 1, STUDIO_DEFAULT_GEOMETRY_SPREAD),
     density: clampNumber(geometry.density, 0.1, 1, d.density),
     starsOnTop: geometry.starsOnTop === true
   };

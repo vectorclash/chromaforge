@@ -375,6 +375,33 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // 0.5 stays the fixed boundary between the two so this default is untouched), reproducing
   // the original fixed 0.375 "12.5% margin, fits exactly" full-coherence look byte-for-byte.
   size: 0.5,
+  // How large the CHAOTIC shapes tend to be -- the exact counterpart of `size` above, which
+  // only ever governed the coherent lattice. 0.5 is today's behaviour exactly; higher values
+  // make a design's shapes bigger on average AND make small ones rare, because this is a skew
+  // on the size draw's distribution, not just a multiplier on its result.
+  //
+  // Added 2026-09-17 at Aaron's request ("the average geometry size fills the artwork and
+  // smaller geometric shapes are much more rare"). The chaotic size draw was a flat
+  // `rng() / 3` -- uniform, so the bottom of its range was exactly as likely as the top, and
+  // a design that happened to draw low rendered as a small cluster marooned in the middle of
+  // the canvas. That low tail is the whole complaint: measured over 400 seeds at the studio's
+  // own 3840x2160, the per-design median shape spanned 1.81 short-edges at the 90th percentile
+  // but only 0.43 at the 10th -- a 4x spread, entirely down to one uniform draw.
+  //
+  // It is deliberately a SEPARATE key from `size` rather than an extension of it, and that is
+  // a correctness requirement, not tidiness: `size` is already stored on designs in the
+  // gallery, so widening its meaning would re-render every one of those that carries a
+  // non-default value at less than full coherence. A key that did not exist until now cannot
+  // appear in any stored row, so every existing design resolves to the 0.5 default and is
+  // byte-identical by construction -- which is the only way to make this change without
+  // rewriting artwork customers have already saved (see check-render-regression.mjs).
+  //
+  // Consumes the SAME single rng() draw in the same position (the skew is arithmetic applied
+  // to the value, not an extra draw), so no downstream layer shifts and no GENERATOR_VERSION
+  // bump is needed -- same reasoning as `density` above. Verified by PNG hash across seeds
+  // and sizes. Like `density` it is size-INDEPENDENT, so it cannot reintroduce the v7
+  // mockup/print divergence.
+  spread: 0.5,
   // What fraction of the generated chaotic shapes actually get drawn: 1 = all of them
   // (today's behaviour), lower = a sparser, brighter composition. Only affects the chaotic
   // triangles, not the coherent lattice cells (those are a complete figure -- slicing them
@@ -425,10 +452,12 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // `settings.geometry.frontOnly` key; it's simply never read anymore.
 };
 var LEGACY_GEOMETRY_CHANCE = 0.4;
-var STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.7;
+var STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.9;
+var STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.85;
 var STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
-  chance: STUDIO_DEFAULT_GEOMETRY_CHANCE
+  chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
+  spread: STUDIO_DEFAULT_GEOMETRY_SPREAD
 };
 function getGeometrySettings(settings) {
   const resolved = { ...DEFAULT_GEOMETRY_SETTINGS, chance: LEGACY_GEOMETRY_CHANCE };
@@ -479,7 +508,9 @@ var GenerateGeometricShape = class {
     this.shapeAng = 360 / this.shapeVertices;
     const CHAOTIC_MIN_FRACTION = 150 / REFERENCE_ELEMENT_SIZE_SCALE;
     const chaoticSizeScale = getElementSizeScale(width, height, sizeFrame);
-    const chaoticSize = Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round(rng() * chaoticSizeScale / 3);
+    const spreadExponent = geometry.spread <= 0.5 ? 3 - 4 * geometry.spread : 1 - 1.4 * (geometry.spread - 0.5);
+    const chaoticSizeDraw = Math.pow(rng(), spreadExponent);
+    const chaoticSize = Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round(chaoticSizeDraw * chaoticSizeScale / 3);
     const sizeFactor = geometry.size <= 0.5 ? 0.15 + geometry.size * 0.45 : 0.375 + (geometry.size - 0.5) * 2.85;
     const coherentSize = getFrameSizeScale(width, height, sizeFrame) * sizeFactor / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;

@@ -86,9 +86,11 @@ the actual print, generated the same deterministic way.
   `generateArtwork` persists **`settings.geometry.present: true|false`** and a stated presence
   overrides the draw entirely (the draw is still taken, so the shared sequence never moves).
   `chance` now means exactly one thing everywhere: a probability, live in the studio, never
-  written to storage. Neither field has a second reading. The studio default is **0.7**
-  (`STUDIO_DEFAULT_GEOMETRY_CHANCE`) and is free to move — it cannot reach anything already
-  made. Eight things worth not re-deriving:
+  written to storage. Neither field has a second reading. The studio default is **0.9**
+  (`STUDIO_DEFAULT_GEOMETRY_CHANCE`, 0.4 → 0.7 → 0.9 on 2026-09-17) and is free to move — it
+  cannot reach anything already made. Deliberately not 1: an occasional design with no
+  geometry is part of the range, and pinning it would make the slider's top end
+  indistinguishable from "always". Eight things worth not re-deriving:
   (1) **A stored design contains no geometry DATA to point at** — a row is only
   `{ generatorVersion, seed, colors, settings }`, and `geometryConfig` (megabytes when
   resolved) is regenerated from the seed every render. So the fact has to be written down as a
@@ -235,6 +237,65 @@ the actual print, generated the same deterministic way.
   frontend that can send `density` while Fly still runs the old bundle means the mockup
   shows sparse and the print comes back dense — the exact mockup/print divergence v7 fixed,
   and with no `generatorVersion` change there is no mismatch check to catch it.
+- **`spread` — how big the CHAOTIC shapes are, and the studio default is 0.85 (2026-09-17,
+  Aaron: "the average geometry size fills the artwork and smaller geometric shapes are much
+  more rare").** `settings.geometry.spread` (0–1, DNA default 0.5 ≡ the original generator,
+  studio default `STUDIO_DEFAULT_GEOMETRY_SPREAD` 0.85) skews the chaotic size draw. The old
+  formula was `150/2160 + rng()/3` — **uniform**, so the bottom of the range was exactly as
+  likely as the top and a design that drew low rendered as a small cluster marooned mid-canvas.
+  Surfaced as a **Spread** row directly under Size in the Geometry tab.
+  Seven things worth not re-deriving:
+  (1) **It skews the draw, it does not scale the result, and that is what answers BOTH halves
+  of the request at once.** `chaoticSizeDraw = rng() ** k`, k piecewise-linear about spread 0.5
+  (exactly 1 there; 3 at 0, 0.3 at 1). A concave exponent pushes a uniform variate toward the
+  top of its range, so the mean rises AND the low tail empties; a plain multiplier would have
+  made giants and dwarves equally more likely. **The CEILING is untouched on purpose** — the
+  largest designs were never the complaint, and raising the amplitude would invent a
+  bigger-than-ever regime nothing has been validated against.
+  (2) **It is a NEW key rather than an extension of `size`, and that is a correctness
+  requirement.** `size` governs only the coherent lattice and is inert at coherence 0 (its row
+  shows "—" there), so widening it to cover chaotic shapes was the tempting one-slider fix —
+  but `size` is already stored on gallery designs, and any row carrying a non-default value at
+  less than full coherence would have been re-rendered. A key that did not exist until now
+  cannot appear in any stored row, so **every existing design is byte-identical BY
+  CONSTRUCTION**, not by measurement. That mattered doubly here because this session had no
+  Supabase credentials and no egress to the live site, so `check-render-regression.mjs` could
+  not be run at all — see (7).
+  (3) **No `GENERATOR_VERSION` bump.** Exactly the same single `rng()` draw in the same
+  position (the skew is arithmetic on the value), so no downstream layer moves, and
+  `Math.pow(u, 1)` returns `u` exactly — verified over 200,000 samples — so spread 0.5 is
+  byte-identical rather than merely close. Measured: **259 render-hash comparisons** (8 seeds ×
+  3 palettes × every settings shape a stored design can have — absent, `present` true/false,
+  legacy `chance`, and old-key combinations — at 320², 2000², 3840×2160 and the 3150×5550
+  t-shirt printfile) **0 changed**. Also size-independent, like `density`, so it cannot
+  reintroduce the v7 mockup/print divergence.
+  (3b) **The byte-identity harness was verified to FAIL first**, by feeding a non-default
+  `spread` the baseline bundle does not know about: 65 of 72 renders differ. That run is also a
+  literal demonstration of the deploy hazard in (6).
+  (4) **The numbers, measured over 600 seeds at 3840×2160** — per-design median shape extent as
+  a fraction of the canvas short edge. At the old default: p10 **0.41**, p50 0.94, and **18.5%**
+  of designs had a typical shape covering less than half the short edge. At 0.85: p10 **0.63**,
+  p50 **1.19**, and **3.8%** small. 0.85 rather than the 1.0 ceiling so the slider still has
+  somewhere to go.
+  (5) **`sanitizeGeometry` falls back to the STUDIO default for this key, not the resolution
+  one** — the same exception `chance` already carries, plus one specific to a new key: a
+  returning visitor's `cf-studio:design` entry was written before `spread` existed, so an absent
+  value means "never chose one". Falling back to 0.5 there would pin every existing browser to
+  the old small-shape look permanently, which is the one outcome this change exists to prevent.
+  (6) **Deploy render-service BEFORE the frontend.** It ignores an unknown setting and would
+  render at the old distribution while the mockup showed the new one — and with no version bump
+  there is no mismatch check to catch it. Same hazard as `density`, `mirrorX`, `legSymmetry`,
+  `hatWrap` and `starsOnTop`. No thumbnail backfill (no stored design changes) and no Printful
+  payload change.
+  (7) **`check-render-regression.mjs` HAS NOT BEEN RUN for this change** — the session that made
+  it had no `.env.local` and no network route to Supabase or the live site. The byte-identity
+  argument above is strictly stronger for STORED rows (a key they cannot contain), but run it
+  before deploying anyway: it is the check that reads the real table rather than a fixture, and
+  it is the only thing that would catch a stored row whose shape nobody anticipated.
+  Panel cost, measured on the real build at 320/360/375/390/430/1280: the Geometry tab's content
+  grows **357px → 418px**, and it now scrolls at **320×568 only** (60px hidden, reachable). At
+  360 and up nothing scrolls, the panel fits the viewport at every width, and horizontal
+  overflow is 0 everywhere.
 - **`starsOnTop` — the star/geometry layer-order setting (2026-08-18, Aaron: geometric
   artworks rarely show the stars).** `settings.geometry.starsOnTop` (boolean, default false)
   swaps the star and geometry layers' compositing order in `renderArtwork`. Default order is

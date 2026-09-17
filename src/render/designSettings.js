@@ -32,6 +32,33 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // 0.5 stays the fixed boundary between the two so this default is untouched), reproducing
   // the original fixed 0.375 "12.5% margin, fits exactly" full-coherence look byte-for-byte.
   size: 0.5,
+  // How large the CHAOTIC shapes tend to be -- the exact counterpart of `size` above, which
+  // only ever governed the coherent lattice. 0.5 is today's behaviour exactly; higher values
+  // make a design's shapes bigger on average AND make small ones rare, because this is a skew
+  // on the size draw's distribution, not just a multiplier on its result.
+  //
+  // Added 2026-09-17 at Aaron's request ("the average geometry size fills the artwork and
+  // smaller geometric shapes are much more rare"). The chaotic size draw was a flat
+  // `rng() / 3` -- uniform, so the bottom of its range was exactly as likely as the top, and
+  // a design that happened to draw low rendered as a small cluster marooned in the middle of
+  // the canvas. That low tail is the whole complaint: measured over 400 seeds at the studio's
+  // own 3840x2160, the per-design median shape spanned 1.81 short-edges at the 90th percentile
+  // but only 0.43 at the 10th -- a 4x spread, entirely down to one uniform draw.
+  //
+  // It is deliberately a SEPARATE key from `size` rather than an extension of it, and that is
+  // a correctness requirement, not tidiness: `size` is already stored on designs in the
+  // gallery, so widening its meaning would re-render every one of those that carries a
+  // non-default value at less than full coherence. A key that did not exist until now cannot
+  // appear in any stored row, so every existing design resolves to the 0.5 default and is
+  // byte-identical by construction -- which is the only way to make this change without
+  // rewriting artwork customers have already saved (see check-render-regression.mjs).
+  //
+  // Consumes the SAME single rng() draw in the same position (the skew is arithmetic applied
+  // to the value, not an extra draw), so no downstream layer shifts and no GENERATOR_VERSION
+  // bump is needed -- same reasoning as `density` above. Verified by PNG hash across seeds
+  // and sizes. Like `density` it is size-INDEPENDENT, so it cannot reintroduce the v7
+  // mockup/print divergence.
+  spread: 0.5,
   // What fraction of the generated chaotic shapes actually get drawn: 1 = all of them
   // (today's behaviour), lower = a sparser, brighter composition. Only affects the chaotic
   // triangles, not the coherent lattice cells (those are a complete figure -- slicing them
@@ -107,10 +134,22 @@ export const LEGACY_GEOMETRY_CHANCE = 0.4;
 // generated design records `present`, never the odds, so changing this cannot reach anything
 // already made.
 //
-// 0.7 rather than the historical 0.4 (Aaron, 2026-08-26): the geometry layer is the most
-// distinctive thing the generator does, and at 0.4 the majority of fresh generates arrived
-// without it.
-export const STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.7;
+// 0.9 rather than the historical 0.4 (Aaron, 2026-08-26 raised it to 0.7, 2026-09-17 to 0.9):
+// the geometry layer is the most distinctive thing the generator does, and below this a
+// noticeable share of fresh generates still arrived without it. Deliberately not 1 -- an
+// occasional design with no geometry at all is part of the range, and `chance` still means
+// odds, so pinning it would make the slider's top end indistinguishable from "always".
+export const STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.9;
+
+// The chaotic-shape size the studio's slider starts a fresh session (or a RESET) on. Free to
+// move for exactly the same reason the chance default is: a stored design carries its own
+// `spread`, and one saved before the key existed resolves to DEFAULT_GEOMETRY_SETTINGS.spread
+// (0.5, today's behaviour), so nothing already made can be reached from here.
+//
+// 0.85 rather than the 0.5 that reproduces the original generator: picked from rendered
+// sheets of real seeds rather than from the arithmetic, and deliberately short of the 1.0
+// ceiling so the slider still has somewhere to go.
+export const STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.85;
 
 // What a surface making NEW work starts from: the DNA defaults plus the studio's odds. Read
 // by StudioContext's first design of a session, DisplayCanvas's panel when nothing is stored,
@@ -118,7 +157,8 @@ export const STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.7;
 // getGeometrySettings instead.
 export const STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
-  chance: STUDIO_DEFAULT_GEOMETRY_CHANCE
+  chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
+  spread: STUDIO_DEFAULT_GEOMETRY_SPREAD
 };
 
 // Resolve a design's stored `settings` (possibly missing/partial) to a full geometry
@@ -151,6 +191,12 @@ export function getStudioGeometrySettings(settings) {
   // and neither can carry a design's `present` into the panel), differing only in what an
   // absent chance means: the studio's odds for new work rather than the legacy value.
   if (settings?.geometry?.chance === undefined) resolved.chance = STUDIO_DEFAULT_GEOMETRY_CHANCE;
+  // And the same for spread, for the same reason plus one specific to it being new: a
+  // returning visitor's stored prefs were written before this key existed, so an absent value
+  // there means "never chose one", not "chose the old generator's 0.5". Falling back to the
+  // resolution default instead would pin every existing browser to the old small-shape look
+  // permanently, which is the one outcome this change exists to avoid.
+  if (settings?.geometry?.spread === undefined) resolved.spread = STUDIO_DEFAULT_GEOMETRY_SPREAD;
   return resolved;
 }
 

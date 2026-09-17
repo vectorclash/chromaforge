@@ -86,8 +86,39 @@ export default class GenerateGeometricShape {
     // Consumes the same single rng() draw, so no downstream layer shifts.
     const CHAOTIC_MIN_FRACTION = 150 / REFERENCE_ELEMENT_SIZE_SCALE;
     const chaoticSizeScale = getElementSizeScale(width, height, sizeFrame);
+    // `spread` (see designSettings.js) skews this draw instead of scaling its result, which is
+    // what lets one slider answer both halves of the request it exists for: raising it lifts
+    // the AVERAGE size and makes small shapes RARE, rather than merely stretching the whole
+    // range (which would make giants and dwarves equally more likely).
+    //
+    // The draw stays uniform; the exponent bends it. An exponent below 1 is concave, so it
+    // pushes a uniform variate toward the top of its range -- at spread 1 (exponent 0.3) the
+    // bottom quarter of the range is drawn ~1% of the time against 25% for a flat draw, and
+    // the 10th-percentile design ends up as large as the flat draw's AVERAGE one. Above 1 it
+    // does the opposite, so the slider's lower half is a genuine "keep them small" setting
+    // rather than dead travel.
+    //
+    // Deliberately piecewise-linear about 0.5 with exponent exactly 1 there, the same trick
+    // `size` uses above and for the same reason: 0.5 has to reproduce the original generator
+    // BYTE-for-byte (Math.pow(u, 1) returns u exactly), because that is what every design
+    // saved before this key existed resolves to. A single straight line across [0, 1] could
+    // not put 1.0 at the midpoint without dictating both endpoints.
+    //
+    // The CEILING is untouched on purpose -- only the distribution within the existing range
+    // moves. Raising the amplitude too would have created a bigger-than-ever regime that
+    // nothing has been validated against, and the existing top of the range already fills the
+    // canvas; the problem was never that the largest designs were too small.
+    const spreadExponent =
+      geometry.spread <= 0.5
+        ? 3 - 4 * geometry.spread
+        : 1 - 1.4 * (geometry.spread - 0.5);
+    // Exactly one rng() draw, in the same position as before -- the skew is arithmetic on the
+    // value, never a second draw -- so every layer generated after this one is unmoved. The
+    // two terms stay rounded SEPARATELY for the reason given above.
+    const chaoticSizeDraw = Math.pow(rng(), spreadExponent);
     const chaoticSize =
-      Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round((rng() * chaoticSizeScale) / 3);
+      Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) +
+      Math.round((chaoticSizeDraw * chaoticSizeScale) / 3);
     // At full coherence the lattice radius (shapeSize * shapeDepth, drawn from the canvas
     // centre) is user-controlled via geometry.size: 0.15 * sizeScale (fairly small, ~30%
     // of the short dimension's half) at size=0, up through 0.375 * sizeScale (the original

@@ -3165,6 +3165,37 @@ export default class DisplayCanvas extends React.Component {
                     onCommit={v => this.onGeometrySettingChange({ size: v / 100 })}
                   />
                 </div>
+                {/* Directly under Size because the two are the same question asked of the two
+                    halves of this layer -- Size is how big the coherent lattice is, Spread is
+                    how big the chaotic shapes are -- and their "—" conditions are exact
+                    opposites, so the pair always has exactly one live control at the ends of
+                    the coherence range. Named for the mechanism rather than the look, like
+                    every other row here: it does not promise "bigger", it sets how far the
+                    scattered shapes reach, and the lower half genuinely keeps them small. */}
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Spread
+                    <span className="settings-label-note">
+                      {' '}
+                      {/* Same "—" treatment as Density, and for the identical reason: at full
+                          coherence no chaotic shapes survive, so this genuinely does nothing
+                          and shouldn't imply otherwise. */}
+                      {geometrySettings.coherence >= 1
+                        ? '—'
+                        : `${Math.round(geometrySettings.spread * 100)}%`}
+                    </span>
+                  </span>
+                  <SettingsRange
+                    className="settings-range"
+                    min="0"
+                    max="100"
+                    value={Math.round(geometrySettings.spread * 100)}
+                    style={{ '--range-fill': `${Math.round(geometrySettings.spread * 100)}%` }}
+                    aria-label="Geometry spread"
+                    onDrag={v => this.onGeometrySettingChange({ spread: v / 100 }, false)}
+                    onCommit={v => this.onGeometrySettingChange({ spread: v / 100 })}
+                  />
+                </div>
                 <div className="settings-field">
                   <span className="settings-label">
                     Density
