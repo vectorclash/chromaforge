@@ -19,6 +19,7 @@ import {
   DEFAULT_GEOMETRY_SETTINGS,
   STUDIO_DEFAULT_GEOMETRY_CHANCE,
   STUDIO_DEFAULT_GEOMETRY_SPREAD,
+  STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
   getGeometrySettings
 } from '../render/designSettings';
 
@@ -92,7 +93,15 @@ function sanitizeGeometry(geometry) {
     // "written before Spread existed", not "deliberately chose the old generator's 0.5".
     spread: clampNumber(geometry.spread, 0, 1, STUDIO_DEFAULT_GEOMETRY_SPREAD),
     density: clampNumber(geometry.density, 0.1, 1, d.density),
-    starsOnTop: geometry.starsOnTop === true
+    // `=== true` would be wrong here for the same reason it is wrong in
+    // getStudioGeometrySettings: it collapses "written before this defaulted on" and
+    // "deliberately switched off" into one value, so the toggle could never be turned off
+    // across a reload once the studio default became true. An explicit boolean is honoured
+    // either way round; only an absent key takes the studio default.
+    starsOnTop:
+      typeof geometry.starsOnTop === 'boolean'
+        ? geometry.starsOnTop
+        : STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
   };
 }
 

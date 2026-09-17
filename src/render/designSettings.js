@@ -161,6 +161,28 @@ export const STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.9;
 // back.
 export const STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.7;
 
+// Whether the studio starts a fresh session (or a RESET) with the stars composited ON TOP of
+// the geometry layer. True since 2026-09-17, and it is the direct consequence of the Spread
+// default above: STUDIO_DEFAULT_GEOMETRY_SPREAD makes a typical fresh design's shapes span
+// well over a whole short edge, and a figure that large is exactly the case the starsOnTop
+// toggle was added for in the first place (see DEFAULT_GEOMETRY_SETTINGS.starsOnTop -- "a
+// large or high-coherence figure covers most of the canvas, so the stars underneath are lost
+// entirely"). Raising Spread without this would have made the star field invisible on most
+// new work, which is the opposite of what v10's whole contrast rework was for.
+//
+// This is a STUDIO default, NOT a change to DEFAULT_GEOMETRY_SETTINGS.starsOnTop, and the
+// distinction is a correctness requirement rather than a matter of taste. starsOnTop is part
+// of a design's IDENTITY -- persisted, compared by isSameDesign -- so an absent key on a
+// stored row resolves through the DNA default, and flipping THAT would re-composite every
+// design already in the gallery. A studio default cannot reach anything already made, the
+// same property that makes `chance` and `spread` free to move.
+//
+// Deliberately not derived from the live Spread value at generate time, which is the tempting
+// version: the panel's settings are the input to the NEXT generate, so a toggle that moved
+// itself would both surprise the user and make the studio's state depend on its own output.
+// It is an ordinary default that a single click undoes.
+export const STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP = true;
+
 // What a surface making NEW work starts from: the DNA defaults plus the studio's odds. Read
 // by StudioContext's first design of a session, DisplayCanvas's panel when nothing is stored,
 // and RESET. Every path that reproduces a STORED design resolves through
@@ -168,7 +190,8 @@ export const STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.7;
 export const STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
   chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
-  spread: STUDIO_DEFAULT_GEOMETRY_SPREAD
+  spread: STUDIO_DEFAULT_GEOMETRY_SPREAD,
+  starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
 };
 
 // Resolve a design's stored `settings` (possibly missing/partial) to a full geometry
@@ -207,6 +230,12 @@ export function getStudioGeometrySettings(settings) {
   // resolution default instead would pin every existing browser to the old small-shape look
   // permanently, which is the one outcome this change exists to avoid.
   if (settings?.geometry?.spread === undefined) resolved.spread = STUDIO_DEFAULT_GEOMETRY_SPREAD;
+  // Same again for the layer order. Tested for `undefined` specifically, never for
+  // falsiness: a user who has turned the toggle OFF has stored a real `false`, and that has
+  // to survive -- coercing it would make the control impossible to switch off across a
+  // reload. (studioPrefs' sanitiser carries the same distinction, for the same reason.)
+  if (settings?.geometry?.starsOnTop === undefined)
+    resolved.starsOnTop = STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP;
   return resolved;
 }
 

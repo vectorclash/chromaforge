@@ -305,11 +305,53 @@ the actual print, generated the same deterministic way.
   there is no mismatch check to catch it. Same hazard as `density`, `mirrorX`, `legSymmetry`,
   `hatWrap` and `starsOnTop`. No thumbnail backfill (no stored design changes) and no Printful
   payload change.
-  (7) **`check-render-regression.mjs` HAS NOT BEEN RUN for this change** — the session that made
-  it had no `.env.local` and no network route to Supabase or the live site. The byte-identity
-  argument above is strictly stronger for STORED rows (a key they cannot contain), but run it
-  before deploying anyway: it is the check that reads the real table rather than a fixture, and
-  it is the only thing that would catch a stored row whose shape nobody anticipated.
+  (7) **`check-render-regression.mjs` has now been RUN and passes** — 101 stored designs x 3
+  sizes, 0 changed, 0 geometry lost or gained (2026-09-16, from a checkout with real
+  credentials; the session that originally wrote this change had no `.env.local` and could not
+  reach Supabase, and this note used to say so). The committed `render-service/generated/
+  render-lib.js` was also confirmed byte-identical to a real `npm run build`, i.e. a genuine
+  build rather than a hand-edited bundle — worth checking on any branch written somewhere the
+  build could not run.
+  (8) **It makes the Geometry tab scroll at 320x568 for the first time.** Measured on the real
+  built panel, the new row takes the scroller 357px to **418px** against 358px of height, hiding
+  **60px**; at 360px and up it still fits exactly, and horizontal overflow is 0 at every width.
+  Reachable by scrolling and consistent with the Color tab, which already crosses that line at
+  320 — but this is the second tab to do so, and panel HEIGHT is the scarce axis on this panel
+  (see the `starsOnTop` row's note on why the sliders shrink rather than stack).
+
+- **The studio starts with **Stars in front** ON — `STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP`
+  (2026-09-17, Aaron, immediately after the Spread default above: "any large geometry should
+  have the stars in front setting on").** It is the direct consequence of that default rather
+  than an independent taste call: at spread 0.7 a typical fresh design's shapes span well over a
+  whole short edge, which is precisely the case the toggle was added for in 2026-08 ("a large or
+  high-coherence figure covers most of the canvas, so the stars underneath are lost entirely").
+  Raising Spread without this would have buried the star field on most new work — the opposite
+  of what v10's whole contrast rework existed to achieve.
+  Three things worth not re-deriving:
+  (1) **It is a STUDIO default, NOT a change to `DEFAULT_GEOMETRY_SETTINGS.starsOnTop`, and that
+  is a correctness requirement.** `starsOnTop` is part of a design's IDENTITY — persisted,
+  compared by `isSameDesign` — so an absent key on a stored row resolves through the DNA default,
+  and flipping THAT would re-composite every design already in the gallery. A studio default
+  cannot reach anything already made, which is the same property that makes `chance` and `spread`
+  free to move. Verified both directions: the stored-design resolver still returns `false` for an
+  absent key, an explicit `true` still returns `true`, and `check-render-regression.mjs` passes
+  on all 101 rows with 0 changed.
+  (2) **Never test this key for falsiness — only for `undefined`.** Once the studio default is
+  true, `geometry.starsOnTop === true` (which is what `sanitizeGeometry` used to do) collapses
+  "written before this defaulted on" and "deliberately switched off" into the same value, so the
+  toggle could never be turned off across a reload. Both `getStudioGeometrySettings` and
+  `sanitizeGeometry` now distinguish the two. Verified in a real browser: a fresh session shows
+  it on, clicking it off survives a reload, and a `cf-studio:design` entry written before the key
+  existed comes back on.
+  (3) **Deliberately not DERIVED from the live Spread value at generate time**, which is the
+  tempting version. The panel's settings are the input to the NEXT generate, so a toggle that
+  moved itself would both surprise the user and make the studio's state depend on its own output
+  — the same hazard `getGeometrySettings`'s whitelist exists to prevent. It is an ordinary
+  default that one click undoes.
+  Note `getGenerationSettings` ("generate more like this") still takes `starsOnTop` from the
+  design being looked at, not from the studio default — correct, since it also takes that
+  design's `spread`, so a gallery row with small shapes keeps its stars behind them as a
+  matching pair.
   Panel cost, measured on the real build at 320/360/375/390/430/1280: the Geometry tab's content
   grows **357px → 418px**, and it now scrolls at **320×568 only** (60px hidden, reachable). At
   360 and up nothing scrolls, the panel fits the viewport at every width, and horizontal
