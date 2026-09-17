@@ -352,6 +352,41 @@ the actual print, generated the same deterministic way.
   design being looked at, not from the studio default — correct, since it also takes that
   design's `spread`, so a gallery row with small shapes keeps its stars behind them as a
   matching pair.
+
+- **The Geometry tab's three size/amount sliders each relate to `coherence` DIFFERENTLY, and
+  Density's readout was lying about it (2026-09-17, Aaron: "density seems to do nothing unless
+  coherence is very very low").** He was right, and the number is exact:
+  `GenerateGeometricShape` keeps `min(round(n * density), round(n * (1 - coherence)))` chaotic
+  shapes, so **the density term stops being the binding one at `density >= 1 - coherence`** —
+  density 0.9 is inert above coherence 0.10, 0.8 above 0.20. Verified against a real
+  coherence x density grid: the formula reproduces all **70** cells exactly.
+  The three relationships, measured end-to-end on the slider (median shape span, 40 seeds):
+  **Size** fades IN with coherence (0% effect at coherence 0, +1101% at 1); **Spread** fades OUT
+  (+603% at 0, 0% at 1) — exact mirrors, continuous, and each already dashes at the end where it
+  truly dies; **Density** is neither, dying at a CLIFF whose position moves with its own value.
+  That is why it felt arbitrary where the other two merely feel entangled.
+  **The readout now shows `min(density, 1 - coherence)` — the fraction actually KEPT, not the
+  slider's own value** — dashing only at coherence 1, where no chaotic shape survives at all.
+  Two wrong versions were written first and both are worth not repeating:
+  (1) `coherence >= 1`, copied from Size and Spread, is what caused the complaint — it showed a
+  live percentage for an already-inert control across most of the range.
+  (2) `density >= 1 - coherence` looks like the obvious fix and is wrong TWICE: it dashes at the
+  **default state** (coherence 0, density 1), where the control is perfectly live and merely
+  happens to be removing nothing; and it treats a dead ZONE as a dead CONTROL — at coherence 0.5
+  the top half of the slider does nothing while the bottom half still works, so a dash claims it
+  is finished when it is not. Caught by checking the predicate against the default before
+  trusting it, not by looking at the panel.
+  Showing `min()` fixes both: 100% at the default, it responds the moment density becomes the
+  binding term, and through a dead zone it simply holds still — which IS the honest answer and
+  shows where the live range starts instead of hiding it. Verified against real generator output
+  across **210** coherence x density combinations: the readout tracks the shapes actually drawn
+  everywhere, holds at 50% through density 1.0 -> 0.5 at coherence 0.5 (11 of 22 kept throughout),
+  then falls with it.
+  **READOUT ONLY.** The `min()` composition is deliberate ("coherence still wins; density can
+  only ever remove more, never add back") and is what every stored design was rendered under, so
+  changing it would rewrite saved artwork. No render path is touched: panel geometry is
+  byte-identical at all five phone viewports, and `check-render-regression.mjs` passes on 101
+  designs with 0 changed.
   Panel cost, measured on the real build at 320/360/375/390/430/1280: the Geometry tab's content
   grows **357px → 418px**, and it now scrolls at **320×568 only** (60px hidden, reachable). At
   360 and up nothing scrolls, the panel fits the viewport at every width, and horizontal

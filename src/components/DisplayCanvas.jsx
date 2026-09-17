@@ -3201,13 +3201,41 @@ export default class DisplayCanvas extends React.Component {
                     Density
                     <span className="settings-label-note">
                       {' '}
-                      {/* Mirror of Size's "—" treatment, opposite condition: Size only bites
-                          at coherence > 0, Density only bites while chaotic shapes still
-                          survive -- at full coherence none do, so the slider genuinely does
-                          nothing and shouldn't imply otherwise. */}
+                      {/* Shows the fraction of chaotic shapes actually KEPT, which is not
+                          the same as the slider's own value, and deliberately so.
+                          GenerateGeometricShape caps them at `min(round(n * density),
+                          round(n * (1 - coherence)))`, so past a point the coherence term is
+                          the smaller one and moving this slider changes nothing -- density
+                          0.9 stops mattering above coherence 0.10, 0.8 above 0.20. Reported
+                          live (Aaron, 2026-09-17: "density seems to do nothing unless
+                          coherence is very very low"), which is exactly right; the panel was
+                          showing a live percentage for a control that was already inert.
+                          Verified against a real coherence x density grid -- the min()
+                          formula reproduces all 70 cells exactly.
+                          Two wrong versions were written first, and both are worth not
+                          repeating. Dashing on `coherence >= 1` (Size's and Spread's
+                          condition) is what caused the complaint. But dashing on
+                          `density >= 1 - coherence` is ALSO wrong, in two ways: it dashes at
+                          the DEFAULT state (coherence 0, density 1), where the control is
+                          perfectly live and simply happens to be removing nothing; and it
+                          treats a dead ZONE as a dead CONTROL -- at coherence 0.5 the top
+                          half of this slider does nothing while the bottom half still works,
+                          so a dash would claim it is finished when it is not.
+                          Showing min() itself solves both: at the default it reads 100%, it
+                          responds the moment the density term becomes the binding one, and in
+                          a dead zone it simply holds still -- which IS the honest answer, and
+                          shows the user where the live range starts instead of hiding it.
+                          Consistent with this tab's convention that the note slot is a value
+                          readout rather than prose.
+                          READOUT ONLY. The min() composition is deliberate ("coherence still
+                          wins; density can only ever remove more, never add back") and is what
+                          every stored design was rendered under, so touching it would rewrite
+                          saved artwork. */}
                       {geometrySettings.coherence >= 1
                         ? '—'
-                        : `${Math.round(geometrySettings.density * 100)}%`}
+                        : `${Math.round(
+                            Math.min(geometrySettings.density, 1 - geometrySettings.coherence) * 100
+                          )}%`}
                     </span>
                   </span>
                   <SettingsRange
