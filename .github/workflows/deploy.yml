@@ -30,6 +30,45 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          # playwright is a real devDependency -- four scripts/check-*.mjs files import it, and
+          # before it was declared they broke on any fresh `npm ci`. But its postinstall
+          # downloads ~300MB of browsers, and none of the gates below drive a browser (the
+          # Playwright checks are a pre-release pass, not a per-push one), so CI skips it.
+          # Anyone running those checks locally needs `npx playwright install chromium webkit`.
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      # GATES. These run BEFORE the build, so a push that would ship a broken site fails here
+      # rather than at the rsync. Each one exists because of a specific incident, and each was
+      # verified to FAIL on the commit that caused it before being trusted:
+      #
+      #   typecheck   tsc --checkJs over the existing .js/.jsx (no TypeScript migration -- see
+      #               tsconfig.check.json). Catches undefined references, which is how a
+      #               re-export that does not bind locally broke every mockup preview on
+      #               2026-09-17 with a completely clean build.
+      #   lint        react-hooks/rules-of-hooks, which catches a hook added below an early
+      #               return -- React #310 on every product page, also with no build output.
+      #   re-export   the narrower static check for that same 2026-09-17 bug.
+      #   density     asserts a mockup composes the same piece as the print file it stands in
+      #               for, for every product placement. Needs no secrets and no network.
+      #
+      # NOT gated here, deliberately: check-render-regression.mjs is SUPPOSED to fail whenever
+      # the generator is changed on purpose (it did for v14), so gating on it would mean either
+      # never touching the renderer or routinely overriding the gate, which teaches people to
+      # ignore it. It stays a manual step in the deploy sequence. The Playwright checks
+      # (routes-smoke, hero-build-race) are also left out: they need a browser download and hit
+      # live Supabase and Printful, so they belong in a pre-release pass rather than on every
+      # push.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Static checks
+        run: |
+          node scripts/check-reexport-bindings.mjs
+          node scripts/check-render-density.mjs
 
       - name: Build
         run: npm run build

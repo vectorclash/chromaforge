@@ -173,6 +173,10 @@ export default class GenerateStarField {
     // correct -- their palette is their choice, not something to sweep.
     const SPECTRUM_CHANCE = 0.14;
     const spectrum = starRng() < SPECTRUM_CHANCE;
+    // Typed loosely because every Generate* class returns a plain config object from its
+    // CONSTRUCTOR rather than an instance (see GenerateGeometricShape's note at its return),
+    // so tsc types this as the class and rejects the config's own fields. Comment only.
+    /** @type {any} */
     let gradientConfig = new GenerateLinearGradient(
       width,
       height,

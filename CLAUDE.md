@@ -2620,6 +2620,61 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
 
+### The deploy is gated, and the gates are cheap on purpose (2026-09-17)
+
+```
+npm run typecheck   # tsc --checkJs over the existing .js/.jsx -- NO TypeScript migration
+npm run lint        # eslint, two rules that each map to a real outage
+npm run check       # both of the above plus the two secret-free static checks
+```
+
+`.github/workflows/deploy.yml` runs typecheck, lint, `check-reexport-bindings` and
+`check-render-density` **before** the build, so a push that would ship a broken site fails there
+rather than at the rsync. Prompted by Aaron after the mockup-preview outage: "should we switch
+to typescript at some point? ... or maybe have a full testing suite".
+
+**The answer to both was "something cheaper", and the evidence is worth keeping.**
+- **`tsc --checkJs` needs no migration** — it type-checks the existing JavaScript. Pointed at the
+  broken commit it reports the outage exactly: `error TS2304: Cannot find name
+  'capMockupRenderSize'` on both call sites. Getting the whole of `src/**/*.js` to **zero errors
+  took one afternoon**: an ambient `types/globals.d.ts` for `window.createjs`, `vite/client` for
+  `import.meta.env`, and six JSDoc annotations. Deliberately NOT strict — `noImplicitAny` and
+  `strictNullChecks` are off, because the goal is undefined references, not a gradual-typing
+  programme, and a gate reporting thousands of findings is one that gets ignored.
+- **A full TS migration was considered and rejected.** Against the ~40 incidents in this file the
+  ones a type system catches are the CHEAP ones (`alpha = rng().toFixed(2)` as a string,
+  tinycolor objects reaching `addColorStop`, this re-export). The expensive ones are all
+  semantic — a mockup lying about a print, a star layer drawing from the shared rng and stripping
+  13 designs of their geometry, a seam not closing, a blend dimming a layer — and types are blind
+  to every one. A migration also means editing byte-sensitive render code, where an accidental
+  change rewrites saved artwork. Bad trade; `checkJs` gets the catchable part for a fraction of it.
+- **A test suite gating deploys would NOT have caught the outage**, which is the more useful
+  finding. There were already 11 check scripts and none of them exercised `capRenderStrategy`,
+  because it only runs when a signed-in user clicks Generate. The gap was never "more tests of the
+  expensive kind" — it was that a whole class of code only runs on click.
+
+Four things worth not re-deriving:
+(1) **`check-render-regression.mjs` is deliberately NOT gated.** It is SUPPOSED to fail when the
+generator changes on purpose (it did for v14), so gating on it means either never touching the
+renderer or routinely overriding the gate — which teaches people to ignore it. Manual step.
+(2) **The Playwright checks are not gated either**: they need a ~300MB browser download and hit
+live Supabase and Printful. They are a pre-release pass. CI sets
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` on `npm ci` so it never pays for them.
+(3) **`playwright` is now a real devDependency, and was not before** — four `scripts/check-*.mjs`
+files imported it while nothing declared it, so they broke on any fresh `npm ci`. Found by
+running one after an unrelated `npm i` pruned it. **Local runs need
+`npx playwright install chromium webkit` once.**
+(4) **Both rules in `eslint.config.js` map to a real outage**, and each was verified by injecting
+the bug: `no-undef` for the re-export, and `react-hooks/rules-of-hooks` for a hook added below
+ProductPage's early return — injecting one there reports *"React Hook \"useRef\" is called
+conditionally"* and exits 1. `exhaustive-deps` is a WARNING on purpose: several effects here omit
+dependencies deliberately, so failing on it would mean bad changes or a wall of suppressions.
+Everything else in `js.configs.recommended` that fires widely on working code is off — this is a
+gate, not a style programme, and prettier already owns formatting.
+**The annotations changed no output**: `check-render-regression.mjs` passes on all 101 stored
+designs with 0 changed, which is the check that matters since two of the annotated files are
+generators.
+
 ### A re-export does not bind the name locally (`scripts/check-reexport-bindings.mjs`, 2026-09-17)
 
 ```

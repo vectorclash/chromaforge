@@ -1,0 +1,33 @@
+{
+  // TYPE-CHECKING ONLY -- this project is JavaScript and stays JavaScript. There is no build
+  // step here and no .ts files: `npm run typecheck` runs tsc over the existing .js/.jsx with
+  // checkJs, purely to catch the class of bug a bundler cannot see.
+  //
+  // It exists because of a live outage on 2026-09-17: lib/printful.js re-exported
+  // capMockupRenderSize with `export { x } from '...'` while still calling it, which does not
+  // bind the name locally. Valid syntax, clean build, and every mockup preview on the store
+  // failed. Run against that commit this config reports it exactly:
+  //   src/lib/printful.js(856,31): error TS2304: Cannot find name 'capMockupRenderSize'.
+  //
+  // Deliberately NOT strict. noImplicitAny and strictNullChecks are off because the goal is
+  // undefined references and obvious shape errors, not a gradual-typing programme. Turning
+  // them on would produce thousands of findings and the gate would be ignored, which is worse
+  // than not having it.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "module": "esnext",
+    "target": "es2022",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "allowImportingTsExtensions": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.js", "types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist"]
+}

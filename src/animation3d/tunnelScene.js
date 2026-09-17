@@ -534,6 +534,11 @@ function buildGeometricTunnel(rng, geometry, uWarpStart, L) {
   // Ring list: clustered spacing (rings clump and gap per the zone's spacingVar), plus
   // 1–2 "gates" — several rings packed 2.2 units apart with dense chord webs, the 2D
   // vector-equilibrium look as a flythrough set-piece.
+  // Built in two passes: pushed as { z, gate, outer } here, then given zone/sides/step/ang0/r
+  // below once the zone walk knows them. tsc infers the element type from the first literal and
+  // rejects the later additions, so the shape is declared loosely rather than restructuring a
+  // working generator. Comment only -- no runtime effect.
+  /** @type {any[]} */
   const rings = []; // { z, sides, step, ang0, r, zone, gate, outer, start }
   {
     const baseCount = Math.round((30 + Math.floor(rng() * 10)) * lenScale);

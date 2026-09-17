@@ -1054,6 +1054,9 @@ export async function unwrapFunctionsError(error) {
     const status = error?.context?.status;
     const body = await error.context.json();
     const message = body?.error?.message || body?.error || body?.message || error.message;
+    // Typed loosely because it deliberately carries fields Error does not declare -- see the
+    // note below on why callers need them.
+    /** @type {any} */
     const wrapped = new Error(message);
     // Surfaced so callers can react to rate limiting specifically -- e.g. printful-mockup's
     // POST gate (per-user AND Printful's own store-wide cap, see that function's header

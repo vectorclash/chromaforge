@@ -23,16 +23,25 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "format": "prettier --write \"src/**/*.{js,jsx,json,css,scss}\""
+    "format": "prettier --write \"src/**/*.{js,jsx,json,css,scss}\"",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "lint": "eslint .",
+    "check": "npm run typecheck && npm run lint && node scripts/check-reexport-bindings.mjs && node scripts/check-render-density.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.0.5",
     "baseline-browser-mapping": "^2.11.12",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "playwright": "^1.63.0",
     "prettier": "^3.9.6",
     "sass-embedded": "^1.100.0",
     "supabase": "^2.111.0",
     "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
     "vite": "^8.2.0"
   }
 }

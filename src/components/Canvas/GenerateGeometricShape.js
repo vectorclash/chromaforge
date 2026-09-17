@@ -257,6 +257,11 @@ export default class GenerateGeometricShape {
       }
     }
 
+    // Every Generate* class returns its config object from the constructor rather than an
+    // instance. tsc objects (a constructor's return must be assignable to the instance type),
+    // but this is the pattern the whole render pipeline is built on and rewriting it would
+    // touch code where any behavioural change rewrites saved artwork. Suppressed, not fixed.
+    // @ts-expect-error -- constructor deliberately returns a config object, not an instance.
     return config;
   }
 

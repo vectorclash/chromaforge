@@ -144,8 +144,12 @@ function chooseKind(rng, lightness, bias, midShare) {
   if (midShare && rng() < midShare) return 'mid';
   return rng() < lerp(bias[0], bias[1], Math.max(0, Math.min(1, lightness))) ? 'dark' : 'light';
 }
-const pick = (rng, [lo, hi]) => lerp(lo, hi, rng());
-const pickInt = (rng, [lo, hi]) => Math.round(pick(rng, [lo, hi]));
+// `range` is indexed rather than destructured purely so tsc accepts FILL's constants, which
+// infer as number[] rather than a [lo, hi] tuple. Behaviour is identical.
+/** @param {number[]} range - a [lo, hi] pair. */
+const pick = (rng, range) => lerp(range[0], range[1], rng());
+/** @param {number[]} range - see pick above. */
+const pickInt = (rng, range) => Math.round(pick(rng, range));
 
 // Where a point falls along the gradient axis, 0..1 -- so a facet can be tinted with the
 // colour actually underneath it.
