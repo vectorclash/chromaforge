@@ -156,11 +156,7 @@ var GenerateLinearGradient = class {
 // ../src/render/scale.js
 var REFERENCE_WIDTH = 3840;
 var REFERENCE_HEIGHT = 2160;
-var REFERENCE_AREA = REFERENCE_WIDTH * REFERENCE_HEIGHT;
 var REFERENCE_ELEMENT_SIZE_SCALE = Math.min(REFERENCE_WIDTH, REFERENCE_HEIGHT);
-function getCountScale(width, height) {
-  return Math.sqrt(width * height / REFERENCE_AREA);
-}
 function getSizeScale(width, height) {
   return Math.min(width, height);
 }
@@ -187,7 +183,6 @@ var GenerateLargeRadialField = class {
     config.height = height;
     config.radGradSize = getSizeScale(width, height) / 2;
     let amount = 2 + Math.round(rng() * 8);
-    let keepAmount = Math.max(1, Math.round(amount * getCountScale(width, height)));
     let radGradients = [];
     for (let i = 0; i < amount; i++) {
       let radGrad = {};
@@ -204,7 +199,7 @@ var GenerateLargeRadialField = class {
       }
       radGradients.push(radGrad);
     }
-    config.radGradients = radGradients.slice(0, keepAmount);
+    config.radGradients = radGradients;
     return config;
   }
 };
@@ -263,7 +258,6 @@ var GenerateStarField = class {
     config.width = width;
     config.height = height;
     let sizeScale = getElementSizeScale(width, height, sizeFrame);
-    let countScale = getCountScale(width, height);
     let gradientComplexity = Math.round(rng() * 4);
     const starHueBias = backgroundHue === null ? null : (backgroundHue + 180 + (rng() - 0.5) * 60 + 360) % 360;
     const SPECTRUM_CHANCE = 0.14;
@@ -299,7 +293,7 @@ var GenerateStarField = class {
       let ranY = Math.round(-100 + r() * height + 100);
       xlStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
-    stars.push(...xlStars.slice(0, Math.max(1, Math.round(XL_TOTAL * countScale))));
+    stars.push(...xlStars);
     let largeStarSizeMax = sizeScale / (abundant ? 7 : 14);
     let largeStarSizeMin = sizeScale / 200;
     let largeStars = [];
@@ -310,7 +304,7 @@ var GenerateStarField = class {
       let ranY = Math.round(-100 + r() * height + 100);
       largeStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-large" });
     }
-    stars.push(...largeStars.slice(0, Math.max(1, Math.round(LARGE_TOTAL * countScale))));
+    stars.push(...largeStars);
     let mediumStarSizeMax = sizeScale / 130;
     let mediumStarSizeMin = sizeScale / 3e3;
     let mediumStars = [];
@@ -321,7 +315,7 @@ var GenerateStarField = class {
       let ranY = Math.round(-100 + r() * height + 100);
       mediumStars.push({ x: ranX, y: ranY, size: ranSize, image: "star-small" });
     }
-    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(MEDIUM_TOTAL * countScale))));
+    stars.push(...mediumStars);
     let smallStarChance = rng();
     let smallStarAmount;
     if (smallStarChance < 0.7) {
@@ -331,7 +325,7 @@ var GenerateStarField = class {
     } else {
       smallStarAmount = Math.round(5e3 + rng() * 1e5);
     }
-    config.smallStarAmount = Math.max(1, Math.round(smallStarAmount * countScale));
+    config.smallStarAmount = smallStarAmount;
     let smallStars = [];
     let smallStarSizeMax = sizeScale / FINE_SIZE_DIVISOR;
     let smallStarSizeMin = sizeScale / 5e3;
@@ -683,7 +677,7 @@ var GenerateGeometricShape = class {
 };
 
 // ../src/render/generateArtwork.js
-var GENERATOR_VERSION = 13;
+var GENERATOR_VERSION = 14;
 var BLEND_MODES = [
   "screen",
   "overlay",

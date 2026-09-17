@@ -1,5 +1,5 @@
 import GenerateLinearGradient from './GenerateLinearGradient';
-import { getCountScale, getElementSizeScale } from '../../render/scale';
+import { getElementSizeScale } from '../../render/scale';
 import { contrastPalette, makeRng } from '../../render/prng';
 import { valueNoise } from '../../render/valueNoise';
 
@@ -117,18 +117,26 @@ export default class GenerateStarField {
     // different value fed into each), so it's safe on its own.
     let sizeScale = getElementSizeScale(width, height, sizeFrame);
 
-    // Counts scale by area so a thumbnail doesn't get literally the same star counts as a
-    // print (the original bug) -- but the loops below always run their ORIGINAL fixed trip
-    // count (see the _BASE/_TOTAL constants above, plus tiered-small) and only KEEP a
-    // size-scaled subset of what gets generated. This is deliberate: if the loop trip count
-    // itself varied by size, rng() consumption would too, which shifts every downstream
-    // draw (geometryChance, overlayChance, etc.) -- meaning the same seed could gain or
-    // lose an entire geometry-shape layer purely depending on what size it's rendered at,
-    // breaking the recompose-per-ratio guarantee that a mockup and its print are the same
-    // underlying piece. Confirmed live: this was exactly what happened before this fix.
-    // Sizes at/above the reference resolution keep everything generated (unchanged density
-    // from before); only smaller canvases keep a reduced subset.
-    let countScale = getCountScale(width, height);
+    // COUNTS ARE SIZE-INDEPENDENT (v14, 2026-09-17). Every star this class generates is kept,
+    // at every canvas size. The loops already ran their ORIGINAL fixed trip count and only the
+    // KEPT subset was scaled -- so removing the slice consumes exactly the same rng() draws and
+    // shifts nothing downstream (geometryChance, overlayChance, every blend roll are untouched).
+    //
+    // The slice it replaces dated from v3, where counts scaled by canvas area so a 320px
+    // thumbnail wouldn't get a print's star count. That reasoning was about a render being
+    // viewed at its own size -- but a MOCKUP is not viewed at its own size, it stands in for a
+    // print. Mockups render through capMockupRenderSize while print files render at true
+    // printfile dimensions, so the slice made the preview a customer approves systematically
+    // sparser than the garment they receive. Measured across the live table: star counts
+    // differed between the two on 101 of 101 stored designs, and radial-field blobs on 61.
+    // v7 had already removed exactly this from the geometry layer and stated the rule while
+    // doing it -- "density must never vary by resolution or a mockup lies about the print" --
+    // and this finishes the job for the two layers it left behind.
+    //
+    // The density floor (DISPLAY_RENDER_CAP / renderDesignBlob's highDensity) is NOT redundant
+    // now and should stay: it no longer buys density, but drawing thousands of sub-pixel specks
+    // at 640px aliases where the same field rendered at 2000px and downscaled resolves cleanly.
+    // Its justification is antialiasing, not element count -- worth knowing before anyone trims it.
 
     let gradientComplexity = Math.round(rng() * 4);
     // When there's no user palette, this layer's own gradient is deliberately biased away
@@ -223,8 +231,8 @@ export default class GenerateStarField {
     let xlStarSizeMin = sizeScale / 40;
     let xlStars = [];
 
-    // Counts are still FIXED, size-independent trip counts -- the countScale slice below is
-    // what varies with canvas size, exactly as before.
+    // Trip counts are FIXED and size-independent, and as of v14 so is what survives -- every
+    // star generated here is kept at every canvas size.
     //
     // The first XL_BASE stars draw from the shared `rng`, in the same order and count as v9,
     // and every star beyond that draws from starRng. That is what keeps the main sequence
@@ -239,7 +247,7 @@ export default class GenerateStarField {
 
       xlStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-large' });
     }
-    stars.push(...xlStars.slice(0, Math.max(1, Math.round(XL_TOTAL * countScale))));
+    stars.push(...xlStars);
 
     let largeStarSizeMax = sizeScale / (abundant ? 7 : 14);
     let largeStarSizeMin = sizeScale / 200;
@@ -253,7 +261,7 @@ export default class GenerateStarField {
 
       largeStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-large' });
     }
-    stars.push(...largeStars.slice(0, Math.max(1, Math.round(LARGE_TOTAL * countScale))));
+    stars.push(...largeStars);
 
     // The fine tier -- 450 of these are what "many more stars" actually looks like, so they
     // stay small and are skewed hardest of the three.
@@ -269,7 +277,7 @@ export default class GenerateStarField {
 
       mediumStars.push({ x: ranX, y: ranY, size: ranSize, image: 'star-small' });
     }
-    stars.push(...mediumStars.slice(0, Math.max(1, Math.round(MEDIUM_TOTAL * countScale))));
+    stars.push(...mediumStars);
 
     let smallStarChance = rng();
     let smallStarAmount;
@@ -282,7 +290,7 @@ export default class GenerateStarField {
       smallStarAmount = Math.round(5000 + rng() * 100000);
     }
 
-    config.smallStarAmount = Math.max(1, Math.round(smallStarAmount * countScale));
+    config.smallStarAmount = smallStarAmount;
 
     // Fine star layer — previously generated with Math.random() at render time, which made
     // the same design render differently every time. Now seeded and resolved here so the

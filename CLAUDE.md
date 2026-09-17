@@ -38,7 +38,7 @@ the actual print, generated the same deterministic way.
 - `src/render/generateArtwork.js` / `src/render/renderArtwork.js` — pure, React-free
   generation/compositing, so the same code can eventually run server-side (Node/headless)
   for print resolution. `GENERATOR_VERSION` bumps when the algorithm changes in a way that
-  alters output for a given seed. **It is currently 7** (per-bump history lives in the
+  alters output for a given seed. **It is currently 14** (per-bump history lives in the
   comment block directly above the constant in `generateArtwork.js` — read that, not this
   file, for what each bump changed).
 - **What `generatorVersion` does and does NOT do** (clarified 2026-07-24 after a live bug —
@@ -684,6 +684,64 @@ the actual print, generated the same deterministic way.
   74 composition unchanged, 0 changed, 0 geometry lost or gained, star field changed on 74.
   **Both follow-ups are required, same as v9 and v10**: redeploy render-service, and re-run
   `backfill-thumbnails.mjs` with NO `--generator-version` filter.
+- **THE COUNT SLICE IS GONE — `GENERATOR_VERSION = 14` (2026-09-17, Aaron: "a saved design
+  should never vary this much from a mockup. that just can't happen on a customer facing
+  store").** `getCountScale` is **deleted**. `GenerateStarField` and `GenerateLargeRadialField`
+  no longer keep a size-scaled subset of what they generate; every star and every radial blob
+  survives at every canvas size. `REFERENCE_AREA` went with it — area only ever scaled COUNTS.
+  **The bug, and how it surfaced.** A mockup renders through `capMockupRenderSize` (a t-shirt
+  front caps to 1556×2000) while the print file renders at the true 4200×5400, so a density that
+  varies with canvas area means **the preview a customer approves is not the garment they
+  receive**. Found from a live report that one design looked wildly different between thumbnail,
+  mockup and studio: `SubatomicDiffraction-db0d` (seed `bffvnasl`, no geometry layer at all) kept
+  **2 of its 4 radial blobs** in the mockup, and the blob the slice dropped — alpha **0.97** —
+  carried the design's entire colour identity. The approved preview was flat blue-purple; the
+  real print file is a full rainbow. Measured across the whole table before the fix, t-shirt
+  front, mockup vs print: **star counts differed on 101 of 101 stored designs, radial blobs on
+  61 of 101, geometry on 0** — geometry being clean because v7 had already removed exactly this
+  from that one layer, stating the rule while doing it: *density must never vary by resolution or
+  a mockup lies about the print.* v14 finishes the job for the two layers it left behind.
+  Six things worth not re-deriving:
+  (1) **It consumes IDENTICAL `rng()` draws, which is what made it safe.** Both layers already
+  generated their full fixed count and sliced afterwards, so deleting the slice moves nothing
+  downstream — `geometryChance`, `overlayChance` and every blend roll are untouched. Verified on
+  the real table: **0 designs gained or lost a geometry layer**, the failure mode of the
+  2026-08-02 incident. Only how many already-generated blobs and stars survive changes.
+  (2) **`check-render-regression.mjs` FAILS on this, and that is the point.** 101 designs × 3
+  sizes: **61 composition changed, 40 unchanged, star field changed on 101.** That is a stated
+  decision, not a side effect — Aaron's explicitly ("i'm not worried about saving existing
+  designs"), taken from rendered comparisons of 12 real saved designs across both affected
+  surfaces: https://claude.ai/artifact/UWf5zT7zy2YpLM8BrQm5yy
+  (3) **The small decorative previews were the predicted risk and it did not materialise** —
+  reasoned wrong first. MiniGenerator/footer/mobile-nav render directly at 480px with no density
+  floor, at `countScale` 0.17, so removing the slice takes them from 91 stars to 547 and 1 blob
+  to as many as 10. That sounded like mush; on real renders it is *richer*, and more to the
+  point today's version was a misrepresentation — one blob out of ten. The fix improves them.
+  (4) **`scripts/check-render-density.mjs` is the guard, and it compares two SIZES through the
+  same real generator** — for every product placement in the catalogue, the mockup render size
+  against the true printfile, asserting identical counts in every layer (390 combinations).
+  Deliberately not derived from one call, which could only confirm self-consistency (the
+  `checkCoverage` lesson). **Verified to FAIL before being trusted: 1092 mismatches and exit 1
+  on the pre-fix commit**, clean on the fix.
+  (5) **`RENDER_CAP`/`capMockupRenderSize` moved to `render/scale.js`** and are re-exported from
+  `lib/printful.js`, so call sites are unchanged. They had to move because `lib/printful.js`
+  imports the Supabase client and cannot run in plain Node — the same reason
+  `printfulPlacements.js` exists — which otherwise blocked the checker from importing the REAL
+  cap function. **And the cap's own justification has inverted**: it was raised 1200 → 2000 to
+  narrow a DENSITY gap, which no longer exists at any cap. It is now purely about render cost and
+  the iOS canvas ceiling; do not re-derive a density argument for it.
+  (6) **The density floor (`DISPLAY_RENDER_CAP`, `renderDesignBlob`'s `highDensity`) stays, with a
+  narrower justification.** It no longer buys density — counts are size-independent now — but
+  drawing thousands of sub-pixel specks at 640px aliases where the same field rendered at 2000px
+  and downscaled resolves cleanly. Its reason is antialiasing, not element count.
+  **If a future surface genuinely wants a sparser render, that must be an explicit
+  size-INDEPENDENT setting on the design (the way `geometry.density` is), never a function of the
+  canvas — otherwise it is this bug again.**
+  Operationally this bump needs **both** follow-ups and the paused-store window: redeploy
+  render-service, re-run `backfill-thumbnails.mjs` with **no** `--generator-version` filter, and
+  pause the store for the whole deploy (the mismatch check is a strict equality, so either
+  ordering fails live checkout until both sides match).
+
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was

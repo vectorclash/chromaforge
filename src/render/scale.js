@@ -4,7 +4,9 @@
 // hardcoded counts were eyeballed against before they were made ratio-aware.
 const REFERENCE_WIDTH = 3840;
 const REFERENCE_HEIGHT = 2160;
-const REFERENCE_AREA = REFERENCE_WIDTH * REFERENCE_HEIGHT;
+// REFERENCE_AREA went with getCountScale at v14 -- area was only ever used to scale element
+// COUNTS, and counts no longer depend on the canvas at all. The reference dimensions below are
+// still load-bearing for element SIZES, which legitimately do scale with the canvas.
 
 // The reference canvas's own element-size scale -- i.e. what getElementSizeScale returns for
 // the studio default (min(w,h) = 2160, aspect term exactly 1 since this IS the reference
@@ -16,29 +18,35 @@ const REFERENCE_AREA = REFERENCE_WIDTH * REFERENCE_HEIGHT;
 // to 65% larger than the print they were previewing), not a harmless minimum.
 export const REFERENCE_ELEMENT_SIZE_SCALE = Math.min(REFERENCE_WIDTH, REFERENCE_HEIGHT);
 
-// How much of a generated element set to KEEP, relative to the reference resolution, so
-// density doesn't stay pinned to reference-tuned counts regardless of canvas size (the
-// original bug: a 320x320 thumbnail got literally the same star counts as a 3840x2160
-// canvas). Deliberately sqrt(area ratio), not the raw ratio -- tested against real renders
-// and plain linear area scaling collapsed thumbnail-size (320x320) renders to almost
-// nothing, since that's ~1.2% of the reference area but the old fixed counts already
-// looked reasonable there (visually verified against the pre-fix algorithm at the same
-// size) -- the actual bug is more visible at the size extremes (a print at 3150x5550 vs
-// studio's 3840x2160 default) than in the everyday small-to-medium range. sqrt tempers the
-// falloff at both ends while still scaling meaningfully for the extremes this was meant to
-// fix.
+// `getCountScale` USED TO LIVE HERE AND IS DELETED ON PURPOSE (v14, 2026-09-17). It returned
+// sqrt(area / REFERENCE_AREA), and callers kept `originalCount * getCountScale(...)` of the
+// elements they had generated. Do not reintroduce it, under this or any other name.
 //
-// Callers must NOT use this to vary a generation loop's trip count directly -- always
-// generate the full original fixed count first (so rng() consumption, and everything drawn
-// downstream in the same seed's sequence, stays size-independent), then slice the result to
-// `Math.max(1, Math.round(originalCount * getCountScale(...)))`. Confirmed live: varying
-// trip counts directly let the same seed gain or lose an entire geometry-shape layer
-// depending purely on render size, since it shifted every subsequent rng() draw
-// (geometryChance, overlayChance, etc.) -- breaking the guarantee that a mockup and its
-// print are the same underlying piece. See GenerateStarField.js for the reference pattern.
-export function getCountScale(width, height) {
-  return Math.sqrt((width * height) / REFERENCE_AREA);
-}
+// What it was for: from v3, so a 320x320 thumbnail would not get literally the same star count
+// as a 3840x2160 canvas. That reasoning is sound for a render VIEWED AT ITS OWN SIZE, and wrong
+// for every render that stands in for another one. A mockup is exactly that: it renders through
+// capMockupRenderSize (a t-shirt front caps to 1556x2000) while the print file renders at the
+// true 4200x5400, so the slice made the preview a customer approves systematically sparser than
+// the garment they receive. Measured across the live table before removal: star counts differed
+// between mockup and print on 101 of 101 stored designs, and radial-field blobs on 61 of 101.
+// One real design (SubatomicDiffraction-db0d, seed bffvnasl) kept 2 of its 4 radial blobs in the
+// mockup, and the blob it dropped -- alpha 0.97 -- carried the design's entire colour identity:
+// the approved preview was flat blue-purple, the print file a full rainbow.
+//
+// v7 had already deleted this from the geometry layer and stated the rule while doing it:
+// DENSITY MUST NEVER VARY BY RESOLUTION OR A MOCKUP LIES ABOUT THE PRINT. v14 finishes the job
+// for the two layers it left behind (GenerateStarField, GenerateLargeRadialField), which were
+// the only remaining callers.
+//
+// The property that made removal safe: both callers already generated their FULL fixed count
+// and sliced afterwards, so deleting the slice consumes identical rng() draws. Nothing
+// downstream moves -- geometryChance, overlayChance and every blend roll are untouched, and a
+// design's geometry layer cannot appear or vanish because of this. Only how many already-
+// generated blobs and stars survive changes.
+//
+// If a future surface genuinely wants a sparser render, that must be an explicit,
+// size-INDEPENDENT setting on the design (the way `geometry.density` is), never a function of
+// the canvas -- otherwise it is this bug again.
 
 // Same cap-and-scale tradeoff as lib/printful.js's RENDER_CAP (mobile canvas-area limits vs.
 // getCountScale density -- see that constant's own comment for the full reasoning), reused
@@ -159,4 +167,30 @@ export function getElementSizeScale(width, height, frame = null) {
 export function getFrameSizeScale(width, height, frame = null) {
   const [w, h] = resolveFrame(width, height, frame);
   return getSizeScale(w, h);
+}
+
+
+// What size a MOCKUP PREVIEW renders a given printfile at. Mockups are previews, not the final
+// print file, so they cap well below Printful's real dims (some 6000x6000) to stay fast and
+// under iOS Safari's ~16.7 Mpx canvas limit; real checkout renders uncapped at true print
+// resolution (renderPrintFileStrategy).
+//
+// It lives here rather than in lib/printful.js because it is pure size math with no Supabase
+// dependency, which is what lets scripts/check-render-density.mjs import the REAL function in
+// plain Node and compare the mockup size against the true printfile size. A checker that
+// re-derived this number instead would be comparing its own approximation, not the app's
+// behaviour. lib/printful.js re-exports it, so existing call sites are unchanged.
+//
+// HISTORICAL NOTE, because the reasoning has been inverted by v14: this was raised 1200 -> 2000
+// specifically to narrow a DENSITY gap, since getCountScale kept only ~37% of the reference
+// element count at the old cap. That gap no longer exists at any cap -- counts are
+// size-independent now -- so this constant is purely about render cost and the iOS canvas
+// ceiling. Do NOT re-derive a density justification for it; if a mockup ever looks sparser than
+// its print again, the cap is not the cause and something has reintroduced a size-dependent
+// count (see the deleted getCountScale above).
+export const RENDER_CAP = 2000;
+
+export function capMockupRenderSize(width, height, cap = RENDER_CAP) {
+  const scale = cap / Math.max(width, height);
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
 }

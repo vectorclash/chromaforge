@@ -187,7 +187,28 @@ import { getGeometrySettings, getGeometryPresence, compactSettings } from './des
 // --generator-version filter -- same as v9 through v12. And pause the store for the window:
 // the mismatch check is a strict equality, so EITHER deploy order fails live checkout until
 // both sides match (see CLAUDE.md's operational-rule bullet).
-export const GENERATOR_VERSION = 13;
+//
+// v14 (2026-09-17) -- THE COUNT SLICE IS GONE. GenerateStarField and GenerateLargeRadialField
+// no longer keep a size-scaled subset of what they generate; every star and every radial blob
+// survives at every canvas size. getCountScale is deleted (see render/scale.js, which keeps the
+// full reasoning at the site).
+// Why, in one line: a mockup renders through capMockupRenderSize and a print file renders at
+// true printfile dimensions, so a density that varies with canvas size means THE PREVIEW A
+// CUSTOMER APPROVES IS NOT THE GARMENT THEY RECEIVE. Measured before the change, t-shirt front,
+// mockup render vs print file across all 101 stored designs: star counts differed on 101, radial
+// blobs on 61. v7 removed exactly this from the geometry layer and stated the rule doing it --
+// "density must never vary by resolution or a mockup lies about the print"; this finishes it.
+// UNLIKE v11-v13 this is NOT a drawing-only change: it genuinely alters how every stored design
+// composes below the reference resolution, and check-render-regression.mjs is EXPECTED to report
+// that. Aaron's call, made explicitly ("i'm not worried about saving existing designs but I want
+// to prevent this in the future"), from rendered comparisons of 12 real saved designs.
+// What it does NOT move: both layers already generated their full fixed count and sliced
+// afterwards, so rng() consumption is identical. Geometry presence, overlay presence and every
+// blend roll are untouched -- a design cannot gain or lose its geometry layer from this.
+// Operationally: redeploy render-service, re-run backfill-thumbnails.mjs with NO
+// --generator-version filter, and pause the store for the window -- the mismatch check is a
+// strict equality, so EITHER deploy order fails live checkout until both sides match.
+export const GENERATOR_VERSION = 14;
 
 const BLEND_MODES = [
   'screen',

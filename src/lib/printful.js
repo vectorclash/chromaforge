@@ -344,34 +344,12 @@ export function getLabelInsideRegion(cfg) {
 }
 
 
-// Mockups are previews, not the final print file -- cap render size well below Printful's
-// real printfile dims (some 6000x6000) to stay fast and under iOS Safari's ~16.7 Mpx canvas
-// limit. Real checkout renders at true print resolution instead (renderPrintFileStrategy,
-// below), uncapped.
-//
-// Bumped from 1200 after a live comparison showed the preview reading as noticeably sparser
-// than the actual print: at 1200, a 4200x5400 shirt front panel renders at a capped 933x1200,
-// which (see render/scale.js's getCountScale) keeps only ~37% of the generator's
-// reference-tuned element count -- while the real, uncapped 4200x5400 print keeps all of it
-// (its own count-scale factor already exceeds 1). That's a ~4.5x density gap between what a
-// customer previews and what they'd actually receive, on top of (and independent from) the
-// aspect-ratio-driven size differences getElementSizeScale addresses. 2000 narrows that gap
-// substantially (~61% of reference count for the same panel) while staying well under the
-// iOS canvas limit even for the largest catalog printfiles (6000x6000 capped at 2000 is still
-// only 4 Mpx, versus the ~16.7 Mpx ceiling).
-const RENDER_CAP = 2000;
-
-// Same cap-and-scale math capRenderStrategy uses below, factored out so any other caller
-// that needs "what size would the mockup preview render this printfile at" (e.g.
-// TshirtPreview.jsx's hero shirt, which needs to match the real mockup's element DENSITY,
-// not just its aspect ratio -- getCountScale in render/scale.js scales element counts off
-// absolute rendered area relative to the studio's reference resolution, so rendering
-// smaller than this produces a visibly sparser composition even at the correct aspect)
-// can get the exact same numbers instead of drifting from a re-derived approximation.
-export function capMockupRenderSize(width, height, cap = RENDER_CAP) {
-  const scale = cap / Math.max(width, height);
-  return { width: Math.round(width * scale), height: Math.round(height * scale) };
-}
+// RENDER_CAP and capMockupRenderSize moved to render/scale.js at v14 and are re-exported here,
+// so every existing call site is unchanged. They moved because this module imports the Supabase
+// client and therefore cannot run in plain Node, which blocked scripts/check-render-density.mjs
+// from importing the REAL cap function to compare a mockup's render size against the true
+// printfile size -- the same Node-safety reason printfulPlacements.js exists.
+export { RENDER_CAP, capMockupRenderSize } from '../render/scale';
 
 // Pre-warm the Fly.io render-service the moment purchase intent appears (first mockup
 // render on a product page), so its scale-to-zero cold start is already paid by the time

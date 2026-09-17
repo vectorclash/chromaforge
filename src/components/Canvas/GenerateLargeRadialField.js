@@ -1,5 +1,5 @@
 import { randomPalette } from '../../render/prng';
-import { getCountScale, getSizeScale } from '../../render/scale';
+import { getSizeScale } from '../../render/scale';
 
 export default class GenerateLargeRadialField {
   constructor(width, height, colors = [], rng = Math.random) {
@@ -22,15 +22,20 @@ export default class GenerateLargeRadialField {
     // this class used before any of that tuning and is what actually looked right here.
     config.radGradSize = getSizeScale(width, height) / 2;
 
-    // `amount` (the loop trip count) is computed unscaled -- exactly one rng() draw,
-    // matching pre-fix behavior -- and the loop always runs the full unscaled amount, so
-    // total rng() consumption here never depends on canvas size (each iteration below
-    // consumes a variable number of draws depending on color branches, so varying the trip
-    // count itself would desync every rng() draw downstream of this class -- same reasoning
-    // as GenerateStarField's fixed-generate-then-truncate pattern). Only the KEPT subset
-    // (pushed into config.radGradients below) is size-scaled.
+    // `amount` (the loop trip count) is computed unscaled -- exactly one rng() draw -- and the
+    // loop always runs the full amount, so rng() consumption here never depends on canvas size
+    // (each iteration consumes a variable number of draws depending on colour branches, so
+    // varying the trip count itself would desync every draw downstream of this class).
+    //
+    // EVERY GENERATED BLOB IS NOW KEPT (v14, 2026-09-17). This used to keep only
+    // `amount * getCountScale(width, height)` of them, which made the layer's density a
+    // function of the canvas -- so a capped mockup render dropped blobs the true-resolution
+    // print file keeps. That is how a customer could approve a flat blue-purple t-shirt and be
+    // sent a rainbow one (design SubatomicDiffraction-db0d, seed bffvnasl: the mockup kept 2 of
+    // 4 blobs and the one it cut carried the entire colour identity, at alpha 0.97). Because
+    // the slice was applied AFTER generation, removing it consumes identical rng() draws and
+    // moves nothing else in the composition. See GenerateStarField for the full reasoning.
     let amount = 2 + Math.round(rng() * 8);
-    let keepAmount = Math.max(1, Math.round(amount * getCountScale(width, height)));
     let radGradients = [];
 
     for (let i = 0; i < amount; i++) {
@@ -58,7 +63,7 @@ export default class GenerateLargeRadialField {
       radGradients.push(radGrad);
     }
 
-    config.radGradients = radGradients.slice(0, keepAmount);
+    config.radGradients = radGradients;
 
     return config;
   }
