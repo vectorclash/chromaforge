@@ -480,6 +480,11 @@ the actual print, generated the same deterministic way.
   `multiply`/`darken` roll dims everything below it — exactly the failure `starBlendMode` was
   introduced to fix for the star layer and never applied to the layer sitting on top of it.
   Reordering stops the stars being COVERED; it does not stop them being dimmed.
+  **Measured and deliberately deferred 2026-09-17** — a dimming mode lands on 26.3% of default
+  designs at a mean cost of -35.7% finished luminance, and `spread`'s 0.7 default makes the
+  dimmed layer large. Not acted on because that figure is VARIANCE, not quality, and every fix
+  rewrites the blend of every stored design. Full costing of the three options, the reason C
+  beats B, and one unmeasured idea worth checking first: see TODO.md's deferred section.
   Verified behaviourally: output differs at every coherence (chaotic / mid lattice / full
   lattice) across 3 seeds × 3 sizes, and is **byte-identical** when the design has no geometry
   layer at all (9/9), which is the invariant that proves it moves nothing else.

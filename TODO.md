@@ -757,6 +757,41 @@ collar band and chest label are newly submitted.
 
 ## Explicitly deferred / decisions made
 
+- **`config.thirdBlend` — the geometry layer's blend is an unweighted roll, and it stays that
+  way for now (decided 2026-09-17, Aaron: "I do like how things are looking so it's not a huge
+  issue").** Measured, so nobody has to re-derive it: over 600 geometry-bearing designs at the
+  studio defaults a dimming mode (`multiply` 14.5% / `darken` 11.8%) lands on **26.3%** of them,
+  and rendering the same seeds with the blend forced to `source-over` puts the cost at a mean
+  **-35.7%** of finished luminance, worst case -59.5%. `spread`'s new 0.7 default makes this
+  matter more than it did, because the layer it dims is now large.
+  **Why it was still deferred, which is the part worth keeping:** that figure measures VARIANCE,
+  not quality — darker is not the same as worse, and nothing has established that the affected
+  designs look bad. Aaron reviewed real renders of ten of them (comparison artifact:
+  https://claude.ai/artifact/5MFU6BerzyTK8sgfqpMcdd) and liked the output. Against that, every
+  version of the fix re-weights an existing `rng()` draw, so it changes the result rather than
+  the sequence and rewrites the geometry blend of **every design already saved** —
+  `check-render-regression.mjs` fails by design, and it needs a `GENERATOR_VERSION` bump, a
+  thumbnail backfill and the paused-store deploy. That is a lot of blast radius for an aesthetic
+  tie-break nobody has complained about.
+  **If it is revisited, the options were costed (dark backdrops measured at 67.8%, light 32.2%):**
+  (A) leave it — 12.5% source-over, 25.0% dimming; (B) mirror `starBlendMode`'s backdrop-biased
+  sets at bias 0.9 — 68.8% source-over, 9.7% dimming; (C) drop the dimming modes from the pool on
+  dark backdrops only — 15.3% source-over, 8.0% dimming.
+  **C is the pick over B**, and the reason is B's own number: 68.8% source-over collapses two
+  designs in three onto one mode, trading a mild consistency problem for a duller catalogue, and
+  variety is the product here. C removes most of the mud while leaving today's spread nearly
+  intact, keeping `multiply`/`darken` where they give contrast rather than sludge.
+  **One unmeasured idea, worth a look before committing to C:** gate on the layer actually being
+  LARGE as well as the backdrop being dark, so the change targets the real failure (large layer x
+  dimming blend x dark backdrop) instead of re-weighting everything. It MIGHT touch far fewer
+  stored rows, since most resolve to the old `spread: 0.5` — but that is a guess, not a
+  measurement: a 0.5-spread design still spans ~0.94 short edges and may trip the same gate.
+  Measure before believing it.
+  Two non-starters already considered: exposing blend as a studio control (another row in a tab
+  that already scrolls at 320px, and it does nothing for the never-opens-settings user who is the
+  whole point), and damping the layer's alpha on a dimming roll (same deploy cost, less
+  predictable result).
+
 - **No auto-refund on Printful failure after payment** — deliberate human-judgment gap;
   alert email + 'Needs attention' status is the design.
 - **True per-address dynamic shipping** (Stripe calculating the exact rate off the address
