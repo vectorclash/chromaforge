@@ -2620,6 +2620,39 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
 
+### A re-export does not bind the name locally (`scripts/check-reexport-bindings.mjs`, 2026-09-17)
+
+```
+node scripts/check-reexport-bindings.mjs        # no secrets, no network, instant
+```
+
+`export { x } from './m'` forwards the binding to this module's CONSUMERS and introduces
+nothing into the module's own scope. A module that re-exports a name that way and then USES it
+in its own body throws `x is not defined` the moment that code path runs.
+
+**It shipped live.** v14 moved `capMockupRenderSize` to `render/scale.js` and re-exported it
+from `lib/printful.js`, which still called it twice inside `capRenderStrategy` — so every mockup
+preview on the store failed with "We couldn't generate a preview right now" until it was fixed.
+Checkout was untouched (it renders at true dimensions through `renderPrintFileStrategy` and
+never calls that function), so nothing was mis-printed and no customer was charged wrongly.
+The fix is always `import { x } from './m';` plus a separate `export { x };`.
+
+**Why nothing caught it, which is the generalisable part:** the syntax is valid so
+`npm run build` passed; `check-routes-smoke.mjs` loads pages but never clicks Generate, so the
+strategy never ran; and `check-render-density.mjs` imports the function straight from `scale.js`
+rather than through the module that was broken. A re-export is also invisible to the consumer
+side — every OTHER file importing it from `printful.js` worked perfectly, which is why the
+homepage shirt (a `capMockupRenderSize` consumer) rendered fine throughout.
+
+**The checker passed VACUOUSLY on its first version and that is the lesson worth keeping.** It
+stripped string literals before matching `from '...'`, which collapsed the module path to `''`
+so the pattern matched nothing — it reported "0 re-export statements checked" and exited 0 **on
+the very commit that shipped the bug**. Only running it against that commit exposed it. Now it
+reports the file, line and name; verified to FAIL there and pass on the fix. Same lesson as
+`checkCoverage` and `check-route-intro-once.mjs`: a check is not trustworthy until it has been
+seen to fail on the defect it claims to catch, and "found nothing" is a result that has to be
+distrusted before it is believed.
+
 ### A clean build is not evidence a page renders — `scripts/check-routes-smoke.mjs` (2026-09-05)
 
 ```

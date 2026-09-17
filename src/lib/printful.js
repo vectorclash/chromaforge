@@ -14,6 +14,7 @@ import {
 // from a plain-Node script -- and scripts/check-printful-mockups.mjs has to exercise the REAL
 // helpers, not a copy that drifts from the code it exists to protect.
 export { resolvePlacementEntries, mockupPlacementEntries, buildMockupFiles, hideUnsubmittedViews };
+import { RENDER_CAP, capMockupRenderSize } from '../render/scale';
 import { generateLabelMark } from '../render/generateLabelMark';
 import { sampleLabelBackdrop, wantsLightInk } from '../render/labelBackdrop';
 import { labelBackdropChoice, frontPlacementKey } from './printfulPlacements';
@@ -349,7 +350,16 @@ export function getLabelInsideRegion(cfg) {
 // client and therefore cannot run in plain Node, which blocked scripts/check-render-density.mjs
 // from importing the REAL cap function to compare a mockup's render size against the true
 // printfile size -- the same Node-safety reason printfulPlacements.js exists.
-export { RENDER_CAP, capMockupRenderSize } from '../render/scale';
+//
+// IMPORTED AND THEN RE-EXPORTED, deliberately, NOT `export { x } from '...'`. A bare re-export
+// forwards the binding to this module's CONSUMERS without introducing it into this module's own
+// scope, so capRenderStrategy below -- which calls capMockupRenderSize twice -- threw
+// "capMockupRenderSize is not defined" at runtime. It shipped live and broke every mockup
+// preview (checkout was untouched; it renders at true dimensions via renderPrintFileStrategy and
+// never calls this). Nothing caught it: the syntax is valid so the build passed,
+// check-routes-smoke.mjs never clicks Generate so the strategy never ran, and
+// check-render-density.mjs imports the function straight from scale.js rather than through here.
+export { RENDER_CAP, capMockupRenderSize };
 
 // Pre-warm the Fly.io render-service the moment purchase intent appears (first mockup
 // render on a product page), so its scale-to-zero cold start is already paid by the time
