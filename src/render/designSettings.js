@@ -34,11 +34,11 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   size: 0.5,
   // How large the CHAOTIC shapes tend to be -- the exact counterpart of `size` above, which
   // only ever governed the coherent lattice. 0.5 is today's behaviour exactly; higher values
-  // make a design's shapes bigger on average AND make small ones rare, because this is a skew
-  // on the size draw's distribution, not just a multiplier on its result.
+  // make a design's shapes bigger on average AND make small ones rare, because the slider's
+  // upper half both SKEWS the size draw's distribution and raises its ceiling.
   //
   // Added 2026-09-17 at Aaron's request ("the average geometry size fills the artwork and
-  // smaller geometric shapes are much more rare"). The chaotic size draw was a flat
+  // smaller geometric shapes are much more rare", then "it can definitely go much larger"). The chaotic size draw was a flat
   // `rng() / 3` -- uniform, so the bottom of its range was exactly as likely as the top, and
   // a design that happened to draw low rendered as a small cluster marooned in the middle of
   // the canvas. That low tail is the whole complaint: measured over 400 seeds at the studio's
@@ -146,10 +146,20 @@ export const STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.9;
 // `spread`, and one saved before the key existed resolves to DEFAULT_GEOMETRY_SETTINGS.spread
 // (0.5, today's behaviour), so nothing already made can be reached from here.
 //
-// 0.85 rather than the 0.5 that reproduces the original generator: picked from rendered
-// sheets of real seeds rather than from the arithmetic, and deliberately short of the 1.0
-// ceiling so the slider still has somewhere to go.
-export const STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.85;
+// 0.7 rather than the 0.5 that reproduces the original generator: picked from rendered sheets
+// of real seeds rather than from the arithmetic, and deliberately well short of the ceiling,
+// which the upper half of the slider now raises steeply (see GenerateGeometricShape's
+// SPREAD_MAX_GAIN).
+//
+// It was 0.85 for a few hours, against a slider whose top end only SKEWED the old range. Once
+// the ceiling was raised (Aaron, 2026-09-17: "it can definitely go much larger") the same
+// number meant something much bigger, so the default was re-picked against the new curve
+// rather than left to drift up with it. 0.7 lands on exactly the figure the original request
+// was measured by -- 3.8% of designs whose typical shape covers less than half the canvas's
+// short edge, against 18.5% for the original generator -- while the median such shape spans
+// 1.69 short edges. ~0.6 reproduces the pre-ceiling default's own look if it is ever wanted
+// back.
+export const STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.7;
 
 // What a surface making NEW work starts from: the DNA defaults plus the studio's odds. Read
 // by StudioContext's first design of a session, DisplayCanvas's panel when nothing is stored,

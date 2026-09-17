@@ -237,21 +237,27 @@ the actual print, generated the same deterministic way.
   frontend that can send `density` while Fly still runs the old bundle means the mockup
   shows sparse and the print comes back dense — the exact mockup/print divergence v7 fixed,
   and with no `generatorVersion` change there is no mismatch check to catch it.
-- **`spread` — how big the CHAOTIC shapes are, and the studio default is 0.85 (2026-09-17,
+- **`spread` — how big the CHAOTIC shapes are, and the studio default is 0.7 (2026-09-17,
   Aaron: "the average geometry size fills the artwork and smaller geometric shapes are much
-  more rare").** `settings.geometry.spread` (0–1, DNA default 0.5 ≡ the original generator,
-  studio default `STUDIO_DEFAULT_GEOMETRY_SPREAD` 0.85) skews the chaotic size draw. The old
-  formula was `150/2160 + rng()/3` — **uniform**, so the bottom of the range was exactly as
-  likely as the top and a design that drew low rendered as a small cluster marooned mid-canvas.
+  more rare", then "it can definitely go much larger").** `settings.geometry.spread` (0–1, DNA
+  default 0.5 ≡ the original generator, studio default `STUDIO_DEFAULT_GEOMETRY_SPREAD` 0.7).
+  The old formula was `150/2160 + rng()/3` — **uniform**, so the bottom of the range was
+  exactly as likely as the top and a design that drew low rendered as a small cluster marooned
+  mid-canvas. The slider's upper half both SKEWS that draw and raises its CEILING.
   Surfaced as a **Spread** row directly under Size in the Geometry tab.
   Seven things worth not re-deriving:
-  (1) **It skews the draw, it does not scale the result, and that is what answers BOTH halves
-  of the request at once.** `chaoticSizeDraw = rng() ** k`, k piecewise-linear about spread 0.5
-  (exactly 1 there; 3 at 0, 0.3 at 1). A concave exponent pushes a uniform variate toward the
-  top of its range, so the mean rises AND the low tail empties; a plain multiplier would have
-  made giants and dwarves equally more likely. **The CEILING is untouched on purpose** — the
-  largest designs were never the complaint, and raising the amplitude would invent a
-  bigger-than-ever regime nothing has been validated against.
+  (1) **Skew and ceiling are two separate terms on the upper half, and it needs both.**
+  `chaoticSizeDraw = rng() ** k` with k piecewise-linear about 0.5 (exactly 1 there; 3 at 0,
+  0.3 at 1) is the SKEW: a concave exponent pushes a uniform variate toward the top of its
+  range, so the mean rises AND the low tail empties, where a plain multiplier would have made
+  giants and dwarves equally more likely. The amplitude term (`SPREAD_MAX_GAIN`, 1x at 0.5 to
+  **3x** at 1) is the CEILING. Skew alone was shipped first and was wrong: it can only
+  redistribute designs inside the ORIGINAL range, so the biggest design stayed exactly as big
+  as it had always been — and the top half of the slider is where Aaron actually lives ("I
+  constantly change the settings to make the geometry go as large as it can").
+  (1b) **The amplitude knee is at 0.5, the DNA default and byte-identity point, NOT at the
+  studio default.** Tying a generator constant to a number this file documents as free to move
+  would mean retuning the studio default silently reshaped the whole curve.
   (2) **It is a NEW key rather than an extension of `size`, and that is a correctness
   requirement.** `size` governs only the coherent lattice and is inert at coherence 0 (its row
   shows "—" there), so widening it to cover chaotic shapes was the tempting one-slider fix —
@@ -264,19 +270,31 @@ the actual print, generated the same deterministic way.
   (3) **No `GENERATOR_VERSION` bump.** Exactly the same single `rng()` draw in the same
   position (the skew is arithmetic on the value), so no downstream layer moves, and
   `Math.pow(u, 1)` returns `u` exactly — verified over 200,000 samples — so spread 0.5 is
-  byte-identical rather than merely close. Measured: **259 render-hash comparisons** (8 seeds ×
+  byte-identical rather than merely close. The amplitude term multiplies by exactly 1 there,
+  which is also exact. Measured: **259 render-hash comparisons** (8 seeds ×
   3 palettes × every settings shape a stored design can have — absent, `present` true/false,
   legacy `chance`, and old-key combinations — at 320², 2000², 3840×2160 and the 3150×5550
   t-shirt printfile) **0 changed**. Also size-independent, like `density`, so it cannot
   reintroduce the v7 mockup/print divergence.
   (3b) **The byte-identity harness was verified to FAIL first**, by feeding a non-default
-  `spread` the baseline bundle does not know about: 65 of 72 renders differ. That run is also a
-  literal demonstration of the deploy hazard in (6).
+  `spread` the baseline bundle does not know about: **71 of 72** renders differ. That run is
+  also a literal demonstration of the deploy hazard in (6).
   (4) **The numbers, measured over 600 seeds at 3840×2160** — per-design median shape extent as
-  a fraction of the canvas short edge. At the old default: p10 **0.41**, p50 0.94, and **18.5%**
-  of designs had a typical shape covering less than half the short edge. At 0.85: p10 **0.63**,
-  p50 **1.19**, and **3.8%** small. 0.85 rather than the 1.0 ceiling so the slider still has
-  somewhere to go.
+  a fraction of the canvas short edge. Original generator (spread 0.5): p10 0.41, p50 **0.94**,
+  p90 1.81, with **18.5%** of designs having a typical shape covering less than half the short
+  edge. At the 0.7 default: p10 0.72, p50 **1.69**, p90 3.11, **3.8%** small. At the 1.0
+  ceiling: p10 2.02, p50 **3.55**, p90 5.42, **0%** small.
+  (4b) **The default was re-picked against the new curve rather than left to drift up with
+  it.** 0.85 was chosen when the top end only skewed; once the ceiling rose, that same number
+  meant something much bigger (p50 2.47) and the rendered sheets had gone flat — a handful of
+  enormous translucent wedges reading as colour blocks rather than facets, which is the failure
+  `scale.js` already warns about. 0.7 lands on exactly the figure the original request was
+  measured by (3.8% small) while still reading as geometry; **~0.6 reproduces the 0.85-under-
+  the-old-curve look** if it is ever wanted back.
+  (4c) **The very top IS deliberately extreme** — at 1.0 a single wedge can cover the frame and
+  the layer reads as a wash rather than a figure. That is the same bargain `size`'s own raised
+  ceiling struck ("a dramatic overflow, most of the polygon well past the canvas edge"), and it
+  is what was asked for; it is the top of a slider, not a default.
   (5) **`sanitizeGeometry` falls back to the STUDIO default for this key, not the resolution
   one** — the same exception `chance` already carries, plus one specific to a new key: a
   returning visitor's `cf-studio:design` entry was written before `spread` existed, so an absent

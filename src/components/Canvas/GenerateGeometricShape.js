@@ -8,6 +8,11 @@ import {
 } from '../../render/scale';
 import { getGeometrySettings } from '../../render/designSettings';
 
+// How much further than the original generator the top of the Spread slider reaches. Set by
+// eye from rendered sheets at the real studio resolution, not from the arithmetic -- see
+// CLAUDE.md's `spread` bullet for what each candidate looked like.
+const SPREAD_MAX_GAIN = 3;
+
 export default class GenerateGeometricShape {
   constructor(
     width,
@@ -86,10 +91,11 @@ export default class GenerateGeometricShape {
     // Consumes the same single rng() draw, so no downstream layer shifts.
     const CHAOTIC_MIN_FRACTION = 150 / REFERENCE_ELEMENT_SIZE_SCALE;
     const chaoticSizeScale = getElementSizeScale(width, height, sizeFrame);
-    // `spread` (see designSettings.js) skews this draw instead of scaling its result, which is
-    // what lets one slider answer both halves of the request it exists for: raising it lifts
-    // the AVERAGE size and makes small shapes RARE, rather than merely stretching the whole
-    // range (which would make giants and dwarves equally more likely).
+    // `spread` (see designSettings.js) controls how big the chaotic shapes are, through TWO
+    // terms on the slider's upper half: a SKEW of this draw's distribution, and a raised
+    // CEILING. They do different jobs and it needs both -- the skew is what makes small shapes
+    // rare (a plain multiplier would make giants and dwarves equally more likely), and the
+    // ceiling is what lets the biggest designs get bigger at all.
     //
     // The draw stays uniform; the exponent bends it. An exponent below 1 is concave, so it
     // pushes a uniform variate toward the top of its range -- at spread 1 (exponent 0.3) the
@@ -104,21 +110,29 @@ export default class GenerateGeometricShape {
     // saved before this key existed resolves to. A single straight line across [0, 1] could
     // not put 1.0 at the midpoint without dictating both endpoints.
     //
-    // The CEILING is untouched on purpose -- only the distribution within the existing range
-    // moves. Raising the amplitude too would have created a bigger-than-ever regime that
-    // nothing has been validated against, and the existing top of the range already fills the
-    // canvas; the problem was never that the largest designs were too small.
-    const spreadExponent =
-      geometry.spread <= 0.5
-        ? 3 - 4 * geometry.spread
-        : 1 - 1.4 * (geometry.spread - 0.5);
+    // The upper half also raises the CEILING, on a second, steeper line -- exactly the shape
+    // `size` uses below, and for the same reason it was given one (Aaron, 2026-09-17: "I
+    // constantly change the settings to make the geometry go as large as it can. It can
+    // definitely go much larger"). Skew alone could only redistribute designs inside the old
+    // range; it could not make the biggest one bigger, which is the half of the slider he
+    // actually lives at.
+    //
+    // The knee is at 0.5 -- the DNA default and the byte-identity point -- NOT at the studio
+    // default. Tying it to the studio default would weld a generator constant to a number
+    // documented as free to move, and moving that number would then silently reshape the
+    // whole curve.
+    const spreadAbove = Math.max(0, geometry.spread - 0.5) / 0.5;
+    const spreadExponent = geometry.spread <= 0.5 ? 3 - 4 * geometry.spread : 1 - 0.7 * spreadAbove;
+    // 1x at 0.5 (exactly -- multiplying by 1 is exact in IEEE754, so the default stays
+    // byte-identical) up to SPREAD_MAX_GAIN at 1.
+    const spreadAmplitude = 1 + (SPREAD_MAX_GAIN - 1) * spreadAbove;
     // Exactly one rng() draw, in the same position as before -- the skew is arithmetic on the
     // value, never a second draw -- so every layer generated after this one is unmoved. The
     // two terms stay rounded SEPARATELY for the reason given above.
     const chaoticSizeDraw = Math.pow(rng(), spreadExponent);
     const chaoticSize =
       Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) +
-      Math.round((chaoticSizeDraw * chaoticSizeScale) / 3);
+      Math.round((chaoticSizeDraw * chaoticSizeScale * spreadAmplitude) / 3);
     // At full coherence the lattice radius (shapeSize * shapeDepth, drawn from the canvas
     // centre) is user-controlled via geometry.size: 0.15 * sizeScale (fairly small, ~30%
     // of the short dimension's half) at size=0, up through 0.375 * sizeScale (the original

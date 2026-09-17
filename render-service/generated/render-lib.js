@@ -377,11 +377,11 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   size: 0.5,
   // How large the CHAOTIC shapes tend to be -- the exact counterpart of `size` above, which
   // only ever governed the coherent lattice. 0.5 is today's behaviour exactly; higher values
-  // make a design's shapes bigger on average AND make small ones rare, because this is a skew
-  // on the size draw's distribution, not just a multiplier on its result.
+  // make a design's shapes bigger on average AND make small ones rare, because the slider's
+  // upper half both SKEWS the size draw's distribution and raises its ceiling.
   //
   // Added 2026-09-17 at Aaron's request ("the average geometry size fills the artwork and
-  // smaller geometric shapes are much more rare"). The chaotic size draw was a flat
+  // smaller geometric shapes are much more rare", then "it can definitely go much larger"). The chaotic size draw was a flat
   // `rng() / 3` -- uniform, so the bottom of its range was exactly as likely as the top, and
   // a design that happened to draw low rendered as a small cluster marooned in the middle of
   // the canvas. That low tail is the whole complaint: measured over 400 seeds at the studio's
@@ -453,7 +453,7 @@ var DEFAULT_GEOMETRY_SETTINGS = {
 };
 var LEGACY_GEOMETRY_CHANCE = 0.4;
 var STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.9;
-var STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.85;
+var STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.7;
 var STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
   chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
@@ -490,6 +490,7 @@ function compactSettings(settings) {
 }
 
 // ../src/components/Canvas/GenerateGeometricShape.js
+var SPREAD_MAX_GAIN = 3;
 var GenerateGeometricShape = class {
   constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null, sizeFrame = null) {
     const geometry = getGeometrySettings(settings);
@@ -508,9 +509,11 @@ var GenerateGeometricShape = class {
     this.shapeAng = 360 / this.shapeVertices;
     const CHAOTIC_MIN_FRACTION = 150 / REFERENCE_ELEMENT_SIZE_SCALE;
     const chaoticSizeScale = getElementSizeScale(width, height, sizeFrame);
-    const spreadExponent = geometry.spread <= 0.5 ? 3 - 4 * geometry.spread : 1 - 1.4 * (geometry.spread - 0.5);
+    const spreadAbove = Math.max(0, geometry.spread - 0.5) / 0.5;
+    const spreadExponent = geometry.spread <= 0.5 ? 3 - 4 * geometry.spread : 1 - 0.7 * spreadAbove;
+    const spreadAmplitude = 1 + (SPREAD_MAX_GAIN - 1) * spreadAbove;
     const chaoticSizeDraw = Math.pow(rng(), spreadExponent);
-    const chaoticSize = Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round(chaoticSizeDraw * chaoticSizeScale / 3);
+    const chaoticSize = Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round(chaoticSizeDraw * chaoticSizeScale * spreadAmplitude / 3);
     const sizeFactor = geometry.size <= 0.5 ? 0.15 + geometry.size * 0.45 : 0.375 + (geometry.size - 0.5) * 2.85;
     const coherentSize = getFrameSizeScale(width, height, sizeFrame) * sizeFactor / this.shapeDepth;
     this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
