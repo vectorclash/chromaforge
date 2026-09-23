@@ -466,6 +466,9 @@ export default class DisplayCanvas extends React.Component {
     clearTimeout(this.adoptDesignTimer);
     Object.values(this.collapseTimers || {}).forEach(t => clearTimeout(t));
     Object.values(this.collapseRafs || {}).forEach(r => r && cancelAnimationFrame(r));
+    // Nothing can show these once the canvas is gone.
+    if (this.displayedImageUrl) URL.revokeObjectURL(this.displayedImageUrl);
+    if (this.imageModeState?.blobUrl) URL.revokeObjectURL(this.imageModeState.blobUrl);
   }
 
   componentDidUpdate(prevProps, prevState) {
@@ -817,7 +820,7 @@ export default class DisplayCanvas extends React.Component {
     // Mirror the current design into StudioContext (via StudioPage) so store routes can
     // render mockups of it without the canvas being mounted. No-op when rendered outside
     // the router (defensive).
-    this.props.onDesignChange?.(config);
+    if (!this.suppressDesignSync) this.props.onDesignChange?.(config);
     return config;
   }
 
@@ -895,14 +898,25 @@ export default class DisplayCanvas extends React.Component {
     // Initial pause so the loader animation has time to settle before heavy work starts
     await breathe();
 
-    for (let i = 0; i < frameCount; i++) {
-      const config = this.buildConfig();
-      this.animationConfigs.push(config);
-      const blobUrl = await this.buildImageAsBlob(config);
-      frames.push(blobUrl);
-      this.setState({ animationProgress: i + 1 });
-      if (i < frameCount - 1) await breathe();
+    // Frames are built with the StudioContext mirror switched OFF and the design is pushed once
+    // at the end. Mirroring every frame made each one a new currentDesign, so every
+    // previewUrl surface (footer band, mini-generator, ...) ran its own 480px render and
+    // crossfade per frame -- up to 60 of them, on the main thread, competing with the frame
+    // build itself. The design the rest of the app ends on is unchanged: the last frame.
+    this.suppressDesignSync = true;
+    try {
+      for (let i = 0; i < frameCount; i++) {
+        const config = this.buildConfig();
+        this.animationConfigs.push(config);
+        const blobUrl = await this.buildImageAsBlob(config);
+        frames.push(blobUrl);
+        this.setState({ animationProgress: i + 1 });
+        if (i < frameCount - 1) await breathe();
+      }
+    } finally {
+      this.suppressDesignSync = false;
     }
+    if (this.mainConfig) this.props.onDesignChange?.(this.mainConfig);
 
     this.changeGradient(this.mainConfig.gradientBackgroundConfig.colors);
 
@@ -1203,6 +1217,20 @@ export default class DisplayCanvas extends React.Component {
     this.startHeroReveal();
   }
 
+  // Puts a still on screen and releases the one it replaces. Every Generate used to leave the
+  // previous full-size JPEG (several MB at 3840x2160) pinned by a live blob URL until the tab
+  // closed -- a real cost on a phone after a few dozen generates. The one exception is the
+  // still stashed for animation mode (imageModeState), which comes back when the visitor
+  // switches back and must survive until then.
+  showImageUrl(imageContainer, url) {
+    imageContainer.style.backgroundImage = 'url(' + url + ')';
+    const previous = this.displayedImageUrl;
+    this.displayedImageUrl = url;
+    if (previous && previous !== url && previous !== this.imageModeState?.blobUrl) {
+      URL.revokeObjectURL(previous);
+    }
+  }
+
   // `token` is the buildImage generation this blob belongs to (see this.buildToken). Every
   // step below re-checks it, not just the entry: this method spans an encode, an image decode
   // and a DURATION_HOLD delayed call, and a newer build can start at any point in that span.
@@ -1223,27 +1251,32 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
-    this.blob = blob;
     let url = URL.createObjectURL(blob);
-    this.imageBlobUrl = url;
     let imageLoader = document.createElement('img');
     imageLoader.addEventListener('error', () => {
       console.error('Artwork blob failed to decode.');
+      URL.revokeObjectURL(url);
       this.recoverFromFailedBuild(token);
     });
     imageLoader.src = url;
 
     imageLoader.addEventListener('load', () => {
-      if (token !== this.buildToken) return;
+      // A build superseded before it reached the screen never will: release its full-size
+      // JPEG now rather than holding it for the life of the tab.
+      if (token !== this.buildToken) return URL.revokeObjectURL(url);
       gsap.delayedCall(DURATION_HOLD, () => {
-        if (token !== this.buildToken) return;
+        if (token !== this.buildToken) return URL.revokeObjectURL(url);
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
         // route has changed away from whatever page mounted this DisplayCanvas (e.g. a
         // password-recovery link redirecting straight to /account) -- guard the same way
         // '#controls-main' already is a few lines below.
-        if (!imageContainer) return;
-        imageContainer.style.backgroundImage = 'url(' + url + ')';
+        if (!imageContainer) return URL.revokeObjectURL(url);
+        // Adopted as "the artwork" only once it is actually on screen, so Download and the
+        // animation-mode stash always refer to what the visitor is looking at.
+        this.blob = blob;
+        this.imageBlobUrl = url;
+        this.showImageUrl(imageContainer, url);
 
         // Everything below runs in the setState CALLBACK, which is the whole point: this
         // code executes inside GSAP's ticker (a rAF callback), and dropping the panel's
@@ -2248,7 +2281,7 @@ export default class DisplayCanvas extends React.Component {
 
         const imageContainer = document.querySelector('.image-container');
         if (imageContainer) {
-          imageContainer.style.backgroundImage = `url(${blobUrl})`;
+          this.showImageUrl(imageContainer, blobUrl);
           gsap.set('.image-container', { alpha: 1 });
         }
 

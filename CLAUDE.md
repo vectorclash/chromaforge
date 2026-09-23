@@ -1776,7 +1776,7 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
 - **`profiles.is_admin` already existed in the live DB** with no local migration file and no
   reference anywhere in `src/`. Don't conclude from a repo grep that a column doesn't exist;
   this project applies schema via the Supabase MCP tooling, so `supabase/migrations/` is not a
-  complete record. It is a **UI flag only** (`profiles` is world-readable) and anything
+  complete record. Users can no longer write it (column grants, 0018). It is a **UI flag only** (`profiles` is world-readable) and anything
   privileged must check it server-side. `profiles.js`'s select list and `AuthContext`'s
   `isAdmin` are still wired but are **currently unconsumed** — deliberately kept for the next
   admin-only control; StudioPage no longer passes it to DisplayCanvas.
@@ -2619,6 +2619,42 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
   first and only then faded. Frozen, it fades out intact under the incoming mockup.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
+
+### Audit hardening (2026-09-22) -- rules that now hold, and must keep holding
+A full audit found two exploitable holes and several money-path gaps; all fixed, deployed and
+probed live. The rules worth not re-breaking:
+- **Nothing client-supplied reaches a URL or Storage path signed with a server key unvalidated.**
+  `printful-catalog` (public, no JWT) interpolated `?id=` into a Printful URL sent with the
+  store key -- `id=../orders?store_id=...` resolved to `/orders` because `fetch()` normalises
+  `..`. It now requires digits. `render-print-file` put the client's `label` into a
+  service-role upload path the same way, which reached ANY object in ANY bucket (a trailing
+  `?` even stripped the forced `.png`). `label` is now `[A-Za-z0-9_-]`, and arrives as a NUMBER
+  for a bare printfile id, hence the `String()`.
+- **Checkout prints only what we rendered, for products we sell.** `create-checkout-session`
+  rejects any product not in `_shared/shipping.ts`'s weight table (`isSellableProduct` -- a
+  new product is unbuyable until its shipping is priced, deliberately), and every
+  `printFileUrls` value must be a file in the caller's own `design-mockups/<uid>/` folder. All
+  25 historical orders passed that rule before it shipped. The Stripe line title comes from
+  Printful, not the request.
+- **Fulfil only on settled money.** `stripe-webhook` submits to Printful only when
+  `payment_status` is `paid`, and also handles `async_payment_succeeded`/`_failed` (the Stripe
+  endpoint must be subscribed to both). An order whose payment is still settling carries its
+  payment intent, which the stale-pending cron (0018) skips -- a bank debit takes days and the
+  24h cancel would otherwise strand it. A failed confirm keeps `printful_order_id`, or
+  printful-webhook can never match later events.
+- **`order-watchdog`** (cron every 30 min, same `X-Cleanup-Key` secret as cleanup-storage)
+  emails once about any order `paid` for 15+ minutes (`paid_at`, `watchdog_alerted_at`) --
+  the state a crashed webhook leaves behind, which nothing else ever looked at.
+- **Column grants, not just RLS.** RLS picks rows; `authenticated` had table-wide
+  INSERT/UPDATE, so owners could set their own `likes_count`, `created_at`, and
+  `profiles.is_admin`. Migration 0018 revokes those and grants back exactly: designs INSERT
+  (user_id, title, kind, data, is_public), UPDATE (title, is_public); profiles UPDATE
+  (username, display_name, avatar_url). **A new client-written column needs a GRANT**, or the
+  write fails with a permission error. Also size limits: `designs.data` <= 64KB, bucket
+  file-size/type limits.
+- **The studio canvas releases replaced artwork** (`showImageUrl`), never the still stashed
+  for animation mode; and a 2D animation build mirrors the design into StudioContext once,
+  not per frame (measured 20 preview renders -> 1).
 
 ### The deploy is gated, and the gates are cheap on purpose (2026-09-17)
 

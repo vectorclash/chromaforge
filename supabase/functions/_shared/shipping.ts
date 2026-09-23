@@ -83,6 +83,15 @@ const RATE_CENTS: Record<WeightClass, Record<Region, number>> = {
 
 const DEFAULT_REGION: Region = "US";
 
+// The products the store actually sells. create-checkout-session rejects anything else, so a
+// direct call cannot buy an arbitrary Printful product at a guessed shipping rate. It is this
+// table on purpose: a product only becomes buyable once someone has priced its shipping, which
+// is the step most likely to be forgotten when one is added. Keep in sync with
+// STARTER_PRODUCT_IDS in src/lib/printful.js.
+export function isSellableProduct(productId: number): boolean {
+  return Object.prototype.hasOwnProperty.call(WEIGHT_CLASS_BY_PRODUCT_ID, productId);
+}
+
 function weightClassFor(productId: number): WeightClass {
   // Unknown product (shouldn't happen for the products we sell, but a new product added
   // to the catalog without updating this map first would hit this): assume the pricier

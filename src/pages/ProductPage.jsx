@@ -913,9 +913,13 @@ export default function ProductPage() {
 
   // Unlocks price/availability rich results for this specific product -- only once a real
   // variant is selected, since price is per-variant.
-  useJsonLd(
-    product && variant
-      ? {
+  // Memoised: useJsonLd re-runs on a new object, and a fresh literal every render meant the
+  // <script> in <head> was removed and re-appended on every render -- about once a second
+  // while a mockup's elapsed counter ticks.
+  const productJsonLd = useMemo(
+    () =>
+      product && variant
+        ? {
           '@context': 'https://schema.org',
           '@type': 'Product',
           name: product.title,
@@ -929,8 +933,10 @@ export default function ProductPage() {
             availability: 'https://schema.org/InStock'
           }
         }
-      : null
+        : null,
+    [product, variant, heroImage]
   );
+  useJsonLd(productJsonLd);
 
   // Switching artwork or variant: restore an already-generated mockup for this exact combo
   // instantly (e.g. every size of a t-shirt in the same color shares one print file, so

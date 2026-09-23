@@ -21,7 +21,7 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { applyMarkup } from "../_shared/pricing.ts";
 import { isStoreEnabled } from "../_shared/storeStatus.ts";
-import { buildShippingOptions, estimateShippingCents } from "../_shared/shipping.ts";
+import { buildShippingOptions, estimateShippingCents, isSellableProduct } from "../_shared/shipping.ts";
 import { toCompactDesign } from "../_shared/compactDesign.ts";
 import { checkRateLimit } from "../_shared/rateLimit.ts";
 
@@ -130,6 +130,38 @@ Deno.serve(async req => {
   if (!productId || !variantId || !quantity || !design || !printFileUrls) {
     return Response.json({ error: "Missing required fields" }, { status: 400, headers: corsHeaders });
   }
+  // Only products this store sells, by numeric id. productId is also interpolated into the
+  // Printful URL below, which is sent with the store's private key.
+  if (!Number.isInteger(productId) || !isSellableProduct(productId) || !Number.isInteger(variantId)) {
+    return Response.json({ error: "Unknown product" }, { status: 400, headers: corsHeaders });
+  }
+
+  // printFileUrls goes to Printful verbatim as the files to PRINT, so it must be artwork this
+  // app rendered for this customer: every URL a file in the caller's own folder of our own
+  // bucket (render-print-file and uploadMockupSourceImage both write there, and Storage RLS
+  // stops anyone writing into someone else's). Without this, a direct call could pay to have
+  // any image on the internet printed under the Chromaforge name. Keys are Printful placement
+  // names; Printful itself rejects one that does not exist on the product.
+  const ownFilePrefix = `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/design-mockups/${userId}/`;
+  const fileEntries =
+    printFileUrls && typeof printFileUrls === "object" && !Array.isArray(printFileUrls)
+      ? Object.entries(printFileUrls as Record<string, unknown>)
+      : [];
+  const filesValid =
+    fileEntries.length > 0 &&
+    fileEntries.length <= 20 &&
+    fileEntries.every(
+      ([key, url]) =>
+        /^[a-z0-9_]{1,40}$/.test(key) &&
+        typeof url === "string" &&
+        url.startsWith(ownFilePrefix) &&
+        /^[A-Za-z0-9_.-]{1,200}$/.test(url.slice(ownFilePrefix.length)) &&
+        !url.includes("..")
+    );
+  if (!filesValid) {
+    return Response.json({ error: "Invalid print files" }, { status: 400, headers: corsHeaders });
+  }
+
   // The UI caps quantity at 1-10 (ProductPage's stepper), but nothing stops a direct call
   // from sending -1, 2.5, "999999", etc. -- and this value multiplies straight into the
   // Stripe charge and the Printful production run. Enforce the same bounds server-side.
@@ -152,6 +184,17 @@ Deno.serve(async req => {
     return Response.json({ error: "Unknown variant" }, { status: 400, headers: corsHeaders });
   }
   const unitPriceCents = applyMarkup(Math.round(parseFloat(variant.price) * 100));
+  // A marked-up price that is not a positive whole number of cents means PRICE_MARKUP_PERCENT
+  // is malformed (Number("abc") is NaN) -- refuse rather than hand Stripe a NaN charge.
+  if (!Number.isInteger(unitPriceCents) || unitPriceCents <= 0) {
+    console.error(`create-checkout-session: bad unit price ${unitPriceCents} -- check PRICE_MARKUP_PERCENT`);
+    return Response.json({ error: "Could not verify product price" }, { status: 500, headers: corsHeaders });
+  }
+  // The title on the Stripe page and the order record comes from Printful, not the request.
+  // The variant label is ours to compose client-side ("L / Black stitching") but is bounded.
+  const lineTitle: string = productData.result?.product?.title ?? String(productTitle ?? "Chromaforge print");
+  const lineVariant: string | null =
+    typeof variantLabel === "string" && variantLabel.length > 0 ? variantLabel.slice(0, 80) : null;
   const totalCents = unitPriceCents * qty;
 
   // Weight-class + region shipping (see _shared/shipping.ts for the real Printful rates
@@ -207,8 +250,8 @@ Deno.serve(async req => {
     order_id: order.id,
     product_id: productId,
     variant_id: variantId,
-    product_title: productTitle,
-    variant_label: variantLabel,
+    product_title: lineTitle,
+    variant_label: lineVariant,
     quantity: qty,
     unit_price_cents: unitPriceCents,
     // Audit copy of what was actually printed. On a reversible product the customer can
@@ -238,7 +281,7 @@ Deno.serve(async req => {
           price_data: {
             currency: "usd",
             product_data: {
-              name: `${productTitle}${variantLabel ? ` (${variantLabel})` : ""}`,
+              name: `${lineTitle}${lineVariant ? ` (${lineVariant})` : ""}`,
               ...(mockupImages.length > 0 ? { images: mockupImages } : {})
             },
             unit_amount: unitPriceCents,
@@ -263,7 +306,7 @@ Deno.serve(async req => {
       payment_intent_data: { statement_descriptor_suffix: "CHROMAFORGE" },
       custom_text: {
         submit: {
-          message: "Your one-of-a-kind Chromaforge design is made to order by our print partner."
+          message: "Your Chromaforge design is printed to order by our print partner."
         },
         after_submit: {
           message: "Thanks for your order! You'll receive tracking details by email once it ships."

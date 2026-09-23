@@ -200,7 +200,15 @@ Deno.serve(async req => {
   const hash = Array.from(new Uint8Array(digest).slice(0, 12))
     .map(b => b.toString(16).padStart(2, "0"))
     .join("");
-  const path = `${userId}/print-${hash}-${label ?? "file"}.png`;
+  // `label` is client-supplied and this upload runs with the SERVICE-ROLE key, so it must not
+  // be able to steer the path. fetch() resolves `..` segments before the request leaves, so an
+  // unchecked label like `../../../../design-thumbnails/<user>/<design>.jpg?` reached any object
+  // in any bucket, with the `?` swallowing the forced `.png` (found in the 2026-09-22 audit).
+  // Real labels are printfile ids and short placement names.
+  // (a bare printfile id arrives as a NUMBER, hence the String()).
+  const labelText = label == null ? "" : String(label);
+  const safeLabel = /^[A-Za-z0-9_-]{1,64}$/.test(labelText) ? labelText : "file";
+  const path = `${userId}/print-${hash}-${safeLabel}.png`;
 
   const headRes = await fetch(`${supabaseUrl}/storage/v1/object/public/${MOCKUP_BUCKET}/${path}`, { method: "HEAD" });
   if (headRes.ok) {

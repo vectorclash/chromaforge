@@ -23,7 +23,8 @@
 // Printful functions use). SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are auto-provided.
 //
 // Register the endpoint in Stripe's dashboard pointing at this function's URL, subscribed
-// to checkout.session.completed only.
+// to checkout.session.completed, checkout.session.async_payment_succeeded and
+// checkout.session.async_payment_failed (see the payment_status note in the handler).
 //
 // PRINTFUL_API_KEY is real and store-scoped -- Printful has no sandbox/test mode, so this
 // always acts against your actual store. Set PRINTFUL_SKIP_CONFIRM=true while verifying the
@@ -77,9 +78,19 @@ Deno.serve(async req => {
     return new Response("Invalid signature", { status: 400 });
   }
 
-  if (event.type !== "checkout.session.completed") {
-    // Only subscribed to this event type in Stripe's dashboard, but acknowledge anything
-    // else cleanly rather than erroring.
+  // `completed` means the customer finished the Checkout page, NOT that money arrived. For a
+  // delayed-settlement method (bank debits and the like) it fires with payment_status "unpaid",
+  // and the money either lands later (async_payment_succeeded) or never does
+  // (async_payment_failed). Only card and wallet methods are enabled today, where `completed`
+  // always arrives "paid" -- but that is a dashboard setting, and fulfilling on `completed`
+  // alone would start real production for an unpaid order the day someone switches one on.
+  // The endpoint must be subscribed to all three events in Stripe's dashboard.
+  const HANDLED_EVENTS = new Set([
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed"
+  ]);
+  if (!HANDLED_EVENTS.has(event.type)) {
     return new Response("ok", { status: 200 });
   }
 
@@ -94,6 +105,37 @@ Deno.serve(async req => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
+
+  if (event.type === "checkout.session.async_payment_failed") {
+    // The money never arrived. Nothing was submitted to Printful (that waits for "paid"), so
+    // closing the pending row is all there is to do.
+    // stripe_payment_intent_id is cleared because order history reads "has a payment intent" as
+    // "was paid" (listMyOrderHistory), and this one never was.
+    await supabase
+      .from("orders")
+      .update({ status: "canceled", failure_reason: "Payment did not complete", stripe_payment_intent_id: null })
+      .eq("id", orderId)
+      .eq("status", "pending");
+    return new Response("ok", { status: 200 });
+  }
+  if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
+    // Recording the payment intent now marks the order as "checkout finished, money in
+    // flight", which the hourly stale-pending cron (migration 0018) leaves alone -- a bank
+    // debit can take days to settle, and cancelling at 24h would strand a real payment.
+    await supabase
+      .from("orders")
+      .update({
+        stripe_payment_intent_id:
+          typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null
+      })
+      .eq("id", orderId)
+      .eq("status", "pending");
+    console.warn(
+      `stripe-webhook: session ${session.id} completed with payment_status ` +
+        `${session.payment_status} -- waiting for async_payment_succeeded`
+    );
+    return new Response("ok", { status: 200 });
+  }
 
   const { data: order, error: fetchError } = await supabase
     .from("orders")
@@ -128,6 +170,9 @@ Deno.serve(async req => {
     .from("orders")
     .update({
       status: "paid",
+      // What order-watchdog measures a stuck order from (created_at is when checkout STARTED,
+      // which can be most of a day earlier).
+      paid_at: new Date().toISOString(),
       stripe_payment_intent_id:
         typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
       shipping_name: shippingDetails?.name ?? null,
@@ -303,8 +348,23 @@ Deno.serve(async req => {
     // an auto-refund (see sendOrderFailureAlert's comment for why). The order-history UI
     // must show 'failed' distinctly so it doesn't look like a normal completed order.
     console.error(`stripe-webhook: Printful submission failed for order ${orderId}: ${lastError.message}`);
-    await supabase.from("orders").update({ status: "failed", failure_reason: lastError.message }).eq("id", orderId);
-    await sendOrderFailureAlert(orderId, lastError.message);
+    // Keep Printful's id when the order WAS created and only confirmation failed: it is the
+    // draft a human needs to find and confirm by hand, and printful-webhook matches later
+    // events by it -- without it every update about that order is silently dropped.
+    await supabase
+      .from("orders")
+      .update({
+        status: "failed",
+        failure_reason: lastError.message,
+        ...(printfulOrderId ? { printful_order_id: String(printfulOrderId) } : {})
+      })
+      .eq("id", orderId);
+    await sendOrderFailureAlert(
+      orderId,
+      printfulOrderId
+        ? `${lastError.message} (Printful draft order ${printfulOrderId} exists and was not confirmed)`
+        : lastError.message
+    );
   }
 
   return new Response("ok", { status: 200 });

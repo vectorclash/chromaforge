@@ -53,14 +53,25 @@ Deno.serve(async req => {
   // Keep-list: every file any non-canceled order's print_file_urls points at. Includes
   // pending (checkout may still complete), submitted (Printful may re-fetch), and failed
   // (resubmittable by hand -- see stripe-webhook's failure handling).
-  const itemsRes = await fetch(
-    `${supabaseUrl}/rest/v1/order_items?select=print_file_urls,order:orders!inner(status)&order.status=neq.canceled`,
-    { headers: serviceHeaders }
-  );
-  if (!itemsRes.ok) {
-    return Response.json({ error: { message: `keep-list query failed (${itemsRes.status})` } }, { status: 500 });
+  //
+  // Paged, because PostgREST caps a response at 1000 rows by default and says nothing when it
+  // does: a single request would silently truncate the keep-list once the table outgrew that,
+  // and this function would then delete print files real orders still point at.
+  const KEEP_PAGE = 1000;
+  const items: { print_file_urls: Record<string, string> | null }[] = [];
+  for (let offset = 0; ; offset += KEEP_PAGE) {
+    const itemsRes = await fetch(
+      `${supabaseUrl}/rest/v1/order_items?select=id,print_file_urls,parent:orders!inner(status)` +
+        `&parent.status=neq.canceled&order=id&limit=${KEEP_PAGE}&offset=${offset}`,
+      { headers: serviceHeaders }
+    );
+    if (!itemsRes.ok) {
+      return Response.json({ error: { message: `keep-list query failed (${itemsRes.status})` } }, { status: 500 });
+    }
+    const page: { print_file_urls: Record<string, string> | null }[] = await itemsRes.json();
+    items.push(...page);
+    if (page.length < KEEP_PAGE) break;
   }
-  const items: { print_file_urls: Record<string, string> | null }[] = await itemsRes.json();
   const keep = new Set<string>();
   const pathPrefix = `/storage/v1/object/public/${BUCKET}/`;
   for (const item of items) {

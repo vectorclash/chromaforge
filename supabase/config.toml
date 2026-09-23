@@ -498,3 +498,10 @@ entrypoint = "./functions/printful-webhook/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/cleanup-storage/index.ts"
+
+# Cron-only: alerts on orders stuck at 'paid' (charged, never submitted to Printful). Same
+# X-Cleanup-Key shared secret as cleanup-storage, checked inside the function.
+[functions.order-watchdog]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/order-watchdog/index.ts"

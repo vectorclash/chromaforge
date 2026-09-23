@@ -12,6 +12,38 @@ import { isStoreEnabled } from "../_shared/storeStatus.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
+// Both ids are interpolated into a URL that is sent WITH THE STORE'S PRIVATE KEY, from a
+// function anyone can call without signing in. Unvalidated, `?id=../orders?store_id=...`
+// resolves to https://api.printful.com/orders and reads every order in the store -- customer
+// names, addresses and emails (found in the 2026-09-22 audit; fetch() normalises the `..`
+// before the request leaves). A Printful catalog id is always a plain integer.
+const NUMERIC_ID = /^\d{1,9}$/;
+
+// Short in-memory cache of Printful's raw responses. This endpoint is public and every product
+// view used to be a live Printful call, so anyone could spend the store-wide Printful rate
+// limit -- the same budget stripe-webhook needs to submit a PAID order. Catalog data changes
+// rarely; five minutes is invisible to shoppers. Cached as the raw body string, so the markup
+// below is applied to a fresh parse every time and can never compound. `storeEnabled` is
+// computed per request and never cached, so the kill switch still takes effect immediately.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 200; // ids are numeric, but still unbounded -- cap the map
+const responseCache = new Map<string, { expires: number; status: number; body: string }>();
+
+async function fetchPrintful(printfulUrl: URL, apiKey: string): Promise<{ status: number; body: string }> {
+  const key = printfulUrl.href;
+  const hit = responseCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit;
+  const res = await fetch(printfulUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const body = await res.text();
+  if (res.ok) {
+    if (responseCache.size >= CACHE_MAX_ENTRIES) {
+      responseCache.delete(responseCache.keys().next().value!);
+    }
+    responseCache.set(key, { expires: Date.now() + CACHE_TTL_MS, status: res.status, body });
+  }
+  return { status: res.status, body };
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -56,6 +88,9 @@ Deno.serve(async req => {
   //   and Printful's own measuring diagrams -- see components/ui/SizeGuideModal.jsx)
   const productId = url.searchParams.get("id");
   const categoryId = url.searchParams.get("category_id");
+  if ((productId !== null && !NUMERIC_ID.test(productId)) || (categoryId !== null && !NUMERIC_ID.test(categoryId))) {
+    return Response.json({ error: "Invalid product or category id" }, { status: 400, headers: corsHeaders });
+  }
   const wantsPrintfiles = url.searchParams.get("printfiles") === "1";
   const wantsTemplates = url.searchParams.get("templates") === "1";
   const wantsSizes = url.searchParams.get("sizes") === "1";
@@ -78,11 +113,8 @@ Deno.serve(async req => {
     if (categoryId) printfulUrl.searchParams.set("category_id", categoryId);
   }
 
-  const printfulRes = await fetch(printfulUrl, {
-    headers: { Authorization: `Bearer ${apiKey}` }
-  });
-
-  const data = await printfulRes.json();
+  const printfulRes = await fetchPrintful(printfulUrl, apiKey);
+  const data = JSON.parse(printfulRes.body);
 
   // Reduce the mockup-styles payload to the distinct group names before it leaves here. The raw
   // response is hundreds of style entries repeated per variant group (358 on the hoodie), and the
