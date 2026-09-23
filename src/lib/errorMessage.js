@@ -49,6 +49,24 @@ const RULES = [
     /password should be at least (\d+)/i,
     m => `Your password needs to be at least ${m[1]} characters.`
   ],
+  // The dashboard's "Password requirements" rule. GoTrue lists the required character SETS
+  // verbatim ("abcdefghijklmnopqrstuvwxyz, ABCDEFGHIJKLMNOPQRSTUVWXYZ, 0123456789"), so the
+  // sentence is built from which sets appear rather than hardcoding today's setting.
+  [
+    /password should contain at least one character of each: (.*)/i,
+    m => {
+      const sets = m[1];
+      const need = [
+        /[a-z]{5}/.test(sets) && 'a lowercase letter',
+        /[A-Z]{5}/.test(sets) && 'an uppercase letter',
+        /[0-9]{5}/.test(sets) && 'a number',
+        /[^A-Za-z0-9,\s.]/.test(sets) && 'a symbol'
+      ].filter(Boolean);
+      if (need.length === 0) return 'Your password needs a mix of letters, numbers and symbols.';
+      const list = need.length > 1 ? `${need.slice(0, -1).join(', ')} and ${need.at(-1)}` : need[0];
+      return `Your password needs at least ${list}.`;
+    }
+  ],
   [/new password should be different/i, 'Your new password needs to be different from your old one.'],
 
   // GoTrue's own throttle, which carries the wait in the message.
