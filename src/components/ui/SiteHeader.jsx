@@ -57,28 +57,25 @@ export default function SiteHeader({
       <header
         className={
           (overlay ? 'fixed inset-x-0 top-0' : 'sticky top-0') +
-          ' z-20 shrink-0' +
+          ' site-header-scrim z-20 shrink-0' +
           (intro === 'hold' ? ' hero-hold' : '') +
           (intro === 'reveal' ? ' hero-intro intro-item-flat' : '')
         }
-        style={intro === 'reveal' ? heroIntroStyle(HERO_REVEAL.nav) : undefined}
+        style={{
+          ...(intro === 'reveal' ? heroIntroStyle(HERO_REVEAL.nav) : null),
+          // The legibility scrim is this element's own background -- see .site-header-scrim
+          // (components.css) for why it is not a child layer any more.
+          '--header-scrim': showGradient ? 1 : 0,
+          transitionDuration: revertDuration
+        }}
       >
-        {/* Solid scrolled-state bar, crossfaded with the gradient scrim below via opacity
-            on two always-mounted layers -- see the header comment above for why opacity,
-            not class toggling. */}
+        {/* Solid scrolled-state bar, crossfaded with the gradient scrim (the header's own
+            background, see .site-header-scrim) -- see the header comment above for why the
+            crossfade animates values, not class toggling. */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 border-b border-hairline bg-ink-950/80 backdrop-blur transition-opacity"
           style={{ opacity: showGradient ? 0 : 1, transitionDuration: revertDuration }}
-        />
-        {/* Transparent state has nothing behind it but raw generated artwork, which can be
-            any color/brightness -- this scrim guarantees the light nav text stays legible
-            regardless, without it the nav is only readable when the art happens to be dark
-            at the very top. */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/55 via-black/20 to-transparent transition-opacity"
-          style={{ opacity: showGradient ? 1 : 0, transitionDuration: revertDuration }}
         />
         <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
           <Wordmark className="text-base sm:text-lg" onClick={() => setMenuOpen(false)} />

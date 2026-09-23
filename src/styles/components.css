@@ -2161,3 +2161,37 @@
     animation-delay: 0ms !important;
   }
 }
+
+/* --- Site header: the legibility scrim ---------------------------------------------------
+   Painted as the <header>'s OWN background, not as a child layer, and that is the point.
+   As a separate absolutely-positioned child it rubber-banded TWICE as far as the header's
+   own content in Chrome on macOS: Aaron's screen recording (2026-09-22) measured page, art
+   and logo moving 30/45px mid-bounce while the scrim's top edge moved ~60/90px, uncovering
+   a flat strip of bare art between the page's top edge and the scrim. Best guess is that
+   Chrome composited the child as its own layer (it has an opacity transition and overlaps
+   the backdrop-filtered solid bar) and applied the overscroll offset to it a second time --
+   not confirmed, because a scripted gesture does not bounce the way a real trackpad does.
+   A background is painted with its element, like the logo is, so it cannot come apart.
+   Consequences of that shape:
+   - It can only paint inside the header's box (~76px, where the old child was 112px), so
+     the stops are refitted to keep roughly the same darkening behind the nav text
+     (vertical centre ~0.3 black, as before).
+   - It cannot use `opacity` without also fading the logo, so the crossfade animates a
+     registered number instead; SiteHeader sets --header-scrim to 1/0 and the transition
+     duration inline. Without @property support it snaps rather than fades -- harmless. */
+@property --header-scrim {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+.site-header-scrim {
+  background-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(0.55 * var(--header-scrim))),
+    rgb(0 0 0 / calc(0.3 * var(--header-scrim))) 50%,
+    rgb(0 0 0 / 0)
+  );
+  transition-property: --header-scrim;
+  transition-timing-function: ease;
+}
