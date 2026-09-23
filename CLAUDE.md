@@ -2380,11 +2380,24 @@ Conventions the audit settled, worth holding:
   maximum; an overlay close or an idle window is legitimately zero, so only the loads set it.
   A checker that passes when nothing renders is worse than no checker -- the same lesson as
   `checkCoverage` in the Printful section.
-  **One thing found and deliberately left:** the profile card plays `resolve-in` on
-  "Loading profile..." and then again on the form that replaces it. Two nodes in one slot,
-  inside ONE cascade -- the same placeholder-then-content shape as the product route's two, and
-  correct by the same rule ("do not re-animate what the visitor has already SEEN"; the form is
-  content they have not).
+  **Since resolved (2026-09-23):** the profile card used to play `resolve-in` on "Loading
+  profile..." and again on the form that replaced it. AccountPage now draws its whole signed-in
+  card layout from the first frame and fills it in place (see the next note), so there is one
+  entrance and nothing to replace.
+- **A cold load of /account holds ONE shape (2026-09-23, Aaron: the page "changes sizes up to 3
+  times", only on a fresh load or refresh).** Measured with a simulated signed-in session and
+  staggered API responses: 4 height changes on desktop, 5 on a phone -- route skeleton sized for
+  the signed-OUT form, then the sign-in form itself (AccountPage rendered before AuthContext had
+  resolved, so `user` was null), then a one-line "Loading profile...", then cards mounting one
+  at a time as their requests landed. Now 0 at 390/768/1024/1280/1440. Three things:
+  (1) While auth is unresolved, a stored Supabase session (`lib/sessionHint.js`, a synchronous
+  localStorage check for `sb-*-auth-token`) means "draw the account layout". It is a HINT only;
+  a stale session settles on the sign-in form, as it would have anyway.
+  (2) Every card is always mounted and fills in place: disabled empty inputs, "–" in the stats,
+  "Loading..." inside the orders list.
+  (3) RouteSkeleton reserves the signed-in height for that visitor (main 941px below lg, 816px
+  from lg), measured through the real page. Orders still grow the page once when they arrive,
+  since their count cannot be known in advance.
 
 ### Every content route assembles on ONE entrance, and it is the same one (2026-09-09)
 `--animate-resolve-in` (tailwind.css) is the site-wide entrance; `.intro-stagger` on
@@ -3064,6 +3077,45 @@ stream at all.** Give it its own stream, `makeRng(`${seed}-<thing>`)`, exactly a
 anywhere shifts every layer generated after it. If a change genuinely must touch the shared
 stream, this check will fail, and that has to be an explicit, stated decision to rewrite
 everyone's saved artwork — not a side effect noticed in production.
+
+### Mini generator, Generate, and interactive rendering (2026-09-23)
+Three systems landed together; the detail is in each file's header comment, this is the map.
+- **ONE ambient mini generator** (`components/ui/MiniGenerator.jsx`, `useDockMorph`). The floating
+  widget IS the footer's docked one -- SiteFooter only renders an empty `[data-mini-dock]` slot
+  (below `sm` it keeps a static inline copy). Two states, floating and docked, with a timed
+  one-move morph between them; docks once the slot reaches the floating line, undocks only past
+  `UNDOCK_PX` (hysteresis for short pages). **Vertical position is CSS, never script**: the panel is
+  `position: sticky` at the end of a track that ends at the slot (docked: `relative`, with
+  `bottom: auto`). Script positioning lagged real trackpad scroll by a frame and every hand-off
+  showed it as a jump; scripted `window.scrollTo` never reproduces that, so a passing frame check
+  proves nothing about it. While a page is settling (layout still moving, <= 2.5s) it never docks,
+  and on first load it stays hidden until settled. Scroll-LINKED morphing was built and removed:
+  unstable on short pages.
+- **Generate is one shared cycle** (`utils/generationCycle.js`). A click puts every surface showing
+  the design (thumbnail, footer, hero, shirt, About blob, tiles) into its loading state at once and
+  reveals them together once every render has landed (`useCrossfadeImage`, DisplayCanvas and
+  AboutBlob follow it). `utils/afterFeedback.js` paints the active state before the heavy work.
+- **Two render pathways** (`render/renderQueue.js`). A page load renders synchronously, as before;
+  after it, renders are queued and stepwise (a frame between layers and between strips of large
+  composites), so animations keep running through a Generate. The stepwise path shares one
+  generator with the synchronous `renderArtwork` and is byte-identical to it (napi and Chromium);
+  print files use the synchronous path. **Measure render timing on GPU raster**
+  (`--enable-gpu --use-angle=metal`), not default headless SwiftShader, which hides frame waits --
+  the stepwise path looked free there and made real page loads ~4x longer.
+
+### The studio panel's glass is never animated -- only refreshed (`DisplayCanvas.fadeArtwork`, 2026-09-23)
+Every fade of the artwork goes through `fadeArtwork`, which rewrites the studio panel's OWN blur and
+brightness every frame for the length of the fade (alternating by 0.001px so each write is a real
+change), then hands back to the stylesheet. The writes exist because iOS Safari caches the backdrop
+behind a `backdrop-filter` and otherwise keeps showing artwork that has already faded.
+**Do not bring back the old version**, which animated the blur from 0 and brightness from 1 on every
+reveal. It forced the same refresh but visibly changed the glass, and it was the cause of two
+separate reports: a box flashing behind the panel during loading (blamed on the HexagonLoader for a
+whole session -- its glow was reworked and the loader briefly replaced before the real cause was
+confirmed by restoring it), and the artwork showing through the panel for a moment after it had
+gone. The same tween had already been removed from the compact hero in July 2026 for painting "a
+ghost of the removed glass". Measured after the change: the panel holds blur 4px / brightness 0.95
+on every frame of a Generate, in Chromium and WebKit. iOS itself is unverified.
 
 ### The studio canvas is the one active-artwork surface with no staleness guard of its own
 Every OTHER surface showing the active design is protected against a late async result —

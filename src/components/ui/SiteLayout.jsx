@@ -1,4 +1,5 @@
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense, useEffect, useMemo } from 'react';
+import { openFastWindow } from '../../render/renderQueue';
 import { Outlet, useLocation } from 'react-router-dom';
 import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
@@ -21,6 +22,16 @@ export default function SiteLayout() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
+
+  // A route change is a load of that page: its surfaces render on the fast pathway, the way
+  // they did before stepwise rendering existed (render/renderQueue.js). Opened DURING RENDER,
+  // deliberately: every effect -- including a class child's componentDidMount, which is where
+  // DisplayCanvas starts its build -- runs before this component's own effects would, so an
+  // effect here would open the window after the page had already asked for its renders.
+  // Idempotent, so a repeated render (StrictMode, or any re-render) costs nothing.
+  // `pathname` is the trigger, not an input -- the window reopens on each route change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useMemo(() => openFastWindow(), [pathname]);
 
   return (
     <div className="flex min-h-dvh flex-col bg-ink-950 text-text">
@@ -51,12 +62,11 @@ export default function SiteLayout() {
       </main>
       <SiteFooter />
       {/* Rendered once here (not per-page) so the ambient generator widget is present across
-          every light route without each page needing to include it. Hidden below `sm` --
+          every light route without each page needing to include it. Hidden below `sm` (by its own
+          `hidden sm:block`) --
           MobileNav docks its own inline instance in the full-screen nav instead, so mobile
           doesn't get two competing generate/save surfaces on one small screen. */}
-      <div className="hidden sm:block">
-        <MiniGenerator />
-      </div>
+      <MiniGenerator />
     </div>
   );
 }

@@ -32,7 +32,8 @@ import { HERO_REVEAL, heroIntroStyle } from '../../utils/heroIntro';
 // background, only the hairline border fading), but in practice the bar still read as a
 // visible band against the panel underneath it; forcing the full gradient look is what
 // actually makes the panel look identical no matter where on the page it's opened from.
-// Both layers below are always-mounted and animate ONLY opacity -- never toggled classes
+// Both looks are now the <header>'s own paint (.site-header-scrim, components.css), animated by
+// value -- never toggled classes
 // (an earlier `border-b`/`backdrop-blur` class-swap combined with a `transition-colors`
 // background fade, so the border/blur snapped instantly while the color kept animating --
 // that mismatch, not any timing issue, was the actual cause of an earlier "hard edge
@@ -66,17 +67,12 @@ export default function SiteHeader({
           // The legibility scrim is this element's own background -- see .site-header-scrim
           // (components.css) for why it is not a child layer any more.
           '--header-scrim': showGradient ? 1 : 0,
+          // The solid scrolled-state bar is the header's own background too (fill, hairline and
+          // blur), crossfaded with the scrim by animating values -- see .site-header-scrim.
+          '--header-bar': showGradient ? 0 : 1,
           transitionDuration: revertDuration
         }}
       >
-        {/* Solid scrolled-state bar, crossfaded with the gradient scrim (the header's own
-            background, see .site-header-scrim) -- see the header comment above for why the
-            crossfade animates values, not class toggling. */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 border-b border-hairline bg-ink-950/80 backdrop-blur transition-opacity"
-          style={{ opacity: showGradient ? 0 : 1, transitionDuration: revertDuration }}
-        />
         <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
           <Wordmark className="text-base sm:text-lg" onClick={() => setMenuOpen(false)} />
           {/* Below `sm`, this whole group collapses into just the hamburger -- Shop/Gallery/

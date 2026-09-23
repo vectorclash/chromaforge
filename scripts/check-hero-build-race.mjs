@@ -108,18 +108,46 @@ async function open(browser) {
   return { ctx, page, errors };
 }
 
+// Release build `i` once its encode has actually finished. `__cf.n` counts a build when toBlob
+// is CALLED, but it only becomes releasable when the encode completes -- and since interactive
+// renders now run in steps (render/renderQueue.js) that can land a beat after the count does.
+// Releasing on the count alone found nothing to release and left the canvas on the older build.
+// A build that never becomes ready still fails the check that follows, since nothing is released.
+async function releaseWhenReady(page, i, asNull = false) {
+  await page
+    .waitForFunction(n => window.__cf.pending.some(x => x.i === n), i, { timeout: 10000 })
+    .catch(() => {});
+  return page.evaluate(([n, nul]) => window.__cf.release(n, nul), [i, asNull]);
+}
+
+// Wait (bounded) for build `i` to be the one on the canvas. A Generate's builds reveal on a
+// shared cycle (utils/generationCycle.js) -- with every other surface showing the design, once
+// ALL of them have rendered -- so how long after its own decode the hero paints depends on the
+// rest of the page. Measured 0.7-2.0s after release here, which a fixed 2.5s sleep only just
+// covered. A build that never paints still fails the check that follows.
+async function waitForHero(page, i) {
+  await page.waitForFunction(n => window.__cf.heroIndex() === n, i, { timeout: 10000 }).catch(() => {});
+}
+
 // Generate from an ambient surface, NOT the canvas's own button -- that one is disabled while
 // a build runs, which is precisely why it is the ambient ones that can land mid-build.
 async function generateFromWidget(page) {
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await sleep(600);
+  // Long enough for the mini generator to finish docking into the footer (a 0.8s morph):
+  // mid-morph, the floating row's Generate is still "visible" when found and hidden by the time
+  // it is clicked, which timed this check out.
+  await sleep(1200);
   const before = await page.evaluate(() => window.__cf.previews);
   const buttons = page.locator('button[aria-label="Generate new design"]');
   const n = await buttons.count();
   for (let i = 0; i < n; i++) {
     const b = buttons.nth(i);
     if ((await b.isVisible()) && (await b.isEnabled())) {
-      await b.click();
+      // A direct DOM click, not Playwright's: its scroll-into-view moves the page, and the
+      // docked mini generator's position is scroll-linked (MiniGenerator's useDockMorph), so the
+      // button could keep moving out from under the pointer until the click timed out. This
+      // check is about builds racing, not about click mechanics.
+      await b.evaluate(el => el.click());
       break;
     }
   }
@@ -143,19 +171,21 @@ async function main() {
 
     if (inFlight >= 2) {
       // Unfixed: land the NEWER build first, then the OLDER one, and see who wins.
-      await page.evaluate(() => window.__cf.release(2));
+      await releaseWhenReady(page, 2);
       await sleep(1200);
-      await page.evaluate(() => window.__cf.release(1));
+      await releaseWhenReady(page, 1);
       await sleep(2000);
       const hero = await page.evaluate(() => window.__cf.heroIndex());
       check(hero === 2, 'a stale build cannot paint over a newer one', `canvas shows build ${hero}`);
     } else {
-      await page.evaluate(() => window.__cf.release(1));
-      await sleep(2500);
+      await releaseWhenReady(page, 1);
+      // "Eventually", not "within 2.5s": the deferred build waits out the landed build's hold and
+      // fade-in, a 350ms retry, and then renders in steps across frames (render/renderQueue.js).
+      await page.waitForFunction(() => window.__cf.n >= 2, null, { timeout: 10000 }).catch(() => {});
       const after = await page.evaluate(() => window.__cf.n);
       check(after === 2, 'the deferred design builds once the canvas is free', `builds=${after}`);
-      await page.evaluate(() => window.__cf.release(2));
-      await sleep(2500);
+      await releaseWhenReady(page, 2);
+      await waitForHero(page, 2);
       const hero = await page.evaluate(() => window.__cf.heroIndex());
       check(hero === 2, 'the canvas ends on the newest design', `canvas shows build ${hero}`);
     }
@@ -167,7 +197,7 @@ async function main() {
   //    the UI. Pre-fix this threw out of the toBlob callback and left "Generating" forever.
   {
     const { ctx, page, errors } = await open(browser);
-    await page.evaluate(() => window.__cf.release(1, true));
+    await releaseWhenReady(page, 1, true);
     await sleep(2500);
     const thrown = await page.evaluate(() => window.__cf.thrown);
     const label = await page.evaluate(() => window.__cf.generateLabel());
@@ -180,13 +210,16 @@ async function main() {
   // 3. The ordinary path still works, from an idle canvas.
   {
     const { ctx, page, errors } = await open(browser);
-    await page.evaluate(() => window.__cf.release(1));
+    await releaseWhenReady(page, 1);
     await sleep(2500);
     const first = await page.evaluate(() => window.__cf.heroIndex());
     check(first === 1, 'first build paints', `canvas shows build ${first}`);
     await generateFromWidget(page);
-    await page.evaluate(() => window.__cf.release(2));
-    await sleep(2500);
+    // Generate now puts its active state on screen before starting any work
+    // (utils/afterFeedback), so this build begins a beat after the click -- releaseWhenReady
+    // waits for it rather than assuming a fixed sleep covers it.
+    await releaseWhenReady(page, 2);
+    await waitForHero(page, 2);
     const second = await page.evaluate(() => window.__cf.heroIndex());
     check(second === 2, 'a generate from an idle canvas repaints', `canvas shows build ${second}`);
     check(errors.length === 0, 'no page errors', errors.join(' | '));

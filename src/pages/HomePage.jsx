@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import SiteHeader from '../components/ui/SiteHeader';
 import SiteFooter from '../components/ui/SiteFooter';
 import MiniGenerator from '../components/ui/MiniGenerator';
+import { openFastWindow } from '../render/renderQueue';
 import Hero from '../components/home/Hero';
 import AboutSection from '../components/home/AboutSection';
 import GallerySection from '../components/home/GallerySection';
@@ -46,6 +47,10 @@ const HOME_JSON_LD = {
 // is the height the hero settles at once that toolbar retracts, and it does not resize
 // mid-scroll the way `dvh` would.
 export default function HomePage() {
+  // Arriving here is a page load: open the fast render window during render, before the hero and
+  // every other surface mount and ask for their renders. See SiteLayout's note and
+  // render/renderQueue.js.
+  useState(openFastWindow);
   usePageMeta({ path: '/' });
   useJsonLd(HOME_JSON_LD);
   const [scrolled, setScrolled] = useState(false);
@@ -117,13 +122,11 @@ export default function HomePage() {
       <GallerySection />
       <ShopCarousel />
       <SiteFooter />
-      {/* Hidden below `sm` -- MobileNav docks its own inline instance in the full-screen
+      {/* Hidden below `sm` (by its own `hidden sm:block`) -- MobileNav docks its own inline instance in the full-screen
           nav instead (same reasoning as SiteLayout's own copy of this). Without this, the
           floating widget's z-30 sat above MobileNav's z-10 and showed through on top of
           the open nav panel on mobile. */}
-      <div className="hidden sm:block">
-        <MiniGenerator />
-      </div>
+      <MiniGenerator />
     </div>
   );
 }

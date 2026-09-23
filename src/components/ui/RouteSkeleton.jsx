@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import PageContainer from './PageContainer';
 import { claimRouteIntro, releaseRouteIntro } from '../../utils/routeIntro';
 import SkeletonGrid from './SkeletonGrid';
+import { hasStoredSession } from '../../lib/sessionHint';
 
 // Placeholders for the SiteLayout routes, shown by the Suspense boundary while a lazy page's
 // chunk downloads -- and, for the product page, reused by the page itself while its catalog
@@ -270,7 +271,7 @@ const GENERIC_BODY_MIN = {
   '/account': 408
 };
 
-function GenericRouteSkeleton({ bodyMin = 0 }) {
+function GenericRouteSkeleton({ bodyMin = 0, bodyClass = '' }) {
   return (
     <div aria-hidden="true">
       <header className="mb-10">
@@ -284,9 +285,9 @@ function GenericRouteSkeleton({ bodyMin = 0 }) {
       {/* Bare, the body is one small card: the default has to suit the SHORT routes, since
           those are the ones where a too-tall reservation would visibly lift the footer. The
           text lines only appear for the routes that asked for real height. */}
-      <div className="space-y-4" style={bodyMin ? { minHeight: `${bodyMin}px` } : undefined}>
+      <div className={'space-y-4 ' + bodyClass} style={bodyMin ? { minHeight: `${bodyMin}px` } : undefined}>
         <div className={`${SKEL} h-24 w-full rounded-xl`} />
-        {bodyMin > 0 && (
+        {(bodyMin > 0 || bodyClass) && (
           <>
             <div className={`${SKEL} h-3.5 w-full`} />
             <div className={`${SKEL} h-3.5 w-11/12`} />
@@ -327,6 +328,15 @@ export default function RouteSkeleton({ pathname }) {
         after={<div className="py-10" aria-hidden="true" />}
       />
     );
+  }
+  // A returning, signed-in visitor on /account gets the height of the ACCOUNT layout, not the
+  // sign-in form's: that page now draws its full card layout from the first frame (AccountPage's
+  // expectingUser), so reserving the signed-out floor here was the one jump left on a cold load.
+  // Measured through the real page with a simulated signed-in session: main 941px below lg (one
+  // column), 816px from lg up (two). A stored session is only a hint (lib/sessionHint.js); if it
+  // turns out stale the page settles on the sign-in form instead, as it would have anyway.
+  if (pathname === '/account' && hasStoredSession()) {
+    return <GenericRouteSkeleton bodyClass="min-h-[637px] lg:min-h-[512px]" />;
   }
   return <GenericRouteSkeleton bodyMin={GENERIC_BODY_MIN[pathname] || 0} />;
 }

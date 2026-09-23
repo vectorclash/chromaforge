@@ -40,6 +40,16 @@ import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
 // hold dominates). Worth knowing if that ever changes: past ~1.8s the grid goes still until
 // the artwork lands, so a much slower generate would want its own indicator rather than a
 // repeat here -- a repeat would bring the cut-off ring straight back.
+//
+// It changed (2026-09-23): the hero's FIRST load waits ~1.8s for its artwork, and interactive
+// renders now run in steps across frames (render/renderQueue.js), so the single pass ended with
+// a third of the wait still to go and the hero sat still (Aaron: "the hero loading animation
+// stops a third of the way through"). The answer is `active` -- a continuous mode, not a repeat:
+// while `active`, each layer launches a fresh ring (fresh colours) as its last one clears the
+// corners; when it goes false no new ring starts and the ones in flight run out to the edge and
+// fade as normal. The cut-off the repeat caused came from the HOST unmounting mid-ring, so a
+// caller using `active` keeps this mounted and lets the rings finish on their own. Hosts that
+// pass nothing (SiteFooter, MobileNav: a fixed crossfade hold) keep the one-shot behaviour above.
 const HOLD_WINDOW = DURATION_FAST + DURATION_HOLD;
 const RIPPLE_CYCLE = HOLD_WINDOW;
 
@@ -52,10 +62,72 @@ const spun = () =>
 // entrance -- the ripple sits on the dot grid, so appearing before the grid does is exactly
 // the pop that entrance exists to remove. Every other host passes nothing and is unchanged.
 // It rides the wrapper, not the layers: those already carry a GSAP opacity fade of their own.
-function DotRipple({ introDelay = null }) {
+function DotRipple({ introDelay = null, active }) {
   const mount = useRef(null);
+  const continuous = active !== undefined;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const startRef = useRef(null);
 
   useEffect(() => {
+    if (!continuous) return undefined;
+    const layers = [...mount.current.querySelectorAll('.dot-ripple')];
+    const maxR = Math.hypot(mount.current.offsetWidth, mount.current.offsetHeight) / 2;
+    const falloffStartRaw = getComputedStyle(mount.current).getPropertyValue('--ripple-falloff-start').trim();
+    const falloffStart = falloffStartRaw ? parseFloat(falloffStartRaw) : 0.5;
+    const running = layers.map(() => null);
+    const pending = [];
+
+    const ring = i => {
+      const layer = layers[i];
+      layer.style.setProperty('--ripple-c1', spun());
+      layer.style.setProperty('--ripple-c2', spun());
+      const proxy = { r: 0 };
+      running[i] = gsap.to(proxy, {
+        r: maxR,
+        duration: RIPPLE_CYCLE,
+        ease: 'none',
+        onUpdate: () => {
+          layer.style.setProperty('--ripple-r', proxy.r + 'px');
+          const t = proxy.r / maxR;
+          const intensity = t <= falloffStart ? 1 : Math.max(0, 1 - (t - falloffStart) / (1 - falloffStart));
+          layer.style.setProperty('--ripple-intensity', intensity);
+        },
+        // The next ring only launches if the host still wants it -- this is the whole stop.
+        onComplete: () => {
+          running[i] = null;
+          if (activeRef.current) ring(i);
+        }
+      });
+    };
+
+    // (Re)start: each idle layer launches half a cycle after the previous, so the waves read
+    // as continuous. A layer still finishing its last ring just carries on into the next.
+    startRef.current = () => {
+      layers.forEach((layer, i) => {
+        if (running[i]) return;
+        gsap.fromTo(layer, { opacity: 0 }, { opacity: 1, duration: 0.4 });
+        pending.push(gsap.delayedCall((i * RIPPLE_CYCLE) / layers.length, () => {
+          if (activeRef.current && !running[i]) ring(i);
+        }));
+      });
+    };
+    if (activeRef.current) startRef.current();
+
+    return () => {
+      startRef.current = null;
+      running.forEach(t => t?.kill());
+      pending.forEach(t => t.kill());
+      layers.forEach(layer => gsap.killTweensOf(layer));
+    };
+  }, [continuous]);
+
+  useEffect(() => {
+    if (continuous && active) startRef.current?.();
+  }, [continuous, active]);
+
+  useEffect(() => {
+    if (continuous) return undefined;
     const layers = mount.current.querySelectorAll('.dot-ripple');
     // Out to the layer's half-diagonal so the ring fully clears the corners before reset.
     const maxR = Math.hypot(mount.current.offsetWidth, mount.current.offsetHeight) / 2;
@@ -100,7 +172,7 @@ function DotRipple({ introDelay = null }) {
     });
 
     return () => tweens.forEach(t => t.kill());
-  }, []);
+  }, [continuous]);
 
   return (
     <div

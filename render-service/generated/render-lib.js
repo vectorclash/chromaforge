@@ -844,7 +844,7 @@ function RadialGradient(width, height, colors) {
 }
 
 // ../src/components/Canvas/LargeRadialField.js
-function LargeRadialField(config) {
+function* largeRadialFieldSteps(config) {
   let canvas = document.createElement("canvas");
   let context = canvas.getContext("2d");
   canvas.width = config.width;
@@ -864,6 +864,7 @@ function LargeRadialField(config) {
       config.radGradients[i].size,
       config.radGradients[i].size
     );
+    yield;
   }
   return canvas;
 }
@@ -1191,7 +1192,19 @@ function clearElement(el) {
   el.width = 0;
   el.height = 0;
 }
-function renderArtwork(config) {
+function* drawLayer(ctx, el, bands) {
+  if (bands <= 1) {
+    ctx.drawImage(el, 0, 0);
+    return;
+  }
+  for (let i = 0; i < bands; i++) {
+    const y0 = Math.round(i * el.height / bands);
+    const y1 = Math.round((i + 1) * el.height / bands);
+    ctx.drawImage(el, 0, y0, el.width, y1 - y0, 0, y0, el.width, y1 - y0);
+    if (i < bands - 1) yield;
+  }
+}
+function* renderSteps(config, bands = 1) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   canvas.width = config.width;
@@ -1201,39 +1214,44 @@ function renderArtwork(config) {
     ctx.scale(-1, 1);
   }
   const gradientBackground = LinearGradient(config.gradientBackgroundConfig);
-  ctx.drawImage(gradientBackground, 0, 0);
+  yield* drawLayer(ctx, gradientBackground, bands);
   clearElement(gradientBackground);
+  yield;
   if (config.radialFieldConfig) {
     ctx.globalCompositeOperation = config.firstBlend;
-    const radialField = LargeRadialField(config.radialFieldConfig);
-    ctx.drawImage(radialField, 0, 0);
+    const radialField = yield* largeRadialFieldSteps(config.radialFieldConfig);
+    yield* drawLayer(ctx, radialField, bands);
     clearElement(radialField);
+    yield;
   }
-  const drawStars = () => {
+  function* drawStars() {
     ctx.globalCompositeOperation = config.secondBlend;
     const starField = StarField(config.starFieldConfig);
-    ctx.drawImage(starField, 0, 0);
+    yield* drawLayer(ctx, starField, bands);
     clearElement(starField);
-  };
-  const drawGeometry = () => {
+  }
+  function* drawGeometry() {
     if (!config.geometryConfig) return;
     ctx.globalCompositeOperation = config.thirdBlend;
     const geometry = GeometricShape(config.geometryConfig);
-    ctx.drawImage(geometry, 0, 0);
+    yield* drawLayer(ctx, geometry, bands);
     clearElement(geometry);
-  };
-  if (config.starsOnTop) {
-    drawGeometry();
-    drawStars();
-  } else {
-    drawStars();
-    drawGeometry();
   }
+  if (config.starsOnTop) {
+    yield* drawGeometry();
+    yield;
+    yield* drawStars();
+  } else {
+    yield* drawStars();
+    yield;
+    yield* drawGeometry();
+  }
+  yield;
   if (config.overlayConfig) {
     ctx.globalCompositeOperation = config.overlayBlend;
     ctx.globalAlpha = Number(config.overlayAlpha);
     const gradientOverlay = LinearGradient(config.overlayConfig);
-    ctx.drawImage(gradientOverlay, 0, 0);
+    yield* drawLayer(ctx, gradientOverlay, bands);
     clearElement(gradientOverlay);
   }
   ctx.globalAlpha = 1;
@@ -1248,6 +1266,12 @@ function renderArtwork(config) {
     ctx.restore();
   }
   return canvas;
+}
+function renderArtwork(config) {
+  const steps = renderSteps(config);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
 }
 
 // ../src/render/hatWrap.js

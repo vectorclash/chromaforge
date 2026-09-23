@@ -35,6 +35,27 @@
   transition-timing-function: ease;
 }
 
+/* The ambient mini generator's vertical position is CSS, not script (MiniGenerator's
+   useDockMorph, "Vertical is CSS"). The track runs from the top of the document to the footer
+   slot's bottom edge (height set by script on layout changes, never on scroll); the panel sits at
+   its end and sticks EDGE (24px) above the viewport's bottom until the slot rises to meet it. */
+.mini-dock-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 30;
+}
+.mini-dock-panel {
+  position: sticky;
+  bottom: 24px;
+  flex: none;
+  align-self: flex-start;
+}
+
 /* The mini-generator panel's top edge -- the same hairline treatment as `.cf-spectrum-line`
    below (the rule under the wordmark), but its gradient comes from the ACTIVE design's own
    palette, so it is written inline by MiniGenerator rather than declared here. Only the shape
@@ -345,7 +366,7 @@
 }
 
 /* HexagonLoader — concentric hexagon polygons (stroke drawn/animated inline by GSAP) plus
-   the blurred gradient glow (its background is also overridden inline by GSAP each cycle). */
+   the soft gradient glow (its background is also overridden inline by GSAP each cycle). */
 .hexagon-loader svg {
   overflow: visible;
   width: 100%;
@@ -358,24 +379,53 @@
   stroke-linejoin: round;
   stroke-miterlimit: 10;
 }
+/* The glow is a gradient faded out by a radial MASK, not a 150px circle under `filter: blur(42px)`.
+   This was done while chasing "a weird box around it every now and then" behind the studio panel,
+   and it did NOT fix that: the box was the panel's own reveal tween taking its backdrop blur to 0
+   (DisplayCanvas.fadeArtwork now keeps it constant), confirmed by the box surviving this change and
+   disappearing with that one. Kept anyway because it is strictly simpler -- no filter, no blend of a
+   filtered layer under a backdrop-filter, no layer-promotion hacks -- and it looks the same.
+   The mask reproduces the old blur rather than approximating it: the stops are a CSS Gaussian
+   (sigma 42px) of a radius-75 disc, sampled every 10% out to where it has fully faded (201px, hence
+   the -126px inset around the 150px loader), peaking at the 0.797 alpha the blur actually reached.
+   The colours are matched too -- see HexagonLoader's glowGradient. Measured against the old glow
+   over four palettes: a mean difference of 1.2/255 per channel, in Chromium and WebKit alike. */
 .hexagon-glow {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(42deg, #5100c6, #ff0073, #ffd600);
-  border-radius: 50%;
-  filter: blur(42px);
+  inset: -126px;
+  background: linear-gradient(42deg, #a83a9d 32%, #ff0073 50%, #ff6b3a 68%);
+  -webkit-mask-image: radial-gradient(
+    closest-side,
+    rgba(0, 0, 0, 0.797) 0%,
+    rgba(0, 0, 0, 0.76) 10%,
+    rgba(0, 0, 0, 0.657) 20%,
+    rgba(0, 0, 0, 0.504) 30%,
+    rgba(0, 0, 0, 0.339) 40%,
+    rgba(0, 0, 0, 0.195) 50%,
+    rgba(0, 0, 0, 0.095) 60%,
+    rgba(0, 0, 0, 0.038) 70%,
+    rgba(0, 0, 0, 0.013) 80%,
+    rgba(0, 0, 0, 0.003) 90%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    closest-side,
+    rgba(0, 0, 0, 0.797) 0%,
+    rgba(0, 0, 0, 0.76) 10%,
+    rgba(0, 0, 0, 0.657) 20%,
+    rgba(0, 0, 0, 0.504) 30%,
+    rgba(0, 0, 0, 0.339) 40%,
+    rgba(0, 0, 0, 0.195) 50%,
+    rgba(0, 0, 0, 0.095) 60%,
+    rgba(0, 0, 0, 0.038) 70%,
+    rgba(0, 0, 0, 0.013) 80%,
+    rgba(0, 0, 0, 0.003) 90%,
+    transparent 100%
+  );
   z-index: 1;
-  overflow: visible;
   mix-blend-mode: screen;
-  /* Promote to a stable, isolated compositing layer. Without this, the blur +
-     mix-blend-mode + GSAP scale/opacity yoyo intermittently paints the div's
-     un-blurred bounding box for a frame (the sharp rectangular flash/artifact). */
+  pointer-events: none;
   will-change: transform, opacity;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 /* ColorField — heavily stateful + jscolor-integrated, so most of it stays custom CSS:
@@ -2185,13 +2235,35 @@
   initial-value: 0;
 }
 
+/* The SOLID scrolled-state bar went the same way a day later, for the same reason: as a
+   separate child (its own fill, hairline, backdrop blur and opacity crossfade) it came apart from
+   the header during a trackpad overscroll -- in Safari, on a sideways bounce at the top of the
+   homepage (Aaron: "you can see the ... full bar version move and not the background"). Its three
+   parts are now this element's own paint, driven by --header-bar (0 transparent, 1 solid):
+   - the fill, #1E1E1E (--color-ink-950) at 80%, as a background-color under the scrim gradient;
+   - the hairline as an INSET shadow, not a border, so the header does not grow by a pixel;
+   - the blur as this element's own backdrop-filter, 0 -> 8px (Tailwind's `backdrop-blur`).
+     The old layer faded a fixed 8px blur in by opacity; this ramps the radius instead, which
+     only differs mid-crossfade.
+   Its own backdrop-filter is safe with the hero entrance animating this element's opacity: an
+   element's OWN opacity does not empty its backdrop (see MiniGenerator), only an ancestor's. */
+@property --header-bar {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
 .site-header-scrim {
+  background-color: rgb(30 30 30 / calc(0.8 * var(--header-bar)));
   background-image: linear-gradient(
     to bottom,
     rgb(0 0 0 / calc(0.55 * var(--header-scrim))),
     rgb(0 0 0 / calc(0.3 * var(--header-scrim))) 50%,
     rgb(0 0 0 / 0)
   );
-  transition-property: --header-scrim;
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / calc(0.08 * var(--header-bar)));
+  -webkit-backdrop-filter: blur(calc(8px * var(--header-bar)));
+  backdrop-filter: blur(calc(8px * var(--header-bar)));
+  transition-property: --header-scrim, --header-bar;
   transition-timing-function: ease;
 }

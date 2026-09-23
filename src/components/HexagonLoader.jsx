@@ -2,6 +2,23 @@ import React from 'react';
 import tinycolor from 'tinycolor2';
 import { gsap, Quad, DrawSVGPlugin } from 'gsap/all';
 
+const spun = () =>
+  tinycolor('#CCFF00')
+    .spin(Math.random() * 360)
+    .toHexString();
+
+// Three random hues, drawn the way the old blurred glow showed them. That glow was a 150px CIRCLE
+// cut from a square gradient and then blurred, so its two end colours lived mostly in the cropped
+// corners and the blur averaged what was left toward the middle one. The masked glow (see
+// .hexagon-glow in components.css) has no crop and no blur to do that, so the ends are pulled
+// halfway to the middle colour and the stops packed into the band the old circle covered. Both
+// numbers were fitted against real renders of the old glow, not picked.
+function glowGradient() {
+  const [a, m, z] = [spun(), spun(), spun()];
+  const toMiddle = c => tinycolor.mix(c, m, 50).toHexString();
+  return `linear-gradient(42deg, ${toMiddle(a)} 32%, ${m} 50%, ${toMiddle(z)} 68%)`;
+}
+
 class HexagonLoader extends React.Component {
   componentDidMount() {
     gsap.registerPlugin(DrawSVGPlugin);
@@ -11,22 +28,7 @@ class HexagonLoader extends React.Component {
   animateHexagon() {
     if (this.mount) {
       let glow = this.mount.querySelectorAll('.hexagon-glow');
-      gsap.set(glow, {
-        background:
-          'linear-gradient( 42deg, ' +
-          tinycolor('#CCFF00')
-            .spin(Math.random() * 360)
-            .toHexString() +
-          ', ' +
-          tinycolor('#CCFF00')
-            .spin(Math.random() * 360)
-            .toHexString() +
-          ', ' +
-          tinycolor('#CCFF00')
-            .spin(Math.random() * 360)
-            .toHexString() +
-          ')'
-      });
+      gsap.set(glow, { backgroundImage: glowGradient() });
 
       gsap.fromTo(
         glow,
@@ -40,9 +42,9 @@ class HexagonLoader extends React.Component {
           scale: 1,
           yoyo: true,
           repeat: 1,
-          // Keep the glow on its own 3D-composited layer for the whole tween --
-          // GSAP rewrites `transform` each frame, which would otherwise clobber the
-          // translateZ(0) layer hint in CSS and let the blur/blend flash on mobile.
+          // Keeps the glow on its own composited layer for the whole tween, so the scale and
+          // fade are cheap. (It used to be what stopped a blur filter flashing its square
+          // bounds; the glow no longer has a filter -- see .hexagon-glow.)
           force3D: true,
           ease: Quad.easeInOut
         }

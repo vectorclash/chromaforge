@@ -178,9 +178,15 @@ export default function SiteFooter() {
             </div>
           </div>
 
-          {/* Column 2: Docked Mini Generator */}
+          {/* Column 2: the mini generator's dock. From `sm` up this is an EMPTY slot of the
+              docked panel's exact size -- the site's one ambient MiniGenerator (rendered by
+              SiteLayout/HomePage) morphs into it in step with the scroll -- starting as the
+              footer's top edge appears, landing as this slot's bottom edge does -- rather than
+              the footer carrying a second copy of its own. Below `sm` there is no floating
+              widget to arrive, so the footer keeps a static inline one. */}
           <div className="flex justify-start sm:justify-end">
-            <MiniGenerator inline={true} />
+            <div data-mini-dock aria-hidden className="hidden h-[140px] w-[284px] shrink-0 sm:block" />
+            <MiniGenerator inline className="sm:hidden" />
           </div>
 
         </div>

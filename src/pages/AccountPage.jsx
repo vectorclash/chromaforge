@@ -21,6 +21,7 @@ import { generateAvatar } from '../render/generateAvatar';
 import renderAvatar from '../render/renderAvatar';
 import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
+import { hasStoredSession } from '../lib/sessionHint';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { introDelay, introStyle } from '../utils/routeIntro';
 import { humanError } from '../lib/errorMessage';
@@ -193,7 +194,22 @@ function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
 export default function AccountPage() {
   // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
   // is immediately reflected in SiteHeader's tiny avatar too, without a second fetch.
-  const { user, avatarUrl, setAvatarUrl, recoveryMode, clearRecoveryMode, showNotice } = useAuth();
+  const {
+    user,
+    authResolved,
+    avatarUrl,
+    setAvatarUrl,
+    recoveryMode,
+    clearRecoveryMode,
+    showNotice
+  } = useAuth();
+  // A cold load (or a refresh) renders before AuthContext has heard back from Supabase, when
+  // `user` is still null. Drawing the sign-in form then, for someone who is signed in, made the
+  // page change shape up to three times on the way in (Aaron: it "changes sizes up to 3 times"):
+  // sign-in form, then a one-line "Loading profile…", then the cards arriving one by one. So
+  // while auth is unresolved, a stored session means "draw the account layout" -- see
+  // lib/sessionHint.js. Arriving from another page never hit this: auth had already resolved.
+  const expectingUser = !user && !authResolved && hasStoredSession();
   // noindex: this is either a private, per-user account view or a sign-in form -- neither
   // is content a search result should ever point to.
   usePageMeta({ title: user ? 'Account' : 'Sign in', path: '/account', noindex: true });
@@ -422,14 +438,16 @@ export default function AccountPage() {
     );
   }
 
-  if (user) {
+  if (user || expectingUser) {
+    // The layout below is drawn COMPLETE from the first frame, empty where data has not arrived
+    // yet, and fills in place: every card is always mounted, and the profile form waits (disabled)
+    // for its values rather than being swapped in for a "Loading profile…" line. The cards used to
+    // mount one at a time as their own requests landed, and each arrival pushed the page taller.
+    const pending = !user || profileLoading;
     return (
-      <PageContainer title="Account" subtitle={`Signed in as ${user.email}`}>
-        {profileLoading ? (
-          <p className="text-text-secondary">Loading profile…</p>
-        ) : (
-          <>
-            {/* Two columns, deliberately ASYMMETRIC rather than a uniform grid of equal
+      <PageContainer title="Account" subtitle={user ? `Signed in as ${user.email}` : 'Signed in'}>
+        <>
+          {/* Two columns, deliberately ASYMMETRIC rather than a uniform grid of equal
                 cards. These blocks aren't peers: stats is two numbers, the profile is a
                 short form, and orders is a long paginated list with its own tabs. Forcing
                 them into equal cells would crowd the list and leave the stats card mostly
@@ -439,186 +457,186 @@ export default function AccountPage() {
                 column. Collapses to one column below lg, which is what it already was.
                 Every block now shares the same card treatment; previously only stats had
                 one, so the page read as a single card plus some loose content. */}
-            <div className="intro-skip grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-              <div className="space-y-6">
-                <form
-                  onSubmit={onSaveProfile}
-                  className="intro-item space-y-5 rounded-xl border border-hairline bg-ink-800 p-5"
-                  style={introStyle(CARDS_SECTION)}
-                >
-                  <div className="flex items-center gap-5">
-                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
-                      {avatarUrl && (
-                        <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
-                      )}
-                    </div>
-                    <div>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={regenerateAvatar}
-                        disabled={avatarBusy}
-                        aria-busy={avatarBusy}
-                      >
-                        {avatarBusy
-                          ? 'Generating…'
-                          : avatarUrl
-                            ? 'Regenerate avatar'
-                            : 'Generate avatar'}
-                      </Button>
-                      {avatarError && (
-                        <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>
-                      )}
-                    </div>
+          <div className="intro-skip grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+            <div className="space-y-6">
+              <form
+                onSubmit={onSaveProfile}
+                className="intro-item space-y-5 rounded-xl border border-hairline bg-ink-800 p-5"
+                style={introStyle(CARDS_SECTION)}
+              >
+                <div className="flex items-center gap-5">
+                  <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
+                    {avatarUrl && (
+                      <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                    )}
                   </div>
-                  <Field label="Display name" htmlFor="display-name">
-                    <Input
-                      id="display-name"
-                      value={displayName}
-                      onChange={e => {
-                        setDisplayName(e.target.value);
-                        setProfileSaved(false);
-                      }}
-                      placeholder="How your name shows on the gallery"
-                    />
-                  </Field>
-                  <Field label="Username" htmlFor="username">
-                    <Input
-                      id="username"
-                      value={username}
-                      onChange={e => {
-                        setUsername(e.target.value);
-                        setProfileSaved(false);
-                      }}
-                      placeholder="yourname"
-                    />
-                  </Field>
-                  {profileError && (
-                    <p className="animate-pop-in text-sm text-accent">{profileError}</p>
-                  )}
-                  <div className="flex items-center gap-3 pt-1">
-                    <Button type="submit" disabled={profileBusy} aria-busy={profileBusy}>
-                      {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
-                    </Button>
+                  <div>
                     <Button
                       type="button"
                       variant="secondary"
-                      onClick={async () => {
-                        setBusy(true);
-                        try {
-                          await signOut();
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                      disabled={busy}
+                      size="sm"
+                      onClick={regenerateAvatar}
+                      disabled={pending || avatarBusy}
+                      aria-busy={avatarBusy}
                     >
-                      Sign out
+                      {avatarBusy
+                        ? 'Generating…'
+                        : avatarUrl
+                          ? 'Regenerate avatar'
+                          : 'Generate avatar'}
                     </Button>
+                    {avatarError && (
+                      <p className="animate-pop-in mt-2 text-sm text-accent">{avatarError}</p>
+                    )}
                   </div>
-                </form>
-
-                {stats && (
-                  <div
-                    className="intro-item rounded-xl border border-hairline bg-ink-800 p-5"
-                    style={introStyle(CARDS_SECTION, 1)}
-                  >
-                    <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
-                      Your stats
-                    </h2>
-                    <div className="mt-3 flex gap-8 font-quicksand text-sm text-text-secondary">
-                      <span>
-                        <strong className="text-text">{stats.designCount}</strong>{' '}
-                        {stats.designCount === 1 ? 'design' : 'designs'} saved
-                      </span>
-                      <span>
-                        <strong className="text-text">{stats.totalLikes}</strong>{' '}
-                        {stats.totalLikes === 1 ? 'like' : 'likes'} received
-                      </span>
-                    </div>
-                  </div>
+                </div>
+                <Field label="Display name" htmlFor="display-name">
+                  <Input
+                    id="display-name"
+                    disabled={pending}
+                    value={displayName}
+                    onChange={e => {
+                      setDisplayName(e.target.value);
+                      setProfileSaved(false);
+                    }}
+                    placeholder="How your name shows on the gallery"
+                  />
+                </Field>
+                <Field label="Username" htmlFor="username">
+                  <Input
+                    id="username"
+                    disabled={pending}
+                    value={username}
+                    onChange={e => {
+                      setUsername(e.target.value);
+                      setProfileSaved(false);
+                    }}
+                    placeholder="yourname"
+                  />
+                </Field>
+                {profileError && (
+                  <p className="animate-pop-in text-sm text-accent">{profileError}</p>
                 )}
+                <div className="flex items-center gap-3 pt-1">
+                  <Button type="submit" disabled={pending || profileBusy} aria-busy={profileBusy}>
+                    {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await signOut();
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    disabled={!user || busy}
+                  >
+                    Sign out
+                  </Button>
+                </div>
+              </form>
+
+              <div
+                className="intro-item rounded-xl border border-hairline bg-ink-800 p-5"
+                style={introStyle(CARDS_SECTION, 1)}
+              >
+                <h2 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
+                  Your stats
+                </h2>
+                <div className="mt-3 flex gap-8 font-quicksand text-sm text-text-secondary">
+                  {/* A dash until the numbers land, so the card is its final size throughout. */}
+                  <span>
+                    <strong className="text-text">{stats ? stats.designCount : '–'}</strong>{' '}
+                    {stats?.designCount === 1 ? 'design' : 'designs'} saved
+                  </span>
+                  <span>
+                    <strong className="text-text">{stats ? stats.totalLikes : '–'}</strong>{' '}
+                    {stats?.totalLikes === 1 ? 'like' : 'likes'} received
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="intro-item rounded-xl border border-hairline bg-ink-800 p-5"
+              style={introStyle(CARDS_SECTION, 2)}
+            >
+              <div className="flex items-center gap-4 border-b border-hairline">
+                <button
+                  className={orderTabClass(orderTab === 'active')}
+                  onClick={() => setOrderTab('active')}
+                >
+                  Active orders
+                </button>
+                <button
+                  className={orderTabClass(orderTab === 'history')}
+                  onClick={() => setOrderTab('history')}
+                >
+                  Order history
+                </button>
               </div>
 
-              {(!activeOrdersLoading || activeOrders.length > 0) && (
-                <div
-                  className="intro-item rounded-xl border border-hairline bg-ink-800 p-5"
-                  style={introStyle(CARDS_SECTION, 2)}
-                >
-                  <div className="flex items-center gap-4 border-b border-hairline">
-                    <button
-                      className={orderTabClass(orderTab === 'active')}
-                      onClick={() => setOrderTab('active')}
-                    >
-                      Active orders
-                    </button>
-                    <button
-                      className={orderTabClass(orderTab === 'history')}
-                      onClick={() => setOrderTab('history')}
-                    >
-                      Order history
-                    </button>
-                  </div>
-
-                  {/* The list scrolls inside the card above lg, rather than growing the
+              {/* The list scrolls inside the card above lg, rather than growing the
                       card without limit: at desktop width this sits beside a short side
                       column, so an unbounded list leaves the profile/stats cards stranded
                       against a wall of orders. Below lg it's a single column again and the
                       page's own scroll is the natural one -- a nested scroller on a phone is
                       worse than a long page. */}
-                  {orderTab === 'active' && (
-                    <OrderList hasRows={activeOrders.length > 0}>
-                      {activeOrdersLoading && (
-                        <p className="text-sm text-text-secondary">Loading…</p>
-                      )}
-                      {!activeOrdersLoading && activeOrders.length === 0 && (
-                        <p className="text-sm text-text-secondary">No orders in progress.</p>
-                      )}
-                      {activeOrders.map((order, i) => (
-                        <OrderRow
-                          key={order.id}
-                          order={order}
-                          delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))}
-                          previewUrl={orderPreviews[order.id] ?? null}
-                          // Reserve the thumbnail slot from the first paint for any order
-                          // that will have one -- same condition printful-order-preview
-                          // selects on, so the row never has to grow one later.
-                          previewPending={!previewsResolved && Boolean(order.printful_order_id)}
-                        />
-                      ))}
-                    </OrderList>
+              {orderTab === 'active' && (
+                <OrderList hasRows={activeOrders.length > 0}>
+                  {activeOrdersLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                  {!activeOrdersLoading && activeOrders.length === 0 && (
+                    <p className="text-sm text-text-secondary">No orders in progress.</p>
                   )}
+                  {activeOrders.map((order, i) => (
+                    <OrderRow
+                      key={order.id}
+                      order={order}
+                      delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))}
+                      previewUrl={orderPreviews[order.id] ?? null}
+                      // Reserve the thumbnail slot from the first paint for any order
+                      // that will have one -- same condition printful-order-preview
+                      // selects on, so the row never has to grow one later.
+                      previewPending={!previewsResolved && Boolean(order.printful_order_id)}
+                    />
+                  ))}
+                </OrderList>
+              )}
 
-                  {orderTab === 'history' && (
-                    <OrderList hasRows={historyOrders.length > 0}>
-                      {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
-                      {historyError && <p className="text-sm text-accent">{historyError}</p>}
-                      {!historyLoading && historyLoaded && historyOrders.length === 0 && (
-                        <p className="text-sm text-text-secondary">No past orders.</p>
-                      )}
-                      {historyOrders.map((order, i) => (
-                        <OrderRow key={order.id} order={order} delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))} />
-                      ))}
-                      {historyHasMore && (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={onLoadMoreHistory}
-                          disabled={historyLoadingMore}
-                          aria-busy={historyLoadingMore}
-                        >
-                          {historyLoadingMore ? 'Loading…' : 'Load more'}
-                        </Button>
-                      )}
-                    </OrderList>
+              {orderTab === 'history' && (
+                <OrderList hasRows={historyOrders.length > 0}>
+                  {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                  {historyError && <p className="text-sm text-accent">{historyError}</p>}
+                  {!historyLoading && historyLoaded && historyOrders.length === 0 && (
+                    <p className="text-sm text-text-secondary">No past orders.</p>
                   )}
-                </div>
+                  {historyOrders.map((order, i) => (
+                    <OrderRow
+                      key={order.id}
+                      order={order}
+                      delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))}
+                    />
+                  ))}
+                  {historyHasMore && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={onLoadMoreHistory}
+                      disabled={historyLoadingMore}
+                      aria-busy={historyLoadingMore}
+                    >
+                      {historyLoadingMore ? 'Loading…' : 'Load more'}
+                    </Button>
+                  )}
+                </OrderList>
               )}
             </div>
-          </>
-        )}
+          </div>
+        </>
       </PageContainer>
     );
   }

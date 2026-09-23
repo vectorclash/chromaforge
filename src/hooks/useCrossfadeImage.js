@@ -1,6 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap/all';
 import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
+import { getCycle, subscribeCycle, trackCycleWork } from '../utils/generationCycle';
+
+function preloadImage(src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = resolve;
+    img.onerror = resolve;
+    img.src = src;
+  });
+}
 
 // Reveals a new image the same deliberate way DisplayCanvas's own artwork does: fade the
 // current image out, hold on nothing for a beat, then fade the new one in -- matching its
@@ -20,6 +30,15 @@ import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionToke
 // the generate choreography the next time they open would narrate work the user already
 // watched happen somewhere else. The caller decides -- the hook can't tell a fresh
 // generate from a catch-up.
+//
+// A GENERATE is different, and does not go through the per-url reveal above at all. It runs a
+// shared cycle (utils/generationCycle.js): the moment Generate is clicked anywhere, every surface
+// using this hook fades out and holds its loading state together, and all of them fade the new
+// design in together once every surface's render has landed. Without that, each surface began its
+// loading state only when ITS new image arrived -- a 480px thumbnail almost at once, the footer's
+// 3200x1000 band much later -- and one click read as a ripple of surfaces out of step (Aaron:
+// "the footer background and footer generator need to be in sync"). During a cycle an arriving url
+// is only decoded, never shown; the cycle's reveal shows it.
 export function useCrossfadeImage(url, { instant = false } = {}) {
   const [shownSrc, setShownSrc] = useState(null);
   const [incomingSrc, setIncomingSrc] = useState(null);
@@ -37,6 +56,73 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
   // A ref (not a plain function) so the queued-reveal continuation below always calls the
   // latest closure without needing to be listed as an effect dependency.
   const revealRef = useRef(null);
+
+  // The generate cycle this surface is holding for, and the newest url that arrived during it.
+  const cycleRef = useRef(null);
+  const instantRef = useRef(instant);
+  instantRef.current = instant;
+  const stateRef = useRef({ shownSrc, incomingSrc });
+  stateRef.current = { shownSrc, incomingSrc };
+
+  const enterCycleRef = useRef(null);
+  enterCycleRef.current = id => {
+    if (cycleRef.current) {
+      cycleRef.current.id = id;
+      return;
+    }
+    epochRef.current += 1;
+    const { shownSrc: shownNow, incomingSrc: incomingNow } = stateRef.current;
+    gsap.killTweensOf([shownRef.current, incomingRef.current].filter(Boolean));
+    // A reveal caught mid fade-in: its image becomes the one that fades out.
+    if (incomingNow) {
+      setShownSrc(incomingNow);
+      setIncomingSrc(null);
+    }
+    cycleRef.current = { id, target: queuedUrlRef.current, ready: null };
+    queuedUrlRef.current = null;
+    if (cycleRef.current.target) cycleRef.current.ready = preloadImage(cycleRef.current.target);
+    busyRef.current = true;
+    if (!shownNow && !incomingNow) return; // nothing on screen yet -- nothing to take down
+    setHolding(true);
+    const layers = [shownRef.current, incomingRef.current].filter(Boolean);
+    gsap.to(layers, { duration: DURATION_FAST, opacity: 0, ease: 'power2.inOut' });
+  };
+
+  const exitCycleRef = useRef(null);
+  exitCycleRef.current = () => {
+    const held = cycleRef.current;
+    if (!held) return;
+    cycleRef.current = null;
+    const epoch = ++epochRef.current;
+    const { shownSrc: shownNow } = stateRef.current;
+    const finish = () => {
+      if (epoch !== epochRef.current) return;
+      if (held.target && held.target !== shownNow) {
+        setHolding(false);
+        setIncomingSrc(held.target); // the fade-in below takes it from here
+        return;
+      }
+      // The design this surface shows did not change (or never arrived): bring it back.
+      setHolding(false);
+      busyRef.current = false;
+      if (shownRef.current) gsap.to(shownRef.current, { duration: DURATION_SLOW, opacity: 1, ease: 'power2.inOut' });
+    };
+    // Normally long since decoded -- it was preloaded the moment it arrived.
+    if (held.ready) held.ready.then(finish);
+    else finish();
+  };
+
+  useEffect(() => {
+    const onCycle = c => {
+      if (instantRef.current) return;
+      if (c && c.phase === 'loading') enterCycleRef.current(c.id);
+      else exitCycleRef.current();
+    };
+    const current = getCycle();
+    if (current && current.phase === 'loading') onCycle(current);
+    return subscribeCycle(onCycle);
+  }, []);
+
   revealRef.current = nextUrl => {
     const epoch = epochRef.current;
     busyRef.current = true;
@@ -80,6 +166,12 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
 
   useEffect(() => {
     if (!url || url === shownSrc || url === incomingSrc) return;
+    if (cycleRef.current && shownSrc) {
+      // Held for the cycle's shared reveal; decode it now so the reveal is instant.
+      cycleRef.current.target = url;
+      cycleRef.current.ready = trackCycleWork(preloadImage(url));
+      return;
+    }
     if (!shownSrc) {
       // First-ever appearance (nothing to fade from) -- show it immediately.
       setShownSrc(url);

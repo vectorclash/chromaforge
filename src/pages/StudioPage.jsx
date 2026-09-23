@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DisplayCanvas from '../components/DisplayCanvas';
 import { isMobileDevice } from '../utils/device';
 import { useStudio } from '../context/StudioContext';
 import { useAuth } from '../context/AuthContext';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { openFastWindow } from '../render/renderQueue';
 
 // Where the full studio's "return" link sends the user back to -- keyed off the `from`
 // path callers pass via navigate('/studio', { state: { from } }) (see GalleryPage,
@@ -24,6 +25,9 @@ function getReturnTo(from) {
 // wordmark/Shop, so the panel opens minimal: just Generate, Save, and a "Go to studio" link)
 // -- pass `compact={false}` for the full standalone tool (the "/studio" route in App.jsx).
 export default function StudioPage({ compact = true }) {
+  // Arriving here is a page load: renders take the fast pathway until the load's burst is over.
+  // Opened during render, before DisplayCanvas mounts -- see SiteLayout and render/renderQueue.js.
+  useState(openFastWindow);
   // Compact mode is the homepage hero, where the base site meta should stay -- passing null
   // skips the hook entirely; only the standalone /studio route gets its own title/description.
   usePageMeta(

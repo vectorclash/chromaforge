@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { useStudio } from '../../context/StudioContext';
 import { DURATION_FAST, DURATION_HOLD, DURATION_SLOW } from '../../utils/motionTokens';
+import { getCycle, whenRevealed } from '../../utils/generationCycle';
 import logoUrl from '../../assets/images/logo.svg';
 import starUrl from '../../assets/images/star-sprite-large.png';
 
@@ -272,10 +273,20 @@ export default function AboutBlob({ className = '' }) {
     if (!artRef.current) return; // nothing on screen yet -- the entrance path covers it
     beatRef.current?.kill();
     armedRef.current = false;
-    beatRef.current = gsap.delayedCall(DURATION_FAST + DURATION_HOLD, () => {
+    const arm = () => {
       armedRef.current = true;
       commit();
-    });
+    };
+    // Part of a Generate: cross over on the cycle's shared reveal, the instant every other
+    // surface fades the new design in (utils/generationCycle.js). This component's own render is
+    // one of the things that reveal waits for.
+    const cycle = getCycle();
+    if (cycle && cycle.phase === 'loading') {
+      const cancel = whenRevealed(cycle.id, arm);
+      beatRef.current = { kill: cancel };
+      return;
+    }
+    beatRef.current = gsap.delayedCall(DURATION_FAST + DURATION_HOLD, arm);
   }, [previewUrl, commit]);
 
   const startReveal = useCallback(

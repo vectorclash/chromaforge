@@ -13,6 +13,7 @@ import { resolvedPalette } from '../render/resolvedPalette';
 import { resolveScenePalette } from '../animation3d/scenePalette';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
+import { renderArtworkQueued } from '../render/renderQueue';
 import { toCompactDesign } from '../render/compactDesign';
 import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
@@ -20,6 +21,8 @@ import {
   getStudioGeometrySettings
 } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
+import { afterFeedback } from '../utils/afterFeedback';
+import { beginCycle, getCycle, subscribeCycle, trackCycleWork, whenRevealed } from '../utils/generationCycle';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { generateLogoMark } from '../render/generateLogoMark';
@@ -29,8 +32,8 @@ import { readDesignPrefs, readVideoPrefs, writeVideoPrefs, clearStudioPrefs, DEF
 import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
-import HexagonLoader from './HexagonLoader';
 import DotRipple from './DotRipple';
+import HexagonLoader from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
@@ -307,6 +310,7 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentDidMount() {
+    this.unsubscribeCycle = subscribeCycle(c => this.onGenerationCycle(c));
     // init() used to be the createjs LoadQueue's 'complete' callback, waiting on the two
     // star PNGs. Both star shapes are drawn from code now (render/starSprite.js), so the
     // render pipeline needs nothing preloaded and this runs straight away. Nothing in init
@@ -450,6 +454,10 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentWillUnmount() {
+    this.cancelPendingGenerate?.();
+    this.unsubscribeCycle?.();
+    this.cycleBuild?.resolve();
+    this.cycleBuild = null;
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
       window.removeEventListener('scroll', this.onHeroParallaxScroll);
@@ -602,7 +610,7 @@ export default class DisplayCanvas extends React.Component {
     // gsap.to(alpha: 1) to visibly fade FROM, since alpha never left 1. This is why
     // generating from the mini-generator widget while the hero was still on screen never
     // looked like it animated, even though the hero's data (seed/colors) genuinely updated.
-    gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+    this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
     this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
     this.adoptDesignSettings(design.settings);
     this.adoptDesignColors(design.colors);
@@ -834,9 +842,30 @@ export default class DisplayCanvas extends React.Component {
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
     const token = ++this.buildToken;
-    const canvas = renderArtwork(config);
-    canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
-    this.clearElement(canvas);
+    // Part of a Generate's cycle: hold its shared reveal until this build has decoded.
+    const cycle = getCycle();
+    this.cycleBuild?.resolve();
+    this.cycleBuild = null;
+    if (cycle && cycle.phase === 'loading') {
+      let resolve;
+      trackCycleWork(new Promise(r => (resolve = r)));
+      this.cycleBuild = { token, id: cycle.id, resolve };
+    }
+    // Queued and stepwise (render/renderQueue.js): a full-size render was ~370ms of unbroken
+    // main-thread work that froze every animation on the page, the loader and the homepage's 3D
+    // shirt included. Everything downstream is unchanged -- same token, same setImage. A render
+    // that throws is treated like a failed encode, which already restores the previous artwork
+    // and the controls.
+    renderArtworkQueued(config)
+      .then(canvas => {
+        canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
+        this.clearElement(canvas);
+      })
+      .catch(err => {
+        if (token !== this.buildToken) return;
+        console.error('Artwork render failed.', err);
+        this.recoverFromFailedBuild(token);
+      });
   }
 
   clearElement(element) {
@@ -1127,7 +1156,7 @@ export default class DisplayCanvas extends React.Component {
       isSaved: true
     });
 
-    gsap.to('.image-container', {
+    this.fadeArtwork({
       duration: DURATION_FAST,
       alpha: 0,
       ease: 'power2.inOut'
@@ -1208,9 +1237,37 @@ export default class DisplayCanvas extends React.Component {
   // left staring at a blank canvas) and hand the controls back. Guarded on the token like
   // everything else -- a failed build that has already been superseded should do nothing at
   // all, since the newer one owns the screen.
+  // A Generate clicked ANYWHERE (the mini generator, the footer's) puts this canvas into its
+  // loading state at the same instant as every other surface: fade the artwork out, show the
+  // loader. The build itself still arrives by the usual route (adoptInitialDesign, once the new
+  // design reaches this component), and joins the cycle then. generateDisabled is deliberately
+  // NOT set here -- adoptInitialDesign waits on it, so setting it would stall the very build the
+  // cycle is waiting for. If no build turns up by the reveal, the artwork is simply put back.
+  onGenerationCycle(c) {
+    if (this.startingOwnCycle || this.state.animationMode) return;
+    if (c && c.phase === 'loading') {
+      if (this.state.isLoading) return;
+      this.cycleHold = true;
+      this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+      this.setState({ isLoading: true });
+      return;
+    }
+    if (this.cycleHold) {
+      this.cycleHold = false;
+      if (!this.state.generateDisabled && !this.cycleBuild && this.state.isLoading) {
+        this.fadeArtwork({ duration: DURATION_SLOW, alpha: 1, ease: 'power2.inOut' });
+        this.setState({ isLoading: false });
+      }
+    }
+  }
+
   recoverFromFailedBuild(token) {
     if (token !== this.buildToken) return;
-    gsap.to('.image-container', { duration: DURATION_FAST, alpha: 1, ease: 'power2.inOut' });
+    if (this.cycleBuild && this.cycleBuild.token === token) {
+      this.cycleBuild.resolve();
+      this.cycleBuild = null;
+    }
+    this.fadeArtwork({ duration: DURATION_FAST, alpha: 1, ease: 'power2.inOut' });
     this.setState({ isLoading: false, generateDisabled: false });
     // A first build that dies must not also cost the hero its nav and controls. The cap timer
     // would get there eventually; this hands them back at the moment we know to.
@@ -1264,7 +1321,17 @@ export default class DisplayCanvas extends React.Component {
       // A build superseded before it reached the screen never will: release its full-size
       // JPEG now rather than holding it for the life of the tab.
       if (token !== this.buildToken) return URL.revokeObjectURL(url);
-      gsap.delayedCall(DURATION_HOLD, () => {
+      // A build that belongs to a Generate's cycle reveals on the cycle's shared signal, with
+      // every other surface showing the design; anything else keeps its own fixed hold.
+      // See utils/generationCycle.js.
+      const cycleBuild = this.cycleBuild && this.cycleBuild.token === token ? this.cycleBuild : null;
+      const afterHold = fn => {
+        if (!cycleBuild) return gsap.delayedCall(DURATION_HOLD, fn);
+        this.cycleBuild = null;
+        cycleBuild.resolve();
+        whenRevealed(cycleBuild.id, fn);
+      };
+      afterHold(() => {
         if (token !== this.buildToken) return URL.revokeObjectURL(url);
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
@@ -1294,32 +1361,10 @@ export default class DisplayCanvas extends React.Component {
           generateDisabled: false,
           isLoading: false,
         }, () => {
-          // Animate backdrop-filter from 0 alongside the image fade. Because GSAP updates
-          // the inline value every frame, iOS re-composites each frame rather than caching
-          // a stale snapshot — so we can run both animations in parallel safely.
-          // Compact (homepage hero) has no glass panel at all (.controls-compact) -- animating
-          // an inline backdrop-filter onto it painted a visible blur/brightness rectangle
-          // over the artwork for the duration of the tween, a ghost of the removed glass.
-          const panel = this.props.compact ? null : document.querySelector('#controls-main');
-          if (panel) {
-            const { blur: cssBlur, brightness: cssBrightness } = this.readBackdropValues(panel);
-            panel.style.backdropFilter = 'none';
-            const f = { blur: 0, brightness: 1 };
-            gsap.to(f, {
-              blur: cssBlur, brightness: cssBrightness,
-              duration: DURATION_SLOW,
-              ease: 'power2.inOut',
-              onUpdate: () => { panel.style.backdropFilter = `blur(${f.blur}px) brightness(${f.brightness})`; },
-              onComplete: () => { panel.style.backdropFilter = ''; }
-            });
-          }
-
           // The compact Save button (.controls-compact .button-small) carries its own
-          // permanent backdrop-filter (components.css) -- unlike the panel above, which has
-          // none in compact mode, so this one has no "ghost of removed glass" risk. Same iOS
-          // staleness bug as the panel though: it needs a per-frame inline write to force a
-          // recomposite once the artwork behind it changes, or it stays dark until the next
-          // scroll. Only the panel is skipped for compact; this button still needs the nudge.
+          // permanent backdrop-filter (components.css). Same iOS staleness bug as the studio
+          // panel (see fadeArtwork): it needs a per-frame inline write to force a recomposite
+          // once the artwork behind it changes, or it stays dark until the next scroll.
           const saveBtn = this.props.compact ? document.querySelector('.controls-compact .button-small') : null;
           if (saveBtn) {
             saveBtn.style.backdropFilter = 'none';
@@ -1333,7 +1378,7 @@ export default class DisplayCanvas extends React.Component {
             });
           }
 
-          gsap.to('.image-container', {
+          this.fadeArtwork({
             duration: DURATION_SLOW,
             alpha: 1,
             ease: 'power2.inOut'
@@ -2141,7 +2186,7 @@ export default class DisplayCanvas extends React.Component {
           this.animationModeState = null;
         }
 
-        gsap.to('.image-container', {
+        this.fadeArtwork({
           duration: DURATION_FAST,
           alpha: 0,
           ease: 'power2.inOut'
@@ -2158,9 +2203,14 @@ export default class DisplayCanvas extends React.Component {
           animationPaused: false
         });
 
-        this.buildAnimationFrames();
+        // Loader and fade-out on screen first, then the build -- see afterFeedback.
+        this.cancelPendingGenerate?.();
+        this.cancelPendingGenerate = afterFeedback(() => {
+          this.cancelPendingGenerate = null;
+          this.buildAnimationFrames();
+        });
       } else {
-        gsap.to('.image-container', {
+        this.fadeArtwork({
           duration: DURATION_FAST,
           alpha: 0,
           ease: 'power2.inOut'
@@ -2173,8 +2223,22 @@ export default class DisplayCanvas extends React.Component {
           showBranchNotice: false
         });
 
-        const config = this.buildConfig();
-        this.buildImage(config);
+        // Every other surface showing the design enters its loading state now too.
+        this.startingOwnCycle = true;
+        beginCycle();
+        this.startingOwnCycle = false;
+
+        // The artwork's fade-out and the loader go on screen first; the full-size build (which
+        // blocks the main thread for hundreds of ms, and on the homepage re-renders every other
+        // surface showing the design) starts once they have. See afterFeedback. Safe against a
+        // second build sneaking into the gap: generateDisabled is already set above, and that is
+        // what both this button and adoptInitialDesign wait on.
+        this.cancelPendingGenerate?.();
+        this.cancelPendingGenerate = afterFeedback(() => {
+          this.cancelPendingGenerate = null;
+          const config = this.buildConfig();
+          this.buildImage(config);
+        });
       }
     }
   }
@@ -2201,7 +2265,7 @@ export default class DisplayCanvas extends React.Component {
       if (this.state.threeDMode) {
         this.shareUrl = null;
         this.shareDesignId = null;
-        gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+        this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
         this.setState({
           animationMode: true,
           isSaved: false,
@@ -2230,7 +2294,7 @@ export default class DisplayCanvas extends React.Component {
         this.animationConfigs = null;
         this.shareUrl = null;
         this.shareDesignId = null;
-        gsap.to('.image-container', { duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+        this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
         this.setState({
           animationMode: true,
           animationFrames: [],
@@ -2314,6 +2378,48 @@ export default class DisplayCanvas extends React.Component {
         { duration: DURATION_BASE, opacity: 1, scale: 1, ease: 'back.out(1.7)' }
       );
     });
+  }
+
+  // Every fade of the artwork goes through here, so the studio panel's glass keeps up with it.
+  //
+  // iOS Safari caches a snapshot of what sits behind a backdrop-filter and does not refresh it
+  // while the content underneath animates, so the frosted panel went on showing artwork that had
+  // already faded away. The fix that used to live in setImage animated the panel's blur from 0 and
+  // its brightness from 1 back to their CSS values on every reveal -- a per-frame inline write does
+  // force the refresh, but it also CHANGED the glass: for half a second the panel showed the
+  // artwork behind it sharp, and it only ran on the fade-in, never the fade-out (Aaron: "now you
+  // see the artwork in the ui panel for a moment after it's gone. let's try not changing the
+  // panel's settings").
+  //
+  // So the write is kept and the change is not: for exactly as long as the artwork fades, the
+  // panel's own blur and brightness are rewritten every frame, alternating by a thousandth of a
+  // pixel of blur so each write is a real change the engine has to recomposite, then handed back
+  // to the stylesheet. In and out alike.
+  fadeArtwork(vars) {
+    const tween = gsap.to('.image-container', vars);
+    const panel = this.props.compact ? null : document.querySelector('#controls-main');
+    if (!panel) return tween;
+    this.backdropRefresh?.kill();
+    // The stylesheet's values, read once while nothing inline is set -- never mid-tween, and
+    // without clearing an inline value the panel's own open/close transition may be writing.
+    if (!this.panelBackdrop && !panel.style.backdropFilter) this.panelBackdrop = this.readBackdropValues(panel);
+    if (!this.panelBackdrop) return tween;
+    const { blur, brightness } = this.panelBackdrop;
+    let flip = false;
+    const write = value => {
+      panel.style.backdropFilter = value;
+      panel.style.webkitBackdropFilter = value;
+    };
+    this.backdropRefresh = gsap.to({}, {
+      duration: (vars.duration ?? 0) + (vars.delay ?? 0),
+      onUpdate: () => {
+        flip = !flip;
+        write(`blur(${blur + (flip ? 0.001 : 0)}px) brightness(${brightness})`);
+      },
+      onComplete: () => write(''),
+      onInterrupt: () => write('')
+    });
+    return tween;
   }
 
   readBackdropValues(el) {
@@ -2718,9 +2824,10 @@ export default class DisplayCanvas extends React.Component {
           this.mount = mount;
         }}
       >
-        {/* Compact (homepage hero) swaps the centered hexagon for the dot-grid ripple
-            (mounted inside the panel below) -- on mobile the stacked shirt+buttons panel
-            covered most of the hexagon. */}
+        {/* Studio loader. A box that flashed behind the panel here was blamed on the hexagon and
+            it was briefly swapped for the hero's dot ripple -- but the cause was the panel's
+            blur-from-zero reveal tween, confirmed by putting the hexagon back once that tween was
+            gone (see fadeArtwork). */}
         {isLoading && !compact ? <HexagonLoader /> : ''}
         {!compact && (
           <div
@@ -2808,9 +2915,10 @@ export default class DisplayCanvas extends React.Component {
                   visible surface of its own, so fading it would only stack a second opacity on
                   top of its children's. */}
               <div {...heroBeat('wait', HERO_WAIT.grid, 'dot-grid', 'animate-hero-fade-in')} aria-hidden />
-              {isLoading && (
-                <DotRipple introDelay={heroPhase === 'wait' ? HERO_WAIT.grid : null} />
-              )}
+              {/* Always mounted, driven by `active`: rings keep coming for as long as the hero
+                  is loading, however long that is, and the last ones run out to the edge
+                  instead of being cut off by an unmount. See DotRipple. */}
+              <DotRipple active={isLoading} introDelay={heroPhase === 'wait' ? HERO_WAIT.grid : null} />
               <div className="hero-compact-row flex flex-row items-center gap-4">
                 <TshirtPreview
                   size={190}
