@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#1E1E1E" />
+    <meta name="robots" content="noindex" />
+    <title>Nav lab</title>
+    <!-- TEMPORARY diagnostic for the mobile-nav toolbar bar on iOS Safari. Not linked from the
+         app; delete once the cause is known. Mirrors the real conditions: body #333333, page
+         content in normal flow, a fixed inset-0 #1E1E1E panel, the same body-fixed scroll lock,
+         and a per-frame inline opacity tween like GSAP's. -->
+    <style>
+      html, body { margin: 0; min-height: 100dvh; }
+      body { background: #333333; font: 16px -apple-system, sans-serif; color: #fff; }
+      .stripe { height: 110px; display: flex; align-items: center; justify-content: flex-end;
+        padding-right: 20px; font-size: 44px; font-weight: 800; }
+      .controls { position: sticky; top: 0; z-index: 1; background: #111; padding: 12px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .controls p { grid-column: 1 / -1; margin: 0 0 4px; font-size: 13px; color: #bbb; }
+      button { font: 700 15px -apple-system, sans-serif; padding: 12px 8px; border-radius: 10px;
+        border: 0; background: #6b4cff; color: #fff; }
+      button.alt { background: #444; }
+      #panel { position: fixed; inset: 0; z-index: 10; background: #1E1E1E; display: none;
+        flex-direction: column; justify-content: space-between; padding: 90px 20px 0; }
+      #panel .edge { height: 6px; background: #00ff66; }
+      #panel .label { font-size: 22px; font-weight: 800; }
+      #panel .note { color: #aaa; font-size: 14px; line-height: 1.4; }
+    </style>
+  </head>
+  <body>
+    <div class="controls">
+      <p>Scroll down a bit first. Each button opens a stand-in menu; tap its Close button. The
+        green line marks the bottom edge of the panel. <b id="speedLabel">Speed: normal</b></p>
+      <button data-v="A">A · real</button>
+      <button data-v="B">B · no lock</button>
+      <button data-v="C">C · CSS fade</button>
+      <button data-v="D">D · bg-alpha fade</button>
+      <button data-v="E">E · half, static</button>
+      <button data-v="F">F · composited</button>
+      <button class="alt" id="speed">Toggle slow motion</button>
+      <button class="alt" id="top">Back to top</button>
+    </div>
+    <div id="stripes"></div>
+    <div id="panel">
+      <div>
+        <div class="label" id="panelLabel">Variant</div>
+        <p class="note" id="panelNote"></p>
+        <button id="close">Close</button>
+      </div>
+      <div class="edge"></div>
+    </div>
+    <script>
+      const stripes = document.getElementById('stripes');
+      for (let i = 0; i < 40; i++) {
+        const d = document.createElement('div');
+        d.className = 'stripe';
+        d.style.background = `hsl(${(i * 37) % 360} 80% 55%)`;
+        d.textContent = i;
+        stripes.appendChild(d);
+      }
+      const NOTES = {
+        A: 'Same as the site: body locked on open, released as the close starts, panel opacity tweened per frame.',
+        B: 'Same fade, but the page is never locked.',
+        C: 'Locked, but the fade is a CSS transition instead of a per-frame tween.',
+        D: 'Locked. The panel itself stays at full opacity; only its background colour and contents fade.',
+        E: 'Locked. Snaps straight to 50% opacity and stays there. No animation at all.',
+        F: 'Locked. Snaps straight to fully opaque, but forced onto its own compositing layer.'
+      };
+      const panel = document.getElementById('panel');
+      const content = panel.firstElementChild;
+      let slow = false, current = null, savedY = 0;
+      const dur = (ms) => (slow ? ms * 8 : ms);
+      document.getElementById('speed').onclick = () => {
+        slow = !slow;
+        document.getElementById('speedLabel').textContent = 'Speed: ' + (slow ? 'SLOW (x8)' : 'normal');
+      };
+      document.getElementById('top').onclick = () => window.scrollTo(0, 0);
+      function lock() {
+        savedY = window.scrollY;
+        Object.assign(document.body.style, { position: 'fixed', top: `-${savedY}px`, left: '0', right: '0', width: '100%' });
+      }
+      function unlock() {
+        Object.assign(document.body.style, { position: '', top: '', left: '', right: '', width: '' });
+        window.scrollTo(0, savedY);
+      }
+      function tween(el, prop, from, to, ms, done) {
+        const t0 = performance.now();
+        const step = (now) => {
+          const p = Math.min(1, (now - t0) / ms);
+          const e = from < to ? 1 - (1 - p) * (1 - p) : p * p; // power1 out / in, like the site
+          const v = from + (to - from) * e;
+          prop(el, v);
+          if (p < 1) requestAnimationFrame(step); else done && done();
+        };
+        requestAnimationFrame(step);
+      }
+      const setOpacity = (el, v) => { el.style.opacity = v; el.style.visibility = v > 0 ? 'inherit' : 'hidden'; };
+      const setBgAlpha = (el, v) => { el.style.backgroundColor = `rgba(30,30,30,${v})`; content.style.opacity = v; };
+      function reset() {
+        panel.removeAttribute('style');
+        content.removeAttribute('style');
+      }
+      function open(v) {
+        current = v;
+        reset();
+        document.getElementById('panelLabel').textContent = 'Variant ' + v;
+        document.getElementById('panelNote').textContent = NOTES[v];
+        panel.style.display = 'flex';
+        if (v !== 'B') lock();
+        if (v === 'A' || v === 'B') { setOpacity(panel, 0); tween(panel, setOpacity, 0, 1, dur(350)); }
+        if (v === 'C') {
+          panel.style.opacity = '0';
+          panel.style.transition = `opacity ${dur(350)}ms ease-out`;
+          requestAnimationFrame(() => requestAnimationFrame(() => { panel.style.opacity = '1'; }));
+        }
+        if (v === 'D') { setBgAlpha(panel, 0); tween(panel, setBgAlpha, 0, 1, dur(350)); }
+        if (v === 'E') panel.style.opacity = '0.5';
+        if (v === 'F') { panel.style.opacity = '1'; panel.style.transform = 'translateZ(0)'; panel.style.willChange = 'opacity, transform'; }
+      }
+      function finish() { panel.style.display = 'none'; reset(); }
+      document.getElementById('close').onclick = () => {
+        const v = current;
+        if (v === 'A') { unlock(); tween(panel, setOpacity, 1, 0, dur(200), finish); return; }
+        if (v === 'B') { tween(panel, setOpacity, 1, 0, dur(200), finish); return; }
+        if (v === 'C') {
+          unlock();
+          panel.style.transition = `opacity ${dur(200)}ms ease-in`;
+          panel.style.opacity = '0';
+          setTimeout(finish, dur(200) + 30);
+          return;
+        }
+        if (v === 'D') { unlock(); tween(panel, setBgAlpha, 1, 0, dur(200), finish); return; }
+        unlock(); finish();
+      };
+      document.querySelectorAll('[data-v]').forEach((b) => (b.onclick = () => open(b.dataset.v)));
+    </script>
+  </body>
