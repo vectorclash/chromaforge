@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink, useLocation } from 'react-router-dom';
 import { gsap } from 'gsap/all';
@@ -55,17 +55,11 @@ export default function MobileNav({ open, onClose }) {
   const { pathname } = useLocation();
   const [mounted, setMounted] = useState(open);
   const openedPathRef = useRef(pathname);
-  // Held through the close tween, not released as it starts. Unlocking mid-fade put a bar
-  // across the bottom of the screen on iOS Safari (Aaron, on a phone). While the body is
-  // locked the panel covers the area under the bottom toolbar; the fade-out was the only time
-  // it ever ran with the page unlocked beneath it, and the only time the bar appeared. That is
-  // inferred, not reproduced -- no desktop engine models Safari's toolbar. Released at the end
-  // instead, the page is already where it was (a locked body sits at exactly its scrolled
-  // offset), so the restore moves nothing.
-  //
-  // Do NOT size this panel with `h-lvh` to reach under the toolbar: tried, and on iOS 26 100lvh
-  // stops at the TOP of the toolbar where `inset-0` reaches beneath it, so it left the body's
-  // #333 showing there permanently.
+  // Held through the close tween, not released as it starts, so the strip under Safari's
+  // toolbar (see the background-colour effect below) stays one colour for the whole close
+  // rather than switching to live page content half way through it. Released at the end, the
+  // page is already where it was (a locked body sits at exactly its scrolled offset), so the
+  // restore moves nothing.
   //
   // EXCEPT on a navigation, which must still release as the close starts: the unlock's
   // scroll restore has to land before SiteLayout's own route-change scroll-to-top (cleanups
@@ -99,6 +93,31 @@ export default function MobileNav({ open, onClose }) {
     // at the open, and keep that value while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // THE BAR UNDER SAFARI'S TOOLBAR (Aaron, on an iPhone: a bar at the bottom of the screen
+  // while the menu fades in or out, never while it is fully open). On iOS 26 a fixed element
+  // does not paint under the bottom toolbar at all -- this panel ends at the toolbar's top edge
+  // -- and Safari fills that strip itself: with the colour of a fixed element touching the
+  // bottom edge while that element is opaque, otherwise with the page's background colour. So
+  // open, the strip is this panel's ink; mid-fade it fell back to body's #333333, a grey that
+  // matches neither the panel nor any page. While the menu is on screen the fallback is made
+  // the panel's own colour, so the strip is the same ink whether Safari samples the panel or
+  // not. Every page already paints ink-950 itself, so the body colour is otherwise only seen
+  // in these fallback areas.
+  //
+  // Two things tried first and wrong, do not repeat them: sizing the panel to 100lvh to reach
+  // under the toolbar (on iOS 26 100lvh ALSO stops at the toolbar's top, so the panel stopped
+  // qualifying for Safari's fill and the grey showed permanently), and blaming the scroll
+  // lock's release (holding it through the fade changed nothing). No desktop engine models
+  // Safari's toolbar; only a real iPhone can confirm this one.
+  useLayoutEffect(() => {
+    if (!mounted) return undefined;
+    const { style } = document.body;
+    style.backgroundColor = 'var(--color-ink-950)';
+    return () => {
+      style.backgroundColor = '';
+    };
+  }, [mounted]);
 
   // Same live-artwork-as-background treatment as SiteFooter -- re-renders the current
   // design from its own seed/colors (not a screenshot) whenever it changes, so the panel
