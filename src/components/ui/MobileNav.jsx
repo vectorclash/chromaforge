@@ -147,6 +147,19 @@ export default function MobileNav({ open, onClose }) {
     instant: bgInstant
   });
 
+  // `instant` means two things to useCrossfadeImage: swap THIS url in without the reveal, and
+  // sit out any Generate cycle. The first is right for the catch-up above; the second must not
+  // outlive it. Left on, the first Generate made from inside the open menu found the background
+  // opted out of the shared cycle: the thumbnail went into its loading state at the click while
+  // the background held the old design, then ran its own fade-out / hold / fade-in only once its
+  // render landed, finishing after everything else (Aaron: the menu's generator and background
+  // unlinked, and sometimes far slower). Measured before this: background fade-out starting
+  // ~380ms after the thumbnail's and settling ~300ms later; every later Generate was in sync to
+  // the frame, because a real generate had already set the flag false.
+  useEffect(() => {
+    if (bgInstant && bgUrl && shown === bgUrl) setBgInstant(false);
+  }, [bgInstant, bgUrl, shown]);
+
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
     if (open) {
@@ -201,9 +214,7 @@ export default function MobileNav({ open, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label="Site navigation"
-      // The dark fill is a background IMAGE, never background-color -- see .mobile-nav-panel
-      // (components.css) for the iOS 26 Safari toolbar bar this avoids.
-      className="mobile-nav-panel fixed inset-0 z-10 flex flex-col overflow-y-auto pt-24 sm:hidden"
+      className="fixed inset-0 z-10 flex flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
       // Mounts hidden: the entrance tween runs in a useEffect, which usually beats the
       // browser's next paint but not always -- without this, roughly 1-in-8 opens painted
       // one frame of the fully-opaque panel before GSAP snapped it to 0 and faded in (a
