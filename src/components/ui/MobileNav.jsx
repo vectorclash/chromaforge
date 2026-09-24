@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { gsap } from 'gsap/all';
 import { useAuth } from '../../context/AuthContext';
 import useScrollLock from '../../hooks/useScrollLock';
@@ -52,13 +52,26 @@ const itemClass = ({ isActive }) =>
 export default function MobileNav({ open, onClose }) {
   const { user, authResolved, avatarUrl } = useAuth();
   const { currentDesign, renderDesignBlob } = useStudio();
-  // Keyed on `open`, not `mounted`: the page unfreezes as the close tween starts rather
-  // than after it, and on a navigation the unlock's scroll restore lands before
-  // SiteLayout's own route-change scroll-to-top (cleanups run before effects in a commit),
-  // so following a link still arrives at the top of the new page rather than at the offset
-  // the menu was opened from.
-  useScrollLock(open);
+  const { pathname } = useLocation();
   const [mounted, setMounted] = useState(open);
+  const openedPathRef = useRef(pathname);
+  // Held through the close tween, not released as it starts. Unlocking mid-fade put a bar
+  // across the bottom of the screen on iOS Safari (Aaron, on a phone). While the body is
+  // locked the panel covers the area under the bottom toolbar; the fade-out was the only time
+  // it ever ran with the page unlocked beneath it, and the only time the bar appeared. That is
+  // inferred, not reproduced -- no desktop engine models Safari's toolbar. Released at the end
+  // instead, the page is already where it was (a locked body sits at exactly its scrolled
+  // offset), so the restore moves nothing.
+  //
+  // Do NOT size this panel with `h-lvh` to reach under the toolbar: tried, and on iOS 26 100lvh
+  // stops at the TOP of the toolbar where `inset-0` reaches beneath it, so it left the body's
+  // #333 showing there permanently.
+  //
+  // EXCEPT on a navigation, which must still release as the close starts: the unlock's
+  // scroll restore has to land before SiteLayout's own route-change scroll-to-top (cleanups
+  // run before effects in a commit), or following a link arrives at the offset the menu was
+  // opened from instead of the top of the new page. A changed pathname is that case.
+  useScrollLock(open || (mounted && pathname === openedPathRef.current));
   const [bgUrl, setBgUrl] = useState(null);
   // Whether `bgUrl` should appear without the generate choreography -- see the
   // designAtOpenRef note below.
@@ -79,6 +92,7 @@ export default function MobileNav({ open, onClose }) {
   useEffect(() => {
     if (open) {
       designAtOpenRef.current = currentDesign;
+      openedPathRef.current = pathname;
       setMounted(true);
     }
     // `currentDesign` is deliberately not a dependency: this must capture what was current
@@ -201,15 +215,7 @@ export default function MobileNav({ open, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label="Site navigation"
-      // `h-lvh` from the top, not `inset-0`: inset-0 sizes the panel to the CURRENT viewport,
-      // which on iOS Safari stops at the top of the bottom toolbar whenever that toolbar is
-      // expanded -- and closing the menu unlocks the page and restores its scroll mid-fade,
-      // which is exactly when Safari moves the toolbar. The strip below the panel then showed
-      // as a bar that didn't fade with everything else (Aaron, on a phone). The large viewport
-      // is the one with the toolbar retracted, so the panel always reaches the bottom of the
-      // screen; the menu's own bottom padding adds back the difference (see below) so its last
-      // row can still scroll clear of an expanded toolbar.
-      className="fixed inset-x-0 top-0 z-10 flex h-lvh flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
+      className="fixed inset-0 z-10 flex flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
       // Mounts hidden: the entrance tween runs in a useEffect, which usually beats the
       // browser's next paint but not always -- without this, roughly 1-in-8 opens painted
       // one frame of the fully-opaque panel before GSAP snapped it to 0 and faded in (a
@@ -288,7 +294,7 @@ export default function MobileNav({ open, onClose }) {
           a wrapper animating opacity is a backdrop root, which left the widget's glass with an
           empty backdrop to filter for the whole 500ms (unblurred artwork showing straight
           through, then snapping to frosted). See MiniGenerator's own note. */}
-      <div className="relative z-10 px-6 pt-8" style={{ paddingBottom: 'calc(2.5rem + 100lvh - 100dvh)' }}>
+      <div className="relative z-10 px-6 pb-10 pt-8">
         <MiniGenerator
           inline
           style={{ animation: 'var(--animate-fade-slide-up)', animationDelay: '0.24s' }}
