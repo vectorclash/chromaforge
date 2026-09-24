@@ -724,6 +724,30 @@
   --dot-fade-y: 120px;
 }
 
+/* MobileNav's panel fill -- a background IMAGE of a 99%-opaque ink-950, never a
+   background-color, and both halves of that are load-bearing (2026-09-23, iOS 26 Safari).
+   Aaron saw a bar across the bottom of the screen while the menu faded in or out, never
+   while it sat open. Safari reads the background-color set on a fixed element touching the
+   screen's bottom edge and fills the strip under its toolbar with it as one flat colour,
+   ignoring opacity from about 0.1 up -- so mid-fade the strip sat solid dark under a mostly
+   see-through panel. Safari reads only background-color (and backdrop-filter), so painting
+   the same colour as an image leaves it nothing to sample. Separately, Safari clips a fixed
+   layer with an OPAQUE background at the toolbar's top edge instead of painting it
+   underneath; the 1% of transparency is what keeps the panel out of that path, and over this
+   panel's own artwork and scrim it is invisible.
+   Not an inner fill layer: the panel scrolls on small phones, and an absolutely positioned
+   child of a scroll container scrolls away with the content, exposing the page behind.
+   Source: published reverse-engineering of Safari 26 -- Edoardo Lunardi, "Safari 26 and the
+   strange case of fixed overlays", and github.com/andesco/safari-color-tinting. Tried first
+   and changed nothing: sizing the panel to 100lvh, holding the scroll lock through the fade,
+   recolouring body, and sliding the panel instead of fading it. */
+.mobile-nav-panel {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--color-ink-950) 99%, transparent),
+    color-mix(in srgb, var(--color-ink-950) 99%, transparent)
+  );
+}
+
 /* MobileNav's and SiteFooter's own dot-ripple hosts (DotRipple.jsx) -- same --dot-*
    contract as the hero panel above, but these backgrounds already fill their entire
    container (no small panel to bleed a grid out around), so bleed is 0: the ripple's

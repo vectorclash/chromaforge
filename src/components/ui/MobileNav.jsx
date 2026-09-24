@@ -40,26 +40,15 @@ const itemClass = ({ isActive }) =>
 // the panel content + its own enter/exit choreography.
 //
 // Stays mounted through its own exit animation instead of unmounting the instant `open`
-// flips false, so closing gets a real exit instead of a hard cut.
+// flips false, so closing gets a real fade instead of a hard cut.
 //
 // Entrance reuses the site's existing `fade-slide-up` CSS keyframe (same one Gallery/Shop
 // card grids stagger in with) rather than a bespoke GSAP timeline -- an earlier version
 // chained two overlapping GSAP tweens (panel fade, then an offset-started item stagger)
 // which read as uneven/laggy ("starts slow then speeds up") because the two phases had
-// different durations that didn't line up. One panel-level move (GSAP, since it also
+// different durations that didn't line up. One panel-level fade (GSAP, since it also
 // needs a reverse for the close) plus the CSS keyframe's own per-item `animation-delay`
 // stagger is simpler and matches everywhere else in the app that staggers a list in.
-//
-// The panel SLIDES in from the right rather than fading (2026-09-23), because of iOS 26
-// Safari's bottom toolbar. A fixed element does not paint under that toolbar; Safari fills
-// the strip itself, with the colour of an opaque fixed element at the bottom edge, and it can
-// only ever fill it one flat colour. So any moment the panel is partly see-through, the strip
-// cannot match the blend above it and reads as a bar -- which is what a fade is for its whole
-// length. Established on a real iPhone with a throwaway test page (per-frame fade, CSS fade,
-// fading only the background colour, a static 50% panel, no scroll lock): every translucent
-// variant showed the bar. Changing the page background colour and holding the scroll lock
-// through the fade were both tried first and changed nothing. The panel is now opaque at
-// every frame, so there is no blend for the strip to fail to show.
 export default function MobileNav({ open, onClose }) {
   const { user, authResolved, avatarUrl } = useAuth();
   const { currentDesign, renderDesignBlob } = useStudio();
@@ -79,10 +68,6 @@ export default function MobileNav({ open, onClose }) {
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
   const panelRef = useRef(null);
-  // Whether this mount of the panel has begun sliding in. Cleared when the close finishes
-  // (the panel unmounts then), so each fresh open slides from fully off-screen, while a
-  // reopen caught mid-close reverses from wherever it has got to.
-  const slideStartedRef = useRef(false);
   const renderedDesignRef = useRef(null);
   // The design that was already current at the moment the panel opened. Anything matching
   // it was generated somewhere the user could already see (the hero or the footer), so
@@ -164,39 +149,28 @@ export default function MobileNav({ open, onClose }) {
 
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
-    const el = panelRef.current;
     if (open) {
-      const enter = { xPercent: 0, duration: DURATION_BASE, ease: 'power3.out', overwrite: true };
-      if (slideStartedRef.current) {
-        gsap.to(el, enter);
-      } else {
-        slideStartedRef.current = true;
-        gsap.fromTo(el, { xPercent: 100, x: 0, visibility: 'visible' }, enter);
-      }
+      gsap.fromTo(panelRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DURATION_BASE, ease: 'power1.out' });
     } else {
       // Faster than the open tween -- closing should feel snappy, not a mirror of the
       // entrance.
-      gsap.to(el, {
-        xPercent: 100,
+      gsap.to(panelRef.current, {
+        autoAlpha: 0,
         duration: DURATION_FAST,
-        ease: 'power2.in',
-        overwrite: true,
-        onComplete: () => {
-          slideStartedRef.current = false;
-          setMounted(false);
-        }
+        ease: 'power1.in',
+        onComplete: () => setMounted(false)
       });
     }
   }, [open, mounted]);
 
-  // Backstop for the prewarm: if the artwork still arrives after the panel has started sliding
+  // Backstop for the prewarm: if the artwork still arrives after the panel has started fading
   // in (a slow phone, or an open before the idle render ran), fade it in rather than snapping
   // it to full strength. A callback ref runs at attach time, before the panel's own entrance
-  // effect -- so when the background mounts together WITH the panel the slide has not started
-  // and nothing extra happens; it simply arrives with the panel. The fade is safe against the
-  // toolbar strip above: the panel under it stays opaque, and the panel is what Safari samples.
+  // effect -- so when the background mounts together WITH the panel the panel still reads
+  // opacity 0 here and nothing extra happens; the panel's fade carries both.
   const bgRef = useCallback(node => {
-    if (!node || !slideStartedRef.current) return;
+    if (!node || !panelRef.current) return;
+    if (Number(gsap.getProperty(panelRef.current, 'opacity')) <= 0) return;
     gsap.from(node, { opacity: 0, duration: DURATION_BASE, ease: 'power1.out' });
   }, []);
 
@@ -227,14 +201,16 @@ export default function MobileNav({ open, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label="Site navigation"
-      className="fixed inset-0 z-10 flex flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
-      // Mounts hidden and off-screen: the entrance tween runs in a useEffect, which usually
-      // beats the browser's next paint but not always -- without this, roughly 1-in-8 opens
-      // painted one frame of the fully-opaque panel in place before the entrance began (a
-      // visible pop, user-reported on device). GSAP's inline transform and visibility
-      // override this immediately; React re-renders won't reapply it since the style prop's
-      // value never changes.
-      style={{ visibility: 'hidden', transform: 'translateX(100%)' }}
+      // The dark fill is a background IMAGE, never background-color -- see .mobile-nav-panel
+      // (components.css) for the iOS 26 Safari toolbar bar this avoids.
+      className="mobile-nav-panel fixed inset-0 z-10 flex flex-col overflow-y-auto pt-24 sm:hidden"
+      // Mounts hidden: the entrance tween runs in a useEffect, which usually beats the
+      // browser's next paint but not always -- without this, roughly 1-in-8 opens painted
+      // one frame of the fully-opaque panel before GSAP snapped it to 0 and faded in (a
+      // visible pop-then-fade, user-reported on device). GSAP's inline autoAlpha
+      // overrides this immediately; React re-renders won't reapply it since the style
+      // prop's value never changes.
+      style={{ opacity: 0, visibility: 'hidden' }}
     >
       {/* Active artwork as the panel's background, same treatment as SiteFooter -- 75%
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
