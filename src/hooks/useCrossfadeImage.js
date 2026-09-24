@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap/all';
 import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
 import { getCycle, subscribeCycle, trackCycleWork } from '../utils/generationCycle';
+import { isBehindOverlay } from '../utils/overlayFocus';
 
 function preloadImage(src) {
   return new Promise(resolve => {
@@ -169,7 +170,10 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
     if (cycleRef.current && shownSrc) {
       // Held for the cycle's shared reveal; decode it now so the reveal is instant.
       cycleRef.current.target = url;
-      cycleRef.current.ready = trackCycleWork(preloadImage(url));
+      // A surface hidden behind a full-screen overlay does not hold the reveal (overlayFocus.js).
+      cycleRef.current.ready = trackCycleWork(preloadImage(url), {
+        foreground: !isBehindOverlay(shownRef.current)
+      });
       return;
     }
     if (!shownSrc) {

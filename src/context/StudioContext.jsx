@@ -163,7 +163,8 @@ export function StudioProvider({ children }) {
         highDensity = false,
         sizeFrame = null,
         legSymmetry = false,
-        priority = false
+        priority = false,
+        foreground = false
       } = {}
     ) => {
       const { width: genWidth, height: genHeight } = highDensity
@@ -177,7 +178,7 @@ export function StudioProvider({ children }) {
         legSymmetry
       });
       // Queued and stepwise, so the page keeps animating while it runs -- see renderQueue.js.
-      const canvas = await renderArtworkQueued(built, { priority });
+      const canvas = await renderArtworkQueued(built, { priority, foreground });
       let outputCanvas = canvas;
       if (genWidth !== width || genHeight !== height) {
         outputCanvas = document.createElement('canvas');
@@ -196,10 +197,15 @@ export function StudioProvider({ children }) {
     },
     []
   );
+  // `foreground`: this render draws something inside a full-screen overlay (MobileNav), so it
+  // keeps its place in the queue and holds the Generate reveal while the overlay hides everything
+  // else -- see utils/overlayFocus.js. `priority` implies it: the shared preview is what the menu's
+  // own mini generator shows.
   const renderDesignBlob = useCallback(
     (config, width, height, options) => {
       const work = renderDesignBlobRaw(config, width, height, options);
-      return config === currentDesignRef.current ? trackCycleWork(work) : work;
+      const foreground = !!(options?.foreground || options?.priority);
+      return config === currentDesignRef.current ? trackCycleWork(work, { foreground }) : work;
     },
     [renderDesignBlobRaw]
   );

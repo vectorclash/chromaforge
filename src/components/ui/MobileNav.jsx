@@ -8,11 +8,12 @@ import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
-import DotRipple from '../DotRipple';
+import DotRipple, { useRippleMount } from '../DotRipple';
 import FadeImage from './FadeImage';
 import MiniGenerator from './MiniGenerator';
 import { isSameDesign } from '../../render/designSettings';
 import { DURATION_BASE, DURATION_FAST } from '../../utils/motionTokens';
+import { clearFocusOverlay, setFocusOverlay } from '../../utils/overlayFocus';
 
 // Portrait-ish crop -- this panel fills a phone screen, unlike SiteFooter's wide banner
 // strip, so the render is requested closer to a phone's own aspect ratio rather than
@@ -117,7 +118,7 @@ export default function MobileNav({ open, onClose }) {
     if (!mounted && !(prewarm && !renderedDesignRef.current)) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
     let cancelled = false;
-    renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
+    renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT, { foreground: true })
       .then(blob => {
         if (cancelled) return;
         // Only mark the design "rendered" once the blob actually lands -- marking it
@@ -146,6 +147,7 @@ export default function MobileNav({ open, onClose }) {
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl, {
     instant: bgInstant
   });
+  const rippleMounted = useRippleMount(holding);
 
   // `instant` means two things to useCrossfadeImage: swap THIS url in without the reveal, and
   // sit out any Generate cycle. The first is right for the catch-up above; the second must not
@@ -186,6 +188,17 @@ export default function MobileNav({ open, onClose }) {
     if (Number(gsap.getProperty(panelRef.current, 'opacity')) <= 0) return;
     gsap.from(node, { opacity: 0, duration: DURATION_BASE, ease: 'power1.out' });
   }, []);
+
+  // While open, this panel is the page's focus: a Generate made from the menu renders and waits on
+  // the menu's own background and mini generator first, and the surfaces hidden behind it (the
+  // hero, the shirt, the footer, the About blob) re-render afterwards -- see utils/overlayFocus.js.
+  // Released as the close starts, the moment those surfaces start to be seen again.
+  useEffect(() => {
+    if (!open || !mounted) return undefined;
+    const el = panelRef.current;
+    setFocusOverlay(el);
+    return () => clearFocusOverlay(el);
+  }, [open, mounted]);
 
   useEffect(() => {
     if (!open) return;
@@ -237,7 +250,7 @@ export default function MobileNav({ open, onClose }) {
               style={{ opacity: 0 }}
             />
           )}
-          {holding && <DotRipple />}
+          {rippleMounted && <DotRipple active={holding} />}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40" />
         </div>
       )}

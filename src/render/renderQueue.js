@@ -23,6 +23,7 @@
 // renderArtwork and never come through here. And none of this applies during a page load --
 // see "Two pathways" below.
 import renderArtwork, { renderArtworkInSteps } from './renderArtwork';
+import { overlayActive } from '../utils/overlayFocus';
 
 // A pause that is guaranteed to include a paint: rAF runs just before the next frame is drawn,
 // and a timeout queued from inside it runs just after. A bare setTimeout(0) does not promise a
@@ -33,22 +34,34 @@ export function nextFrame() {
   });
 }
 
-/** @type {{ job: () => unknown, resolve: (v: any) => void, reject: (e: any) => void }[]} */
+/** @type {{ job: () => unknown, resolve: (v: any) => void, reject: (e: any) => void, lane: number }[]} */
 const jobs = [];
 let running = false;
 
+// The next job is chosen in a microtask, not at the call that found the queue idle. A Generate
+// asks for every surface's render inside one effect flush, children first -- so choosing at the
+// first call always started whichever surface happened to be deepest in the tree, however low
+// its lane, and a priority or foreground render could only ever be SECOND. Deferring the choice
+// until the flush has finished lets the whole batch be ordered before any of it runs.
 function pump() {
   if (running || jobs.length === 0) return;
   running = true;
-  const { job, resolve, reject } = jobs.shift();
-  Promise.resolve()
-    .then(job)
-    .then(resolve, reject)
-    .finally(() => {
-      running = false;
-      pump();
-    });
+  queueMicrotask(() => {
+    const { job, resolve, reject } = jobs.shift();
+    Promise.resolve()
+      .then(job)
+      .then(resolve, reject)
+      .finally(() => {
+        running = false;
+        pump();
+      });
+  });
 }
+
+const LANE_PRIORITY = 0;
+const LANE_NORMAL = 1;
+// Renders for surfaces hidden behind a full-screen overlay -- see utils/overlayFocus.js.
+const LANE_BACKGROUND = 2;
 
 // Queues `job` behind every render already waiting, and resolves with its result. A job that
 // throws rejects its own promise without stalling the jobs behind it.
@@ -58,17 +71,22 @@ function pump() {
 // parent's, so on a Generate the footer band, the shirt's texture pieces and the About blob all
 // queued ahead of the preview -- and the preview is what the mini generator's thumbnail shows
 // and what ends its spinner. It is ~30ms of work; it should never wait on ~1s of other surfaces.
+//
+// `background` puts it behind everything else waiting, for a surface the visitor cannot currently
+// see (utils/overlayFocus.js). Within a lane, jobs keep the order they were asked for.
 /**
  * @template T
  * @param {() => T | Promise<T>} job
- * @param {{ priority?: boolean }} [options]
+ * @param {{ priority?: boolean, background?: boolean }} [options]
  * @returns {Promise<T>}
  */
-export function enqueueRender(job, { priority = false } = {}) {
+export function enqueueRender(job, { priority = false, background = false } = {}) {
   return new Promise((resolve, reject) => {
-    const entry = { job, resolve, reject };
-    if (priority) jobs.unshift(entry);
-    else jobs.push(entry);
+    const lane = priority ? LANE_PRIORITY : background ? LANE_BACKGROUND : LANE_NORMAL;
+    const entry = { job, resolve, reject, lane };
+    const at = jobs.findIndex(j => j.lane > lane);
+    if (at === -1) jobs.push(entry);
+    else jobs.splice(at, 0, entry);
     pump();
   });
 }
@@ -118,12 +136,15 @@ export function endFastWindow() {
 // render still in flight is unaffected. Hidden documents (a background tab) get no frames at
 // all, so a stepwise render there runs straight through rather than waiting on a paint that
 // never comes.
+//
+// While a full-screen overlay is up, a render is demoted to the background lane unless it is a
+// priority render or its caller marks it `foreground` (it draws something inside the overlay).
 /**
  * @param {object} config
- * @param {{ priority?: boolean }} [options]
+ * @param {{ priority?: boolean, foreground?: boolean }} [options]
  * @returns {Promise<HTMLCanvasElement>}
  */
-export function renderArtworkQueued(config, options) {
+export function renderArtworkQueued(config, { priority = false, foreground = false } = {}) {
   if (fastWindow) {
     armIdleClose();
     try {
@@ -136,7 +157,7 @@ export function renderArtworkQueued(config, options) {
     if (document.hidden) return renderArtwork(config);
     await nextFrame();
     return renderArtworkInSteps(config, () => (document.hidden ? Promise.resolve() : nextFrame()));
-  }, options);
+  }, { priority, background: !priority && !foreground && overlayActive() });
 }
 
 // The window is open from startup; start its idle clock so a page that renders nothing at all

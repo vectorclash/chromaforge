@@ -1,4 +1,5 @@
 import { DURATION_FAST, DURATION_HOLD, DURATION_SLOW } from './motionTokens';
+import { overlayActive } from './overlayFocus';
 
 // One Generate, one loading state, one reveal -- across every surface showing the design.
 //
@@ -79,8 +80,18 @@ export function markCycleDesign() {
 
 // Holds the reveal until `promise` settles (either way). A no-op outside a loading cycle, so a
 // render that is not part of a Generate never delays anything.
-export function trackCycleWork(promise) {
+//
+// Also a no-op, while a full-screen overlay covers the page, for work that is not `foreground`:
+// the reveal waits only on what the visitor can actually see. See utils/overlayFocus.js.
+/**
+ * @template T
+ * @param {T} promise
+ * @param {{ foreground?: boolean }} [options]
+ * @returns {T}
+ */
+export function trackCycleWork(promise, { foreground = false } = {}) {
   if (!cycle || cycle.phase !== 'loading') return promise;
+  if (!foreground && overlayActive()) return promise;
   const { pending } = cycle;
   const done = Promise.resolve(promise).then(
     () => {},
