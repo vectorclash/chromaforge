@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import tinycolor from 'tinycolor2';
 import { gsap } from 'gsap/all';
 import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
@@ -41,45 +41,16 @@ import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
 // the artwork lands, so a much slower generate would want its own indicator rather than a
 // repeat here -- a repeat would bring the cut-off ring straight back.
 //
-// It changed (2026-09-23): the hero's FIRST load waits ~1.8s for its artwork, and interactive
-// renders now run in steps across frames (render/renderQueue.js), so the single pass ended with
-// a third of the wait still to go and the hero sat still (Aaron: "the hero loading animation
+// It changed (2026-09-23): the hero's FIRST load waits ~1.8s for its artwork, so the single
+// pass ended with a third of the wait still to go and the hero sat still (Aaron: "the hero loading animation
 // stops a third of the way through"). The answer is `active` -- a continuous mode, not a repeat:
 // while `active`, each layer launches a fresh ring (fresh colours) as its last one clears the
 // corners; when it goes false no new ring starts and the ones in flight run out to the edge and
 // fade as normal. The cut-off the repeat caused came from the HOST unmounting mid-ring, so a
-// caller using `active` keeps this mounted and lets the rings finish on their own.
-//
-// And the one-shot mode is GONE (2026-09-23): SiteFooter and MobileNav were its last users, and
-// their hold stopped being fixed the moment Generate became a shared cycle
-// (utils/generationCycle.js) -- a surface now holds until every visible render has landed, which
-// on a phone is several times the old window, so the menu's ripple ran its two rings and then sat
-// still for the rest of the wait (Aaron: "the loading dots stop after two pulses and it takes
-// twice that"). Every host now passes `active`, and mounts through useRippleMount so the
-// component outlives the hold by exactly as long as its last ring needs.
+// caller using `active` keeps this mounted and lets the rings finish on their own. Hosts that
+// pass nothing (SiteFooter, MobileNav: a fixed crossfade hold) keep the one-shot behaviour above.
 const HOLD_WINDOW = DURATION_FAST + DURATION_HOLD;
 const RIPPLE_CYCLE = HOLD_WINDOW;
-// Longest a ring can still be travelling after `active` goes false: one launched on the very
-// last frame of the hold runs a full cycle. The pending half-cycle start of the second layer
-// re-checks `active` and never fires.
-const RIPPLE_TAIL_MS = RIPPLE_CYCLE * 1000 + 100;
-
-// Whether a host should have a DotRipple mounted for a loading flag: from the moment `active`
-// goes true until the rings in flight when it goes false have finished. Unmounting AT the flag
-// is what used to cut a ring off mid-screen; staying mounted forever would keep two full-size
-// masked layers in the tree of a footer or menu that is almost never loading.
-export function useRippleMount(active) {
-  const [mounted, setMounted] = useState(!!active);
-  useEffect(() => {
-    if (active) {
-      setMounted(true);
-      return undefined;
-    }
-    const id = window.setTimeout(() => setMounted(false), RIPPLE_TAIL_MS);
-    return () => window.clearTimeout(id);
-  }, [active]);
-  return mounted || !!active;
-}
 
 const spun = () =>
   tinycolor('#CCFF00')
@@ -92,16 +63,15 @@ const spun = () =>
 // It rides the wrapper, not the layers: those already carry a GSAP opacity fade of their own.
 function DotRipple({ introDelay = null, active }) {
   const mount = useRef(null);
+  const continuous = active !== undefined;
   const activeRef = useRef(active);
   activeRef.current = active;
   const startRef = useRef(null);
 
   useEffect(() => {
+    if (!continuous) return undefined;
     const layers = [...mount.current.querySelectorAll('.dot-ripple')];
     const maxR = Math.hypot(mount.current.offsetWidth, mount.current.offsetHeight) / 2;
-    // Where the ring starts dimming, from the host (--ripple-falloff-start, components.css) so the
-    // menu's and footer's fainter ripple can dim sooner than the hero's. getPropertyValue returns
-    // '' when unset (CSS var() fallbacks don't apply to JS reads), hence the explicit default.
     const falloffStartRaw = getComputedStyle(mount.current).getPropertyValue('--ripple-falloff-start').trim();
     const falloffStart = falloffStartRaw ? parseFloat(falloffStartRaw) : 0.5;
     const running = layers.map(() => null);
@@ -149,11 +119,59 @@ function DotRipple({ introDelay = null, active }) {
       pending.forEach(t => t.kill());
       layers.forEach(layer => gsap.killTweensOf(layer));
     };
-  }, []);
+  }, [continuous]);
 
   useEffect(() => {
-    if (active) startRef.current?.();
-  }, [active]);
+    if (continuous && active) startRef.current?.();
+  }, [continuous, active]);
+
+  useEffect(() => {
+    if (continuous) return undefined;
+    const layers = mount.current.querySelectorAll('.dot-ripple');
+    // Out to the layer's half-diagonal so the ring fully clears the corners before reset.
+    const maxR = Math.hypot(mount.current.offsetWidth, mount.current.offsetHeight) / 2;
+    // Fraction of that travel where the color intensity starts dimming toward 0 -- reads
+    // from the host (--ripple-falloff-start, see components.css) instead of a fixed 0.5 so
+    // MobileNav/SiteFooter's narrower, already-faint-under-a-dark-overlay ripple can start
+    // dimming sooner/harder than the hero's without a second code path. getPropertyValue
+    // returns '' when unset (CSS var() fallbacks don't apply to JS reads), hence the
+    // explicit default here.
+    const falloffStartRaw = getComputedStyle(mount.current).getPropertyValue('--ripple-falloff-start').trim();
+    const falloffStart = falloffStartRaw ? parseFloat(falloffStartRaw) : 0.5;
+    const tweens = [];
+
+    layers.forEach((layer, i) => {
+      // Each ring is colored once, at mount. This used to also run on every repeat, back
+      // when the layers looped -- with one ring per layer there is no repeat to recolor on,
+      // and a fresh spin per mount still means consecutive generates never look alike.
+      layer.style.setProperty('--ripple-c1', spun());
+      layer.style.setProperty('--ripple-c2', spun());
+      const proxy = { r: 0 };
+      tweens.push(
+        gsap.to(proxy, {
+          r: maxR,
+          duration: RIPPLE_CYCLE,
+          delay: (i * RIPPLE_CYCLE) / layers.length,
+          // One ring per layer -- see the header: this is what makes "exactly two pulses"
+          // structural rather than a coincidence of the mount window's length.
+          repeat: 0,
+          ease: 'none',
+          onUpdate: () => {
+            layer.style.setProperty('--ripple-r', proxy.r + 'px');
+            // Full color through the first falloffStart fraction of the travel, then
+            // linearly dims to nothing by the time the ring reaches the corners -- keeps
+            // the pulse from reading as uniformly intense corner-to-corner.
+            const t = proxy.r / maxR;
+            const intensity = t <= falloffStart ? 1 : Math.max(0, 1 - (t - falloffStart) / (1 - falloffStart));
+            layer.style.setProperty('--ripple-intensity', intensity);
+          },
+        }),
+        gsap.fromTo(layer, { opacity: 0 }, { opacity: 1, duration: 0.4 })
+      );
+    });
+
+    return () => tweens.forEach(t => t.kill());
+  }, [continuous]);
 
   return (
     <div

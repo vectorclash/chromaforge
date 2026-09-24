@@ -7,7 +7,7 @@
 // take an `images` argument carrying the two star PNGs through a createjs LoadQueue.
 
 import LinearGradient from '../components/Canvas/LinearGradient';
-import { largeRadialFieldSteps } from '../components/Canvas/LargeRadialField';
+import LargeRadialField from '../components/Canvas/LargeRadialField';
 import StarField from '../components/Canvas/StarField';
 import GeometricShape from '../components/Canvas/GeometricShape';
 
@@ -16,34 +16,7 @@ function clearElement(el) {
   el.height = 0;
 }
 
-// The compositor is written ONCE, as a sequence of steps with a `yield` between each layer, and
-// both entry points below drive that same sequence -- so the stepwise version cannot drift from
-// the synchronous one: same draw calls, same order, same state, only with pauses in between.
-// (A layer's own work -- building it and compositing it -- is never split: the pauses fall
-// strictly between layers, where the context holds no half-finished state.)
-// Composites a finished layer. With `bands` of 1 this is exactly the plain drawImage(el, 0, 0)
-// the compositor has always made -- which is what the synchronous path always passes, so print
-// files are unchanged by construction. The stepwise path passes more on a large canvas and draws
-// the layer as horizontal strips with a pause after each: one full-canvas composite of the
-// geometry layer at 3840x2160 was still ~170ms of unbroken work. The strips are 1:1 copies at
-// integer rows and every blend mode here is per-pixel, so they produce the same pixels as one
-// draw (verified byte-for-byte in Chromium). The canvas transform (mirrorX) applies to each strip
-// exactly as it did to the whole.
-function* drawLayer(ctx, el, bands) {
-  if (bands <= 1) {
-    ctx.drawImage(el, 0, 0);
-    return;
-  }
-  for (let i = 0; i < bands; i++) {
-    const y0 = Math.round((i * el.height) / bands);
-    const y1 = Math.round(((i + 1) * el.height) / bands);
-    ctx.drawImage(el, 0, y0, el.width, y1 - y0, 0, y0, el.width, y1 - y0);
-    if (i < bands - 1) yield;
-  }
-}
-
-/** @returns {Generator<undefined, HTMLCanvasElement, unknown>} */
-function* renderSteps(config, bands = 1) {
+export default function renderArtwork(config) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   canvas.width = config.width;
@@ -67,16 +40,14 @@ function* renderSteps(config, bands = 1) {
   }
 
   const gradientBackground = LinearGradient(config.gradientBackgroundConfig);
-  yield* drawLayer(ctx, gradientBackground, bands);
+  ctx.drawImage(gradientBackground, 0, 0);
   clearElement(gradientBackground);
-  yield;
 
   if (config.radialFieldConfig) {
     ctx.globalCompositeOperation = config.firstBlend;
-    const radialField = yield* largeRadialFieldSteps(config.radialFieldConfig);
-    yield* drawLayer(ctx, radialField, bands);
+    const radialField = LargeRadialField(config.radialFieldConfig);
+    ctx.drawImage(radialField, 0, 0);
     clearElement(radialField);
-    yield;
   }
 
   // config.starsOnTop (a design SETTING -- see designSettings.js -- unlike mirrorX above,
@@ -93,37 +64,34 @@ function* renderSteps(config, bands = 1) {
   // survives in practice because 'source-over' takes three of the four biased slots and is
   // backdrop-agnostic, but the 10% unbiased tail and the lighten/darken slot are reasoning
   // about a backdrop that is no longer directly underneath.
-  function* drawStars() {
+  const drawStars = () => {
     ctx.globalCompositeOperation = config.secondBlend;
     const starField = StarField(config.starFieldConfig);
-    yield* drawLayer(ctx, starField, bands);
+    ctx.drawImage(starField, 0, 0);
     clearElement(starField);
-  }
+  };
 
-  function* drawGeometry() {
+  const drawGeometry = () => {
     if (!config.geometryConfig) return;
     ctx.globalCompositeOperation = config.thirdBlend;
     const geometry = GeometricShape(config.geometryConfig);
-    yield* drawLayer(ctx, geometry, bands);
+    ctx.drawImage(geometry, 0, 0);
     clearElement(geometry);
-  }
+  };
 
   if (config.starsOnTop) {
-    yield* drawGeometry();
-    yield;
-    yield* drawStars();
+    drawGeometry();
+    drawStars();
   } else {
-    yield* drawStars();
-    yield;
-    yield* drawGeometry();
+    drawStars();
+    drawGeometry();
   }
-  yield;
 
   if (config.overlayConfig) {
     ctx.globalCompositeOperation = config.overlayBlend;
     ctx.globalAlpha = Number(config.overlayAlpha);
     const gradientOverlay = LinearGradient(config.overlayConfig);
-    yield* drawLayer(ctx, gradientOverlay, bands);
+    ctx.drawImage(gradientOverlay, 0, 0);
     clearElement(gradientOverlay);
   }
 
@@ -159,39 +127,4 @@ function* renderSteps(config, bands = 1) {
   }
 
   return canvas;
-}
-
-// Synchronous: runs every step back to back. What render-service, print files and every
-// non-interactive caller use -- byte-identical to the compositor before it was split into steps.
-export default function renderArtwork(config) {
-  const steps = renderSteps(config);
-  let step = steps.next();
-  while (!step.done) step = steps.next();
-  return step.value;
-}
-
-// Stepwise: awaits `pause()` between layers, so an interactive page can paint -- and keep its
-// animations running -- while a large render is underway. A single 3840x2160 render measured
-// ~370ms of unbroken main-thread work, which froze every JS-driven animation on screen (the
-// hero loader, the mini generator's spinner, the 3D shirt's shader pass) and read as a glitch.
-// See render/renderQueue.js for the pause and for who calls this.
-// About how much of a canvas one composite strip covers in the stepwise path -- sized so a strip
-// of the heaviest layer stays well under a frame's worth of a busy page. 3840x2160 -> 5 strips;
-// anything up to ~2Mpx (every preview, the mini generator) stays a single draw.
-const STRIP_PIXELS = 2_000_000;
-
-/**
- * @param {object} config
- * @param {() => Promise<unknown>} pause
- * @returns {Promise<HTMLCanvasElement>}
- */
-export async function renderArtworkInSteps(config, pause) {
-  const bands = Math.max(1, Math.round((config.width * config.height) / STRIP_PIXELS));
-  const steps = renderSteps(config, bands);
-  let step = steps.next();
-  while (!step.done) {
-    await pause();
-    step = steps.next();
-  }
-  return step.value;
 }

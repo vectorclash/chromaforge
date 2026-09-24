@@ -109,9 +109,10 @@ async function open(browser) {
 }
 
 // Release build `i` once its encode has actually finished. `__cf.n` counts a build when toBlob
-// is CALLED, but it only becomes releasable when the encode completes -- and since interactive
-// renders now run in steps (render/renderQueue.js) that can land a beat after the count does.
-// Releasing on the count alone found nothing to release and left the canvas on the older build.
+// is CALLED, but it only becomes releasable when the encode completes, which can land a beat
+// after the count does. Releasing on the count alone found nothing to release and left the canvas
+// on the older build. (Written when renders were briefly queued and stepwise, 2026-09-23 --
+// reverted the same day -- and kept because waiting for the thing itself beats a fixed sleep.)
 // A build that never becomes ready still fails the check that follows, since nothing is released.
 async function releaseWhenReady(page, i, asNull = false) {
   await page
@@ -120,11 +121,9 @@ async function releaseWhenReady(page, i, asNull = false) {
   return page.evaluate(([n, nul]) => window.__cf.release(n, nul), [i, asNull]);
 }
 
-// Wait (bounded) for build `i` to be the one on the canvas. A Generate's builds reveal on a
-// shared cycle (utils/generationCycle.js) -- with every other surface showing the design, once
-// ALL of them have rendered -- so how long after its own decode the hero paints depends on the
-// rest of the page. Measured 0.7-2.0s after release here, which a fixed 2.5s sleep only just
-// covered. A build that never paints still fails the check that follows.
+// Wait (bounded) for build `i` to be the one on the canvas, rather than a fixed sleep: the hero
+// paints after its decode, a DURATION_HOLD and a fade, and that span has varied as the reveal
+// has been reworked. A build that never paints still fails the check that follows.
 async function waitForHero(page, i) {
   await page.waitForFunction(n => window.__cf.heroIndex() === n, i, { timeout: 10000 }).catch(() => {});
 }
@@ -180,7 +179,7 @@ async function main() {
     } else {
       await releaseWhenReady(page, 1);
       // "Eventually", not "within 2.5s": the deferred build waits out the landed build's hold and
-      // fade-in, a 350ms retry, and then renders in steps across frames (render/renderQueue.js).
+      // fade-in, then a 350ms retry.
       await page.waitForFunction(() => window.__cf.n >= 2, null, { timeout: 10000 }).catch(() => {});
       const after = await page.evaluate(() => window.__cf.n);
       check(after === 2, 'the deferred design builds once the canvas is free', `builds=${after}`);
@@ -215,9 +214,7 @@ async function main() {
     const first = await page.evaluate(() => window.__cf.heroIndex());
     check(first === 1, 'first build paints', `canvas shows build ${first}`);
     await generateFromWidget(page);
-    // Generate now puts its active state on screen before starting any work
-    // (utils/afterFeedback), so this build begins a beat after the click -- releaseWhenReady
-    // waits for it rather than assuming a fixed sleep covers it.
+    // releaseWhenReady waits for the build rather than assuming a fixed sleep covers it.
     await releaseWhenReady(page, 2);
     await waitForHero(page, 2);
     const second = await page.evaluate(() => window.__cf.heroIndex());

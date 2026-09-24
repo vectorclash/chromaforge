@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import SiteHeader from '../components/ui/SiteHeader';
 import SiteFooter from '../components/ui/SiteFooter';
 import MiniGenerator from '../components/ui/MiniGenerator';
-import { openFastWindow } from '../render/renderQueue';
 import Hero from '../components/home/Hero';
 import AboutSection from '../components/home/AboutSection';
 import GallerySection from '../components/home/GallerySection';
@@ -47,10 +46,6 @@ const HOME_JSON_LD = {
 // is the height the hero settles at once that toolbar retracts, and it does not resize
 // mid-scroll the way `dvh` would.
 export default function HomePage() {
-  // Arriving here is a page load: open the fast render window during render, before the hero and
-  // every other surface mount and ask for their renders. See SiteLayout's note and
-  // render/renderQueue.js.
-  useState(openFastWindow);
   usePageMeta({ path: '/' });
   useJsonLd(HOME_JSON_LD);
   const [scrolled, setScrolled] = useState(false);

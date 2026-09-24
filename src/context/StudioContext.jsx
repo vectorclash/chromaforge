@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
-import { renderArtworkQueued } from '../render/renderQueue';
-import { markCycleDesign, trackCycleWork } from '../utils/generationCycle';
+import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
 import {
   isSameDesign,
@@ -141,31 +140,12 @@ export function StudioProvider({ children }) {
   // doesn't add render cost to the hot paths that already call this on every design change
   // (the mini-generator/footer/mobile-nav previews) -- only callers that render once per
   // save or on-demand (thumbnails, the gallery modal) opt in.
-  // Renders of the ACTIVE design hold a Generate's shared reveal until they land -- that is how
-  // every surface showing it (thumbnail, footer, shirt, About blob, mobile nav) reveals together
-  // rather than each on its own clock. See utils/generationCycle.js. Anything rendering some other
-  // design (a mockup, a gallery modal) never joins it.
-  const currentDesignRef = useRef(currentDesign);
-  currentDesignRef.current = currentDesign;
-  useEffect(() => {
-    markCycleDesign();
-  }, [currentDesign]);
-
-  const renderDesignBlobRaw = useCallback(
+  const renderDesignBlob = useCallback(
     async (
       config,
       width,
       height,
-      {
-        includeGeometry = true,
-        geometryLayout = null,
-        mirrorX = false,
-        highDensity = false,
-        sizeFrame = null,
-        legSymmetry = false,
-        priority = false,
-        foreground = false
-      } = {}
+      { includeGeometry = true, geometryLayout = null, mirrorX = false, highDensity = false, sizeFrame = null, legSymmetry = false } = {}
     ) => {
       const { width: genWidth, height: genHeight } = highDensity
         ? densityFloorSize(width, height)
@@ -177,8 +157,7 @@ export function StudioProvider({ children }) {
         sizeFrame,
         legSymmetry
       });
-      // Queued and stepwise, so the page keeps animating while it runs -- see renderQueue.js.
-      const canvas = await renderArtworkQueued(built, { priority, foreground });
+      const canvas = renderArtwork(built);
       let outputCanvas = canvas;
       if (genWidth !== width || genHeight !== height) {
         outputCanvas = document.createElement('canvas');
@@ -196,18 +175,6 @@ export function StudioProvider({ children }) {
       return blob;
     },
     []
-  );
-  // `foreground`: this render draws something inside a full-screen overlay (MobileNav), so it
-  // keeps its place in the queue and holds the Generate reveal while the overlay hides everything
-  // else -- see utils/overlayFocus.js. `priority` implies it: the shared preview is what the menu's
-  // own mini generator shows.
-  const renderDesignBlob = useCallback(
-    (config, width, height, options) => {
-      const work = renderDesignBlobRaw(config, width, height, options);
-      const foreground = !!(options?.foreground || options?.priority);
-      return config === currentDesignRef.current ? trackCycleWork(work, { foreground }) : work;
-    },
-    [renderDesignBlobRaw]
   );
 
   // Mirror the active design's palette + settings back to localStorage. This is the single
@@ -241,8 +208,7 @@ export function StudioProvider({ children }) {
   // each consumer rendering its own copy.
   useEffect(() => {
     let cancelled = false;
-    // Priority: see renderQueue's enqueueRender -- this is the widget's own feedback.
-    renderDesignBlob(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE, { priority: true })
+    renderDesignBlob(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
       .then(blob => {
         if (cancelled) return;
         const url = URL.createObjectURL(blob);

@@ -1,12 +1,6 @@
 import RadialGradient from './RadialGradient';
 
-// Written as steps, one per blob, for the same reason as renderArtwork's renderSteps: it is the
-// single heaviest layer at studio size (~150ms of unbroken work in a profile of the homepage
-// Generate), so the stepwise compositor pauses between blobs as well as between layers. The
-// blobs draw onto this layer's OWN canvas, so a pause between them leaves no shared state
-// half-set. LargeRadialField below runs the steps straight through, unchanged.
-/** @returns {Generator<undefined, HTMLCanvasElement, unknown>} */
-export function* largeRadialFieldSteps(config) {
+export default function LargeRadialField(config) {
   let canvas = document.createElement('canvas');
   let context = canvas.getContext('2d');
 
@@ -36,15 +30,7 @@ export function* largeRadialFieldSteps(config) {
       config.radGradients[i].size,
       config.radGradients[i].size
     );
-    yield;
   }
 
   return canvas;
-}
-
-export default function LargeRadialField(config) {
-  const steps = largeRadialFieldSteps(config);
-  let step = steps.next();
-  while (!step.done) step = steps.next();
-  return step.value;
 }

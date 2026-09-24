@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
-import DotRipple, { useRippleMount } from '../DotRipple';
+import DotRipple from '../DotRipple';
 import MiniGenerator from './MiniGenerator';
 import Wordmark from './Wordmark';
 
@@ -50,7 +50,6 @@ export default function SiteFooter() {
   }, [currentDesign, renderDesignBlob]);
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
-  const rippleMounted = useRippleMount(holding);
 
   // The artwork drifts down into place as the footer scrolls in, lagging the page rather than
   // riding with it. Same construction as the hero's parallax, with two differences worth
@@ -139,7 +138,7 @@ export default function SiteFooter() {
               />
             )}
           </div>
-          {rippleMounted && <DotRipple active={holding} />}
+          {holding && <DotRipple />}
           {/* Subtle dark gradient overlay to ensure text contrast */}
           {/* Contrast scrim. Weighted to the bottom, where the legal/bottom bar sits on the
               smallest type in the app; the top is left far more open so the artwork reads. */}

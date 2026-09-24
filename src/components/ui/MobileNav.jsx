@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
 import { gsap } from 'gsap/all';
@@ -8,12 +8,11 @@ import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
-import DotRipple, { useRippleMount } from '../DotRipple';
+import DotRipple from '../DotRipple';
 import FadeImage from './FadeImage';
 import MiniGenerator from './MiniGenerator';
 import { isSameDesign } from '../../render/designSettings';
 import { DURATION_BASE, DURATION_FAST } from '../../utils/motionTokens';
-import { clearFocusOverlay, setFocusOverlay } from '../../utils/overlayFocus';
 
 // Portrait-ish crop -- this panel fills a phone screen, unlike SiteFooter's wide banner
 // strip, so the render is requested closer to a phone's own aspect ratio rather than
@@ -64,10 +63,6 @@ export default function MobileNav({ open, onClose }) {
   // Whether `bgUrl` should appear without the generate choreography -- see the
   // designAtOpenRef note below.
   const [bgInstant, setBgInstant] = useState(false);
-  // One-shot background render ahead of the first open -- see the effect below.
-  const [prewarm, setPrewarm] = useState(false);
-  const mountedRef = useRef(mounted);
-  mountedRef.current = mounted;
   const panelRef = useRef(null);
   const renderedDesignRef = useRef(null);
   // The design that was already current at the moment the panel opened. Anything matching
@@ -96,29 +91,11 @@ export default function MobileNav({ open, onClose }) {
   // check that alone re-triggered a full render + crossfade against an unchanged design
   // every time the nav was reopened (user-reported: the loading pulse played even when
   // nothing was generating).
-  // The FIRST open used to have no artwork yet: the render below only started once the panel
-  // mounted, so the image (and the dark gradient over it) landed partway through the panel's
-  // fade and snapped in at full strength (Aaron, on a phone: the background "pops in" on first
-  // open, fine after). Every later open already had it and faded in as one piece. So on a
-  // phone-width viewport, render the current design once while idle after load; later opens
-  // behave exactly as before (re-rendering only while open). Desktop never shows this panel
-  // (sm:hidden) and never pays for it.
   useEffect(() => {
-    if (!window.matchMedia?.('(max-width: 639.98px)').matches) return undefined;
-    const start = () => setPrewarm(true);
-    if (window.requestIdleCallback) {
-      const id = window.requestIdleCallback(start, { timeout: 4000 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const id = window.setTimeout(start, 1500);
-    return () => window.clearTimeout(id);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted && !(prewarm && !renderedDesignRef.current)) return;
+    if (!mounted) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
     let cancelled = false;
-    renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT, { foreground: true })
+    renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
       .then(blob => {
         if (cancelled) return;
         // Only mark the design "rendered" once the blob actually lands -- marking it
@@ -130,9 +107,7 @@ export default function MobileNav({ open, onClose }) {
         // and the background silently stopped updating on generate.
         renderedDesignRef.current = currentDesign;
         const url = URL.createObjectURL(blob);
-        // A render that landed while the panel was closed (the prewarm) was never watched
-        // being generated either, so it takes the same no-choreography path.
-        setBgInstant(!mountedRef.current || isSameDesign(designAtOpenRef.current, currentDesign));
+        setBgInstant(isSameDesign(designAtOpenRef.current, currentDesign));
         setBgUrl(prev => {
           if (prev) URL.revokeObjectURL(prev);
           return url;
@@ -142,25 +117,11 @@ export default function MobileNav({ open, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [mounted, prewarm, currentDesign, renderDesignBlob]);
+  }, [mounted, currentDesign, renderDesignBlob]);
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl, {
     instant: bgInstant
   });
-  const rippleMounted = useRippleMount(holding);
-
-  // `instant` means two things to useCrossfadeImage: swap THIS url in without the reveal, and
-  // sit out any Generate cycle. The first is right for the catch-up above; the second must not
-  // outlive it. Left on, the first Generate made from inside the open menu found the background
-  // opted out of the shared cycle: the thumbnail went into its loading state at the click while
-  // the background held the old design, then ran its own fade-out / hold / fade-in only once its
-  // render landed, finishing after everything else (Aaron: the menu's generator and background
-  // unlinked, and sometimes far slower). Measured before this: background fade-out starting
-  // ~380ms after the thumbnail's and settling ~300ms later; every later Generate was in sync to
-  // the frame, because a real generate had already set the flag false.
-  useEffect(() => {
-    if (bgInstant && bgUrl && shown === bgUrl) setBgInstant(false);
-  }, [bgInstant, bgUrl, shown]);
 
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
@@ -176,28 +137,6 @@ export default function MobileNav({ open, onClose }) {
         onComplete: () => setMounted(false)
       });
     }
-  }, [open, mounted]);
-
-  // Backstop for the prewarm: if the artwork still arrives after the panel has started fading
-  // in (a slow phone, or an open before the idle render ran), fade it in rather than snapping
-  // it to full strength. A callback ref runs at attach time, before the panel's own entrance
-  // effect -- so when the background mounts together WITH the panel the panel still reads
-  // opacity 0 here and nothing extra happens; the panel's fade carries both.
-  const bgRef = useCallback(node => {
-    if (!node || !panelRef.current) return;
-    if (Number(gsap.getProperty(panelRef.current, 'opacity')) <= 0) return;
-    gsap.from(node, { opacity: 0, duration: DURATION_BASE, ease: 'power1.out' });
-  }, []);
-
-  // While open, this panel is the page's focus: a Generate made from the menu renders and waits on
-  // the menu's own background and mini generator first, and the surfaces hidden behind it (the
-  // hero, the shirt, the footer, the About blob) re-render afterwards -- see utils/overlayFocus.js.
-  // Released as the close starts, the moment those surfaces start to be seen again.
-  useEffect(() => {
-    if (!open || !mounted) return undefined;
-    const el = panelRef.current;
-    setFocusOverlay(el);
-    return () => clearFocusOverlay(el);
   }, [open, mounted]);
 
   useEffect(() => {
@@ -239,7 +178,7 @@ export default function MobileNav({ open, onClose }) {
       {/* Active artwork as the panel's background, same treatment as SiteFooter -- 75%
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
       {shown && (
-        <div ref={bgRef} className="mobile-nav-bg pointer-events-none absolute inset-0 z-0 opacity-75">
+        <div className="mobile-nav-bg pointer-events-none absolute inset-0 z-0 opacity-75">
           <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
@@ -250,7 +189,7 @@ export default function MobileNav({ open, onClose }) {
               style={{ opacity: 0 }}
             />
           )}
-          {rippleMounted && <DotRipple active={holding} />}
+          {holding && <DotRipple />}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40" />
         </div>
       )}

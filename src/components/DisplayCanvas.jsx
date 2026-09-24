@@ -13,7 +13,6 @@ import { resolvedPalette } from '../render/resolvedPalette';
 import { resolveScenePalette } from '../animation3d/scenePalette';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
-import { renderArtworkQueued } from '../render/renderQueue';
 import { toCompactDesign } from '../render/compactDesign';
 import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
@@ -21,8 +20,6 @@ import {
   getStudioGeometrySettings
 } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
-import { afterFeedback } from '../utils/afterFeedback';
-import { beginCycle, getCycle, subscribeCycle, trackCycleWork, whenRevealed } from '../utils/generationCycle';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { generateLogoMark } from '../render/generateLogoMark';
@@ -310,7 +307,6 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentDidMount() {
-    this.unsubscribeCycle = subscribeCycle(c => this.onGenerationCycle(c));
     // init() used to be the createjs LoadQueue's 'complete' callback, waiting on the two
     // star PNGs. Both star shapes are drawn from code now (render/starSprite.js), so the
     // render pipeline needs nothing preloaded and this runs straight away. Nothing in init
@@ -454,10 +450,6 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentWillUnmount() {
-    this.cancelPendingGenerate?.();
-    this.unsubscribeCycle?.();
-    this.cycleBuild?.resolve();
-    this.cycleBuild = null;
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
       window.removeEventListener('scroll', this.onHeroParallaxScroll);
@@ -842,30 +834,9 @@ export default class DisplayCanvas extends React.Component {
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
     const token = ++this.buildToken;
-    // Part of a Generate's cycle: hold its shared reveal until this build has decoded.
-    const cycle = getCycle();
-    this.cycleBuild?.resolve();
-    this.cycleBuild = null;
-    if (cycle && cycle.phase === 'loading') {
-      let resolve;
-      trackCycleWork(new Promise(r => (resolve = r)));
-      this.cycleBuild = { token, id: cycle.id, resolve };
-    }
-    // Queued and stepwise (render/renderQueue.js): a full-size render was ~370ms of unbroken
-    // main-thread work that froze every animation on the page, the loader and the homepage's 3D
-    // shirt included. Everything downstream is unchanged -- same token, same setImage. A render
-    // that throws is treated like a failed encode, which already restores the previous artwork
-    // and the controls.
-    renderArtworkQueued(config)
-      .then(canvas => {
-        canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
-        this.clearElement(canvas);
-      })
-      .catch(err => {
-        if (token !== this.buildToken) return;
-        console.error('Artwork render failed.', err);
-        this.recoverFromFailedBuild(token);
-      });
+    const canvas = renderArtwork(config);
+    canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
+    this.clearElement(canvas);
   }
 
   clearElement(element) {
@@ -1237,36 +1208,8 @@ export default class DisplayCanvas extends React.Component {
   // left staring at a blank canvas) and hand the controls back. Guarded on the token like
   // everything else -- a failed build that has already been superseded should do nothing at
   // all, since the newer one owns the screen.
-  // A Generate clicked ANYWHERE (the mini generator, the footer's) puts this canvas into its
-  // loading state at the same instant as every other surface: fade the artwork out, show the
-  // loader. The build itself still arrives by the usual route (adoptInitialDesign, once the new
-  // design reaches this component), and joins the cycle then. generateDisabled is deliberately
-  // NOT set here -- adoptInitialDesign waits on it, so setting it would stall the very build the
-  // cycle is waiting for. If no build turns up by the reveal, the artwork is simply put back.
-  onGenerationCycle(c) {
-    if (this.startingOwnCycle || this.state.animationMode) return;
-    if (c && c.phase === 'loading') {
-      if (this.state.isLoading) return;
-      this.cycleHold = true;
-      this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
-      this.setState({ isLoading: true });
-      return;
-    }
-    if (this.cycleHold) {
-      this.cycleHold = false;
-      if (!this.state.generateDisabled && !this.cycleBuild && this.state.isLoading) {
-        this.fadeArtwork({ duration: DURATION_SLOW, alpha: 1, ease: 'power2.inOut' });
-        this.setState({ isLoading: false });
-      }
-    }
-  }
-
   recoverFromFailedBuild(token) {
     if (token !== this.buildToken) return;
-    if (this.cycleBuild && this.cycleBuild.token === token) {
-      this.cycleBuild.resolve();
-      this.cycleBuild = null;
-    }
     this.fadeArtwork({ duration: DURATION_FAST, alpha: 1, ease: 'power2.inOut' });
     this.setState({ isLoading: false, generateDisabled: false });
     // A first build that dies must not also cost the hero its nav and controls. The cap timer
@@ -1321,17 +1264,7 @@ export default class DisplayCanvas extends React.Component {
       // A build superseded before it reached the screen never will: release its full-size
       // JPEG now rather than holding it for the life of the tab.
       if (token !== this.buildToken) return URL.revokeObjectURL(url);
-      // A build that belongs to a Generate's cycle reveals on the cycle's shared signal, with
-      // every other surface showing the design; anything else keeps its own fixed hold.
-      // See utils/generationCycle.js.
-      const cycleBuild = this.cycleBuild && this.cycleBuild.token === token ? this.cycleBuild : null;
-      const afterHold = fn => {
-        if (!cycleBuild) return gsap.delayedCall(DURATION_HOLD, fn);
-        this.cycleBuild = null;
-        cycleBuild.resolve();
-        whenRevealed(cycleBuild.id, fn);
-      };
-      afterHold(() => {
+      gsap.delayedCall(DURATION_HOLD, () => {
         if (token !== this.buildToken) return URL.revokeObjectURL(url);
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
@@ -2203,12 +2136,7 @@ export default class DisplayCanvas extends React.Component {
           animationPaused: false
         });
 
-        // Loader and fade-out on screen first, then the build -- see afterFeedback.
-        this.cancelPendingGenerate?.();
-        this.cancelPendingGenerate = afterFeedback(() => {
-          this.cancelPendingGenerate = null;
-          this.buildAnimationFrames();
-        });
+        this.buildAnimationFrames();
       } else {
         this.fadeArtwork({
           duration: DURATION_FAST,
@@ -2223,22 +2151,8 @@ export default class DisplayCanvas extends React.Component {
           showBranchNotice: false
         });
 
-        // Every other surface showing the design enters its loading state now too.
-        this.startingOwnCycle = true;
-        beginCycle();
-        this.startingOwnCycle = false;
-
-        // The artwork's fade-out and the loader go on screen first; the full-size build (which
-        // blocks the main thread for hundreds of ms, and on the homepage re-renders every other
-        // surface showing the design) starts once they have. See afterFeedback. Safe against a
-        // second build sneaking into the gap: generateDisabled is already set above, and that is
-        // what both this button and adoptInitialDesign wait on.
-        this.cancelPendingGenerate?.();
-        this.cancelPendingGenerate = afterFeedback(() => {
-          this.cancelPendingGenerate = null;
-          const config = this.buildConfig();
-          this.buildImage(config);
-        });
+        const config = this.buildConfig();
+        this.buildImage(config);
       }
     }
   }

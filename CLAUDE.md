@@ -3078,8 +3078,7 @@ anywhere shifts every layer generated after it. If a change genuinely must touch
 stream, this check will fail, and that has to be an explicit, stated decision to rewrite
 everyone's saved artwork — not a side effect noticed in production.
 
-### Mini generator, Generate, and interactive rendering (2026-09-23)
-Three systems landed together; the detail is in each file's header comment, this is the map.
+### Mini generator (2026-09-23)
 - **ONE ambient mini generator** (`components/ui/MiniGenerator.jsx`, `useDockMorph`). The floating
   widget IS the footer's docked one -- SiteFooter only renders an empty `[data-mini-dock]` slot
   (below `sm` it keeps a static inline copy). Two states, floating and docked, with a timed
@@ -3091,17 +3090,20 @@ Three systems landed together; the detail is in each file's header comment, this
   proves nothing about it. While a page is settling (layout still moving, <= 2.5s) it never docks,
   and on first load it stays hidden until settled. Scroll-LINKED morphing was built and removed:
   unstable on short pages.
-- **Generate is one shared cycle** (`utils/generationCycle.js`). A click puts every surface showing
-  the design (thumbnail, footer, hero, shirt, About blob, tiles) into its loading state at once and
-  reveals them together once every render has landed (`useCrossfadeImage`, DisplayCanvas and
-  AboutBlob follow it). `utils/afterFeedback.js` paints the active state before the heavy work.
-- **Two render pathways** (`render/renderQueue.js`). A page load renders synchronously, as before;
-  after it, renders are queued and stepwise (a frame between layers and between strips of large
-  composites), so animations keep running through a Generate. The stepwise path shares one
-  generator with the synchronous `renderArtwork` and is byte-identical to it (napi and Chromium);
-  print files use the synchronous path. **Measure render timing on GPU raster**
-  (`--enable-gpu --use-angle=metal`), not default headless SwiftShader, which hides frame waits --
-  the stepwise path looked free there and made real page loads ~4x longer.
+- **A shared Generate cycle and stepwise/queued rendering were built the same day and REVERTED the
+  same day** (Aaron: "everything worked better before we messed with things today"). They were
+  `utils/generationCycle.js` (every surface enters its loading state on the click and reveals
+  together once every render lands), `utils/afterFeedback.js` (paint the active state before the
+  work), and `render/renderQueue.js` (renders queued one at a time, a frame between layers).
+  What they cost, seen on a phone: every surface held for the SLOWEST render, including ones
+  hidden behind the open mobile menu, so a Generate from the menu took 3.0-3.7s on the homepage
+  against 1.76s elsewhere; one-shot loading ripples ran out mid-wait; and an `instant` flag on the
+  menu background silently opted it out of the cycle, leaving it unlinked. Each surface now
+  reveals on its own `previewUrl`/render again, as before. Kept from that work: the docking
+  widget above, `fadeArtwork` below, and the hero's continuous `DotRipple active` loop. If
+  shared-reveal is ever revisited, those three costs are the brief.
+- **Measure render timing on GPU raster** (`--enable-gpu --use-angle=metal`), not default headless
+  SwiftShader, which hides frame waits.
 
 ### The studio panel's glass is never animated -- only refreshed (`DisplayCanvas.fadeArtwork`, 2026-09-23)
 Every fade of the artwork goes through `fadeArtwork`, which rewrites the studio panel's OWN blur and

@@ -9,8 +9,6 @@ import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
 import { isScrollLocked, subscribeScrollLock } from '../../hooks/useScrollLock';
 import GenerateGlow from './GenerateGlow';
-import { afterFeedback } from '../../utils/afterFeedback';
-import { beginCycle } from '../../utils/generationCycle';
 
 
 // No more hover rotation -- it read as unrelated to anything since it fired on mouse
@@ -853,20 +851,9 @@ export default function MiniGenerator({ inline = false, className = '', style })
     setGenerating(false);
   }, [previewUrl]);
 
-  // The active state (dim, spin) goes on screen first; the design is generated once it has.
-  // See afterFeedback for why, and the measured delay this removes.
-  const cancelGenerateRef = useRef(null);
-  useEffect(() => () => cancelGenerateRef.current?.(), []);
   const onGenerate = () => {
-    // Every surface showing the design goes into its loading state now, together -- see
-    // utils/generationCycle.js.
-    beginCycle();
     setGenerating(true);
-    cancelGenerateRef.current?.();
-    cancelGenerateRef.current = afterFeedback(() => {
-      cancelGenerateRef.current = null;
-      generateRandom();
-    });
+    generateRandom();
   };
 
   const onSave = async () => {
