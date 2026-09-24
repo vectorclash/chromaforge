@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
 import { gsap } from 'gsap/all';
@@ -63,6 +63,10 @@ export default function MobileNav({ open, onClose }) {
   // Whether `bgUrl` should appear without the generate choreography -- see the
   // designAtOpenRef note below.
   const [bgInstant, setBgInstant] = useState(false);
+  // One-shot background render ahead of the first open -- see the effect below.
+  const [prewarm, setPrewarm] = useState(false);
+  const mountedRef = useRef(mounted);
+  mountedRef.current = mounted;
   const panelRef = useRef(null);
   const renderedDesignRef = useRef(null);
   // The design that was already current at the moment the panel opened. Anything matching
@@ -91,8 +95,26 @@ export default function MobileNav({ open, onClose }) {
   // check that alone re-triggered a full render + crossfade against an unchanged design
   // every time the nav was reopened (user-reported: the loading pulse played even when
   // nothing was generating).
+  // The FIRST open used to have no artwork yet: the render below only started once the panel
+  // mounted, so the image (and the dark gradient over it) landed partway through the panel's
+  // fade and snapped in at full strength (Aaron, on a phone: the background "pops in" on first
+  // open, fine after). Every later open already had it and faded in as one piece. So on a
+  // phone-width viewport, render the current design once while idle after load; later opens
+  // behave exactly as before (re-rendering only while open). Desktop never shows this panel
+  // (sm:hidden) and never pays for it.
   useEffect(() => {
-    if (!mounted) return;
+    if (!window.matchMedia?.('(max-width: 639.98px)').matches) return undefined;
+    const start = () => setPrewarm(true);
+    if (window.requestIdleCallback) {
+      const id = window.requestIdleCallback(start, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(start, 1500);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted && !(prewarm && !renderedDesignRef.current)) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
     let cancelled = false;
     renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
@@ -107,7 +129,9 @@ export default function MobileNav({ open, onClose }) {
         // and the background silently stopped updating on generate.
         renderedDesignRef.current = currentDesign;
         const url = URL.createObjectURL(blob);
-        setBgInstant(isSameDesign(designAtOpenRef.current, currentDesign));
+        // A render that landed while the panel was closed (the prewarm) was never watched
+        // being generated either, so it takes the same no-choreography path.
+        setBgInstant(!mountedRef.current || isSameDesign(designAtOpenRef.current, currentDesign));
         setBgUrl(prev => {
           if (prev) URL.revokeObjectURL(prev);
           return url;
@@ -117,7 +141,7 @@ export default function MobileNav({ open, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [mounted, currentDesign, renderDesignBlob]);
+  }, [mounted, prewarm, currentDesign, renderDesignBlob]);
 
   const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl, {
     instant: bgInstant
@@ -138,6 +162,17 @@ export default function MobileNav({ open, onClose }) {
       });
     }
   }, [open, mounted]);
+
+  // Backstop for the prewarm: if the artwork still arrives after the panel has started fading
+  // in (a slow phone, or an open before the idle render ran), fade it in rather than snapping
+  // it to full strength. A callback ref runs at attach time, before the panel's own entrance
+  // effect -- so when the background mounts together WITH the panel the panel still reads
+  // opacity 0 here and nothing extra happens; the panel's fade carries both.
+  const bgRef = useCallback(node => {
+    if (!node || !panelRef.current) return;
+    if (Number(gsap.getProperty(panelRef.current, 'opacity')) <= 0) return;
+    gsap.from(node, { opacity: 0, duration: DURATION_BASE, ease: 'power1.out' });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -166,7 +201,15 @@ export default function MobileNav({ open, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label="Site navigation"
-      className="fixed inset-0 z-10 flex flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
+      // `h-lvh` from the top, not `inset-0`: inset-0 sizes the panel to the CURRENT viewport,
+      // which on iOS Safari stops at the top of the bottom toolbar whenever that toolbar is
+      // expanded -- and closing the menu unlocks the page and restores its scroll mid-fade,
+      // which is exactly when Safari moves the toolbar. The strip below the panel then showed
+      // as a bar that didn't fade with everything else (Aaron, on a phone). The large viewport
+      // is the one with the toolbar retracted, so the panel always reaches the bottom of the
+      // screen; the menu's own bottom padding adds back the difference (see below) so its last
+      // row can still scroll clear of an expanded toolbar.
+      className="fixed inset-x-0 top-0 z-10 flex h-lvh flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
       // Mounts hidden: the entrance tween runs in a useEffect, which usually beats the
       // browser's next paint but not always -- without this, roughly 1-in-8 opens painted
       // one frame of the fully-opaque panel before GSAP snapped it to 0 and faded in (a
@@ -178,7 +221,7 @@ export default function MobileNav({ open, onClose }) {
       {/* Active artwork as the panel's background, same treatment as SiteFooter -- 75%
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
       {shown && (
-        <div className="mobile-nav-bg pointer-events-none absolute inset-0 z-0 opacity-75">
+        <div ref={bgRef} className="mobile-nav-bg pointer-events-none absolute inset-0 z-0 opacity-75">
           <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
           {incoming && (
             <img
@@ -245,7 +288,7 @@ export default function MobileNav({ open, onClose }) {
           a wrapper animating opacity is a backdrop root, which left the widget's glass with an
           empty backdrop to filter for the whole 500ms (unblurred artwork showing straight
           through, then snapping to frosted). See MiniGenerator's own note. */}
-      <div className="relative z-10 px-6 pb-10 pt-8">
+      <div className="relative z-10 px-6 pt-8" style={{ paddingBottom: 'calc(2.5rem + 100lvh - 100dvh)' }}>
         <MiniGenerator
           inline
           style={{ animation: 'var(--animate-fade-slide-up)', animationDelay: '0.24s' }}
