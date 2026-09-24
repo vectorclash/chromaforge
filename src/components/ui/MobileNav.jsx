@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { gsap } from 'gsap/all';
 import { useAuth } from '../../context/AuthContext';
 import useScrollLock from '../../hooks/useScrollLock';
@@ -40,32 +40,36 @@ const itemClass = ({ isActive }) =>
 // the panel content + its own enter/exit choreography.
 //
 // Stays mounted through its own exit animation instead of unmounting the instant `open`
-// flips false, so closing gets a real fade instead of a hard cut.
+// flips false, so closing gets a real exit instead of a hard cut.
 //
 // Entrance reuses the site's existing `fade-slide-up` CSS keyframe (same one Gallery/Shop
 // card grids stagger in with) rather than a bespoke GSAP timeline -- an earlier version
 // chained two overlapping GSAP tweens (panel fade, then an offset-started item stagger)
 // which read as uneven/laggy ("starts slow then speeds up") because the two phases had
-// different durations that didn't line up. One panel-level fade (GSAP, since it also
+// different durations that didn't line up. One panel-level move (GSAP, since it also
 // needs a reverse for the close) plus the CSS keyframe's own per-item `animation-delay`
 // stagger is simpler and matches everywhere else in the app that staggers a list in.
+//
+// The panel SLIDES in from the right rather than fading (2026-09-23), because of iOS 26
+// Safari's bottom toolbar. A fixed element does not paint under that toolbar; Safari fills
+// the strip itself, with the colour of an opaque fixed element at the bottom edge, and it can
+// only ever fill it one flat colour. So any moment the panel is partly see-through, the strip
+// cannot match the blend above it and reads as a bar -- which is what a fade is for its whole
+// length. Established on a real iPhone with a throwaway test page (per-frame fade, CSS fade,
+// fading only the background colour, a static 50% panel, no scroll lock): every translucent
+// variant showed the bar. Changing the page background colour and holding the scroll lock
+// through the fade were both tried first and changed nothing. The panel is now opaque at
+// every frame, so there is no blend for the strip to fail to show.
 export default function MobileNav({ open, onClose }) {
   const { user, authResolved, avatarUrl } = useAuth();
   const { currentDesign, renderDesignBlob } = useStudio();
-  const { pathname } = useLocation();
+  // Keyed on `open`, not `mounted`: the page unfreezes as the close tween starts rather
+  // than after it, and on a navigation the unlock's scroll restore lands before
+  // SiteLayout's own route-change scroll-to-top (cleanups run before effects in a commit),
+  // so following a link still arrives at the top of the new page rather than at the offset
+  // the menu was opened from.
+  useScrollLock(open);
   const [mounted, setMounted] = useState(open);
-  const openedPathRef = useRef(pathname);
-  // Held through the close tween, not released as it starts, so the strip under Safari's
-  // toolbar (see the background-colour effect below) stays one colour for the whole close
-  // rather than switching to live page content half way through it. Released at the end, the
-  // page is already where it was (a locked body sits at exactly its scrolled offset), so the
-  // restore moves nothing.
-  //
-  // EXCEPT on a navigation, which must still release as the close starts: the unlock's
-  // scroll restore has to land before SiteLayout's own route-change scroll-to-top (cleanups
-  // run before effects in a commit), or following a link arrives at the offset the menu was
-  // opened from instead of the top of the new page. A changed pathname is that case.
-  useScrollLock(open || (mounted && pathname === openedPathRef.current));
   const [bgUrl, setBgUrl] = useState(null);
   // Whether `bgUrl` should appear without the generate choreography -- see the
   // designAtOpenRef note below.
@@ -75,6 +79,10 @@ export default function MobileNav({ open, onClose }) {
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
   const panelRef = useRef(null);
+  // Whether this mount of the panel has begun sliding in. Cleared when the close finishes
+  // (the panel unmounts then), so each fresh open slides from fully off-screen, while a
+  // reopen caught mid-close reverses from wherever it has got to.
+  const slideStartedRef = useRef(false);
   const renderedDesignRef = useRef(null);
   // The design that was already current at the moment the panel opened. Anything matching
   // it was generated somewhere the user could already see (the hero or the footer), so
@@ -86,38 +94,12 @@ export default function MobileNav({ open, onClose }) {
   useEffect(() => {
     if (open) {
       designAtOpenRef.current = currentDesign;
-      openedPathRef.current = pathname;
       setMounted(true);
     }
     // `currentDesign` is deliberately not a dependency: this must capture what was current
     // at the open, and keep that value while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  // THE BAR UNDER SAFARI'S TOOLBAR (Aaron, on an iPhone: a bar at the bottom of the screen
-  // while the menu fades in or out, never while it is fully open). On iOS 26 a fixed element
-  // does not paint under the bottom toolbar at all -- this panel ends at the toolbar's top edge
-  // -- and Safari fills that strip itself: with the colour of a fixed element touching the
-  // bottom edge while that element is opaque, otherwise with the page's background colour. So
-  // open, the strip is this panel's ink; mid-fade it fell back to body's #333333, a grey that
-  // matches neither the panel nor any page. While the menu is on screen the fallback is made
-  // the panel's own colour, so the strip is the same ink whether Safari samples the panel or
-  // not. Every page already paints ink-950 itself, so the body colour is otherwise only seen
-  // in these fallback areas.
-  //
-  // Two things tried first and wrong, do not repeat them: sizing the panel to 100lvh to reach
-  // under the toolbar (on iOS 26 100lvh ALSO stops at the toolbar's top, so the panel stopped
-  // qualifying for Safari's fill and the grey showed permanently), and blaming the scroll
-  // lock's release (holding it through the fade changed nothing). No desktop engine models
-  // Safari's toolbar; only a real iPhone can confirm this one.
-  useLayoutEffect(() => {
-    if (!mounted) return undefined;
-    const { style } = document.body;
-    style.backgroundColor = 'var(--color-ink-950)';
-    return () => {
-      style.backgroundColor = '';
-    };
-  }, [mounted]);
 
   // Same live-artwork-as-background treatment as SiteFooter -- re-renders the current
   // design from its own seed/colors (not a screenshot) whenever it changes, so the panel
@@ -182,28 +164,39 @@ export default function MobileNav({ open, onClose }) {
 
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
+    const el = panelRef.current;
     if (open) {
-      gsap.fromTo(panelRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DURATION_BASE, ease: 'power1.out' });
+      const enter = { xPercent: 0, duration: DURATION_BASE, ease: 'power3.out', overwrite: true };
+      if (slideStartedRef.current) {
+        gsap.to(el, enter);
+      } else {
+        slideStartedRef.current = true;
+        gsap.fromTo(el, { xPercent: 100, x: 0, visibility: 'visible' }, enter);
+      }
     } else {
       // Faster than the open tween -- closing should feel snappy, not a mirror of the
       // entrance.
-      gsap.to(panelRef.current, {
-        autoAlpha: 0,
+      gsap.to(el, {
+        xPercent: 100,
         duration: DURATION_FAST,
-        ease: 'power1.in',
-        onComplete: () => setMounted(false)
+        ease: 'power2.in',
+        overwrite: true,
+        onComplete: () => {
+          slideStartedRef.current = false;
+          setMounted(false);
+        }
       });
     }
   }, [open, mounted]);
 
-  // Backstop for the prewarm: if the artwork still arrives after the panel has started fading
+  // Backstop for the prewarm: if the artwork still arrives after the panel has started sliding
   // in (a slow phone, or an open before the idle render ran), fade it in rather than snapping
   // it to full strength. A callback ref runs at attach time, before the panel's own entrance
-  // effect -- so when the background mounts together WITH the panel the panel still reads
-  // opacity 0 here and nothing extra happens; the panel's fade carries both.
+  // effect -- so when the background mounts together WITH the panel the slide has not started
+  // and nothing extra happens; it simply arrives with the panel. The fade is safe against the
+  // toolbar strip above: the panel under it stays opaque, and the panel is what Safari samples.
   const bgRef = useCallback(node => {
-    if (!node || !panelRef.current) return;
-    if (Number(gsap.getProperty(panelRef.current, 'opacity')) <= 0) return;
+    if (!node || !slideStartedRef.current) return;
     gsap.from(node, { opacity: 0, duration: DURATION_BASE, ease: 'power1.out' });
   }, []);
 
@@ -235,13 +228,13 @@ export default function MobileNav({ open, onClose }) {
       aria-modal="true"
       aria-label="Site navigation"
       className="fixed inset-0 z-10 flex flex-col overflow-y-auto bg-ink-950 pt-24 sm:hidden"
-      // Mounts hidden: the entrance tween runs in a useEffect, which usually beats the
-      // browser's next paint but not always -- without this, roughly 1-in-8 opens painted
-      // one frame of the fully-opaque panel before GSAP snapped it to 0 and faded in (a
-      // visible pop-then-fade, user-reported on device). GSAP's inline autoAlpha
-      // overrides this immediately; React re-renders won't reapply it since the style
-      // prop's value never changes.
-      style={{ opacity: 0, visibility: 'hidden' }}
+      // Mounts hidden and off-screen: the entrance tween runs in a useEffect, which usually
+      // beats the browser's next paint but not always -- without this, roughly 1-in-8 opens
+      // painted one frame of the fully-opaque panel in place before the entrance began (a
+      // visible pop, user-reported on device). GSAP's inline transform and visibility
+      // override this immediately; React re-renders won't reapply it since the style prop's
+      // value never changes.
+      style={{ visibility: 'hidden', transform: 'translateX(100%)' }}
     >
       {/* Active artwork as the panel's background, same treatment as SiteFooter -- 75%
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
