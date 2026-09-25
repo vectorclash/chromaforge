@@ -388,7 +388,8 @@ function useDockMorph({ enabled, rootRef, trackRef, imageRef, rowRef, colRef, ed
       // Also off while mid-morph: the panel slides under a resting cursor, and the buttons' hover
       // scale then fired as they passed beneath it -- a sudden little "pop" in the middle of the
       // animation (Aaron: "a hiccup ... it seems to pop over slightly"). A half-drawn button is
-      // not something to click anyway; hover comes back the moment it settles.
+      // not something to click anyway; hover comes back the moment it settles. '' hands back to
+      // .mini-dock-panel's own `auto` -- NOT the default, since the track above it is `none`.
       st.pointerEvents = e.shown < 0.5 || (q > 0 && q < 1) ? 'none' : '';
 
       Object.assign(imageRef.current.style, {

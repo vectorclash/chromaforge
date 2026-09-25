@@ -3090,6 +3090,12 @@ everyone's saved artwork — not a side effect noticed in production.
   proves nothing about it. While a page is settling (layout still moving, <= 2.5s) it never docks,
   and on first load it stays hidden until settled. Scroll-LINKED morphing was built and removed:
   unstable on short pages.
+  **The track is `pointer-events: none` and the panel must say `auto` itself** -- the property
+  INHERITS, so the `''` useDockMorph writes when shown fell back to the track's `none`. It shipped
+  that way (2026-09-23 to 09-25): on desktop the widget was fully drawn and unclickable, and clicks
+  went through to what sat behind it (on /shop, Generate opened a product page). Phones never saw it,
+  since below `sm` they get the inline copy. A clean build and a green route smoke check both passed
+  over it; only a real click on the widget catches this.
 - **A shared Generate cycle and stepwise/queued rendering were built the same day and REVERTED the
   same day** (Aaron: "everything worked better before we messed with things today"). They were
   `utils/generationCycle.js` (every surface enters its loading state on the click and reveals

@@ -49,11 +49,17 @@
   pointer-events: none;
   z-index: 30;
 }
+/* The track is click-through so its full-height column never swallows the page's clicks; the panel
+   opts back in. pointer-events INHERITS, so without this rule the '' useDockMorph writes once the
+   panel is shown resolved to the track's `none`: the widget shipped unclickable on desktop, with
+   clicks falling through to whatever sat behind it (a shop card, the gallery). Its inline `none`
+   while hidden or mid-morph still wins over this. */
 .mini-dock-panel {
   position: sticky;
   bottom: 24px;
   flex: none;
   align-self: flex-start;
+  pointer-events: auto;
 }
 
 /* The mini-generator panel's top edge -- the same hairline treatment as `.cf-spectrum-line`
