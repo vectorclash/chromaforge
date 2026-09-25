@@ -304,6 +304,11 @@ export default class DisplayCanvas extends React.Component {
     // reported live 2026-08-16 (hero disagreeing with the shirt, About blob, mini generator,
     // footer and mobile nav, all of which agreed with each other).
     this.buildToken = 0;
+    // The StudioContext design mainConfig was built from, when the canvas adopted it rather than
+    // made it (see buildAdoptedDesign); null whenever mainConfig is a design of the canvas's own.
+    // mainConfig is then a different, full-size object, so this is how the canvas recognises the
+    // shared design it is already showing.
+    this.adoptedDesign = null;
   }
 
   componentDidMount() {
@@ -483,7 +488,8 @@ export default class DisplayCanvas extends React.Component {
     if (
       this.props.initialDesign &&
       this.props.initialDesign !== prevProps.initialDesign &&
-      this.props.initialDesign !== this.mainConfig
+      this.props.initialDesign !== this.mainConfig &&
+      this.props.initialDesign !== this.adoptedDesign
     ) {
       this.adoptInitialDesign();
     }
@@ -580,7 +586,7 @@ export default class DisplayCanvas extends React.Component {
   adoptInitialDesign() {
     clearTimeout(this.adoptDesignTimer);
     const design = this.props.initialDesign;
-    if (!design || design === this.mainConfig) return;
+    if (!design || design === this.mainConfig || design === this.adoptedDesign) return;
     if (this.state.generateDisabled) {
       this.adoptDesignTimer = setTimeout(() => this.adoptInitialDesign(), 350);
       return;
@@ -606,14 +612,7 @@ export default class DisplayCanvas extends React.Component {
     this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
     this.adoptDesignSettings(design.settings);
     this.adoptDesignColors(design.colors);
-    const built = this.buildConfig(
-      design.seed,
-      this.props.width,
-      this.props.height,
-      design.colors,
-      design.settings ?? null
-    );
-    this.buildImage(built);
+    this.buildImage(this.buildAdoptedDesign(design));
   }
 
   init() {
@@ -678,14 +677,7 @@ export default class DisplayCanvas extends React.Component {
       this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       this.adoptDesignColors(this.props.initialDesign.colors);
-      const built = this.buildConfig(
-        this.props.initialDesign.seed,
-        this.props.width,
-        this.props.height,
-        this.props.initialDesign.colors,
-        this.props.initialDesign.settings ?? null
-      );
-      this.buildImage(built);
+      this.buildImage(this.buildAdoptedDesign(this.props.initialDesign));
     } else {
       this.onGenerateButtonClick();
     }
@@ -817,11 +809,46 @@ export default class DisplayCanvas extends React.Component {
     // then immediately overwrote it with 1 as the hero adopted its own first design.
     config.geometryChance = this.state.geometrySettings.chance;
     this.mainConfig = config;
+    // Any new mainConfig replaces what the canvas had adopted; buildAdoptedDesign re-marks its own.
+    this.adoptedDesign = null;
     // Mirror the current design into StudioContext (via StudioPage) so store routes can
     // render mockups of it without the canvas being mounted. No-op when rendered outside
     // the router (defensive).
     if (!this.suppressDesignSync) this.props.onDesignChange?.(config);
     return config;
+  }
+
+  // Build the design StudioContext already holds, at this canvas's size, WITHOUT handing a copy
+  // back. buildConfig's mirror is right when the canvas MAKES a design (Generate, a slider, a
+  // gallery load); adopting one runs the other way. The design is already the shared one, and
+  // every surface showing it (the preview, the footer band, the shirt, the About blob) has already
+  // started rendering it. The mirrored full-size copy was a new object, so it reached every one of
+  // them as ANOTHER new design and each rendered the identical image again, discarding the first:
+  // 13 renders where 7 do, on every homepage load and every homepage mini-generator Generate.
+  //
+  // So one design object means one design everywhere, and nothing has to compare designs to learn
+  // that it is not new: the canvas follows. `adoptedDesign` is how it knows mainConfig was built
+  // from this exact object, now that mainConfig is its own full-size one -- and only for as long as
+  // that is true, since every other build clears it. Nothing else needs the canvas's copy: it is
+  // regenerated from this design's own seed, colours and settings. The one field it can differ in
+  // is geometryChance -- buildConfig stamps the slider's odds -- and the shared design already
+  // carries the odds the panel last published.
+  buildAdoptedDesign(design) {
+    const suppressed = this.suppressDesignSync;
+    this.suppressDesignSync = true;
+    try {
+      const config = this.buildConfig(
+        design.seed,
+        this.props.width,
+        this.props.height,
+        design.colors,
+        design.settings ?? null
+      );
+      this.adoptedDesign = design;
+      return config;
+    } finally {
+      this.suppressDesignSync = suppressed;
+    }
   }
 
   buildImage(config) {
@@ -2243,6 +2270,8 @@ export default class DisplayCanvas extends React.Component {
         this.blob = blob;
         this.imageBlobUrl = blobUrl;
         this.mainConfig = config;
+        // Published by hand below as the canvas's own, so it is no longer following an adopted one.
+        this.adoptedDesign = null;
         this.shareUrl = shareUrl || null;
         this.shareDesignId = shareDesignId || null;
         this.changeGradient(config.gradientBackgroundConfig.colors);

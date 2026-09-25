@@ -3168,6 +3168,21 @@ path. Verified to fail 4/11 checks on the pre-fix commit and pass on the fix. **
 the production build** — dev StrictMode double-mounts DisplayCanvas, so two builds exist at
 load for an unrelated reason and every count is meaningless.
 
+**Adopting a design never hands a copy back** (2026-09-25, `buildAdoptedDesign`). When the canvas
+builds the design StudioContext already holds -- a mini-generator Generate, any mount -- it builds
+at its own size with the mirror off. It used to mirror its full-size copy back, and that copy was a
+new object, so every surface rendered the identical image a second time and threw the first away:
+**13 renders where 7 do** on each homepage load and each homepage mini-generator Generate, 12
+where 6 do navigating to the homepage. Median click to first paint for a homepage mini Generate
+went **248ms -> 160ms** (desktop, GPU raster, n=12 each, interleaved). One object is one design
+everywhere, so nothing compares designs to decide whether one is new; `adoptedDesign` records which
+shared object `mainConfig` was built from (every other build clears it, so it can never outlive the
+design on screen), and both adoption checks test it. The two are interchangeable everywhere the app
+reads them -- 5,760 checks of `isSameDesign`,
+the compacted saved row and `getGenerationSettings` across palette and settings shapes, verified
+to fail on planted differences -- and the one field that can differ, `geometryChance`, is carried
+by the shared design as the odds the panel last published.
+
 ### Backend: Supabase, seed-first schema
 - `supabase/migrations/0001_initial_schema.sql` — `profiles` (1:1 auth.users, trigger
   auto-created on signup), `designs` (`data` jsonb = `{ generatorVersion, seed, colors,
