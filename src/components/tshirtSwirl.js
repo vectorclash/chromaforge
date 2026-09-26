@@ -31,6 +31,12 @@ const PARTICLES = 90;
 const TAIL = 12;
 const TAIL_STEP = 0.009; // seconds between tail samples
 const MAX_COLORS = 6;
+// Each spark's size as a multiple of the base (Aaron, 2026-09-26: "no larger, but maybe a tiny
+// bit smaller possible"). Skewed toward the top so the typical spark is unchanged -- median 1.0
+// and max 1.4 as before -- while about one in eight now lands below the old 0.6 floor.
+const SIZE_MIN = 0.35;
+const SIZE_MAX = 1.4;
+const SIZE_SKEW = 0.7;
 // Overall strength of the layer (Aaron: "maybe they can be a little less opaque"). Scales every
 // sample, so the tail's overlapping samples thin out together rather than the heads alone.
 const OPACITY = 0.6;
@@ -63,6 +69,7 @@ const VERTEX = /* glsl */ `
   attribute vec4 aSeed;
   attribute vec4 aSeed2;
   attribute float aTail;
+  attribute float aScale;
   uniform float uAge;
   uniform float uRelStart;
   uniform float uR;
@@ -129,7 +136,7 @@ const VERTEX = /* glsl */ `
     float edge = 1.0 - smoothstep(0.72, 0.96, max(abs(ndc.x), abs(ndc.y)));
     vAlpha = ${OPACITY.toFixed(3)} * tailFade * born * twinkle * edge * (1.0 - fadeOut);
 
-    float size = uSize * (0.6 + 0.8 * aSeed2.z) * (1.0 - 0.7 * aTail / ${TAIL.toFixed(1)})
+    float size = uSize * aScale * (1.0 - 0.7 * aTail / ${TAIL.toFixed(1)})
                * mix(1.0, 0.35, fadeOut);
     // uSize is device pixels at the shirt's own distance; nearer sparks draw bigger.
     gl_PointSize = max(size * uCamDist / -mv.z, 1.0);
@@ -182,15 +189,20 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   const seed = new Float32Array(count * 4);
   const seed2 = new Float32Array(count * 4);
   const tail = new Float32Array(count);
+  const scale = new Float32Array(count);
   const position = new Float32Array(count * 3); // unused by the shader; three requires it
   for (let p = 0; p < PARTICLES; p++) {
     const a = [Math.random(), Math.random(), Math.random(), Math.random()];
     const b = [Math.random(), Math.random(), Math.random(), Math.random()];
+    // Its own draw: size used to come from aSeed2.z, which also sets vertical drift, so the
+    // biggest sparks were always the ones rising.
+    const size = SIZE_MIN + (SIZE_MAX - SIZE_MIN) * Math.random() ** SIZE_SKEW;
     for (let k = 0; k < TAIL; k++) {
       const i = p * TAIL + k;
       seed.set(a, i * 4);
       seed2.set(b, i * 4);
       tail[i] = k;
+      scale[i] = size;
     }
   }
   const geometry = new THREE.BufferGeometry();
@@ -198,6 +210,7 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   geometry.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
   geometry.setAttribute('aSeed2', new THREE.BufferAttribute(seed2, 4));
   geometry.setAttribute('aTail', new THREE.BufferAttribute(tail, 1));
+  geometry.setAttribute('aScale', new THREE.BufferAttribute(scale, 1));
 
   const colors = Array.from({ length: MAX_COLORS }, () => new THREE.Vector3(1, 1, 1));
   const uniforms = {

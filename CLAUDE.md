@@ -2137,7 +2137,9 @@ composites them through the same warp and tearing but not the split. Occlusion s
 with no shared depth buffer: the composer's scene target carries a `DepthTexture` (the clone
 for its second buffer gets one too), and each spark fragment tests `gl_FragCoord.z` against it.
 Masked before the warp and warped with the scene, so the two stay registered. Separately, the
-sparks need 6px heads and 12 tail samples 9ms apart: spaced wider, a tail reads as dots.
+sparks need 6px heads and 12 tail samples 9ms apart: spaced wider, a tail reads as dots. Head
+size varies per spark, 0.35-1.4x of that 6px, skewed so the median stays 1.0 (Aaron, 2026-09-26:
+"no larger, but maybe a tiny bit smaller possible"); it has its own draw, no longer tied to drift.
 (3) **Colours are the palette of the design the shirt is WEARING**, staged with the sheet and
 handed over at `commitStagedSheet` (crossfading over the texture crossfade), so the sparks
 never reveal the incoming design before every other surface does. Passed as raw sRGB 0..1:
@@ -2731,6 +2733,18 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
   first and only then faded. Frozen, it fades out intact under the incoming mockup.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
+- **A camera-angle switch plays `FacetSwap` (`components/ui/FacetSwap.jsx`, 2026-09-26), and it
+  does NOT break the rule above.** Aaron picked it from a five-way comparison on a real mockup
+  (https://claude.ai/artifact/L6dNn2L76gfeLvNGz6Mnmg): the next view assembles from triangles
+  popping in from the tapped thumbnail. It is a canvas above the slot that is OPAQUE for the
+  whole 440ms: its first frame is the outgoing photo, drawn in a layout effect in the same commit
+  that swaps the `<img>` src, so the swap underneath is never painted and the `<img>` itself never
+  animates. It keeps its own decoded Image per URL because the outgoing photo must be drawable
+  synchronously there. Only plays between two photos that were both on screen (never the first
+  reveal), skips under reduced motion, and a tap mid-swap jumps to the end first. Measured on the
+  real page at 402px/3x: the canvas covers every src change before paint, 60fps throughout in
+  Chromium and WebKit. The other four candidates (resolve, slide, iris, glitch) are in that
+  artifact if this is ever revisited.
 
 ### Audit hardening (2026-09-22) -- rules that now hold, and must keep holding
 A full audit found two exploitable holes and several money-path gaps; all fixed, deployed and
