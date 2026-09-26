@@ -2114,7 +2114,10 @@ invisibly. With no strike active the shader was byte-identical to before (834 GP
 **Swirling spark particles ride the same event (same day, `components/tshirtSwirl.js`).** A
 vortex of palette-coloured comet streaks erupts from the shirt on every raise, orbits it for
 the whole wait (passing BEHIND the garment too), and dissipates as the pass eases down. Motion
-is all vertex shader; each strike rolls a fresh vortex (tilt, direction, speed, reach). Seven
+is all vertex shader; each strike rolls a fresh vortex (tilt, direction, speed, reach). The
+tilt is CAPPED (`MAX_TILT_X` ~29deg, `MAX_TILT_Z` ~14deg; was ~72/~29) so the swarm always flows
+horizontally across the chest -- tipped further, each orbit opens into a near-circle on screen and
+the sparks run up and down the sides, which Aaron judged worse (2026-09-26). Seven
 things worth not re-deriving:
 (1) **The canvas is `SWIRL_ROOM` (1.5x) the shirt's layout box, overflowing it** — the
 shirt's half-height already filled 91% of the old frame, so an orbit had nowhere to go.

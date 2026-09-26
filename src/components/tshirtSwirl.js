@@ -43,6 +43,15 @@ const OUT_TOTAL = OUT_DELAY + OUT_STAGGER + OUT_FADE;
 // A swarm that is never released still stops here, so a missed release can never pin the render
 // loop for the life of the page.
 const MAX_LIFE = 20;
+// How far a strike may tip the vortex's axis (radians). Tipping it toward the camera (X) opens
+// each orbit into an on-screen ellipse sin(tilt) as tall as it is wide, so at the old ~72deg
+// ceiling the swarm read as a near-circle, the sparks running straight up and down the shirt's
+// sides; rolling it (Z) turns the pass across the front diagonal. Both are capped so the swarm
+// stays a band flowing horizontally across the chest (Aaron, 2026-09-26: the more vertical
+// rolls "just don't look as good"). Each spark's own orbital plane still wobbles on top of this
+// (see swirl()), so the swarm keeps its volume even at zero tilt.
+const MAX_TILT_X = 0.5; // ~29deg: the ellipse stays under half as tall as it is wide
+const MAX_TILT_Z = 0.25; // ~14deg
 // Fallback while no design palette has been handed over yet (the scene comes up wearing the
 // model's own white sheet).
 const DEFAULT_COLORS = [
@@ -284,8 +293,8 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
     (releaseAt === null || now - releaseAt < OUT_TOTAL);
 
   const rollVortex = () => {
-    const tiltX = (Math.random() * 2 - 1) * 1.25; // up to ~72deg: tornado through whirlpool
-    const tiltZ = (Math.random() * 2 - 1) * 0.5;
+    const tiltX = (Math.random() * 2 - 1) * MAX_TILT_X;
+    const tiltZ = (Math.random() * 2 - 1) * MAX_TILT_Z;
     const dir = Math.random() < 0.5 ? -1 : 1;
     uniforms.uSwirl.value.set(
       tiltX,
