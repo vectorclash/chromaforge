@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
@@ -898,6 +898,30 @@ export default function ProductPage() {
     };
   }, [readyHeroUrl]);
 
+  // A mockup arriving from a generation the customer WATCHED assembles out of facets over the
+  // loading screen instead of fading in (FacetSwap's intro; Aaron, 2026-09-26). 'playing' holds
+  // the mockup layer invisible while the triangles land; 'done' then shows it INSTANTLY, under the
+  // canvas's final frame, which fully covers it -- so the layer's fade is replaced, never raced.
+  // A mockup restored from the cache keeps the plain fade: nothing the customer did preceded it,
+  // and an effect with no action behind it is a complaint this slot has already had.
+  // "Watched" is the frozen scrim mode: it still reads 'busy' when the mockup lands, and anything
+  // else when the mockup came straight from the cache. Layout effect, so 'playing' is set before
+  // the arriving layer's first paint.
+  const [facetIntro, setFacetIntro] = useState(null);
+  const prevReadyHeroUrlRef = useRef(null);
+  useLayoutEffect(() => {
+    const arriving = !prevReadyHeroUrlRef.current && !!readyHeroUrl;
+    prevReadyHeroUrlRef.current = readyHeroUrl;
+    if (!readyHeroUrl) {
+      setFacetIntro(null);
+    } else if (
+      arriving &&
+      scrimModeRef.current === 'busy' &&
+      !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      setFacetIntro('playing');
+    }
+  }, [readyHeroUrl]);
 
 
   // Deliberately NOT gated on the preload: this is the URL handed to page meta/OG tags and to
@@ -1997,25 +2021,34 @@ export default function ProductPage() {
                 disabled (inert) while covered, never transitioned.
                 Rendered from readyHeroUrl, set once the image has decoded, so it is fully
                 drawn before it fades and a camera-angle switch swaps src underneath an
-                already-visible layer with nothing in between. */}
+                already-visible layer with nothing in between. After a watched generation its
+                fade is replaced by FacetSwap's intro: held at 0, then shown instantly under a
+                canvas that already covers it (facetIntro). */}
             {readyHeroUrl && (
               <img
                 src={readyHeroUrl}
                 alt={product.title}
                 className={
                   'pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity ' +
-                  (showMockup && mockupFadedIn ? 'opacity-100 duration-500' : 'opacity-0 duration-200')
+                  (showMockup && mockupFadedIn && facetIntro !== 'playing'
+                    ? facetIntro === 'done'
+                      ? 'opacity-100 duration-0'
+                      : 'opacity-100 duration-500'
+                    : 'opacity-0 duration-200')
                 }
               />
             )}
 
-            {/* Camera-angle switches only: the next view assembles from triangles over the one
-                being left. An opaque canvas above this slot for the length of the swap -- it
-                never touches the mockup layer's opacity, so that stays the one transition here.
-                See FacetSwap. */}
+            {/* The mockup arriving after a watched generation, and every camera-angle switch
+                after it: the photo assembles from triangles on a canvas above this slot. A switch
+                is opaque over the photo being left; the arrival replaces the layer's fade (see
+                facetIntro above). Either way the mockup layer itself never runs a visible
+                animation while it plays. See FacetSwap. */}
             <FacetSwap
               src={readyHeroUrl}
               enabled={showMockup && mockupFadedIn}
+              intro={showMockup && facetIntro === 'playing'}
+              onIntroEnd={played => setFacetIntro(played ? 'done' : null)}
               originSelector="[data-mockup-thumb][aria-pressed='true']"
             />
           </div>

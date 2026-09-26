@@ -2733,18 +2733,27 @@ unmounts, never transitions, never moves. It is only `inert` while covered.
   first and only then faded. Frozen, it fades out intact under the incoming mockup.
 - Stacking alone never fixes this: mockup on top shows the loader through it, mockup underneath
   shows the button over it. What makes either safe is the content fading rather than snapping.
-- **A camera-angle switch plays `FacetSwap` (`components/ui/FacetSwap.jsx`, 2026-09-26), and it
-  does NOT break the rule above.** Aaron picked it from a five-way comparison on a real mockup
-  (https://claude.ai/artifact/L6dNn2L76gfeLvNGz6Mnmg): the next view assembles from triangles
-  popping in from the tapped thumbnail. It is a canvas above the slot that is OPAQUE for the
-  whole 440ms: its first frame is the outgoing photo, drawn in a layout effect in the same commit
-  that swaps the `<img>` src, so the swap underneath is never painted and the `<img>` itself never
-  animates. It keeps its own decoded Image per URL because the outgoing photo must be drawable
-  synchronously there. Only plays between two photos that were both on screen (never the first
-  reveal), skips under reduced motion, and a tap mid-swap jumps to the end first. Measured on the
-  real page at 402px/3x: the canvas covers every src change before paint, 60fps throughout in
-  Chromium and WebKit. The other four candidates (resolve, slide, iris, glitch) are in that
-  artifact if this is ever revisited.
+- **The mockup photo arriving plays `FacetSwap` (`components/ui/FacetSwap.jsx`, 2026-09-26) --
+  the one sanctioned change to the rule above.** Aaron picked it from a five-way comparison on a
+  real mockup (https://claude.ai/artifact/L6dNn2L76gfeLvNGz6Mnmg; the other four candidates are
+  there if this is ever revisited): the photo assembles from triangles popping in. Two runs:
+  (1) **Camera-angle switch**, growing from the tapped thumbnail. The canvas is OPAQUE for the
+  whole 440ms -- its first frame is the outgoing photo, drawn in a layout effect in the same commit
+  that swaps the `<img>` src -- so the swap underneath is never painted and the `<img>` never
+  animates. FacetSwap keeps its own decoded Image per URL because the outgoing photo must be
+  drawable synchronously there.
+  (2) **Intro, after a generation the customer WATCHED** (560ms, from the centre, the loading
+  screen visible in the gaps). This one REPLACES the layer's fade rather than covering a swap:
+  ProductPage's `facetIntro` holds the `<img>` at opacity 0 while it plays ('playing'), then shows
+  it with `duration-0` ('done') in the same commit FacetSwap takes down a final frame that already
+  covers it. "Watched" is `scrimModeRef.current === 'busy'` at arrival; a cache restore keeps the
+  plain fade, since an effect with no action behind it is a complaint this slot already had.
+  Both skip under reduced motion, and a run cut short (a tap mid-intro) reports the intro done so
+  the layer is never left held invisible.
+  Measured on the real page at 402px/3x, Chromium and WebKit, with a real Generate click against
+  stubbed upload/Printful responses: the canvas covers every src change before paint; the intro
+  shows 0 fade frames and 0 frames where neither canvas nor photo is up; the photo is at opacity 1
+  the frame the canvas leaves; 60fps throughout (worst 18-19ms); a cache restore still fades.
 
 ### Audit hardening (2026-09-22) -- rules that now hold, and must keep holding
 A full audit found two exploitable holes and several money-path gaps; all fixed, deployed and
