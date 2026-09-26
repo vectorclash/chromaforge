@@ -337,8 +337,22 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
       paletteStart = null; // start on the next drawn frame
       paletteDuration = duration;
     },
-    // Per drawn frame.
-    update(now) {
+    // Per drawn frame. `amount` is the aberration pass's uAmount -- the glitch the sparks ride.
+    update(now, amount) {
+      // The whole event came and went while nothing could draw (Aaron, 2026-09-25: generate
+      // from the footer, scroll back up, and the swarm plays for a transition that finished
+      // long ago). The render loop sleeps while the shirt is off screen, so a queued strike and
+      // release -- or a live swarm plus a queued release -- only reach it when it comes back.
+      // If a release is waiting and the glitch has already faded to nothing, the effect is
+      // over: drop it rather than replay it. The entrance is unaffected (it raises the glitch
+      // to its peak in the same call that queues both), and so is a return mid-generate, when
+      // no release is waiting yet.
+      if (releaseQueued && amount < 1e-3) {
+        strikeQueued = false;
+        releaseQueued = false;
+        strikeAt = null;
+        releaseAt = null;
+      }
       if (strikeQueued) {
         strikeAt = now;
         releaseAt = null;

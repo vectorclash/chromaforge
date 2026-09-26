@@ -2154,6 +2154,13 @@ sparks never left AND the loop never idled. Caught only by re-running the restin
 (sparks still on screen 4s after load); a mid-effect frame check cannot see it. Measured after
 the fix: 0 shirt frames in a 3s idle window after the entrance and after each generate.
 `MAX_LIFE` (20s) caps a swarm that is somehow never released.
+**The same queue made the swarm replay on return from off screen** (Aaron: generate from the
+footer, scroll back to the hero, and the particles swirl and go). The render loop sleeps while
+the shirt is off screen, so a strike and release queued there only reach it when you come back.
+`update` now drops the whole event when a release is waiting and the glitch has already faded to
+0 — measured on a real footer generate: 61 spark frames on return before, 0 after, while a
+return mid-generate (no release yet) still shows the live swarm (106), and hero generates
+(126/128) and the entrance (146) are unchanged.
 (6b) **The shirt's WebGL context is force-lost on unmount, and the canvas has no MSAA.**
 `renderer.dispose()` alone left every homepage visit's context alive until GC (measured: 4
 made, 0 released; now 3 of 4 released), and `antialias: true` only multisampled the canvas's

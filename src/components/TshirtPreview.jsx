@@ -1034,7 +1034,7 @@ export default function TshirtPreview({
             aberrationPass.uniforms.uStrike.value = now * 0.001;
             strikePending = false;
           }
-          swirl.update(now * 0.001);
+          swirl.update(now * 0.001, aberrationPass.uniforms.uAmount.value);
           composer.render();
           // Idle only once the shirt has stopped moving AND the aberration pass is back at
           // identity -- its uTime drives a live distortion, so a non-zero uAmount means the
