@@ -2154,6 +2154,12 @@ sparks never left AND the loop never idled. Caught only by re-running the restin
 (sparks still on screen 4s after load); a mid-effect frame check cannot see it. Measured after
 the fix: 0 shirt frames in a 3s idle window after the entrance and after each generate.
 `MAX_LIFE` (20s) caps a swarm that is somehow never released.
+(6b) **The shirt's WebGL context is force-lost on unmount, and the canvas has no MSAA.**
+`renderer.dispose()` alone left every homepage visit's context alive until GC (measured: 4
+made, 0 released; now 3 of 4 released), and `antialias: true` only multisampled the canvas's
+own framebuffer, which receives nothing but a full-screen quad — pixel-identical without it,
+~10MB of GPU memory per context saved at a phone's pixel ratio. Found while chasing the parallax
+jank above; neither was its cause.
 (7) **A Playwright `click()` starts ~1s after the call** while it waits for the hovered button
 to settle — it looked exactly like the effect starting late. Time from an in-page
 `pointerdown`: the effect starts 145–170ms after the real click, every generate.
@@ -2180,6 +2186,33 @@ is on **window** — the document is the scroller site-wide as of 2026-08-11; it
 attach to a `.overflow-y-auto` ancestor, which today would find nothing and silently attach
 nothing. Transform only, so the alpha-only GSAP tweens on `.image-container` don't conflict;
 skipped under prefers-reduced-motion.
+**Where the browser supports scroll timelines, CSS moves the artwork, not JS (2026-09-25,
+Aaron: "constant jankiness when scrolling" on his phone).** `.hero-parallax-timeline`
+(components.css) runs a `scroll(root)` animation over `[--hero-top, --hero-end]`, the same
+mapping the handler computes; JS only measures and publishes the custom properties. **The cause
+was structural and cannot be tuned away:** iOS Safari scrolls the page on its own thread, so any
+transform written from a scroll handler lands at least a frame behind, at uneven intervals. It
+was diagnosed by ELIMINATION on the phone, and every desktop measurement was blind to it —
+frame times, idle loops and long tasks were identical before/after in Chromium AND WebKit, and
+the jank survived the t-shirt's shadow off, its canvas at the old size, and the shirt removed
+entirely (debug switches in a LAN-served local build; worth rebuilding that way next time).
+Aaron confirmed the timeline version smooth on the device. Three things worth not re-deriving:
+(1) **A scroll lock would move it too** — the timeline reads the same fake scroll 0 the handler
+used to. On lock the current offset is written inline and the animation dropped; unlocking
+re-attaches it. (2) **A re-attached scroll animation takes a frame to resolve and shows the
+BASE style meanwhile** — measured in Chromium, one frame unscaled and undrifted as a menu
+closed (WebKit didn't). The frozen inline value therefore stays underneath and is cleared two
+frames later. (3) Browsers without `animation-timeline` (Firefox by default) keep the handler;
+verified by stubbing `CSS.supports`. Offsets verified identical to the handler at six scroll
+positions in both engines.
+**The footer's art band had the same fault and got the same fix** (Aaron confirmed it janked
+too). It needs even less JS: the handler's progress ("footer top enters the viewport" to "entered
+by min(its height, the viewport's)") is exactly a view timeline's `entry` range, so
+`.footer-parallax-timeline` runs on `view-timeline-name: --site-footer` with a percentage drift
+and no measuring at all — which also retires the ResizeObserver on every body child the handler
+needed to stay correct as the page above laid out. Same lock freeze, reading the live computed
+transform. Verified within 0.1px of the handler on /terms at 390 and 1280, both engines, and
+stock-still through a menu lock.
 **The cached geometry must be correctable, and one snapshot at mount is not enough**
 (2026-08-11, real bug: the parallax sat at a wrong offset and only popped right on a later
 scroll). `measure()` guarded on `rect.height` alone, and WebKit runs the mount mid-layout,

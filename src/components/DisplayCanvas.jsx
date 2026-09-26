@@ -399,9 +399,45 @@ export default class DisplayCanvas extends React.Component {
         heroTop = rect.top + window.scrollY;
         heroHeight = rect.height;
         maxTravel = (el.clientHeight * (HERO_PARALLAX_SCALE - 1)) / 2;
+        publish();
         return true;
       };
       let art = null;
+      // THE BROWSER DRIVES THE MOTION WHERE IT CAN (2026-09-25, Aaron: "constant jankiness when
+      // scrolling" on his phone -- unchanged with the t-shirt's shadow off, its canvas back to
+      // its old size, and the whole shirt removed). iOS Safari scrolls the page on its own
+      // thread, so a transform written from a scroll handler always lands at least a frame
+      // behind the page, at uneven intervals, and no amount of tuning the handler fixes that.
+      // A CSS scroll-driven animation (`.hero-parallax-timeline`, components.css) runs where
+      // the scroll does and cannot lag. JS keeps the part it is good at -- measuring -- and
+      // hands the numbers over as custom properties; the mapping is the same one `apply`
+      // computes below (progress over [heroTop, heroTop + heroHeight], clamped, times
+      // maxTravel), so the motion is unchanged, only its timing. A desktop hides this
+      // entirely: scroll there is fast enough that the handler keeps up, which is why every
+      // measurement on one came back clean. Browsers without scroll timelines keep the handler.
+      const useTimeline = typeof CSS !== 'undefined' && CSS.supports?.('animation-timeline: scroll()');
+      const publish = () => {
+        if (!useTimeline || !art) return;
+        art.style.setProperty('--hero-top', `${heroTop}px`);
+        art.style.setProperty('--hero-end', `${heroTop + heroHeight}px`);
+        art.style.setProperty('--hero-travel', `${maxTravel}px`);
+        art.style.setProperty('--hero-scale', String(HERO_PARALLAX_SCALE));
+        art.classList.add('hero-parallax-timeline');
+        // A scroll-driven animation that has just been (re)attached can take a frame to find
+        // its position, and for that frame the element falls back to its base style. Measured in
+        // Chromium when a modal's scroll lock released: ONE frame at no transform at all --
+        // unscaled and undrifted -- between two frames at the right offset. So the frozen value
+        // the lock wrote inline stays underneath until the animation has resolved (the animation
+        // outranks it once it has), and is cleared after. Skipped if a new lock froze it again.
+        if (art.style.transform) {
+          const el = art;
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              if (el.classList.contains('hero-parallax-timeline')) el.style.transform = '';
+            })
+          );
+        }
+      };
       // A full-screen overlay's scroll lock pins the body with `position: fixed`, which
       // makes the document report scroll 0 and shifts the hero's own rect by the saved
       // offset (see useScrollLock). Acting on either would slide the artwork by up to the
@@ -412,7 +448,7 @@ export default class DisplayCanvas extends React.Component {
       const apply = () => {
         raf = 0;
         const el = art;
-        if (!el || !heroHeight || locked) return;
+        if (!el || !heroHeight || locked || useTimeline) return;
         // 0 while the hero sits at the top of the viewport, 1 once its bottom edge has
         // passed the top of the viewport (i.e. it has fully left the screen).
         const progress = Math.max(0, Math.min(1, (window.scrollY - heroTop) / heroHeight));
@@ -433,10 +469,20 @@ export default class DisplayCanvas extends React.Component {
         this.onHeroParallaxScroll();
       };
       this.unsubscribeHeroParallaxLock = subscribeScrollLock(isLocked => {
+        // A scroll timeline reads the document's scroll position like everything else, so it
+        // would believe the lock too. Freeze the artwork at the offset it has right now (this
+        // runs BEFORE the body moves, so scrollY is still the real value) by writing it inline
+        // and dropping the animation; unlocking republishes, which clears the inline value and
+        // restores the animation against a scroll position put back exactly where it was.
+        if (isLocked && useTimeline && art && heroHeight) {
+          const progress = Math.max(0, Math.min(1, (window.scrollY - heroTop) / heroHeight));
+          art.style.transform = `translateY(${progress * maxTravel}px) scale(${HERO_PARALLAX_SCALE})`;
+          art.classList.remove('hero-parallax-timeline');
+        }
         locked = isLocked;
         if (!isLocked) this.onHeroParallaxResize();
       });
-      window.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
+      if (!useTimeline) window.addEventListener('scroll', this.onHeroParallaxScroll, { passive: true });
       window.addEventListener('resize', this.onHeroParallaxResize, { passive: true });
       // A ResizeObserver rather than a single mount-time snapshot plus one rAF retry: it
       // fires an initial observation immediately (covering the normal case), fires again

@@ -682,6 +682,28 @@
 .display-canvas .controls-inner.controls-compact .row .button-small:hover {
   background: rgba(166, 224, 0, 0.15);
 }
+/* The homepage hero's parallax, driven by the page's own scroll rather than a scroll handler
+   (see DisplayCanvas.componentDidMount for why -- in short, iOS Safari scrolls on its own
+   thread and a handler-written transform always trails it). DisplayCanvas measures the hero
+   and publishes the numbers as custom properties; this maps scroll position heroTop -> heroEnd
+   onto a downward drift of --hero-travel, clamped at both ends by `both`, which is exactly the
+   handler's formula. The class is only added where `animation-timeline` is supported, and
+   never under prefers-reduced-motion. `animation-timeline` must follow the shorthand, which
+   would otherwise reset it. */
+@keyframes hero-parallax {
+  from {
+    transform: translateY(0) scale(var(--hero-scale, 1));
+  }
+  to {
+    transform: translateY(var(--hero-travel, 0px)) scale(var(--hero-scale, 1));
+  }
+}
+.display-canvas .image-container.hero-parallax-timeline {
+  animation: hero-parallax linear both;
+  animation-timeline: scroll(root block);
+  animation-range: var(--hero-top, 0px) var(--hero-end, 100vh);
+}
+
 .display-canvas .controls-inner.controls-compact .tshirt-preview {
   filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
 }
@@ -760,6 +782,31 @@
 .mobile-nav-bg .dot-ripple-mount,
 .site-footer-bg .dot-ripple-mount {
   z-index: 1;
+}
+
+/* The footer artwork's parallax, driven by the page's scroll rather than a scroll handler --
+   same reason as the hero's `.hero-parallax-timeline` (SiteFooter.jsx has the detail). The
+   handler's range was "the footer's top enters the viewport" to "it has entered by the
+   smaller of its own height and the viewport's", which is exactly a view timeline's `entry`
+   range, so nothing here needs measuring: the timeline follows the footer wherever the page
+   above it lays out. The drift is a percentage of the layer's own height, the same
+   (scale - 1) / 2 the handler computed in pixels. SiteFooter adds the class only where
+   `animation-timeline` is supported, and never under prefers-reduced-motion. */
+.site-footer {
+  view-timeline-name: --site-footer;
+}
+@keyframes footer-parallax {
+  from {
+    transform: translateY(calc((1 - var(--footer-scale, 1)) * 50%)) scale(var(--footer-scale, 1));
+  }
+  to {
+    transform: translateY(0) scale(var(--footer-scale, 1));
+  }
+}
+.site-footer-bg .footer-parallax-timeline {
+  animation: footer-parallax linear both;
+  animation-timeline: --site-footer;
+  animation-range: entry 0% entry 100%;
 }
 
 .display-canvas .controls-inner.controls-compact .dot-grid {

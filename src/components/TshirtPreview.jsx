@@ -539,7 +539,13 @@ export default function TshirtPreview({
 
         // WebGL context creation can genuinely fail (GPU blocklists, headless) -- the
         // catch below hides the preview instead of leaving a dead canvas.
-        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        //
+        // No `antialias`: it multisamples only the CANVAS's own framebuffer, and nothing drawn
+        // there has an edge -- the shirt renders into the composer's non-multisampled target
+        // and only the aberration pass's full-screen quad reaches the canvas. So it bought
+        // nothing (verified pixel-identical without it) while costing ~10MB of GPU memory per
+        // context at a phone's pixel ratio.
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         // An even margin on each side, so the canvas sits on the pixel grid: an odd difference
         // puts it at a half-pixel offset, which the browser resamples and the shirt goes soft.
@@ -673,6 +679,7 @@ export default function TshirtPreview({
         const gltf = await new GLTFLoader().loadAsync('/models/tshirt/tshirt.glb');
         if (disposed) {
           renderer.dispose();
+          renderer.forceContextLoss();
           return;
         }
 
@@ -1086,6 +1093,13 @@ export default function TshirtPreview({
           swirl.dispose();
           composer.dispose?.();
           renderer.dispose();
+          // dispose() frees three's resources but leaves the WebGL CONTEXT alive until the
+          // browser garbage-collects the canvas -- measured, every visit to the homepage added a
+          // context and none was ever released. On a phone, where GPU memory is shared and
+          // small, that stacks up on top of whatever the last page decoded (a mockup's photos)
+          // and is the leading suspect for the hero stuttering after a trip to a product page
+          // (Aaron, 2026-09-25). Losing it explicitly returns the memory now.
+          renderer.forceContextLoss();
           if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
         };
       } catch (err) {

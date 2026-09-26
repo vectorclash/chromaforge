@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
+import { subscribeScrollLock } from '../../hooks/useScrollLock';
 import DotRipple from '../DotRipple';
 import MiniGenerator from './MiniGenerator';
 import Wordmark from './Wordmark';
@@ -71,6 +72,43 @@ export default function SiteFooter() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     const host = footerRef.current;
     if (!host) return undefined;
+
+    // WHERE THE BROWSER SUPPORTS IT, CSS MOVES THE ARTWORK (2026-09-25, Aaron: the footer
+    // parallax stutters on his phone, the same as the hero's). iOS Safari scrolls on its own
+    // thread, so a transform written from a scroll handler always lands at least a frame
+    // behind the page -- see DisplayCanvas's hero parallax for how that was pinned down.
+    // `.footer-parallax-timeline` (components.css) is a view-timeline animation on the footer
+    // whose `entry` range is exactly the handler's progress below, so it needs no measuring
+    // and no ResizeObserver: the timeline tracks the footer however the page above lays out.
+    if (typeof CSS !== 'undefined' && CSS.supports?.('animation-timeline: scroll()')) {
+      const el = artRef.current;
+      if (!el) return undefined;
+      el.style.setProperty('--footer-scale', String(PARALLAX_SCALE));
+      el.classList.add('footer-parallax-timeline');
+      // A modal's scroll lock fixes the body, which the timeline would read as the page
+      // jumping -- freeze the artwork at its current offset for the duration. On release, the
+      // frozen value stays underneath for two frames: a re-attached scroll animation can
+      // take one to resolve and shows its base style meanwhile (measured on the hero).
+      const unsubscribe = subscribeScrollLock(isLocked => {
+        if (isLocked) {
+          el.style.transform = getComputedStyle(el).transform;
+          el.classList.remove('footer-parallax-timeline');
+        } else {
+          el.classList.add('footer-parallax-timeline');
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              if (el.classList.contains('footer-parallax-timeline')) el.style.transform = '';
+            })
+          );
+        }
+      });
+      return () => {
+        unsubscribe();
+        el.classList.remove('footer-parallax-timeline');
+        el.style.transform = '';
+      };
+    }
+
     // The document is the scroller site-wide (see tailwind.css). This used to walk up to a
     // `.overflow-y-auto` ancestor, back when SiteLayout and HomePage each owned their own
     // scroll viewport; that lookup would now return null and this effect would silently
@@ -121,7 +159,7 @@ export default function SiteFooter() {
   }, [shown]);
 
   return (
-    <footer ref={footerRef} className="relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
+    <footer ref={footerRef} className="site-footer relative bg-ink-700 pt-16 pb-8 text-sm text-text-muted overflow-hidden shrink-0">
       {/* Active artwork as the footer's background */}
       {shown && (
         <div className="site-footer-bg absolute inset-0 opacity-75 z-0 pointer-events-none">
