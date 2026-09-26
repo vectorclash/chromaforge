@@ -1174,6 +1174,7 @@ function GeometricShape(config) {
   canvas.width = config.width;
   canvas.height = config.height;
   let stage = new window.createjs.Stage(canvas);
+  stage.enableDOMEvents(false);
   if (config.legLayout === "single") {
     addContainer(stage, config.shapes, { x: config.width / 4, y: config.height / 2 });
   } else if (config.legLayout === "mirror") {

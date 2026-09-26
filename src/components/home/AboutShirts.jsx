@@ -285,7 +285,11 @@ export default function AboutShirts({ className = '' }) {
       if (start === null) start = ts;
       lastT = (ts - start) / 1000;
       if (visibleRef.current) draw(lastT);
-      raf = requestAnimationFrame(frame);
+      // Off screen the loop STOPS rather than idling: skipping the draw alone still woke the
+      // main thread every frame for the whole visit (measured, 60 callbacks/s for each of the
+      // two About canvases with the section nowhere near view). The observer below restarts
+      // it. Time runs off the wall clock, so nothing jumps that didn't already.
+      raf = visibleRef.current ? requestAnimationFrame(frame) : 0;
     }
 
     const ro = new ResizeObserver(resize);
@@ -295,6 +299,7 @@ export default function AboutShirts({ className = '' }) {
     const io = new IntersectionObserver(
       entries => {
         visibleRef.current = entries[0]?.isIntersecting ?? true;
+        if (visibleRef.current && !raf && !reduced) raf = requestAnimationFrame(frame);
       },
       // Viewport root: the document scrolls site-wide (see tailwind.css). This used to look
       // up a `.overflow-y-auto` scroll ancestor, back when the homepage owned its own.

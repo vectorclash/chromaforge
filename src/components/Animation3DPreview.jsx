@@ -127,6 +127,11 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
       world?.dispose();
       if (renderer) {
         renderer.dispose();
+        // dispose() alone leaves the WebGL context alive until GC, and this effect reruns on
+        // every design change -- each Generate, and each live slider or palette edit in 3D.
+        // Measured: 20 Generates left 16 contexts live (Chrome's cap), with Chrome evicting the
+        // oldest and warning "Too many active WebGL contexts"; forced GC freed none of them.
+        renderer.forceContextLoss();
         renderer.domElement.remove();
       }
     };

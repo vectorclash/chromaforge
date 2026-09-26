@@ -1564,13 +1564,40 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
+    this.setState({ isExporting: true, exportProgress: 0 });
+    // Whatever the export acquires registers its release here, and the finally runs them
+    // however it ends. It used to release only on the success path: an encoder that died
+    // mid-export (its `error` callback only logs, so the next encode() throws) escaped as an
+    // unhandled rejection and left the studio on "Exporting..." until a reload -- Download
+    // disabled, previews frozen, RESET disabled -- with the 3D renderer's WebGL context and
+    // the in-flight VideoFrame never released. Simulated by closing the encoder at frame 20.
+    const releases = [];
+    try {
+      await this.encodeAnimationVideo(releases);
+    } catch (e) {
+      console.error('[Chromaforge] Export failed:', e);
+      alert('Export failed. Please try again.');
+    } finally {
+      for (const release of releases.reverse()) {
+        try {
+          release();
+        } catch {
+          /* already released */
+        }
+      }
+      this.setState({ isExporting: false, exportProgress: 0 });
+    }
+  }
+
+  async encodeAnimationVideo(releases) {
     const { animationFrames, animationStarFrames, threeDMode, threeDDesign, speedRamp } = this.state;
     const is3D = threeDMode && !!threeDDesign;
-    this.setState({ isExporting: true, exportProgress: 0 });
 
-    const loadImg = src => new Promise(resolve => {
+    const loadImg = src => new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
+      // Without this a frame that fails to load hangs the export forever instead of failing it.
+      img.onerror = () => reject(new Error('An animation frame failed to load'));
       img.src = src;
     });
 
@@ -1620,6 +1647,7 @@ export default class DisplayCanvas extends React.Component {
     let drawAt;
     let canvas;
     let cleanup3D = null;
+    releases.push(() => cleanup3D?.());
 
     if (is3D) {
       const [{ WebGLRenderer }, { createTunnelScene }] = await Promise.all([
@@ -1627,9 +1655,20 @@ export default class DisplayCanvas extends React.Component {
         import('../animation3d/tunnelScene')
       ]);
       const renderer = new WebGLRenderer({ antialias: true });
+      let world = null;
+      // Set before anything below can throw, and idempotent: it also runs early, before the
+      // flush, to hand the GPU memory back while the muxer finalizes. forceContextLoss because
+      // dispose() alone leaves the context alive until GC -- measured, every export left one
+      // behind (3 exports: 4 contexts made, 0 lost), the same leak TshirtPreview had.
+      cleanup3D = () => {
+        cleanup3D = null;
+        world?.dispose();
+        renderer.dispose();
+        renderer.forceContextLoss();
+      };
       renderer.setPixelRatio(1);
       renderer.setSize(width, height);
-      const world = createTunnelScene({
+      world = createTunnelScene({
         seed: threeDDesign.seed,
         colors: threeDDesign.colors || [],
         settings: threeDDesign.settings ?? null,
@@ -1647,10 +1686,6 @@ export default class DisplayCanvas extends React.Component {
       drawAt = (elapsed, rush = 0, logo = null) => {
         world.setTime(elapsed, rush, logo);
         renderer.render(world.scene, world.camera);
-      };
-      cleanup3D = () => {
-        world.dispose();
-        renderer.dispose();
       };
     } else {
       canvas = document.createElement('canvas');
@@ -1822,6 +1857,9 @@ export default class DisplayCanvas extends React.Component {
         },
         error: e => console.error('VideoEncoder error:', e)
       });
+      releases.push(() => {
+        if (encoder.state !== 'closed') encoder.close();
+      });
 
       encoder.configure({
         codec: videoCodec,
@@ -1833,8 +1871,6 @@ export default class DisplayCanvas extends React.Component {
       });
     } catch (e) {
       console.error('VideoEncoder configure failed:', e);
-      cleanup3D?.();
-      this.setState({ isExporting: false, exportProgress: 0 });
       alert('MP4 export is not supported in this browser. Try Chrome or Edge on a desktop.');
       return;
     }
@@ -1868,8 +1904,12 @@ export default class DisplayCanvas extends React.Component {
       // Keyframe every 2s (was every 1s): forced keyframes are the most expensive frames
       // in the stream, and at fast-motion moments the bitrate they consume comes straight
       // out of the inter frames' budget — visibly blocky at the speed ramp's peak.
-      encoder.encode(frame, { keyFrame: f % (FPS * 2) === 0 });
-      frame.close();
+      // Closed even when encode() throws: a VideoFrame holds a full-size frame buffer.
+      try {
+        encoder.encode(frame, { keyFrame: f % (FPS * 2) === 0 });
+      } finally {
+        frame.close();
+      }
 
       // Drain the encoder queue before it grows too large
       while (encoder.encodeQueueSize > 5) {
@@ -1897,21 +1937,16 @@ export default class DisplayCanvas extends React.Component {
       fakeProgress += (crawlTarget - fakeProgress) * 0.15;
       this.setState({ exportProgress: Math.round(fakeProgress) });
     }, 200);
+    releases.push(() => clearInterval(crawl));
 
     await encoder.flush();
     clearInterval(crawl);
 
-    try {
-      muxer.finalize();
-      this.setState({ exportProgress: 100 });
-      const blob = new Blob([target.buffer], { type: 'video/mp4' });
-      saveAs(blob, `${FileName()}.mp4`);
-    } catch (e) {
-      console.error('[Chromaforge] Export finalize failed:', e);
-      alert('Export failed. Please try again.');
-    } finally {
-      this.setState({ isExporting: false, exportProgress: 0 });
-    }
+    // A failure here reaches exportAnimationVideo's catch, which reports it and resets.
+    muxer.finalize();
+    this.setState({ exportProgress: 100 });
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    saveAs(blob, `${FileName()}.mp4`);
   }
 
   // Geometry setting changed. Update the state immediately (the value readout and the fill

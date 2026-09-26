@@ -2891,6 +2891,54 @@ reports all three product routes red with React #310 and the boundary text, and 
 it fixed.
 It does NOT cover anything behind sign-in, and never generates a mockup or touches checkout.
 
+### Leaks have no symptom until a phone runs out of memory — `scripts/check-leaks.mjs` (2026-09-26)
+
+```
+node scripts/check-leaks.mjs        # builds, serves dist/, ~2 min, needs a GPU, no secrets
+```
+
+Repeats what a visitor repeats (homepage Generate x6, home -> shop -> product -> home x3, 3D
+Generate x8 and an export in the studio) and fails if anything GROWS: window/document listeners
+added by the app's own scripts, live WebGL contexts (made minus `webglcontextlost`), or idle
+`requestAnimationFrame` callbacks. Also fails if an export cannot recover from an encoder
+failure. **Fails 7/10 on `60e6949` and passes 10/10 on the fix.** Run it after touching anything
+that creates a renderer, a canvas pipeline, a frame loop or a window listener. Not gated in CI —
+it needs WebGL and WebCodecs, same as the other Playwright checks.
+
+It came out of a sweep for bugs that only show on a device, after a sequence of actions, or not
+at all. Four were confirmed and fixed, none visible to the build, the route smoke check or a
+desktop by eye:
+- **EaselJS leaked every geometry render.** `new createjs.Stage(canvas)` registers window
+  mouseup/mousemove listeners that hold the stage, so each render with a geometry layer (canvas,
+  full display list) lived for the whole visit, and every mousemove ran through all of them:
+  +7 listeners per homepage Generate, one mousemove 0.06 -> 0.28ms over ten Generates, unbounded.
+  `GeometricShape` now calls `stage.enableDOMEvents(false)`. A no-op on render-service (its shim
+  already made those adds no-ops); Node output byte-identical, so no redeploy was needed. **The
+  check pins the geometry layer on through the stored studio prefs** — this leak only exists for
+  a design that has one, so an unpinned run passes by luck one time in ten.
+- **The studio's 3D preview and the 3D export never force-lost their WebGL contexts.**
+  `dispose()` alone leaves a context alive until GC, and forced GC freed none of them: 20 3D
+  Generates left 16 live (Chrome's cap, with it evicting the oldest). The preview rebuilds on
+  every design change, including live slider and palette edits in 3D. **Rule: every
+  `WebGLRenderer` teardown is `dispose()` + `forceContextLoss()`**, as TshirtPreview already did.
+- **An encoder failure left the studio stuck on "Exporting..." until a reload.** The encoder's
+  `error` callback only logs, so the next `encode()` threw out of `exportAnimationVideo` as an
+  unhandled rejection. Everything the export acquires now registers a release that a `finally`
+  runs however it ends, and frames close even when `encode()` throws.
+- **The two About canvases kept a frame loop running off screen**, skipping only the draw. They
+  now stop until visible: idle callbacks on the homepage went 185 -> 64/s.
+**The remaining 64/s on every route is GSAP ScrollTrigger's own** (`_rafBugFix`, an empty
+callback it runs for the whole session once registered, plus a 250ms poll). Library code, left
+alone; it is why the check's ceiling is 70.
+Checked and NOT a bug, so not worth re-deriving: nothing replays late after a Generate from the
+footer, the mobile menu or the hero (each compared against the same moves with no Generate);
+navigation leaks nothing else (GSAP tweens flat at 41); the header/mini-generator scroll
+listeners only flip state at a threshold; `antialias: true` stays on both 3D renderers because
+they draw straight to the canvas. **The homepage reveal scrub stays on GSAP**: Aaron compared it
+on his iPhone against the reveal off, fade-only, and a CSS view-timeline port, and saw no
+difference, unlike the parallax (fixed 2026-09-25). A CSS port would also lose `scrub: 2`'s
+catch-up, which is what makes the reveal perceptible — don't propose it without a new symptom.
+
 ### The mockup-wait narration retypes itself (`TerminalText`, 2026-08-16)
 `components/ui/TerminalText.jsx` replaced a GSAP `TextPlugin` tween on ProductPage's two
 narration lines (the mockup scrim and BuyNowModal's checkout wait). Aaron's report: going from

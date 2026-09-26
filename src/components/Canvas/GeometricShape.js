@@ -52,6 +52,15 @@ export default function GeometricShape(config) {
   canvas.height = config.height;
 
   let stage = new window.createjs.Stage(canvas);
+  // Stage's constructor registers mouseup/mousemove on WINDOW for pointer interactivity this
+  // one-shot draw never uses, and those closures hold the stage -- so without this, every
+  // render with a geometry layer stayed alive for the rest of the session (its canvas, its
+  // whole display list), and every mousemove on the page ran through all of them, each one
+  // measuring a detached canvas with getBoundingClientRect + getComputedStyle. Measured on the
+  // homepage: 7 more window mousemove listeners per Generate, and the cost of one mousemove
+  // dispatch rose 0.06ms -> 0.28ms over ten Generates, without bound. A no-op under
+  // render-service's shim, where those adds were already no-ops.
+  stage.enableDOMEvents(false);
 
   if (config.legLayout === 'single') {
     addContainer(stage, config.shapes, { x: config.width / 4, y: config.height / 2 });
