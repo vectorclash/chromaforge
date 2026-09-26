@@ -39,6 +39,7 @@ import { introStyle } from '../utils/routeIntro';
 import { useJsonLd } from '../hooks/useJsonLd';
 import SizeGuideModal from '../components/ui/SizeGuideModal';
 import ScrollStrip from '../components/ui/ScrollStrip';
+import FacetSwap from '../components/ui/FacetSwap';
 import TerminalText from '../components/ui/TerminalText';
 import { ProductPageSkeleton, SkeletonFadeOut } from '../components/ui/RouteSkeleton';
 import { DURATION_SLOW } from '../utils/motionTokens';
@@ -2008,6 +2009,15 @@ export default function ProductPage() {
               />
             )}
 
+            {/* Camera-angle switches only: the next view assembles from triangles over the one
+                being left. An opaque canvas above this slot for the length of the swap -- it
+                never touches the mockup layer's opacity, so that stays the one transition here.
+                See FacetSwap. */}
+            <FacetSwap
+              src={readyHeroUrl}
+              enabled={showMockup && mockupFadedIn}
+              originSelector="[data-mockup-thumb][aria-pressed='true']"
+            />
           </div>
 
           {/* One scrolling row, via ScrollStrip -- see that component for why this is neither
@@ -2021,6 +2031,7 @@ export default function ProductPage() {
                 <button
                   key={m.mockup_url}
                   type="button"
+                  data-mockup-thumb
                   onClick={() => setActiveImageIndex(i)}
                   aria-pressed={i === activeImageIndex}
                   title={m.display_name}
