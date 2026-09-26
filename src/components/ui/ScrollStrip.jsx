@@ -25,11 +25,38 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 // never needed (its children are photos, and the scrollbar was affordance enough) but a row of
 // small chips does -- there, the bar is the only thing on screen that looks grabbable and the
 // chips themselves look like buttons that don't move. Opt-in, so the filmstrip is untouched.
+//
+// `itemSize` ({ max, min }, px) is for a row of EQUAL items, and publishes the width each should
+// take as `--strip-item` on the rail. A fixed size can overflow by a SLIVER: 5 filmstrip views
+// at 64px need 356px against a 354px rail on a 402px phone, so a scrollbar appeared for 2px of
+// travel and the last thumbnail's edge sat under the fade -- a strip that looks mis-sized rather
+// than scrollable. With it, a row either fits exactly (items shrink toward `min`) or, when even
+// `min` can't fit, the first screenful ends on HALF an item, which reads as "there's more".
+// Nothing in between. Chips of varying width (the palette strip) don't use it.
+function fitItemSize(rail, { max, min }) {
+  const n = rail.children.length;
+  if (!n) return null;
+  const style = getComputedStyle(rail);
+  const gap = parseFloat(style.columnGap) || 0;
+  // The fractional box, not clientWidth -- clientWidth rounds, and a rounded-up width is how a
+  // row that "fits" ends up a fraction of a pixel over.
+  const width =
+    rail.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const floor = px => Math.floor(px * 100) / 100;
+  const fit = (width - gap * (n - 1)) / n;
+  if (fit >= min) return Math.min(max, floor(fit));
+  // k whole items plus half of the next: width = k * (size + gap) + size / 2. The smallest k
+  // whose size is <= max gives the largest items that still end on a half.
+  const k = Math.ceil((width - max / 2) / (max + gap));
+  return Math.max(min, floor((width - k * gap) / (k + 0.5)));
+}
+
 export default function ScrollStrip({
   children,
   className = '',
   railClassName = '',
-  dragToScroll = false
+  dragToScroll = false,
+  itemSize = null
 }) {
   const viewportRef = useRef(null);
   const railRef = useRef(null);
@@ -38,11 +65,20 @@ export default function ScrollStrip({
   // How far the fade reaches at full strength. Kept in JS because the fade is proportional --
   // it eases out over the last few pixels of travel rather than snapping off at the end.
   const FADE_PX = 28;
+  // Primitives, so a caller passing a fresh { max, min } literal each render doesn't rebuild
+  // update() and re-subscribe every listener below.
+  const sizeMax = itemSize?.max;
+  const sizeMin = itemSize?.min;
 
   const update = useCallback(() => {
     const rail = railRef.current;
     const viewport = viewportRef.current;
     if (!rail || !viewport) return;
+    // Sized first: everything below reads the overflow the new size produces.
+    if (sizeMax) {
+      const size = fitItemSize(rail, { max: sizeMax, min: sizeMin ?? sizeMax });
+      if (size !== null) rail.style.setProperty('--strip-item', `${size}px`);
+    }
     const max = rail.scrollWidth - rail.clientWidth;
     const overflows = max > 1;
     // Fade only the edge that is hiding something, and only while it hides it: no left fade
@@ -64,7 +100,7 @@ export default function ScrollStrip({
     if (!overflows) return;
     thumb.style.width = `${(rail.clientWidth / rail.scrollWidth) * 100}%`;
     thumb.style.left = `${(rail.scrollLeft / rail.scrollWidth) * 100}%`;
-  }, [dragToScroll]);
+  }, [dragToScroll, sizeMax, sizeMin]);
 
   // Geometry has to be re-read whenever the CONTENT changes, not just the box: swapping a
   // product's 8 thumbnails for another's 2 leaves the rail exactly the same size, so a

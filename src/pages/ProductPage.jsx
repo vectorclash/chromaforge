@@ -54,6 +54,10 @@ const ARTWORK_SECTION = 2;
 // before it is dropped. The blank/button layer underneath never animates at all.
 const HERO_FADE_OUT_MS = 200;
 
+// Mockup filmstrip thumbnails: 64px when the row fits, shrinking to no less than 48 so it
+// fits exactly rather than overflowing by a few pixels -- see ScrollStrip's `itemSize`.
+const THUMB_SIZE = { max: 64, min: 48 };
+
 const STATUS_LABEL = {
   rendering: 'Rendering design…',
   creating: 'Sending to Printful…',
@@ -2008,9 +2012,11 @@ export default function ProductPage() {
 
           {/* One scrolling row, via ScrollStrip -- see that component for why this is neither
               a bare .no-scrollbar strip (nothing tells you more exists) nor flex-wrap (5 views
-              leave an orphan on row two, 8 at 390px break a ragged 5+3). */}
+              leave an orphan on row two, 8 at 390px break a ragged 5+3). scroll-px-0.5 matches
+              the rail's padding: without it the first thumbnail's snap point sits 2px in, and
+              an overflowing rail snapped there on load, eating its own left padding. */}
           {showMockup && images.length > 1 && thumbsPreloaded && (
-            <ScrollStrip className="mt-3" railClassName="px-0.5">
+            <ScrollStrip className="mt-3" railClassName="px-0.5 scroll-px-0.5" itemSize={THUMB_SIZE}>
               {images.map((m, i) => (
                 <button
                   key={m.mockup_url}
@@ -2020,7 +2026,7 @@ export default function ProductPage() {
                   title={m.display_name}
                   style={{ animationDelay: `${80 + Math.min(i, 10) * 40}ms` }}
                   className={
-                    'group relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-reveal-quick focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    'group relative size-[var(--strip-item,4rem)] shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-reveal-quick focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
                     (i === activeImageIndex ? 'border-accent' : 'border-hairline hover:border-text-muted')
                   }
                 >
