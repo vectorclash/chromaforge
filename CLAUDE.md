@@ -2097,11 +2097,67 @@ compound per frame), so there's never a shirtless gap on first load; the first d
 crossfades in from white. A generate-transition ShaderPass (EffectComposer) combines chromatic aberration — a
 uniform LATERAL RGB split, NOT radial-from-center (radial was tried and user-rejected:
 nothing visible at the centered shirt's chest, anaglyph mush at the edges) — with an
-animated heat-haze distortion (crossed scrolling sine waves, uTime from the rAF clock),
-both scaled by one normalized `uAmount` tweened up on generate start and to 0 with the
-crossfade; alpha takes the max of the three taps so the fringe isn't clipped at the
-silhouette. The pass stays in the chain at 0 (identity) rather than branching render
-paths. Note the aberration is content-dependent — near-monochrome designs (e.g. all-blue)
+animated shockwave distortion (derivative-of-gaussian rings; it replaced a scrolling
+sine heat haze 2026-08-24), both scaled by one normalized `uAmount` tweened up on
+generate start and to 0 with the crossfade; alpha takes the max of the three taps so the
+fringe isn't clipped at the silhouette. The pass stays in the chain at 0 (identity)
+rather than branching render paths. **Every raise of the effect STRIKES one pulse of its
+own (2026-09-25, Aaron: "occasionally it hardly moves at all").** The three ambient pulses
+run on the page's wall clock with a ~1-in-5 dud rate, so a generate's ripple was a lottery:
+simulated over 500 generates at a ~1.3s wait, 12% peaked under 5px on the 190px mount and
+some at 0. The struck pulse is never a dud, takes the top of the ambient strength range,
+and keeps random origin/reach/width/lobes. Floor 0 → 5.8px, median 8.4 → 12.5px — the
+livelier average was Aaron's explicit OK. Its start is stamped by the first frame that
+DRAWS, not by the call: the hero's full-size build blocks the main thread right after a
+Generate click (measured up to 761ms), and a call-time stamp let the pulse spend that stall
+invisibly. With no strike active the shader was byte-identical to before (834 GPU frames).
+**Swirling spark particles ride the same event (same day, `components/tshirtSwirl.js`).** A
+vortex of palette-coloured comet streaks erupts from the shirt on every raise, orbits it for
+the whole wait (passing BEHIND the garment too), and dissipates as the pass eases down. Motion
+is all vertex shader; each strike rolls a fresh vortex (tilt, direction, speed, reach). Seven
+things worth not re-deriving:
+(1) **The canvas is `SWIRL_ROOM` (1.5x) the shirt's layout box, overflowing it** — the
+shirt's half-height already filled 91% of the old frame, so an orbit had nowhere to go.
+Absolutely positioned with `pointer-events: none` (layout and hit area unchanged, a click in
+the margin lands where it always did), the FOV widened by the same factor so the shirt
+projects to the SAME pixels, and the aberration shader works in the shirt's box via `uScale`
+so the glitch lands on the garment unchanged and carries on into the margin. The margin is
+rounded to an even number: an odd one put the canvas at a half-pixel offset. Verified against
+the committed build with a pinned design: resting shirt max delta **3/255**, no pixel over 8,
+at 1280@1x, 1280@2x and 390@3x.
+(2) **The sparks are their OWN LAYER, never drawn into the scene the aberration pass
+distorts.** Drawn into it, the pass's ~11px RGB split pulled every spark into separate red,
+green and blue dots — first as dust, then, enlarged, as streaks whose palette never survived
+(Aaron: "you can't see the colors you chose for them. they're all just rgb"). `SparkPass`
+renders them into their own target between the RenderPass and the aberration pass, which
+composites them through the same warp and tearing but not the split. Occlusion stays exact
+with no shared depth buffer: the composer's scene target carries a `DepthTexture` (the clone
+for its second buffer gets one too), and each spark fragment tests `gl_FragCoord.z` against it.
+Masked before the warp and warped with the scene, so the two stay registered. Separately, the
+sparks need 6px heads and 12 tail samples 9ms apart: spaced wider, a tail reads as dots.
+(3) **Colours are the palette of the design the shirt is WEARING**, staged with the sheet and
+handed over at `commitStagedSheet` (crossfading over the texture crossfade), so the sparks
+never reveal the incoming design before every other surface does. Passed as raw sRGB 0..1:
+the composer writes a ShaderMaterial's output untouched (measured 0.5 → 128).
+(4) **Off under `prefers-reduced-motion`** (0 spark frames drawn, measured). The glitch pass
+itself was never gated and was left as it was.
+(5) **The exit DISSIPATES rather than bursting** (Aaron: the first one "feels a bit odd"). It
+scaled the whole swarm outward in 0.5s like a zoom, and because every tail sample read the same
+current expansion, the streaks stretched instead of trailing. Now every term is a function of
+the sample's own time, so tails follow the real path: the swirl keeps turning, drifts outward
+from a standstill (quadratic, so no jerk at the release), rises slightly, and each spark fades
+and shrinks on its own stagger — ~1s in all, outlasting the glitch's 0.5s, which is why
+`swirl.busy()` is part of the render loop's idle check.
+(6) **Strike and release are QUEUED and applied in order on the next drawn frame.** The
+entrance asks for both in one call; applying the strike a frame later wiped the release, so the
+sparks never left AND the loop never idled. Caught only by re-running the resting-shirt diff
+(sparks still on screen 4s after load); a mid-effect frame check cannot see it. Measured after
+the fix: 0 shirt frames in a 3s idle window after the entrance and after each generate.
+`MAX_LIFE` (20s) caps a swarm that is somehow never released.
+(7) **A Playwright `click()` starts ~1s after the call** while it waits for the hovered button
+to settle — it looked exactly like the effect starting late. Time from an in-page
+`pointerdown`: the effect starts 145–170ms after the real click, every generate.
+Note the aberration is content-dependent — near-monochrome designs (e.g. all-blue)
 show it faintly since the shifted channels carry little signal. The shirt NEVER leaves during a generate: it keeps
 the old design while the background renders, then TEXTURE-level crossfades to the new
 sheet (the material's single persistent canvas is re-blended old/new per tween frame —

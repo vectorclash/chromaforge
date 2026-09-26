@@ -4,6 +4,8 @@ import ArrowIcon from './buttons/ArrowIcon';
 import { useStudio } from '../context/StudioContext';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 import { capMockupRenderSize } from '../lib/printful';
+import { resolvedPalette } from '../render/resolvedPalette';
+import { createTshirtSwirl } from './tshirtSwirl';
 
 // Small live 3D garment preview for the homepage hero panel: the current design rendered
 // as the base-color texture of a t-shirt model, slowly rotating. three.js is dynamically
@@ -235,12 +237,41 @@ function drawSlice(
 // haze already was. Switching the profile to a derivative-of-gaussian (one compression,
 // one rarefaction: a single lens sweeping outward, ~2.5x the peak displacement at a
 // fraction of the spatial frequency) is what made it a different effect at all.
+//
+// One pulse is STRUCK on every raise of the effect (2026-09-25, Aaron: "occasionally it
+// hardly moves at all"). The three ambient pulses run on the page's wall clock, so which
+// part of their schedule a generate lands in was a lottery: a ~1 in 5 dud rate and
+// amplitudes down to 0.35 meant that, simulated over 500 generates with the usual ~1.3s
+// wait, 12% peaked under 5px of displacement on the 190px mount and some at 0. The struck
+// pulse starts at the raise itself, is never a dud, and draws its strength from the top of
+// the ambient range, while its origin, reach, width and lobes are still fresh random draws
+// each time. Measured the same way: floor 0 -> 5.8px, none of 500 under 5px, median
+// 8.4 -> 12.5px. It deliberately does not duck the ambient pulses -- a livelier average was
+// fine by Aaron ("the effect is really fun to watch").
 const ABERRATION_PEAK = 1;
+// The WebGL canvas is this many times the shirt's own layout box, overflowing it on every
+// side, so the swirl particles (tshirtSwirl.js) have room to orbit the garment instead of
+// being cut off by a square the shirt already nearly fills (its half-height is 91% of the
+// old frame). Layout, the hit area and the shirt's own pixels are all unchanged: the canvas
+// is absolutely positioned and pointer-events: none, the camera's field of view widens by
+// the same factor (so the shirt projects to exactly the pixels it did before), and the
+// aberration pass works in the shirt's box (uScale).
+const SWIRL_ROOM = 1.5;
+const PULSE_RATE = 0.45; // pulse cycles per second, shared by the ambient and struck pulses
 const AberrationShader = {
   uniforms: {
     tDiffuse: { value: null },
     uAmount: { value: 0 },
-    uTime: { value: 0 }
+    uTime: { value: 0 },
+    // uTime at the last strike; far in the past until the first one, so it never fires.
+    uStrike: { value: -1e4 },
+    // The struck pulse's random draws, made in JS per strike: origin/lobe phases (x, y),
+    // reach (z) and strength (w). Same roles as an ambient pulse's h1/h2/h3.
+    uStrikeShape: { value: [0.5, 0.5, 0.5, 0.5] },
+    // Canvas size over the shirt's own box (SWIRL_ROOM); see main().
+    uScale: { value: 1 },
+    // The swirl's spark layer, composited unsplit; see main().
+    tSparks: { value: null }
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -253,12 +284,43 @@ const AberrationShader = {
     uniform sampler2D tDiffuse;
     uniform float uAmount;
     uniform float uTime;
+    uniform float uStrike;
+    uniform vec4 uStrikeShape;
+    uniform float uScale;
+    uniform sampler2D tSparks;
     varying vec2 vUv;
+
+    const float PULSE_RATE = ${PULSE_RATE.toFixed(4)};
 
     float hash(float n) { return fract(sin(n * 78.233) * 43758.5453); }
 
+    // One expanding wavefront at phase (0..1 through its life). h1..h3 are its random
+    // draws: origin and lobe phases, width, reach.
+    vec2 pulse(vec2 uv, float phase, float h1, float h2, float h3, float amp) {
+      vec2 origin = vec2(0.5) + (vec2(h1, h2) - 0.5) * 0.34;
+      vec2 oc = uv - origin;
+      float od = length(oc);
+      float ang = atan(oc.y, oc.x);
+      // Low-order lobes at random phase, growing with the ring: near-round at the
+      // origin, an irregular blob by the time it reaches the hem.
+      float wobble = (0.060 * sin(ang * 2.0 + h1 * 6.28)
+                    + 0.040 * sin(ang * 3.7 - h2 * 6.28)
+                    + 0.025 * sin(ang * 6.3 + h3 * 6.28)) * (0.35 + phase);
+      float r = phase * (0.60 + h3 * 0.60) + wobble;
+      float width = 0.045 + h2 * 0.070;
+      float x = (od - r) / width;
+      // 1.6487 = e^0.5, normalizing the derivative-of-gaussian to a peak of 1.
+      float profile = -x * exp(-x * x) * 1.6487;
+      return (oc / max(od, 1e-4)) * profile * amp * (1.0 - phase);
+    }
+
     void main() {
-      vec2 uv = vUv;
+      // Measured in the SHIRT'S box, not the canvas: the canvas is uScale times wider than
+      // the shirt (room for the swirl particles), so every distance in here -- pulse origin,
+      // reach, width, tear rows, the RGB split -- is taken in shirt space and converted back
+      // at the end. The effect lands on the garment exactly as it did on a shirt-sized
+      // canvas, and simply carries on into the margin.
+      vec2 uv = (vUv - 0.5) * uScale + 0.5;
 
       // Three pulses on staggered, incommensurate clocks so rings overlap irregularly
       // rather than marching. Everything about a pulse is hashed off its own cycle
@@ -267,7 +329,7 @@ const AberrationShader = {
       vec2 push = vec2(0.0);
       for (int i = 0; i < 3; i++) {
         float fi = float(i);
-        float tt = uTime * 0.45 + fi * 0.37;
+        float tt = uTime * PULSE_RATE + fi * 0.37;
         float k = floor(tt);
         float phase = fract(tt);
         float h1 = hash(k * 13.1 + fi * 7.7);
@@ -276,22 +338,15 @@ const AberrationShader = {
         float h4 = hash(k * 41.7 + fi * 2.3);
         // ~1 cycle in 5 is a dud, so pulses arrive in clusters and gaps.
         float gate = step(0.2, h4);
-        vec2 origin = vec2(0.5) + (vec2(h1, h2) - 0.5) * 0.34;
-        vec2 oc = uv - origin;
-        float od = length(oc);
-        float ang = atan(oc.y, oc.x);
-        // Low-order lobes at random phase, growing with the ring: near-round at the
-        // origin, an irregular blob by the time it reaches the hem.
-        float wobble = (0.060 * sin(ang * 2.0 + h1 * 6.28)
-                      + 0.040 * sin(ang * 3.7 - h2 * 6.28)
-                      + 0.025 * sin(ang * 6.3 + h3 * 6.28)) * (0.35 + phase);
-        float r = phase * (0.60 + h3 * 0.60) + wobble;
-        float width = 0.045 + h2 * 0.070;
-        float x = (od - r) / width;
-        // 1.6487 = e^0.5, normalizing the derivative-of-gaussian to a peak of 1.
-        float profile = -x * exp(-x * x) * 1.6487;
-        float amp = (0.35 + h1 * 1.30) * gate;
-        push += (oc / max(od, 1e-4)) * profile * amp * (1.0 - phase);
+        push += pulse(uv, phase, h1, h2, h3, (0.35 + h1 * 1.30) * gate);
+      }
+
+      // The struck pulse: one cycle from the moment the effect was raised, never a dud,
+      // strength 1.0 to 1.65 (the top of the ambient range). See the header comment.
+      float sp = (uTime - uStrike) * PULSE_RATE;
+      if (sp >= 0.0 && sp < 1.0) {
+        push += pulse(uv, sp, uStrikeShape.x, uStrikeShape.y, uStrikeShape.z,
+                      1.0 + uStrikeShape.w * 0.65);
       }
 
       // A little tearing on top, mostly where a wavefront is passing -- the shock is
@@ -307,14 +362,19 @@ const AberrationShader = {
       float live = step(0.55, hash(row * 3.7 + gt * 1.73 + zone * 0.9));
       float shockBoost = smoothstep(0.2, 0.9, length(push));
       float tear = burst * live * (0.3 + 0.7 * shockBoost);
-      uv.x += (hash(row * 1.31 + gt * 7.13 + zone) - 0.5) * 0.075 * tear * uAmount;
-      uv += push * 0.045 * uAmount;
+      vec2 shift = push * 0.045 * uAmount;
+      shift.x += (hash(row * 1.31 + gt * 7.13 + zone) - 0.5) * 0.075 * tear * uAmount;
+      uv = vUv + shift / uScale;
 
-      vec2 off = vec2(0.06 * uAmount, 0.0);
+      vec2 off = vec2(0.06 * uAmount / uScale, 0.0);
       vec4 cr = texture2D(tDiffuse, uv - off);
       vec4 cc = texture2D(tDiffuse, uv);
       vec4 cb = texture2D(tDiffuse, uv + off);
       gl_FragColor = vec4(cr.r, cc.g, cb.b, max(max(cr.a, cc.a), cb.a));
+      // The swirl sparks (tshirtSwirl.js): carried through the same warp and tearing, but not
+      // the channel split, which would reduce every palette colour to red, green and blue.
+      vec4 sparks = texture2D(tSparks, uv);
+      gl_FragColor = vec4(gl_FragColor.rgb + sparks.rgb, min(1.0, gl_FragColor.a + sparks.a));
     }
   `
 };
@@ -345,6 +405,9 @@ export default function TshirtPreview({
   const stateRef = useRef({
     api: null,
     stagedSheet: null,
+    // The palette of the design `stagedSheet` was rendered from, handed to the sparks at the
+    // same moment the sheet commits -- so they change colour with the shirt, never before it.
+    stagedPalette: null,
     hasTexture: false,
     waiting,
     // The hero holds the shirt back until its artwork has painted, so this is a second gate on
@@ -373,6 +436,7 @@ export default function TshirtPreview({
     const sheet = s.stagedSheet;
     s.stagedSheet = null;
     s.api.setSheet(sheet, { animate: true });
+    s.api.setSparkPalette(s.stagedPalette);
   };
 
   // The entrance. Two gates, opened in either order -- the scene has to be up, and the hero
@@ -462,13 +526,14 @@ export default function TshirtPreview({
 
     (async () => {
       try {
-        const [THREE, { GLTFLoader }, { EffectComposer }, { RenderPass }, { ShaderPass }] =
+        const [THREE, { GLTFLoader }, { EffectComposer }, { RenderPass }, { ShaderPass }, { Pass }] =
           await Promise.all([
             import('three'),
             import('three/examples/jsm/loaders/GLTFLoader.js'),
             import('three/examples/jsm/postprocessing/EffectComposer.js'),
             import('three/examples/jsm/postprocessing/RenderPass.js'),
-            import('three/examples/jsm/postprocessing/ShaderPass.js')
+            import('three/examples/jsm/postprocessing/ShaderPass.js'),
+            import('three/examples/jsm/postprocessing/Pass.js')
           ]);
         if (disposed) return;
 
@@ -476,7 +541,16 @@ export default function TshirtPreview({
         // catch below hides the preview instead of leaving a dead canvas.
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-        renderer.setSize(size, size);
+        // An even margin on each side, so the canvas sits on the pixel grid: an odd difference
+        // puts it at a half-pixel offset, which the browser resamples and the shirt goes soft.
+        const canvasSize = size + 2 * Math.round((size * (SWIRL_ROOM - 1)) / 2);
+        renderer.setSize(canvasSize, canvasSize);
+        Object.assign(renderer.domElement.style, {
+          position: 'absolute',
+          left: `${(size - canvasSize) / 2}px`,
+          top: `${(size - canvasSize) / 2}px`,
+          pointerEvents: 'none'
+        });
         // LIGHTING IS CALIBRATED SO THE SHIRT REPRODUCES THE TEXTURE, NOT MERELY SO IT
         // LOOKS LIT. The shirt sits directly beside the same design rendered flat as the
         // page background, so any deviation reads as the two being different colours --
@@ -548,7 +622,9 @@ export default function TshirtPreview({
         renderer.toneMapping = THREE.NoToneMapping;
 
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
+        // 28deg across the shirt's own box, widened to the whole canvas (see SWIRL_ROOM).
+        const fov = (2 * Math.atan((canvasSize / size) * Math.tan((14 * Math.PI) / 180)) * 180) / Math.PI;
+        const camera = new THREE.PerspectiveCamera(fov, 1, 0.05, 50);
         scene.add(new THREE.AmbientLight(0xffffff, AMBIENT));
         const key = new THREE.DirectionalLight(0xffffff, KEY_INTENSITY);
         key.position.set(2, 3, 4);
@@ -611,6 +687,16 @@ export default function TshirtPreview({
         const sphere = box.getBoundingSphere(new THREE.Sphere());
         camera.position.set(0, 0, sphere.radius * 3.1);
         camera.lookAt(0, 0, 0);
+
+        // Its own layer, NOT added to `scene` -- see tshirtSwirl.js for why.
+        const swirl = createTshirtSwirl(THREE, Pass, {
+          camera,
+          radius: sphere.radius,
+          pixelSize: 6 * renderer.getPixelRatio(),
+          // Pure ambient motion, so it sits out prefers-reduced-motion. (The glitch pass itself
+          // predates this and is left as it was.)
+          enabled: !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        });
 
         // Sheen only exists on MeshPhysicalMaterial, and the model ships one of each (a
         // Physical body and a Standard trim mesh -- verified in the .glb), so the Standard
@@ -839,23 +925,59 @@ export default function TshirtPreview({
         // Postprocessing chain for the generate-transition chromatic aberration. The
         // pass stays in the chain at uAmount 0 (visually identity) -- swapping between
         // composer/direct rendering per state isn't worth the branching at this size.
-        const composer = new EffectComposer(renderer);
+        //
+        // The scene target carries a depth texture so the spark layer can test itself against
+        // the garment (the composer clones it for its second buffer, depth texture included).
+        const targetPx = canvasSize * renderer.getPixelRatio();
+        const composer = new EffectComposer(
+          renderer,
+          new THREE.WebGLRenderTarget(targetPx, targetPx, {
+            type: THREE.HalfFloatType,
+            depthTexture: new THREE.DepthTexture(targetPx, targetPx)
+          })
+        );
         composer.setPixelRatio(renderer.getPixelRatio());
-        composer.setSize(size, size);
+        composer.setSize(canvasSize, canvasSize);
         composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(swirl.pass);
         const aberrationPass = new ShaderPass(AberrationShader);
+        aberrationPass.uniforms.uScale.value = canvasSize / size;
+        aberrationPass.uniforms.tSparks.value = swirl.texture;
         composer.addPass(aberrationPass);
         let aberrationTween = null;
+        let strikePending = false;
         // `from` re-strikes the uniform before the tween starts, for a caller that wants a
         // ramp DOWN from a known peak rather than from wherever the effect happens to be
         // sitting (the entrance does -- see revealShirt). It is a direct assignment rather
         // than a second setAberration call with duration 0, which does not work: the two
         // calls land in the same frame and the second kills the first before a zero-duration
         // tween has ticked, so the peak may never be reached at all.
+        //
+        // Any call that RAISES the effect -- a generate starting, or `from` re-striking it --
+        // also strikes a fresh pulse, so every raise ripples however the ambient pulses happen
+        // to fall (see AberrationShader's header). The easing down never strikes one.
+        //
+        // The pulse's start time is stamped by the first frame that actually DRAWS, not here.
+        // A hero Generate kicks off the full-size artwork build on the main thread right after
+        // this runs, and no frame renders until it yields -- measured up to 761ms on a real
+        // click. Stamped here, the pulse would spend that stall invisibly expanding and show
+        // up a third of the way through its life, past its strongest part.
         const setAberration = (value, duration, from) => {
           aberrationTween?.kill();
           stateRef.current.wake?.();
+          if (value > 0 || from !== undefined) {
+            aberrationPass.uniforms.uStrikeShape.value = [
+              Math.random(),
+              Math.random(),
+              Math.random(),
+              Math.random()
+            ];
+            strikePending = true;
+            swirl.strike();
+          }
           if (from !== undefined) aberrationPass.uniforms.uAmount.value = from;
+          // Easing down flings the sparks outward as they fade, over the same span.
+          if (value === 0) swirl.release();
           aberrationTween = gsap.to(aberrationPass.uniforms.uAmount, {
             value,
             duration,
@@ -901,6 +1023,11 @@ export default function TshirtPreview({
           const before = pivot.rotation.y;
           pivot.rotation.y += (dragYaw + targetYaw - pivot.rotation.y) * followRate;
           aberrationPass.uniforms.uTime.value = now * 0.001;
+          if (strikePending) {
+            aberrationPass.uniforms.uStrike.value = now * 0.001;
+            strikePending = false;
+          }
+          swirl.update(now * 0.001);
           composer.render();
           // Idle only once the shirt has stopped moving AND the aberration pass is back at
           // identity -- its uTime drives a live distortion, so a non-zero uAmount means the
@@ -910,7 +1037,9 @@ export default function TshirtPreview({
             !dragging &&
             dragYaw === 0 &&
             Math.abs(pivot.rotation.y - before) < 1e-4 &&
-            aberrationPass.uniforms.uAmount.value < 1e-3;
+            aberrationPass.uniforms.uAmount.value < 1e-3 &&
+            // The sparks' exit outlasts the pass's own ease-down.
+            !swirl.busy(now * 0.001);
           settled = still;
           if (!settled && onScreen) raf = requestAnimationFrame(animate);
         }
@@ -932,7 +1061,9 @@ export default function TshirtPreview({
         io.observe(mount);
         inputCleanups.push(() => io.disconnect());
 
-        stateRef.current.api = { setSheet, setAberration };
+        // Crossfades over the same span as setSheet's texture crossfade.
+        const setSparkPalette = colors => swirl.setPalette(colors, DURATION_SLOW);
+        stateRef.current.api = { setSheet, setAberration, setSparkPalette };
         // If a generate is already in flight when the scene comes up, join it mid-state.
         if (stateRef.current.waiting) setAberration(ABERRATION_PEAK, DURATION_FAST);
         // The white tee is already on the canvas -- show the shirt now. hasTexture is set
@@ -952,6 +1083,7 @@ export default function TshirtPreview({
           texture.dispose();
           envMap.dispose(); // PMREM render target texture -- not owned by any material
           materials.forEach(mat => mat.dispose());
+          swirl.dispose();
           composer.dispose?.();
           renderer.dispose();
           if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
@@ -1094,6 +1226,7 @@ export default function TshirtPreview({
         });
         [base, body, sleeve].forEach(b => b.close());
         stateRef.current.stagedSheet = canvas;
+        stateRef.current.stagedPalette = resolvedPalette(currentDesign);
         commitStagedSheet();
       } catch {
         /* render assets mid-load or bitmap decode failure -- keep the previous texture */
