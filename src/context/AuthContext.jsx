@@ -20,6 +20,12 @@ const AVATAR_SIZE = 256;
 
 export function AuthProvider({ children }) {
   const navigate = useNavigate();
+  // A NEW OBJECT every time supabase-js announces the session, and it re-announces it (as
+  // SIGNED_IN, with a freshly parsed copy of the same user) every time the tab becomes visible.
+  // So an effect that should run once per account must key on `user?.id`, never on `user`: three
+  // did, and each one re-ran on every tab switch -- this file's profile fetch, AccountPage's data
+  // load (which overwrote unsaved edits) and ArtworkPickerModal's reset (which dropped the
+  // customer's place and selection).
   const [user, setUser] = useState(null);
   // Has Supabase told us who (if anyone) is signed in yet? `user` starts null, which is
   // indistinguishable from a real signed-out session -- so any surface that renders a
@@ -111,10 +117,9 @@ export function AuthProvider({ children }) {
   // should have had one generated, even Google users"). Anyone it already happened to gets one
   // the next time they load any page signed in.
   //
-  // Keyed on the user's ID, not the user object: supabase-js announces SIGNED_IN again, with a
-  // freshly parsed user, every time the tab becomes visible, so keying on the object re-fetched
-  // the profile on every tab switch -- and, now that a fetch can start an upload, would be one
-  // more way to ask for a second avatar while the first is still uploading.
+  // Keyed on the user's ID (see `user` above): keying on the object re-fetched the profile on
+  // every tab switch -- and, now that a fetch can start an upload, would be one more way to ask
+  // for a second avatar while the first is still uploading.
   const userId = user?.id ?? null;
   useEffect(() => {
     signedInId.current = userId;

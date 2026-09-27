@@ -3082,6 +3082,37 @@ Verified with a harness that stubs the refresh at a fixed delay and samples the 
 frame: header goes `(withheld)` → `Account`, buy goes `Buy now [disabled]` → `Buy now`, and
 neither ever asserts a signed-out state.
 
+### `user` is a NEW OBJECT on every tab switch -- key per-account work on `user?.id` (2026-09-27)
+supabase-js re-announces the session every time the tab becomes visible (`_onVisibilityChanged`
+→ `_recoverAndRefresh` → `SIGNED_IN`, with a freshly parsed copy of the same user), so `user`
+changes identity on every tab switch without anything about the account changing. Three effects
+were keyed on the object, and each re-ran on every switch -- measured over three switches:
+AuthContext's profile fetch (3 refetches); AccountPage's data load (3 refetches each of profile,
+stats and active orders, **plus 3 Printful preview calls**, and the refetched profile overwrote
+any unsaved display name or username); and ArtworkPickerModal's open-reset (a customer on
+Public page 2 with a design selected came back to My designs page 1 with nothing selected). All
+three key on the id now; the note on `user` in AuthContext says so for the next one.
+Accepted consequence: the Account page no longer refreshes order statuses when you return to
+the tab. That was never designed (nothing documented it) and it cost Printful calls per switch;
+any visit or reload still loads them fresh.
+**The Account page also outlived the account it was loaded for**, a separate fault found the
+same day. Signing out swaps the sign-in form in on the SAME instance, so the next person to sign
+in on that tab inherited the last one's state. Measured with two mock accounts: the sign-in form
+still held the previous email **and password** (pressing Sign in went straight back into that
+account), the previous name and username sat in the profile form until the new profile landed,
+and the order history -- fetched once and cached -- showed the previous account's orders even
+after the new person opened that tab themselves. Now every piece of per-account state (both
+forms included) returns to a fresh visit's values whenever the signed-in account changes.
+Two things worth not re-deriving:
+(1) **The reset runs DURING RENDER (`stateOwner`), not in an effect.** An effect runs after the
+commit it follows, so the new account's first frame would still paint the old account's data.
+Checked with a MutationObserver plus a per-frame check while the second account was signed in:
+nothing from the first account ever appeared.
+(2) **It moves no entrance animation.** Recording every `animationstart` on a cold load, a
+sign-out and a form sign-in gives identical counts before and after, with no element animating
+twice -- which matters on this page, whose cascade has replayed before when late state shifted
+`:nth-child` (see the signed-in `check-route-intro-once.mjs` notes).
+
 ### Curated palettes replace the ADD 🌈 button (`render/palettePresets.js`, 2026-08-27)
 The Color tab's second button is now a scrolling strip of named palette chips.
 **`src/render/palettePresets.js` is the whole editable surface** — an array of
@@ -3733,11 +3764,9 @@ by the shared design as the odds the panel last published.
   never returns keeps the placeholder, and only a server-side backfill (service role, a Node
   render of `generateAvatar`) would reach them.
   Three things worth not re-deriving:
-  (1) **The profile effect is keyed on the user's ID, not the user object.** supabase-js
-  re-announces `SIGNED_IN` with a freshly parsed user every time the tab becomes visible
-  (`_recoverAndRefresh`), so an object-keyed effect re-runs on every tab switch -- measured: one
-  extra profile fetch per switch before, none now. On the old /account path that also meant a
-  slow first upload plus two tab switches started **3** separate avatars.
+  (1) **The profile effect is keyed on the user's ID, not the user object**, which is replaced
+  on every tab switch (see "`user` is a NEW OBJECT on every tab switch"). On the old /account
+  path, a slow first upload plus two tab switches started **3** separate avatars.
   (2) **One job per user, joined rather than repeated** (`makeAvatar`), and it is registered
   BEFORE it starts: an async function runs synchronously to its first await, so a render that
   threw there would otherwise reach `finally` before the job existed and leave the button

@@ -210,6 +210,10 @@ export default function AccountPage() {
   // while auth is unresolved, a stored session means "draw the account layout" -- see
   // lib/sessionHint.js. Arriving from another page never hit this: auth had already resolved.
   const expectingUser = !user && !authResolved && hasStoredSession();
+  // WHO is signed in, as opposed to the user OBJECT, which supabase-js replaces with a freshly
+  // parsed copy every time the tab becomes visible again. Anything here that should happen once
+  // per account keys on this.
+  const userId = user?.id ?? null;
   // noindex: this is either a private, per-user account view or a sign-in form -- neither
   // is content a search result should ever point to.
   usePageMeta({ title: user ? 'Account' : 'Sign in', path: '/account', noindex: true });
@@ -254,8 +258,55 @@ export default function AccountPage() {
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyError, setHistoryError] = useState(null);
 
+  // Everything above describes ONE account, and this page outlives the account it was loaded
+  // for: signing out here swaps the sign-in form in on this same instance, and the next person
+  // signs in on it. Without this, measured, they inherited the last person's data -- the sign-in
+  // form still held the previous email AND password (pressing Sign in went straight back into
+  // that account), the previous name and username sat in the profile form until the new profile
+  // arrived, and the order history, fetched once and cached, showed the previous account's
+  // orders even after the new person opened that tab themselves.
+  //
+  // So when the signed-in account changes -- to nobody, or to someone else -- all of it goes back
+  // to how a fresh visit starts. Done DURING RENDER rather than in an effect, which is what
+  // React offers for adjusting state when an input changes: an effect runs after the commit it
+  // follows, so the new account's first frame would still paint the old account's data.
+  // In-flight flags (busy, profileBusy, resetBusy) are left to the handlers that own them.
+  const [stateOwner, setStateOwner] = useState(userId);
+  if (stateOwner !== userId) {
+    setStateOwner(userId);
+    setMode('signin');
+    setEmail('');
+    setPassword('');
+    setError(null);
+    setMessage(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setResetError(null);
+    setUsername('');
+    setDisplayName('');
+    setProfileLoading(true);
+    setProfileError(null);
+    setProfileSaved(false);
+    setStats(null);
+    setActiveOrders([]);
+    setActiveOrdersLoading(true);
+    setOrderPreviews({});
+    setPreviewsResolved(false);
+    setOrderTab('active');
+    setHistoryOrders([]);
+    setHistoryLoaded(false);
+    setHistoryLoading(false);
+    setHistoryLoadingMore(false);
+    setHistoryHasMore(false);
+    setHistoryError(null);
+  }
+
+  // Keyed on the account, not the user object: that object is replaced on every tab switch, and
+  // keying on it re-ran all of this each time -- a profile, stats and orders refetch plus one
+  // Printful preview call per active order, and the refetched profile overwrote any unsaved edit
+  // in the form below.
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
     // The avatar deliberately is NOT read from this fetch: AuthContext owns it, and this
     // request can be answered from before an upload that AuthContext has since finished, which
@@ -295,7 +346,7 @@ export default function AccountPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId]);
 
   // Lazy-loaded on first visit to the History tab -- a signed-in user who never checks it
   // never pays for the extra query. Guarded by historyLoaded so switching tabs back and
