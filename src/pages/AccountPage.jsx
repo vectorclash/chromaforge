@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import GoogleIcon from '../components/buttons/GoogleIcon';
@@ -14,12 +14,9 @@ import {
   requestPasswordReset,
   updatePassword
 } from '../lib/auth';
-import { getMyProfile, updateMyProfile, uploadMyAvatar } from '../lib/profiles';
+import { getMyProfile, updateMyProfile } from '../lib/profiles';
 import { getMyDesignStats } from '../lib/designs';
 import { getActiveOrderPreviews, listMyActiveOrders, listMyOrderHistory } from '../lib/checkout';
-import { generateAvatar } from '../render/generateAvatar';
-import renderAvatar from '../render/renderAvatar';
-import { randomSeed } from '../render/prng';
 import { useAuth } from '../context/AuthContext';
 import { hasStoredSession } from '../lib/sessionHint';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -29,8 +26,6 @@ import { humanError } from '../lib/errorMessage';
 // Where the profile/stats/orders block sits among PageContainer's children: [banners, block].
 // Its three cards continue the page's rhythm from there rather than restarting at zero.
 const CARDS_SECTION = 1;
-
-const AVATAR_SIZE = 256;
 
 // 'pending' is deliberately excluded -- neither listMyActiveOrders() nor listMyOrderHistory()
 // ever return it (see lib/checkout.js), it's an implementation detail of checkout, not a
@@ -192,13 +187,18 @@ function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
 }
 
 export default function AccountPage() {
-  // avatarUrl/setAvatarUrl come from AuthContext (not local state) so a regenerate here
-  // is immediately reflected in SiteHeader's tiny avatar too, without a second fetch.
+  // The avatar lives in AuthContext (not local state) so a regenerate here is immediately
+  // reflected in SiteHeader's tiny avatar too, and because AuthContext is also what gives a
+  // profile its FIRST avatar, on whichever page its owner is signed in on -- this page is not
+  // somewhere a new user necessarily ever goes. Reading its busy state here is what stops the
+  // button starting a second avatar while that first one is still uploading.
   const {
     user,
     authResolved,
     avatarUrl,
-    setAvatarUrl,
+    avatarBusy,
+    avatarError,
+    regenerateAvatar,
     recoveryMode,
     clearRecoveryMode,
     showNotice
@@ -210,6 +210,10 @@ export default function AccountPage() {
   // while auth is unresolved, a stored session means "draw the account layout" -- see
   // lib/sessionHint.js. Arriving from another page never hit this: auth had already resolved.
   const expectingUser = !user && !authResolved && hasStoredSession();
+  // WHO is signed in, as opposed to the user OBJECT, which supabase-js replaces with a freshly
+  // parsed copy every time the tab becomes visible again. Anything here that should happen once
+  // per account keys on this.
+  const userId = user?.id ?? null;
   // noindex: this is either a private, per-user account view or a sign-in form -- neither
   // is content a search result should ever point to.
   usePageMeta({ title: user ? 'Account' : 'Sign in', path: '/account', noindex: true });
@@ -238,8 +242,6 @@ export default function AccountPage() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileError, setProfileError] = useState(null);
   const [profileSaved, setProfileSaved] = useState(false);
-  const [avatarBusy, setAvatarBusy] = useState(false);
-  const [avatarError, setAvatarError] = useState(null);
   const [stats, setStats] = useState(null);
   const [activeOrders, setActiveOrders] = useState([]);
   const [activeOrdersLoading, setActiveOrdersLoading] = useState(true);
@@ -256,37 +258,64 @@ export default function AccountPage() {
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyError, setHistoryError] = useState(null);
 
-  // Renders a brand-new avatar off-canvas and uploads it, replacing whatever's there now
-  // (a Google photo, a previous generated one, or nothing). Used both by the "Regenerate"
-  // button and, below, to assign a first avatar automatically when a profile has none.
-  const regenerateAvatar = useCallback(async () => {
-    setAvatarBusy(true);
-    setAvatarError(null);
-    try {
-      const config = generateAvatar(randomSeed(), AVATAR_SIZE);
-      const canvas = renderAvatar(config);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-      canvas.width = 0;
-      canvas.height = 0;
-      const url = await uploadMyAvatar(blob);
-      setAvatarUrl(url);
-    } catch (err) {
-      setAvatarError(humanError(err, "We couldn't update your avatar. Try again."));
-    } finally {
-      setAvatarBusy(false);
-    }
-  }, []);
+  // Everything above describes ONE account, and this page outlives the account it was loaded
+  // for: signing out here swaps the sign-in form in on this same instance, and the next person
+  // signs in on it. Without this, measured, they inherited the last person's data -- the sign-in
+  // form still held the previous email AND password (pressing Sign in went straight back into
+  // that account), the previous name and username sat in the profile form until the new profile
+  // arrived, and the order history, fetched once and cached, showed the previous account's
+  // orders even after the new person opened that tab themselves.
+  //
+  // So when the signed-in account changes -- to nobody, or to someone else -- all of it goes back
+  // to how a fresh visit starts. Done DURING RENDER rather than in an effect, which is what
+  // React offers for adjusting state when an input changes: an effect runs after the commit it
+  // follows, so the new account's first frame would still paint the old account's data.
+  // In-flight flags (busy, profileBusy, resetBusy) are left to the handlers that own them.
+  const [stateOwner, setStateOwner] = useState(userId);
+  if (stateOwner !== userId) {
+    setStateOwner(userId);
+    setMode('signin');
+    setEmail('');
+    setPassword('');
+    setError(null);
+    setMessage(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setResetError(null);
+    setUsername('');
+    setDisplayName('');
+    setProfileLoading(true);
+    setProfileError(null);
+    setProfileSaved(false);
+    setStats(null);
+    setActiveOrders([]);
+    setActiveOrdersLoading(true);
+    setOrderPreviews({});
+    setPreviewsResolved(false);
+    setOrderTab('active');
+    setHistoryOrders([]);
+    setHistoryLoaded(false);
+    setHistoryLoading(false);
+    setHistoryLoadingMore(false);
+    setHistoryHasMore(false);
+    setHistoryError(null);
+  }
 
+  // Keyed on the account, not the user object: that object is replaced on every tab switch, and
+  // keying on it re-ran all of this each time -- a profile, stats and orders refetch plus one
+  // Printful preview call per active order, and the refetched profile overwrote any unsaved edit
+  // in the form below.
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
+    // The avatar deliberately is NOT read from this fetch: AuthContext owns it, and this
+    // request can be answered from before an upload that AuthContext has since finished, which
+    // would put the placeholder back over a real avatar.
     getMyProfile()
       .then(profile => {
         if (cancelled) return;
         setUsername(profile.username || '');
         setDisplayName(profile.display_name || '');
-        setAvatarUrl(profile.avatar_url || null);
-        if (!profile.avatar_url) regenerateAvatar();
       })
       .catch(err => !cancelled && setProfileError(humanError(err, "We couldn't load your profile.")))
       .finally(() => !cancelled && setProfileLoading(false));
@@ -317,7 +346,7 @@ export default function AccountPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, regenerateAvatar]);
+  }, [userId]);
 
   // Lazy-loaded on first visit to the History tab -- a signed-in user who never checks it
   // never pays for the extra query. Guarded by historyLoaded so switching tabs back and

@@ -6,8 +6,10 @@ import { supabase, isSupabaseConfigured } from './supabase';
 // available. avatar_url is deliberately NOT -- the trigger stopped adopting provider avatars
 // in 0015_never_adopt_provider_avatars.sql (Chromaforge avatars are generated art, and a
 // Google-hosted photo means every gallery visitor's browser fetches an image from Google).
-// It stays null until AccountPage generates one, which it does automatically for any profile
-// that has none.
+// It stays null until AuthContext generates one, which it does automatically for any profile
+// that has none, on whichever page its owner is signed in on -- not only on the Account page,
+// which a new user arriving from a Google sign-in or a confirmation link does not pass through
+// on the way in.
 
 function client() {
   if (!isSupabaseConfigured) {

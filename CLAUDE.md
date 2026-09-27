@@ -2473,9 +2473,9 @@ Conventions the audit settled, worth holding:
   (4) **One Playwright CONTEXT, not `browser.newPage()`** -- that makes a fresh context each
   time, so the session in localStorage would be gone on the next page and every "signed-in"
   assertion would silently be measuring a signed-out page.
-  (5) **Loading /account is only read-only for a profile that already HAS an avatar** --
-  AccountPage generates and uploads one for any profile with none. Check before running, not
-  after.
+  (5) **Signing in at all is only read-only for a profile that already HAS an avatar** -- the
+  app generates and uploads one for any profile with none, on the first page it loads signed in
+  (AuthContext; this used to be /account only). Check before running, not after.
   (6) **THE CHECK COULD PASS VACUOUSLY, and did.** Pointed at a dead server it reported 11/11
   ok on zero animations. Cold route loads now assert a MINIMUM start count as well as a
   maximum; an overlay close or an idle window is legitimately zero, so only the loads set it.
@@ -3081,6 +3081,37 @@ ordinary way to reach it.
 Verified with a harness that stubs the refresh at a fixed delay and samples the control every
 frame: header goes `(withheld)` → `Account`, buy goes `Buy now [disabled]` → `Buy now`, and
 neither ever asserts a signed-out state.
+
+### `user` is a NEW OBJECT on every tab switch -- key per-account work on `user?.id` (2026-09-27)
+supabase-js re-announces the session every time the tab becomes visible (`_onVisibilityChanged`
+→ `_recoverAndRefresh` → `SIGNED_IN`, with a freshly parsed copy of the same user), so `user`
+changes identity on every tab switch without anything about the account changing. Three effects
+were keyed on the object, and each re-ran on every switch -- measured over three switches:
+AuthContext's profile fetch (3 refetches); AccountPage's data load (3 refetches each of profile,
+stats and active orders, **plus 3 Printful preview calls**, and the refetched profile overwrote
+any unsaved display name or username); and ArtworkPickerModal's open-reset (a customer on
+Public page 2 with a design selected came back to My designs page 1 with nothing selected). All
+three key on the id now; the note on `user` in AuthContext says so for the next one.
+Accepted consequence: the Account page no longer refreshes order statuses when you return to
+the tab. That was never designed (nothing documented it) and it cost Printful calls per switch;
+any visit or reload still loads them fresh.
+**The Account page also outlived the account it was loaded for**, a separate fault found the
+same day. Signing out swaps the sign-in form in on the SAME instance, so the next person to sign
+in on that tab inherited the last one's state. Measured with two mock accounts: the sign-in form
+still held the previous email **and password** (pressing Sign in went straight back into that
+account), the previous name and username sat in the profile form until the new profile landed,
+and the order history -- fetched once and cached -- showed the previous account's orders even
+after the new person opened that tab themselves. Now every piece of per-account state (both
+forms included) returns to a fresh visit's values whenever the signed-in account changes.
+Two things worth not re-deriving:
+(1) **The reset runs DURING RENDER (`stateOwner`), not in an effect.** An effect runs after the
+commit it follows, so the new account's first frame would still paint the old account's data.
+Checked with a MutationObserver plus a per-frame check while the second account was signed in:
+nothing from the first account ever appeared.
+(2) **It moves no entrance animation.** Recording every `animationstart` on a cold load, a
+sign-out and a form sign-in gives identical counts before and after, with no element animating
+twice -- which matters on this page, whose cascade has replayed before when late state shifted
+`:nth-child` (see the signed-in `check-route-intro-once.mjs` notes).
 
 ### Curated palettes replace the ADD 🌈 button (`render/palettePresets.js`, 2026-08-27)
 The Color tab's second button is now a scrolling strip of named palette chips.
@@ -3721,8 +3752,39 @@ by the shared design as the odds the panel last published.
   `lh3.googleusercontent.com` URL. Migration `0015_never_adopt_provider_avatars.sql` stops
   that and nulls the ones already stored; `display_name` is still taken from OAuth metadata
   (a string we store, not a third-party asset every visitor's browser must fetch).
-  AccountPage already generates and uploads an avatar for any profile with none, so null is
-  the route INTO the generated-avatar path, not a gap. **`AuthorBadge.jsx` keeps its own
+  **A profile with no avatar gets a generated one on WHICHEVER page its owner is signed in on
+  (`AuthContext`), not on the Account page** (fixed 2026-09-27, Aaron: users were saving to the
+  public gallery with a blank avatar). 0015 reasoned that "AccountPage generates one for any
+  profile with none, so null is the route into the generated-avatar path", and that did not
+  hold for new users: a Google sign-in and an email-confirmation link both redirect to the
+  ORIGIN (`lib/auth.js`), so the first signed-in page is `/`, and /account is somewhere they may
+  never go. Reproduced on a production build against a mock Supabase (every request intercepted
+  in Playwright): a Google-style landing on `/` made **0** uploads on the old code, **1** now.
+  Anyone it already happened to gets one the next time they load any page signed in; someone who
+  never returns is reached by **`render-service/backfill-avatars.mjs`** (service role, from
+  `render-service/`: `--dry-run` first, which writes the exact images to a gitignored preview
+  folder, then `--limit=1` as a canary, then the rest; `--undo=<record>` reverses a run). It has
+  no ordering requirement against the frontend deploy. It runs the app's REAL generator, bundled
+  in memory by esbuild the way `build.js` does (render-lib.js is untouched), and matches Chromium
+  to within 3-4/255 per channel for the same seed; the seed comes from the user id, so the dry
+  run's previews are byte-for-byte what gets uploaded. It only ever writes a profile whose
+  avatar_url is STILL null at the moment of writing, and verifies each result through its public
+  URL. Tested end to end against a local mock of PostgREST/Storage/Auth-admin (49 checks,
+  including the app racing it and failed uploads), and each safety check was seen to fail when
+  broken on purpose -- but it has **not yet been run against the real project**.
+  Three things worth not re-deriving:
+  (1) **The profile effect is keyed on the user's ID, not the user object**, which is replaced
+  on every tab switch (see "`user` is a NEW OBJECT on every tab switch"). On the old /account
+  path, a slow first upload plus two tab switches started **3** separate avatars.
+  (2) **One job per user, joined rather than repeated** (`makeAvatar`), and it is registered
+  BEFORE it starts: an async function runs synchronously to its first await, so a render that
+  threw there would otherwise reach `finally` before the job existed and leave the button
+  disabled for the rest of the visit.
+  (3) **AccountPage must never write the avatar from its own profile fetch.** That request can
+  be answered from before an upload AuthContext has since finished, which would put the
+  placeholder back over a real avatar. It reads `avatarBusy`/`avatarError`/`regenerateAvatar`
+  from the context, so its button shows "Generating…" for the automatic job too.
+  **`AuthorBadge.jsx` keeps its own
   self-hosted-origin check on top of this by design** — `avatar_url` is a free-text column
   and RLS lets a user update their own profile row, so the client must never assume the
   value came from the trigger. That check matches the project's own Storage origin with

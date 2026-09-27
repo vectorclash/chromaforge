@@ -112,14 +112,20 @@ export default function ArtworkPickerModal({ open, onClose, onSelect, inUseId = 
   // Fresh state every time the modal opens: a save/delete elsewhere in the app would
   // otherwise show a stale library, and a previous visit's half-made selection shouldn't
   // linger. Cheap -- the first page is 8 rows + 8 thumbnails.
+  //
+  // Keyed on the signed-in account, never the user object: supabase-js replaces that object
+  // every time the tab becomes visible, so keying on it ran this reset on every tab switch --
+  // measured, someone on Public page 2 with a design picked came back to My designs page 1 with
+  // nothing selected.
+  const userId = user?.id ?? null;
   useEffect(() => {
     if (!open) return;
     fetchTokenRef.current++;
-    setTab(user ? 'mine' : 'public');
+    setTab(userId ? 'mine' : 'public');
     setTabState({ mine: EMPTY_TAB, public: EMPTY_TAB });
     setPending(null);
     setSlideDir(null);
-  }, [open, user]);
+  }, [open, userId]);
 
   const state = tabState[tab];
   const updateTab = (which, patch) =>
