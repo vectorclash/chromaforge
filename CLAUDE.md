@@ -3771,7 +3771,10 @@ by the shared design as the odds the panel last published.
   avatar_url is STILL null at the moment of writing, and verifies each result through its public
   URL. Tested end to end against a local mock of PostgREST/Storage/Auth-admin (49 checks,
   including the app racing it and failed uploads), and each safety check was seen to fail when
-  broken on purpose -- but it has **not yet been run against the real project**.
+  broken on purpose. **Run on the real project 2026-09-27**: 2 of 4 profiles had no avatar, both
+  Google sign-ups with public designs (the exact case above); a `--limit=1` canary then the rest,
+  both verified on the live gallery in a browser (image loaded, not the placeholder), and a
+  re-run now reports nothing to do. The two run records sit gitignored in `render-service/`.
   Three things worth not re-deriving:
   (1) **The profile effect is keyed on the user's ID, not the user object**, which is replaced
   on every tab switch (see "`user` is a NEW OBJECT on every tab switch"). On the old /account
