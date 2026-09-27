@@ -29,6 +29,10 @@ yarn-error.log*
 
 # One-off backfill rollback snapshots (scripts/backfill-*.mjs) -- real row data, kept locally
 geometry-chance-rollback-*.json
+# render-service/backfill-avatars.mjs: each run's record (user ids and names -- what --undo
+# reads) and a dry run's preview images
+render-service/avatar-backfill-*.json
+render-service/avatar-backfill-preview/
 
 # Output of render-service/spike-test.js (regenerated on every run)
 render-service/spike-*.png

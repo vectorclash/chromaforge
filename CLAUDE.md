@@ -3761,8 +3761,17 @@ by the shared design as the odds the panel last published.
   never go. Reproduced on a production build against a mock Supabase (every request intercepted
   in Playwright): a Google-style landing on `/` made **0** uploads on the old code, **1** now.
   Anyone it already happened to gets one the next time they load any page signed in; someone who
-  never returns keeps the placeholder, and only a server-side backfill (service role, a Node
-  render of `generateAvatar`) would reach them.
+  never returns is reached by **`render-service/backfill-avatars.mjs`** (service role, from
+  `render-service/`: `--dry-run` first, which writes the exact images to a gitignored preview
+  folder, then `--limit=1` as a canary, then the rest; `--undo=<record>` reverses a run). It has
+  no ordering requirement against the frontend deploy. It runs the app's REAL generator, bundled
+  in memory by esbuild the way `build.js` does (render-lib.js is untouched), and matches Chromium
+  to within 3-4/255 per channel for the same seed; the seed comes from the user id, so the dry
+  run's previews are byte-for-byte what gets uploaded. It only ever writes a profile whose
+  avatar_url is STILL null at the moment of writing, and verifies each result through its public
+  URL. Tested end to end against a local mock of PostgREST/Storage/Auth-admin (49 checks,
+  including the app racing it and failed uploads), and each safety check was seen to fail when
+  broken on purpose -- but it has **not yet been run against the real project**.
   Three things worth not re-deriving:
   (1) **The profile effect is keyed on the user's ID, not the user object**, which is replaced
   on every tab switch (see "`user` is a NEW OBJECT on every tab switch"). On the old /account
