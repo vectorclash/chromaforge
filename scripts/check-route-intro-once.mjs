@@ -198,8 +198,9 @@ const report = (label, got, maxRoots, min = 0) => {
  *
  * IT IS STRICTLY READ-ONLY, deliberately, because it runs against a REAL account with real
  * orders: it loads pages, switches tabs and opens overlays, and touches no control that
- * saves, deletes, signs out or buys. Loading /account is only read-only for a profile that
- * already HAS an avatar -- AccountPage generates and uploads one for any profile with none.
+ * saves, deletes, signs out or buys. Signing in at all is only read-only for a profile that
+ * already HAS an avatar -- the app generates and uploads one for any profile with none, on the
+ * first page it loads signed in (AuthContext), not only on /account.
  *
  * TWO PATHS IT CANNOT REACH, and the reason is DATA rather than code: an account with no
  * saved designs shows My designs' empty state instead of a card grid, and an account with no
@@ -233,7 +234,7 @@ const mintSession = async email => {
   /*
    * REFUSE TO RUN AGAINST AN EMAIL THAT DOES NOT ALREADY EXIST. This is not a convenience
    * check -- `generate_link` with type `magiclink` SILENTLY CREATES the user if the address is
-   * unknown, and the signup trigger then makes it a profile, and AccountPage generates and
+   * unknown, and the signup trigger then makes it a profile, and the app generates and
    * uploads an avatar for it. That is exactly what happened the first time this ran
    * (2026-09-09): it was pointed at an address that looked like the owner's but was not the
    * app account, conjured an empty account, and reported "0 saved designs, no orders" as a

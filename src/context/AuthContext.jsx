@@ -1,8 +1,11 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { onAuthChange } from '../lib/auth';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { getMyProfile } from '../lib/profiles';
+import { getMyProfile, uploadMyAvatar } from '../lib/profiles';
+import { generateAvatar } from '../render/generateAvatar';
+import renderAvatar from '../render/renderAvatar';
+import { randomSeed } from '../render/prng';
 import { useToastNotice } from '../hooks/useToastNotice';
 import Toast from '../components/ui/Toast';
 import { humanError } from '../lib/errorMessage';
@@ -12,6 +15,8 @@ import { humanError } from '../lib/errorMessage';
 // regardless of which route the OAuth/email-confirm/password-recovery link lands on.
 
 const AuthContext = createContext(null);
+
+const AVATAR_SIZE = 256;
 
 export function AuthProvider({ children }) {
   const navigate = useNavigate();
@@ -33,6 +38,13 @@ export function AuthProvider({ children }) {
   const [authResolved, setAuthResolved] = useState(false);
   const [notice, setNotice] = useToastNotice(); // { type: 'success'|'error', message }
   const [avatarUrl, setAvatarUrl] = useState(null);
+  // True while an avatar is being made, whether the automatic first one below or the Account
+  // page's Regenerate button, so that button cannot start a second one on top of it.
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState(null);
+  const avatarJob = useRef(null); // { userId, promise } while one is in flight
+  // Whose avatar a result that lands late may still be shown as -- nobody's after a sign-out.
+  const signedInId = useRef(null);
   // profiles.is_admin. A UI-only flag -- `profiles` is world-readable, so this conceals
   // admin-only controls rather than protecting anything. Nothing privileged hangs off it;
   // anything that ever does must check it server-side instead.
@@ -47,13 +59,68 @@ export function AuthProvider({ children }) {
   const awaitingRedirect = useRef(false);
   const awaitingRecovery = useRef(false);
 
-  // Fetched once here (rather than only inside AccountPage) so the tiny avatar in
-  // SiteHeader has something to show on every route, not just after visiting /account.
-  // AccountPage still owns generating/uploading a new one -- it just mirrors the result
-  // into this shared value via setAvatarUrl so the header picks it up immediately.
+  // Renders a brand-new avatar off-canvas and uploads it, replacing whatever the profile has
+  // now. One per user at a time: asking again while one is in flight joins it, rather than
+  // uploading a second random avatar over the first.
+  //
+  // The job is registered BEFORE it starts because an async function runs synchronously up to
+  // its first await: a render that threw there would reach `finally` before the job existed,
+  // and leave it registered as in flight, with the button disabled, for the rest of the visit.
+  const makeAvatar = useCallback(userId => {
+    if (avatarJob.current?.userId === userId) return avatarJob.current.promise;
+    const job = { userId, promise: null };
+    avatarJob.current = job;
+    setAvatarBusy(true);
+    setAvatarError(null);
+    job.promise = (async () => {
+      try {
+        const canvas = renderAvatar(generateAvatar(randomSeed(), AVATAR_SIZE));
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+        canvas.width = 0;
+        canvas.height = 0;
+        // A real outcome rather than a defensive one: WebKit returns null from toBlob under
+        // memory pressure (see DisplayCanvas's build path), and uploading null fails with an
+        // error that says nothing about why.
+        if (!blob) throw new Error('The avatar canvas produced no image.');
+        const url = await uploadMyAvatar(blob);
+        if (signedInId.current === userId) setAvatarUrl(url);
+      } catch (err) {
+        if (signedInId.current === userId) {
+          setAvatarError(humanError(err, "We couldn't generate your avatar. Try again."));
+        }
+      } finally {
+        if (avatarJob.current === job) {
+          avatarJob.current = null;
+          setAvatarBusy(false);
+        }
+      }
+    })();
+    return job.promise;
+  }, []);
+
+  // Fetched here (rather than only inside AccountPage) so the tiny avatar in SiteHeader has
+  // something to show on every route -- and so a profile with NO avatar gets one on whichever
+  // page its owner is signed in on.
+  //
+  // That second half used to live in AccountPage, which generated one whenever it found none,
+  // and it looked complete. It was not: a Google sign-in and an email-confirmation link both
+  // return to the site's ORIGIN (see lib/auth.js), so a new user's first signed-in page is the
+  // homepage, and the Account page is somewhere they may never go. Ever since provider avatars
+  // stopped being adopted (0015_never_adopt_provider_avatars.sql), that left new users saving
+  // designs to the public gallery under the hexagon placeholder (Aaron, 2026-09-27: "New users
+  // should have had one generated, even Google users"). Anyone it already happened to gets one
+  // the next time they load any page signed in.
+  //
+  // Keyed on the user's ID, not the user object: supabase-js announces SIGNED_IN again, with a
+  // freshly parsed user, every time the tab becomes visible, so keying on the object re-fetched
+  // the profile on every tab switch -- and, now that a fetch can start an upload, would be one
+  // more way to ask for a second avatar while the first is still uploading.
+  const userId = user?.id ?? null;
   useEffect(() => {
-    if (!user) {
+    signedInId.current = userId;
+    if (!userId) {
       setAvatarUrl(null);
+      setAvatarError(null);
       setIsAdmin(false);
       return;
     }
@@ -63,12 +130,17 @@ export function AuthProvider({ children }) {
         if (cancelled) return;
         setAvatarUrl(profile.avatar_url || null);
         setIsAdmin(profile.is_admin === true);
+        if (!profile.avatar_url) makeAvatar(userId);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userId, makeAvatar]);
+
+  const regenerateAvatar = useCallback(() => {
+    if (userId) makeAvatar(userId);
+  }, [userId, makeAvatar]);
 
   // Supabase confirmation/OAuth/recovery links land back with tokens in the URL hash (or
   // an error_description if the link expired/was reused). supabase-js consumes the hash
@@ -131,7 +203,9 @@ export function AuthProvider({ children }) {
         authResolved,
         isAdmin,
         avatarUrl,
-        setAvatarUrl,
+        avatarBusy,
+        avatarError,
+        regenerateAvatar,
         recoveryMode,
         clearRecoveryMode: () => setRecoveryMode(false),
         showNotice: setNotice

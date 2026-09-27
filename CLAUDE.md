@@ -2473,9 +2473,9 @@ Conventions the audit settled, worth holding:
   (4) **One Playwright CONTEXT, not `browser.newPage()`** -- that makes a fresh context each
   time, so the session in localStorage would be gone on the next page and every "signed-in"
   assertion would silently be measuring a signed-out page.
-  (5) **Loading /account is only read-only for a profile that already HAS an avatar** --
-  AccountPage generates and uploads one for any profile with none. Check before running, not
-  after.
+  (5) **Signing in at all is only read-only for a profile that already HAS an avatar** -- the
+  app generates and uploads one for any profile with none, on the first page it loads signed in
+  (AuthContext; this used to be /account only). Check before running, not after.
   (6) **THE CHECK COULD PASS VACUOUSLY, and did.** Pointed at a dead server it reported 11/11
   ok on zero animations. Cold route loads now assert a MINIMUM start count as well as a
   maximum; an overlay close or an idle window is legitimately zero, so only the loads set it.
@@ -3721,8 +3721,32 @@ by the shared design as the odds the panel last published.
   `lh3.googleusercontent.com` URL. Migration `0015_never_adopt_provider_avatars.sql` stops
   that and nulls the ones already stored; `display_name` is still taken from OAuth metadata
   (a string we store, not a third-party asset every visitor's browser must fetch).
-  AccountPage already generates and uploads an avatar for any profile with none, so null is
-  the route INTO the generated-avatar path, not a gap. **`AuthorBadge.jsx` keeps its own
+  **A profile with no avatar gets a generated one on WHICHEVER page its owner is signed in on
+  (`AuthContext`), not on the Account page** (fixed 2026-09-27, Aaron: users were saving to the
+  public gallery with a blank avatar). 0015 reasoned that "AccountPage generates one for any
+  profile with none, so null is the route into the generated-avatar path", and that did not
+  hold for new users: a Google sign-in and an email-confirmation link both redirect to the
+  ORIGIN (`lib/auth.js`), so the first signed-in page is `/`, and /account is somewhere they may
+  never go. Reproduced on a production build against a mock Supabase (every request intercepted
+  in Playwright): a Google-style landing on `/` made **0** uploads on the old code, **1** now.
+  Anyone it already happened to gets one the next time they load any page signed in; someone who
+  never returns keeps the placeholder, and only a server-side backfill (service role, a Node
+  render of `generateAvatar`) would reach them.
+  Three things worth not re-deriving:
+  (1) **The profile effect is keyed on the user's ID, not the user object.** supabase-js
+  re-announces `SIGNED_IN` with a freshly parsed user every time the tab becomes visible
+  (`_recoverAndRefresh`), so an object-keyed effect re-runs on every tab switch -- measured: one
+  extra profile fetch per switch before, none now. On the old /account path that also meant a
+  slow first upload plus two tab switches started **3** separate avatars.
+  (2) **One job per user, joined rather than repeated** (`makeAvatar`), and it is registered
+  BEFORE it starts: an async function runs synchronously to its first await, so a render that
+  threw there would otherwise reach `finally` before the job existed and leave the button
+  disabled for the rest of the visit.
+  (3) **AccountPage must never write the avatar from its own profile fetch.** That request can
+  be answered from before an upload AuthContext has since finished, which would put the
+  placeholder back over a real avatar. It reads `avatarBusy`/`avatarError`/`regenerateAvatar`
+  from the context, so its button shows "Generating…" for the automatic job too.
+  **`AuthorBadge.jsx` keeps its own
   self-hosted-origin check on top of this by design** — `avatar_url` is a free-text column
   and RLS lets a user update their own profile row, so the client must never assume the
   value came from the trigger. That check matches the project's own Storage origin with

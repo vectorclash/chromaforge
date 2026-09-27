@@ -24,9 +24,10 @@ import HexagonIcon from '../buttons/HexagonIcon';
 // agreeing to have your Google profile photo -- often a real face -- published next to your
 // work in a public gallery.
 // So only self-hosted avatars render publicly; anything else falls back to the same hexagon
-// placeholder the signed-out header uses, and the author can get a real avatar any time by
-// generating one on the Account page. To show provider avatars publicly instead, delete the
-// isSelfHosted check below -- but read the paragraph above first.
+// placeholder the signed-out header uses. That placeholder should be rare and brief: a profile
+// with no avatar is given a generated one the next time its owner loads any page signed in
+// (AuthContext). To show provider avatars publicly instead, delete the isSelfHosted check
+// below -- but read the paragraph above first.
 //
 // Matched against this project's OWN Storage origin, not just the `/avatars/` path: a user
 // can PATCH their own profiles row (RLS is write-owner-only, and avatar_url is a free-text
