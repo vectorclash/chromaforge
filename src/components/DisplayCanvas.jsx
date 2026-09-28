@@ -33,7 +33,7 @@ import DotRipple from './DotRipple';
 import HexagonLoader from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
-import TshirtPreview from './TshirtPreview';
+import TshirtPreview, { HERO_PREVIEW_SIZE } from './TshirtPreview';
 import CloseButton from './buttons/CloseButton';
 import SettingsRange from './ui/SettingsRange';
 import PalettePicker from './ui/PalettePicker';
@@ -2945,7 +2945,7 @@ export default class DisplayCanvas extends React.Component {
               <DotRipple active={isLoading} introDelay={heroPhase === 'wait' ? HERO_WAIT.grid : null} />
               <div className="hero-compact-row flex flex-row items-center gap-4">
                 <TshirtPreview
-                  size={190}
+                  size={HERO_PREVIEW_SIZE}
                   waiting={isLoading}
                   revealDelay={heroPhase === 'off' ? null : HERO_REVEAL.shirt}
                   revealed={heroPhase === 'reveal' || heroPhase === 'off'}

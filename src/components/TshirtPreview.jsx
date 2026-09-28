@@ -4,6 +4,7 @@ import ArrowIcon from './buttons/ArrowIcon';
 import { useStudio } from '../context/StudioContext';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 import { capMockupRenderSize } from '../lib/printful';
+import { PRODUCT_MOCKUP_CONFIG } from '../lib/printfulMockupConfig';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { createTshirtSwirl } from './tshirtSwirl';
 
@@ -177,6 +178,175 @@ const bodyCap = capMockupRenderSize(BODY_PRINTFILE.width, BODY_PRINTFILE.height)
 const sleeveCap = capMockupRenderSize(SLEEVE_PRINTFILE.width, SLEEVE_PRINTFILE.height);
 const BODY_RENDER = { w: bodyCap.width, h: bodyCap.height };
 const SLEEVE_RENDER = { w: sleeveCap.width, h: sleeveCap.height };
+
+// WHICH GARMENT THE HERO WEARS -- a trial switch (2026-09-28, Aaron: "maybe this hoodie might be
+// a better fit than the shirt we have now"). 'tee' is everything above, untouched; 'hoodie' is
+// the model and table below. Flip this one value to go back.
+const HERO_GARMENT = 'hoodie';
+
+// Model: "Apricot printed hooded casual Hoodie"
+// (https://sketchfab.com/3d-models/apricot-printed-hooded-casual-hoodie-211f12b2949346e9ab24a20bf15528c8)
+// by Style3D CG (https://sketchfab.com/Style3DMeta), CC-BY-4.0 -- public/models/hoodie/, with
+// its license.txt alongside, which is a licence obligation exactly as the tee's is.
+//
+// Unlike the tee, the served .glb is not just an optimized copy of the download: its UVs were
+// RE-LAID in Blender so that every printed piece sits UPRIGHT and UNMIRRORED as seen from
+// outside the garment, i.e. oriented exactly like the piece on Printful's own template. That is
+// what lets every draw below be a plain rect-to-rect copy with no flip flags -- the orientation
+// discoveries the tee needed after the fact (its vertical flip, its sleeve winding) were settled
+// once, when the model was built, and checked with a labelled test texture from every side.
+// How each piece's orientation was established, since it is not guessable from the atlas:
+//   - front, back, sleeves, pocket: least-squares fit of each UV island to its 3D positions.
+//     All four were stored upside down (the tee's quirk too); none mirrored.
+//   - waistbands and cuffs: the same fit; stored mirrored and upright.
+//   - hood: the fit is ambiguous while the hood lies down, so its edges were classified from the
+//     mesh instead -- the edge shared with the other half is the back seam, the edge meeting the
+//     body is the neckline, the edge beside the drawcord strips is the face opening. The outside
+//     halves were stored upside down; the LINING halves need a half turn, because the same unfold
+//     is seen from the other side.
+// The two hood linings got their own atlas space (in the download they overlap the outside
+// halves), because Printful prints the lining too ("double-lined hood with design on both
+// sides") and its template gives it separate artwork. Every other inside surface shows its own
+// piece's print, as the tee's do. That is not literally true -- the real inside is unprinted
+// fleece -- and it was built white first: on a garment with no body in it, the back panel's inside
+// shows through the neckline, and white read as a bright patch at the throat on every design. The
+// cords and eyelets map to a white patch, since the real ones are white.
+// The raw model is 131,592 triangles with 4096px textures; served: 23,528 triangles, 404KB, no
+// textures (the app supplies the only one). Silhouette IoU against the raw model 99.8-99.9% from
+// four sides; UV rects moved by at most 0.23 atlas units in simplification.
+//
+// THE TABLE maps each atlas rect to the region of the print file that lands on that piece.
+// Every printed piece of this hoodie (product 388) comes from ONE square printfile (200, 6000x6000),
+// so a design needs one render, the same one checkout makes. `src` names which file the piece is
+// cut from: 'art' is that render, 'back' is it mirrored (PRODUCT_MOCKUP_CONFIG[388]
+// .mirrorPlacements), 'pocket' is the pocket file, itself a crop of the front (pocketCrop).
+// `region` is [x, y, w, h] as fractions of that file. Where each piece sits was measured off
+// Printful's own templates (flood-fill of the transparent cut pieces; 19360-19365); the model's
+// pieces are then mapped at ONE scale for the whole garment (taken from the front's height), so
+// the artwork's features are the same size on every piece, the way a 150 DPI print is. Pieces are
+// centred on their template piece and anchored where a seam makes the position matter: the torso
+// and sleeves at their bottom edge, the waistband and cuffs at their top, so the art runs on at
+// the hem and the cuffs. The waistband and cuffs are FOLDED pieces on the template (a fold line
+// down the middle); the outer face is the half beside the body, which is the one sampled.
+// Style3D's cut is slimmer than Printful's (front ~88% of the template's width at the same
+// height, sleeves ~63%), so each piece shows the middle of its template region rather than all of
+// it -- the proportions of the art are kept instead of being squeezed to fit.
+const HOODIE_PRINTFILE = { width: 6000, height: 6000 }; // product 388, printfile 200 (every piece)
+const hoodieCap = capMockupRenderSize(HOODIE_PRINTFILE.width, HOODIE_PRINTFILE.height);
+const HOODIE_RENDER = { w: hoodieCap.width, h: hoodieCap.height };
+const HOODIE_POCKET_CROP = PRODUCT_MOCKUP_CONFIG[388].pocketCrop.regions[0].src;
+const HOODIE_PIECES = [
+  { key: 'front', src: 'art', x: 12, y: 12, w: 683, h: 776, region: [0.15736, 0.0341, 0.68677, 0.7803] },
+  { key: 'back', src: 'back', x: 707, y: 12, w: 714, h: 759, region: [0.14168, 0.04628, 0.71815, 0.76382] },
+  { key: 'sleeveRight', src: 'art', x: 1433, y: 12, w: 428, h: 713, region: [0.28527, 0.01636, 0.43076, 0.71734] },
+  { key: 'sleeveLeft', src: 'art', x: 12, y: 800, w: 428, h: 713, region: [0.28527, 0.01565, 0.43077, 0.71735] },
+  { key: 'hoodRightOut', src: 'art', x: 452, y: 800, w: 381, h: 489, region: [0.54683, 0.49979, 0.38303, 0.49212] },
+  { key: 'hoodLeftOut', src: 'art', x: 845, y: 800, w: 381, h: 489, region: [0.07218, 0.49979, 0.38303, 0.49213] },
+  { key: 'hoodRightIn', src: 'art', x: 1238, y: 800, w: 375, h: 483, region: [0.07441, 0.01168, 0.37708, 0.48595] },
+  { key: 'hoodLeftIn', src: 'art', x: 1625, y: 800, w: 375, h: 483, region: [0.54981, 0.01167, 0.37709, 0.48595] },
+  { key: 'pocket', src: 'pocket', x: 12, y: 1525, w: 428, h: 299, region: [0.28539, 0.34966, 0.43111, 0.30058] },
+  { key: 'bandFront', src: 'art', x: 452, y: 1525, w: 576, h: 135, region: [0.21178, 0.8407, 0.57945, 0.13544] },
+  { key: 'bandBack', src: 'back', x: 1040, y: 1525, w: 617, h: 144, region: [0.19047, 0.8363, 0.62066, 0.14508] },
+  { key: 'cuffRight', src: 'art', x: 452, y: 1301, w: 272, h: 154, region: [0.36383, 0.7527, 0.27365, 0.15477] },
+  { key: 'cuffLeft', src: 'art', x: 736, y: 1301, w: 272, h: 154, region: [0.36323, 0.7533, 0.27365, 0.15477] }
+];
+// Each piece is drawn this many texels past its rect on every side, at the same mapping, so
+// filtering at an island's edge samples artwork rather than the white between rects.
+const HOODIE_BLEED = 2;
+
+// Composes the hoodie's texture from ONE render of the design (the `art` above, at
+// HOODIE_RENDER). The back is that render mirrored -- a mirrorX render is a pixel-exact
+// horizontal flip of its unmirrored twin (see renderArtwork), so flipping here is the same file
+// checkout uploads without paying for a second render.
+function composeHoodieSheet(ctx, art) {
+  const back = document.createElement('canvas');
+  back.width = art.width;
+  back.height = art.height;
+  const bctx = back.getContext('2d');
+  bctx.translate(art.width, 0);
+  bctx.scale(-1, 1);
+  bctx.drawImage(art, 0, 0);
+  const sc = TEXTURE_SIZE / ATLAS;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+  HOODIE_PIECES.forEach(p => {
+    let [sx, sy, sw, sh] = p.region;
+    if (p.src === 'pocket') {
+      // Pocket-file coordinates into the front render's, through the same crop checkout applies.
+      sx = HOODIE_POCKET_CROP.x + sx * HOODIE_POCKET_CROP.w;
+      sy = HOODIE_POCKET_CROP.y + sy * HOODIE_POCKET_CROP.h;
+      sw *= HOODIE_POCKET_CROP.w;
+      sh *= HOODIE_POCKET_CROP.h;
+    }
+    const img = p.src === 'back' ? back : art;
+    const pad = HOODIE_BLEED / sc; // in atlas units
+    const fx = sw / p.w;
+    const fy = sh / p.h;
+    ctx.drawImage(
+      img,
+      (sx - pad * fx) * img.width,
+      (sy - pad * fy) * img.height,
+      (sw + 2 * pad * fx) * img.width,
+      (sh + 2 * pad * fy) * img.height,
+      (p.x - pad) * sc,
+      (p.y - pad) * sc,
+      (p.w + 2 * pad) * sc,
+      (p.h + 2 * pad) * sc
+    );
+  });
+  back.width = 0; // release the copy's backing store now rather than at GC
+}
+
+// Per-garment model and framing. `distance` places the camera; the tee keeps its original
+// bounding-sphere rule exactly. The hoodie frames by HEIGHT instead, because its hood makes it
+// tall and narrow: the sphere rule would put its top edge on the frame edge. FRAME_FILL is solved
+// from the tee (0.6992 tall, radius 0.4951, 3.1 radii away), so the hoodie fills the frame
+// vertically exactly as the tee does -- 91%, the figure SWIRL_ROOM's note starts from.
+//
+// `meanNdotL` feeds the lighting calibration (see AMBIENT). The tee keeps its documented 0.743.
+// The hoodie's is that plus the difference between the two models measured by ONE method
+// (area-weighted mean of max(0, N.L) over the camera-visible garment, rendered in Blender with
+// this key light): 0.666 hoodie against 0.504 tee. Applying the DIFFERENCE, rather than the
+// hoodie's raw figure, lands it at the brightness the tee was verified at (2026-09-05, median
+// +0.3% against the wall over 40 designs) whatever that method's absolute bias is -- and it has
+// one: it does not reproduce the tee's 0.743, which is exactly N.L for a surface facing the
+// camera head-on (4 / |(2,3,4)|).
+const FRAME_FILL = 0.6992 / (3.1 * 0.4951 * 2 * Math.tan((14 * Math.PI) / 180));
+// The hoodie is then sized and set to line up with the button column beside it (Aaron,
+// 2026-09-28: "adjust the size a bit so it feels aligned with the ui elements"): the top of the
+// hood level with the top of Generate, the hem level with the bottom of the "Go to studio" text.
+// Measured on the real page, that column's visible extent is 151px tall, and its centre sits 1px
+// above the box's. At FRAME_FILL in the 190px box the hoodie measured 171px. HOODIE_FILL scales
+// it to the column's height IN WHATEVER BOX IT GETS (the fill is a fraction of the box);
+// HOODIE_LIFT, a fraction of the model's height, raises it onto the column's centre, since
+// perspective sits the bbox-centred model a few pixels low. Both were solved against the
+// measured outline, so re-measure rather than re-derive if the column changes.
+//
+// The BOX is smaller for the hoodie too (HERO_PREVIEW_SIZE). Aligned, the hoodie is 115px wide in
+// a square box sized for the tee's 157, and the column sits a fixed 16px past the box -- so the
+// gap to the buttons opened from the tee's 33px to 53px on desktop, and the gap above Generate on
+// a phone (where the row stacks) from 22px to 38px. The garment read as set apart from the
+// controls rather than beside them. Shrinking the box brings the column in without moving the
+// garment's size or its alignment.
+const HOODIE_BOX = 170;
+const HOODIE_FILL = FRAME_FILL * (151 / 171) * (190 / HOODIE_BOX);
+const HOODIE_LIFT = 4 / 150.5;
+// The hero's box for the current garment; DisplayCanvas passes it back in as `size`.
+export const HERO_PREVIEW_SIZE = HERO_GARMENT === 'hoodie' ? HOODIE_BOX : 190;
+const GARMENTS = {
+  tee: {
+    url: '/models/tshirt/tshirt.glb',
+    distance: (box, sphere) => sphere.radius * 3.1,
+    meanNdotL: 0.743
+  },
+  hoodie: {
+    url: '/models/hoodie/hoodie.glb',
+    distance: box => (box.max.y - box.min.y) / (HOODIE_FILL * 2 * Math.tan((14 * Math.PI) / 180)),
+    lift: HOODIE_LIFT,
+    meanNdotL: 0.743 + (0.666 - 0.504)
+  }
+};
+const GARMENT = GARMENTS[HERO_GARMENT];
 
 // The centered "cover" crop window that fills a `destAspect` rect from `img` with no
 // stretching. Callers slice this window up themselves (see compositionSplit) rather than
@@ -624,7 +794,7 @@ export default function TshirtPreview({
         // no single factor could map a texel to the background's colour any more.
         const KEY_INTENSITY = 0.55;
         const ENV_IRRADIANCE = 0.25; // share of the total taken by the environment
-        const AMBIENT = Math.PI * (1 - ENV_IRRADIANCE) - KEY_INTENSITY * 0.743;
+        const AMBIENT = Math.PI * (1 - ENV_IRRADIANCE) - KEY_INTENSITY * GARMENT.meanNdotL;
         renderer.toneMapping = THREE.NoToneMapping;
 
         const scene = new THREE.Scene();
@@ -676,7 +846,7 @@ export default function TshirtPreview({
         const envMap = makeGradientEnv();
         scene.environment = envMap; // lights the garment; never scene.background (transparent)
 
-        const gltf = await new GLTFLoader().loadAsync('/models/tshirt/tshirt.glb');
+        const gltf = await new GLTFLoader().loadAsync(GARMENT.url);
         if (disposed) {
           renderer.dispose();
           renderer.forceContextLoss();
@@ -689,10 +859,12 @@ export default function TshirtPreview({
         const center = box.getCenter(new THREE.Vector3());
         gltf.scene.position.sub(center);
         pivot.add(gltf.scene);
+        // Moving the pivot, not the model inside it, keeps the spin about the garment's own axis.
+        pivot.position.y = (GARMENT.lift || 0) * (box.max.y - box.min.y);
         scene.add(pivot);
 
         const sphere = box.getBoundingSphere(new THREE.Sphere());
-        camera.position.set(0, 0, sphere.radius * 3.1);
+        camera.position.set(0, 0, GARMENT.distance(box, sphere));
         camera.lookAt(0, 0, 0);
 
         // Its own layer, NOT added to `scene` -- see tshirtSwirl.js for why.
@@ -1121,6 +1293,24 @@ export default function TshirtPreview({
     let cancelled = false;
     (async () => {
       try {
+        if (HERO_GARMENT === 'hoodie') {
+          const art = await createImageBitmap(
+            await renderDesignBlob(currentDesign, HOODIE_RENDER.w, HOODIE_RENDER.h)
+          );
+          if (cancelled) {
+            art.close();
+            return;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = TEXTURE_SIZE;
+          canvas.height = TEXTURE_SIZE;
+          composeHoodieSheet(canvas.getContext('2d'), art);
+          art.close();
+          stateRef.current.stagedSheet = canvas;
+          stateRef.current.stagedPalette = resolvedPalette(currentDesign);
+          commitStagedSheet();
+          return;
+        }
         const [baseBlob, bodyBlob, sleeveBlob] = await Promise.all([
           renderDesignBlob(currentDesign, TEXTURE_SIZE, TEXTURE_SIZE),
           renderDesignBlob(currentDesign, BODY_RENDER.w, BODY_RENDER.h),
