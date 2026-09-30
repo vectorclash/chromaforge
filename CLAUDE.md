@@ -1573,8 +1573,9 @@ by `MAX_EXPORT_BYTES` (600MB).
   is already the "take your time" knob and there is no other.
 
 **Export ratio + frame rate pickers, 2026-07-28** (Aaron, for ad formats): one Video-tab row
-carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840, `1:1`
-2160×2160) and `EXPORT_FPS_OPTIONS` (24/30/60). Export-only state, so switching either is
+carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840, `4:5`
+2160×2700 -- Instagram's feed portrait, added 2026-09-30, halving on mobile to exactly its
+1080×1350 -- and `1:1` 2160×2160) and `EXPORT_FPS_OPTIONS` (24/30/60). Export-only state, so switching either is
 instant — no rebuild, no `settingsDirty`. Deliberately ONE row rather than two: both answer
 "what file comes out of Download", and the Video tab already carries six rows (Aaron
 explicitly didn't want the panel cluttered).

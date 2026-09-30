@@ -144,9 +144,12 @@ const HERO_PARALLAX_SCALE = 1.3;
 // during Generate (a 30s+ build), so re-rendering 20-60 of them per export is not something
 // a Download click can pay for. Those get a centered cover-crop instead — no distortion,
 // but a 9:16 export off a 16:9 build keeps only the middle 31.6% of the width (measured).
+// '4:5' is Instagram's feed portrait: 2160x2700 on desktop, which mobile halves to exactly
+// Instagram's own 1080x1350.
 const EXPORT_ASPECTS = {
   '16:9': [3840, 2160],
   '9:16': [2160, 3840],
+  '4:5': [2160, 2700],
   '1:1': [2160, 2160]
 };
 
