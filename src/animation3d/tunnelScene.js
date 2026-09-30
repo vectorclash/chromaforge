@@ -94,9 +94,11 @@ const SMALL_STAR_COUNT = 5000;
 const FAR_STAR_COUNT = 7000;
 const FAR_STAR_RADIUS = 140;
 const LARGE_STAR_COUNT = 90;
-const WARP_START = 100;
-const WARP_END = 395;
-const RUSH_WARP_PULL = 55;
+// The vanishing-point warp: past WARP_START, lateral positions shrink so that anything far
+// away sits near the centre and grows out of it (see warpFactor). WARP_START is where the warp
+// hands over to plain perspective; the ramp's rush pulls it nearer (RUSH_WARP_PULL).
+const WARP_START = 78;
+const RUSH_WARP_PULL = 43;
 const STREAK_LENGTH = 12;
 // Lower than the tunnel's 0.45: at 0.45 the streak layer turned the frame hairy.
 const STREAK_OPACITY = 0.3;
@@ -587,20 +589,25 @@ const CAGE_MAX_WIRE = 0.5;
 const CAGE_MAX_PANEL = 0.2;
 const CAGE_LINE_OPACITY = 0.75;
 const CAGE_PANEL_OPACITY = 0.7;
-// Fades by view depth, like the plates, instead of the old vanishing-point warp: warped, the
-// far cage collapsed into a tangled knot at the centre of every frame, which nothing else in
-// this scene does any more. It fades out nearer than the plates do, because distant rings
-// project into the centre and read as a scribble before they fade.
+// Fades by view depth, and fades out nearer than the plates do, because distant rings project
+// into the centre and read as a scribble before they fade. It rides the same vanishing-point
+// warp as everything else (2026-09-30), so the cage and the plates it frames move as one space;
+// unwarped, the plates outpaced it. The OLD warp collapsed the far cage into a tangled knot;
+// this one never reaches zero, and the cage has faded before it gets small.
 const CAGE_FADE = [2, 24, 100, 230];
 
-function applyDepthFade(mat) {
+// The same warp as applyWarpShader, inline here because this replaces project_vertex itself.
+function applyDepthFade(mat, uWarpStart) {
   mat.onBeforeCompile = shader => {
+    shader.uniforms.uWarpStart = uWarpStart;
     shader.vertexShader =
-      'varying float vCageFade;\n' +
+      'varying float vCageFade;\nuniform float uWarpStart;\n' +
       shader.vertexShader.replace(
         '#include <project_vertex>',
-        `#include <project_vertex>
+        `vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
       float cageD = -mvPosition.z;
+      if (cageD > uWarpStart) mvPosition.xy *= (cageD / uWarpStart) * exp(-(cageD - uWarpStart) / uWarpStart);
+      gl_Position = projectionMatrix * mvPosition;
       vCageFade = smoothstep(${CAGE_FADE[0].toFixed(1)}, ${CAGE_FADE[1].toFixed(1)}, cageD)
         * (1.0 - smoothstep(${CAGE_FADE[2].toFixed(1)}, ${CAGE_FADE[3].toFixed(1)}, cageD));`
       );
@@ -985,7 +992,7 @@ function buildCage(rng, geometry, uWarpStart, L) {
     opacity: CAGE_LINE_OPACITY,
     depthWrite: false,
     fog: false
-  })));
+  })), uWarpStart);
   const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
   edgeLines.frustumCulled = false; // vertices animate every frame
   group.add(edgeLines);
@@ -1003,7 +1010,7 @@ function buildCage(rng, geometry, uWarpStart, L) {
     opacity: CAGE_PANEL_OPACITY,
     depthWrite: false,
     fog: false
-  })));
+  })), uWarpStart);
   const panelMesh = new THREE.Mesh(panelGeo, panelMat);
   panelMesh.frustumCulled = false;
   group.add(panelMesh);
@@ -1300,11 +1307,18 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
 }
 
 // ─── Stars ────────────────────────────────────────────────────────────────────────────
+// Beyond `start`, the apparent size of anything goes as start/d * this factor, i.e. a CONSTANT
+// log-zoom rate of 1/start per unit flown, joining plain perspective (rate 1/d) smoothly at
+// `start`. So a thing's growth on screen only ever speeds up as the camera approaches, and is
+// always proportional to the camera's own speed -- it moves in time with the flight.
+// It replaced a smoothstep that reached zero at 395 (2026-09-30, Aaron: the plates' "scale up
+// at the beginning" made them feel separate from everything else). That curve's rate was ~6x
+// perspective's at birth, fell to its minimum around 120 and then rose again: every plate
+// burst out of the centre, stalled, then rushed past, on a clock of its own. Stars used the
+// same curve, but as points spread through all depths they never read as one event.
 function warpFactor(d, start = WARP_START) {
   if (d <= start) return 1;
-  if (d >= WARP_END) return 0;
-  const t = (d - start) / (WARP_END - start);
-  return 1 - t * t * (3 - 2 * t);
+  return (d / start) * Math.exp(-(d - start) / start);
 }
 
 function applyWarpShader(mat, uWarpStart, uStreak = null) {
@@ -1337,8 +1351,7 @@ function applyWarpShader(mat, uWarpStart, uStreak = null) {
       vec4 mvPosition = vec4( transformed, 1.0 );
       mvPosition = modelViewMatrix * mvPosition;
       float warpD = -mvPosition.z;
-      float warpT = smoothstep(uWarpStart, ${WARP_END.toFixed(1)}, warpD);
-      mvPosition.xy *= (1.0 - warpT);
+      if (warpD > uWarpStart) mvPosition.xy *= (warpD / uWarpStart) * exp(-(warpD - uWarpStart) / uWarpStart);
       gl_Position = projectionMatrix * mvPosition;
       `
       );

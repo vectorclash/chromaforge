@@ -1712,6 +1712,19 @@ screen until it faded, hiding the next one until it was mid-size. A screen-space
 aperture was built first and cut a feathered ring through the shapes (the same "soft edges" he
 had already rejected); per-shape opening keeps every edge crisp. The opening is baked into the
 render, so the cache redraws a plate once its opening moves (`PLATE_HOLE_EPS`).
+(11) **The warp is a STEADY log-zoom, not a smoothstep, and the cage rides it too** (2026-09-30,
+Aaron: the plates' scale-up "making them feel a bit separate from the rest"; picked "steady flow +
+cage" from a synced three-way comparison, https://claude.ai/artifact/1PFZ2qPNRTq6UoEKfJccyw).
+The old warp (smoothstep, 100 -> 0 at 395) gave a plate's on-screen growth rate ~6x perspective's
+at birth, a MINIMUM around 120, then a rise: burst, stall, rush, on a clock of its own. Stars used
+it too, but as points spread through all depths they never read as one event; the cage used no
+warp at all, so plates outpaced the frame around them. Now past `WARP_START` (78, rush pulls it to
+35) the lateral factor is `(d/s)*exp(-(d-s)/s)`: a constant growth rate of 1/s per unit flown,
+joining perspective C1 at `s`, so growth only ever speeds up on approach and is always
+proportional to camera speed. One curve, in `warpFactor` and inline in both shaders (stars/streaks,
+cage). It never reaches zero (a plate is ~2% size at 390, under the far fade), which is why the
+warped cage no longer knots. Side effect, accepted: mid-distance plates are smaller than before.
+Seam re-verified byte-identical at 5/10/37s; check-leaks 11/11, routes 10/10.
 Two traps hit while building the shaders, worth knowing: `PLATE_FRAG.replace('BLEND_FUNCS', ...)`
 replaces the FIRST occurrence, so a GLSL comment mentioning the placeholder silently broke the
 shader (frame rate looked perfect because nothing was drawn -- always check for compile errors
