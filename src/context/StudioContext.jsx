@@ -11,6 +11,7 @@ import {
 import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
+import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -264,17 +265,26 @@ export function StudioProvider({ children }) {
       // alone can be several MB) and was the dominant driver of this project's Supabase
       // egress. toCompactDesign is idempotent, so this is a no-op for callers (DisplayCanvas's
       // own Save button) that already compact before calling this.
-      const compactData =
-        data.animation && data.frames
-          ? { animation: true, frames: data.frames.map(toCompactDesign) }
-          : toCompactDesign(data);
+      const compactData = data.animation ? compactAnimationData(data) : toCompactDesign(data);
       const row = await saveDesign({ kind, data: compactData, title: FileName(), isPublic: true });
       if (kind === 'image') {
         setSavedDesign(data);
         setSavedDesignId(row.id);
       }
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
-      const source = compactData.animation && compactData.frames ? compactData.frames[0] : compactData;
+      // A 3D flight's thumbnail is a real frame of the flight (its seam frame), not the 2D
+      // artwork it is built from -- the card should show what opening it plays.
+      if (is3DAnimation(compactData)) {
+        const { cycleDuration, speedRamp } = storedVideo(compactData);
+        import('../animation3d/renderStill')
+          .then(({ render3DStill }) =>
+            render3DStill(compactData.design, { duration: cycleDuration, speedRamp, width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE })
+          )
+          .then(blob => uploadDesignThumbnail(row.id, blob))
+          .catch(err => console.error('Thumbnail upload failed:', err));
+        return row;
+      }
+      const source = is2DAnimation(compactData) ? compactData.frames[0] : compactData;
       if (source?.seed !== undefined) {
         renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE, { highDensity: true })
           .then(blob => uploadDesignThumbnail(row.id, blob))

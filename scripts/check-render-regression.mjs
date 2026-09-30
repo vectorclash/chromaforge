@@ -120,7 +120,11 @@ async function main() {
       { headers: { apikey: ANON, Authorization: `Bearer ${ANON}` } }
     );
     if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
-    const rows = (await res.json()).filter(r => r.data && r.data.seed);
+    // A saved 3D flight is one design (lib/savedAnimation) and prints as that design, so its
+    // composition is checked like an image's. 2D animations are left out as before.
+    const rows = (await res.json())
+      .map(r => (r.data && r.data.animation && r.data.mode === '3d' && r.data.design ? { ...r, data: r.data.design } : r))
+      .filter(r => r.data && r.data.seed);
     if (rows.length === 0) {
       console.error('No stored designs came back — refusing to report a pass on an empty set.');
       process.exit(1);

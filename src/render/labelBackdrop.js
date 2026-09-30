@@ -43,7 +43,7 @@ const SAMPLE_LONG_EDGE = 480;
 // (prng.js's BRIGHT_BACKDROP), so nothing in the app can drift about what "bright" means.
 export const LABEL_BRIGHT_BACKDROP = 0.42;
 
-function relativeLuminance(r, g, b) {
+export function relativeLuminance(r, g, b) {
   const f = c => {
     const v = c / 255;
     return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;

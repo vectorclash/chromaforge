@@ -124,6 +124,14 @@ async function main() {
     // Mirrors StudioContext.jsx's saveCurrentDesign: an animation's thumbnail is
     // recomposed from its first frame (the only single {seed,colors} it has); an image
     // design's data IS that shape already.
+    // A saved 3D flight's thumbnail is a WebGL frame of the flight (src/animation3d/renderStill),
+    // which this Node script cannot draw -- recomposing its 2D design here would REPLACE that
+    // frame with a different picture. Left untouched, and said so.
+    if (row.data?.animation && row.data?.mode === '3d') {
+      console.log(`SKIP  ${row.id}  "${row.title}"  -- 3D animation (thumbnail is a WebGL still; not re-rendered here)`);
+      skipped++;
+      continue;
+    }
     const source = row.data?.animation && row.data?.frames ? row.data.frames[0] : row.data;
     if (!source?.seed) {
       console.log(`SKIP  ${row.id}  "${row.title}"  -- no seed to recompose from`);

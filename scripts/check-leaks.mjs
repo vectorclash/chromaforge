@@ -48,7 +48,22 @@ const LAUNCH = { args: ['--enable-gpu', '--use-angle=metal', '--ignore-gpu-block
 
 // Runs in the page before any of its scripts.
 function instrument({ origin, failEncoderAt }) {
-  const S = (window.__leak = { made: 0, lost: 0, raf: 0 });
+  const S = (window.__leak = { made: 0, lost: 0, raf: 0, floatUploads: 0 });
+
+  // Each 3D scene build uploads its plate data as two FLOAT textures, so counting those shows
+  // a rebuild happened without assuming it makes a new context (it does not: the preview keeps
+  // one renderer per mount, so a rebuild never blacks out the canvas).
+  // three.js allocates with texStorage2D and uploads with texSubImage2D on WebGL2; both are
+  // counted, keyed on the type argument (index 7 in the 9-argument forms of each).
+  if (window.WebGL2RenderingContext) {
+    for (const name of ['texImage2D', 'texSubImage2D']) {
+      const fn = WebGL2RenderingContext.prototype[name];
+      WebGL2RenderingContext.prototype[name] = function (...a) {
+        if (a.length >= 9 && a[7] === 0x1406) S.floatUploads++; // type === gl.FLOAT
+        return fn.apply(this, a);
+      };
+    }
+  }
 
   const seen = new WeakSet();
   const getContext = HTMLCanvasElement.prototype.getContext;
@@ -235,12 +250,18 @@ const exportOnce = async page => {
 
 async function studio(browser, base) {
   const { context, page } = await openStudio3D(browser, base);
+  const before = await page.evaluate(() => ({ made: window.__leak.made, uploads: window.__leak.floatUploads }));
   for (let i = 0; i < STUDIO_GENERATES; i++) {
     await page.locator('button.button-large', { hasText: 'Generate' }).first().click();
-    await page.waitForTimeout(1200);
+    // A 3D Generate holds the new scene for one hexagon-loader cycle (2s); wait for the button to
+    // come back rather than a fixed delay, so every click starts a real build
+    await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => b.textContent.trim() === 'Generate'), null, { timeout: 15000 });
+    await page.waitForTimeout(300);
   }
   let gl = await page.evaluate(() => ({ made: window.__leak.made, lost: window.__leak.lost }));
-  check(gl.made >= STUDIO_GENERATES, '3D preview actually rebuilt', `${gl.made} contexts made`);
+  const uploads = await page.evaluate(() => window.__leak.floatUploads);
+  check(uploads - before.uploads >= 2 * STUDIO_GENERATES, '3D preview actually rebuilt', `${(uploads - before.uploads) / 2} scene builds`);
+  check(gl.made - before.made === 0, `3D preview: one renderer across ${STUDIO_GENERATES} Generates`, `${gl.made - before.made} new contexts`);
   check(gl.made - gl.lost <= 1, `3D preview: at most one live WebGL context after ${STUDIO_GENERATES} Generates`, `made ${gl.made}, lost ${gl.lost}`);
 
   const exported = await exportOnce(page);

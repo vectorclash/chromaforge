@@ -211,8 +211,8 @@ function pickAccentSource(colors) {
 // regenerates the real palette when handed a compact design, which is the shape the whole
 // merch pipeline works in.
 //
-// `palette` is an explicit override for a caller whose palette this function cannot derive --
-// the 3D animation overlay, whose tunnel scene invents its own (see animation3d/scenePalette).
+// `palette` is an explicit override for a caller that already holds the resolved palette (the
+// animation overlay passes the one its frames render with).
 //
 // Either route consumes the SAME single rng() draw, and v7's deterministic pick still burns it
 // (see below). So WHICH chords survive, and the greyscale ink on the ~80% of them that aren't
@@ -264,6 +264,8 @@ export function generateMarkLines(design, { transparent = false, palette = null,
 export const MARK_BOUNDS = BOUNDS;
 export const MARK_RING = { center: RING_CENTER, radius: RING_RADIUS };
 export const MARK_RING_COLOR = RING_COLOR;
+// The dark ink: what the ring becomes when the mark is drawn over bright artwork
+export const MARK_DARK_INK = BACKGROUND_COLOR;
 
 export function generateLabelMark(design, width, height, { transparent = false, lightInk = false } = {}) {
   const { lines, accentColor: mainColorHex } = generateMarkLines(design, { transparent, lightInk });

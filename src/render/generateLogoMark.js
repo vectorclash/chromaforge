@@ -4,11 +4,11 @@
 // This is deliberately NOT a second implementation of the mark. It calls
 // generateMarkLines() against the same `${seed}-label` stream the printed label mark uses,
 // so a design's video mark and its sewn-in tag carry the identical surviving chords and
-// inks. What differs is everything around the mark: no panels, no background fill, no
-// transparency ink-inversion (that exists so the mark survives printed over fabric; over
-// the animation it sits on the artwork's own dark-to-mid tones and wants the light inks).
+// inks. What differs is everything around the mark: no panels, no background fill, and
+// its ink follows the artwork at the loop seam (render/logoInk), light over dark and dark over
+// bright, the way the printed label_outside already chooses.
 
-import { generateMarkLines, MARK_BOUNDS, MARK_RING, MARK_RING_COLOR } from './generateLabelMark';
+import { generateMarkLines, MARK_BOUNDS, MARK_RING, MARK_RING_COLOR, MARK_DARK_INK } from './generateLabelMark';
 
 // `palette` is the design's actually-rendered colours, which the caller has to resolve because
 // it differs per mode (2D: the artwork's own gradient stops; 3D: the tunnel scene's). Passing
@@ -17,12 +17,15 @@ import { generateMarkLines, MARK_BOUNDS, MARK_RING, MARK_RING_COLOR } from './ge
 // this the accent chords come out the same yellow-green (#ccff00) on the majority of designs.
 // It shifts no rng() draws, so the surviving chords are the printed tag's exactly; only the
 // ~20% of them that carry the accent are recoloured.
-export function generateLogoMark(design, { palette = null } = {}) {
-  const { lines, accentColor } = generateMarkLines(design, { transparent: false, palette });
+// `darkInk` draws it over bright artwork (render/logoInk decides): the printed label_outside's dark
+// variant -- inverted greys and a dark ring. Same rng draws either way, so the same chords survive.
+export function generateLogoMark(design, { palette = null, darkInk = false } = {}) {
+  const { lines, accentColor } = generateMarkLines(design, { transparent: darkInk, palette });
   return {
     lines,
     accentColor,
-    ringColor: MARK_RING_COLOR,
+    darkInk,
+    ringColor: darkInk ? MARK_DARK_INK : MARK_RING_COLOR,
     ring: MARK_RING,
     bounds: MARK_BOUNDS
   };

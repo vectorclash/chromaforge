@@ -136,10 +136,10 @@ the actual print, generated the same deterministic way.
   sending `present` (and no odds) against an old Fly bundle would re-flip the coin and print a
   garment the mockup never showed. Same hazard as `density`, `mirrorX`, `legSymmetry` and
   `hatWrap`. No `GENERATOR_VERSION` bump and no thumbnail backfill: composition is unchanged.
-  (8) **`tunnelScene`'s `densityScale` reads `chance` as a probability**, which is now
-  unambiguous — it is fed live slider state via `buildThreeDDesign`, and a stored design has no
-  chance at all, so a future 3D replay falls back to the legacy value rather than reading a
-  fact as odds.
+  (8) **The 3D flight reads `chance` as a probability** (the share of plates carrying geometry),
+  which is unambiguous -- it is fed live slider state via `buildThreeDDesign`, and a stored
+  design has no chance at all, so a future 3D replay falls back to the legacy value rather than
+  reading a fact as odds.
   Verified: `check-render-regression.mjs` — 86 stored designs × 3 sizes, 0 changed, 0 geometry
   lost or gained. A stated presence survives 5 sizes including the shorts sheet and overrides
   any odds handed alongside it; legacy blobs (absent, and explicit `chance: 1`) still resolve
@@ -1632,123 +1632,276 @@ default 16:9 path byte-identical to before. Verified with real exported files, p
 the MP4 boxes rather than assumed: 1:1@24 → 2160×2160, 120 samples over exactly 5.000s
 (24.00fps); all three ratios and frame rates confirmed reaching `VideoEncoder.configure`.
 
-### 3D animation mode (three.js star tunnel), 2026-07-11
-**Flight speed is duration-independent as of 2026-07-18** (Aaron's original intent — the
-old one-fixed-tunnel-per-cycle rule made longer durations just slower): the scene builds
-`FLIGHT_SPEED (240 u/s) × duration` of unique content, capped at `MAX_CONTENT_LENGTH`
-(2400), past which the camera does an exact integer number of laps per cycle (seam-safe;
-laps read color-shifted since all color evolves over the full cycle). Content counts scale
-linearly with length (sqrt for draw-call-bound sprites), spatial frequencies by the rounded
-factor (still integers → still loop-safe). The speed-ramp `rush` factor (see MP4 export
-section) widens FOV (+14° peak) and pulls the warp-onset uniform closer (−55) mid-cycle.
-A "3D" toggle in the studio's Video settings tab switches animation mode from the 2D
-frame-crossfade flow to a real-time three.js scene: a camera flying through a long tunnel
-of noise-clustered stars (value-noise rejection sampling adapted from
-`temp/sound-generator`'s star placement, seeded via `makeRng(seed + '-3d')` — a separate
-rng stream so 2D determinism is untouched) with 3D lattice structures (the same
-ring/chord cell families as `GenerateGeometricShape.latticeCells`, rings z-offset/twisted
-into 3D, panels filled with the same ±10° palette-spin logic), a camera-locked
-mesh-gradient shader background cycling the design's palette, and palette-lerped FogExp2.
-Key facts:
-- `src/animation3d/tunnelScene.js` — pure deterministic scene factory; `setTime(seconds)`
-  drives ALL motion/color (no internal clock), so the GSAP-timeline preview
-  (`src/components/Animation3DPreview.jsx`) and the MP4 exporter step identical frames.
-  Everything is periodic in the cycle duration (camera z wraps modulo TUNNEL_LENGTH,
-  content tripled at ±TUNNEL_LENGTH, all time terms sin/cos of 2π·progress·integer) so
-  exports loop seamlessly — verified on a real 3840×2160 export (first-vs-last-frame
-  pixel diff ≈ one frame of motion).
-- three.js is dynamically imported (its own lazy chunk, ~185KB gzip) — never loads unless
-  3D mode is used. Star sprites are the sound-generator example's INVERTED variants
-  (`star-sprite-*-3d.png`, Aaron's explicit call), not the 2D pipeline's — those are
-  authored for canvas compositing and read wrong as additive points.
-- In 3D mode only Duration remains of the scene controls in the Video tab (Frames/Star
-  Frames are 2D-only, hidden); Duration and the geometry sliders apply LIVE (scene rebuilds are
-  instant) rather than via the 2D "regenerate to apply" notice. Generate is instant (new
-  seed, no frame build); the 2D frames stay in state so toggling 3D off restores them
-  without a rebuild (or kicks off a build if none were ever made).
-- Save is deliberately disabled in 3D mode (v1, Aaron-approved deferral): `threeDDesign`
-  is already the compact `{ seed, colors, settings }` shape, but the gallery/share load
-  paths can't replay a 3D animation yet.
-- `exportAnimationVideo` branches on 3D: renders the scene per frame into a WebGL canvas
-  at export resolution (VideoFrame constructed same-task, so no preserveDrawingBuffer)
-  and shares the entire encoder/muxer path with 2D unchanged.
-- WebGL context creation can genuinely fail (GPU blocklists, headless) — found live via a
-  flag-less headless run: Animation3DPreview catches init errors and DisplayCanvas falls
-  back to 2D with an alert instead of a black screen + unhandled rejection.
-- Additive-blending tuning was real, from headless screenshots: additive panels blew out
-  to white sheets at any useful opacity, and lattice stations get a minimum radial offset
-  (0.18×TUNNEL_RADIUS) so the camera never flies through a structure's converged center
-  (a full-frame whiteout otherwise).
-- **Reworked same day on Aaron's feedback ("looks like 2D full coherence; not colorful
-  enough — look at real 2D renders"):** geometry structures are now chaotic-first, like
-  the 2D default — random triangles over the lattice point set with rng²-skewed size
-  variance (some structures span the whole frame), per-CORNER palette-spun vertex colors
-  (the 3D analogue of the 2D 3-stop gradient fill), normal blending at 0.5 opacity (not
-  additive — washed to white over a colorful background), with the ordered chord web only
-  blending in as coherence rises (same keepCount/cellKeep trade as 2D). Color: the
-  background shader is a NORMALIZED weighted mix of palette colors (full-coverage
-  saturated mesh gradient, never dark-space-plus-tints), palette-colored nebula glow
-  sprites were added, fog is saturated palette color, and — the fix that actually killed
-  the monochrome-scene problem (threshold-based accent injection wasn't enough) — a
-  seeded complement-side accent palette (mirroring GenerateStarField's baseHue complement
-  bias in 2D) unconditionally rides alongside the design palette in the dome, geometry,
-  and nebulae, so every scene holds several distinct hue families at once.
-- **Geometry layer: a continuous geometric TUNNEL (2026-07-11, third iteration —
-  Aaron's direction after two rejected approaches).** Floating lattice monuments, then
-  noise-driven floating shards with a distance "bloom", both failed the same way: isolated
-  shapes popping in at the fog line never read as intentional, and the shapes themselves
-  weren't interesting. Replaced wholesale by `buildGeometricTunnel`: one continuous
-  lattice bore the camera flies through — polygon rings (sides from the design's points
-  sliders) every ~12 units, per-ring twist (total twist = integer multiple of the
-  polygon's symmetry step, for the loop seam), rings connected by longitudinal rails +
-  diagonal chords + occasional long in-ring star-chords, a sparse fraction of cells
-  filled as gradient panels (fill rate rises with coherence; jitter falls with it —
-  coherence 0 is a ragged hand-bent scaffold, 1 a clean bore). Per-frame `update()`
-  recomputes every ring vertex: a radial ripple traveling down the tunnel plus a palette
-  color WAVE flowing along z and through time (edge + panel vertex colors update every
-  frame). No pop-in by construction — the tunnel recedes into fog ahead/behind. Camera
-  still flies dead-ahead with slight positional sway. Star shells (near 5000 / far 7000
-  at radius 46→140), nebulae, and the background dome are unchanged from the earlier
-  iterations; fog 0.009; camera far 450.
-- **Star streaking at full rush (2026-07-28, Aaron's ask — "stars streak at full speed and
-  return to how it is now at rest").** Each star field gains a companion `LineSegments`
-  layer: ONE segment per star, anchored at the star (`aStreak` attribute 0, full
-  brightness) and trailing to `aStreak` 1, which the vertex shader extrudes along the
-  flight axis by `uStreak` and dims to `STREAK_END_FADE`, so a trail reads as a bright head
-  with a fading tail. **It extrudes toward +z, AWAY from the camera, and that is the
-  physically correct direction** — the stars are static and the camera flies toward +z, so
-  in camera-relative terms every star travels far → near and the smear covers ground already
-  crossed. On screen the head sits at the star with the tail receding to the vanishing
-  point. A first version straddled the star (-1 → 0 → +1) and read wrong for exactly that
-  reason (Aaron, 2026-07-28); verified numerically after the fix — the light ADDED at full
-  rush has a mean screen radius of 209px against the resting stars' 253px, i.e. it falls
-  toward the centre, not around them. Both the extrusion and the opacity ride `rush`, and
-  below `RUSH_STREAK_EPS` the layer is `visible = false` outright.
-  Points sprites can't be stretched (`gl_PointSize` is square),
-  which is why this is a separate line layer rather than a change to the existing materials.
-  Doing the extrusion in the shader keeps per-frame JS to two uniform writes regardless of
-  star count; the only per-frame buffer work is copying each star's palette color onto its
-  4 trail vertices, and that is skipped while the layer is hidden. `frustumCulled = false`
-  because the CPU-side bounding box doesn't know about the shader's displacement.
-  Verified rather than assumed: at rush 0 the scene is **pixel-identical** to the pre-streak
-  build (max delta 0 over 1.4M subpixels, at 5 times through the cycle — it consumes no
-  `rng()` either, so scene generation is untouched), t=0 and t=duration stay frame-identical
-  (seam intact, since rush is 0 there), and at full rush hundreds of thousands of subpixels
-  differ. Length and opacity (12 units / 0.45) were tuned against real renders — the first
-  pass (a 9-unit half-length at 0.85) buried the tunnel geometry in white, the same blow-out
-  failure the additive panels hit earlier.
-- **Space-warp distance compression (Aaron's idea, same day):** far-distance pop-in
-  (worst for the unfogged stars) is gone — a vertex-shader patch (`applyWarpShader`,
-  onBeforeCompile on the star Points / tunnel LineSegments / panel Mesh materials) scales
-  view-space lateral position to zero between WARP_START(170)→WARP_END(380), so distant
-  content is born compressed at the vanishing point and expands outward as it approaches
-  (visible in exports as the tunnel funneling to a point). Sprites (large stars, nebulae)
-  mirror the same curve as a JS scale factor (`warpFactor`) since SpriteMaterial isn't
-  chunk-based. Same-day look tuning from Aaron's feedback: panels have their own
-  per-vertex color pass at full chroma + MID lightness (s=1/l≈0.5 — pushing lightness
-  high read pastel, not vivid), opacity 0.85, panel fill rate 0.28 base, wide per-vertex
-  palette-phase jitter (±0.3) for strong multi-color gradients; wireframe density rolls
-  per ring section (some sections bare, some fully caged) so the scaffold isn't uniform.
+### 3D animation mode: a flight THROUGH the design's own artwork (rebuilt 2026-09-29)
+A "3D" toggle in the studio's Video tab swaps the 2D frame-crossfade flow for a real-time
+three.js flight. **Rebuilt 2026-09-29 over four rounds with Aaron** (brief: "we never did quite
+get it to feel like flying through an artwork... when you turn the settings up it just fills
+out the tunnel scaffold"). Approved and merged 2026-09-30; the
+comparison page (current version beside each design's 2D render, with frame rates) is
+https://claude.ai/artifact/BpKyK83mE34furhZ61JiYt
+
+**The scene rebuilds the 2D piece's layers from the same generators and gives them depth.**
+`src/animation3d/tunnelScene.js` calls `generateArtwork(seed, 3840, 2160, colors, settings)`.
+The **sky** is `gradientBackgroundConfig` (camera-locked quad, stops placed exactly as
+LinearGradient.js places them, cover-fit to any export ratio); the **radial field** becomes
+big soft colour volumes (the design's own `radGradients`, topped up from
+`GenerateLargeRadialField` on `-3d-radial-N` side streams); **stars** are tinted from
+`starFieldConfig.gradientConfig`; the **overlay** is the design's overlay gradient. The
+**geometry** is a run of flat, static PLATES along the flight path, each a real
+`GenerateGeometricShape` result (six contents on `-3d-plate-N` streams, content 0 the design's
+own geometry layer, reused by the placements at their own offsets). Every Geometry slider keeps
+its 2D meaning (coherence shards -> lattice, spread, size, density, chance = share of plates
+carrying geometry, starsOnTop = layer order), and 3D paints with the SAME palette 2D resolves.
+Eight things worth not re-deriving:
+(1) **Nothing moves but the camera.** Plates, sky and overlay are fixed in the world (Aaron,
+round 3: "it still does the weird rotation one way, then the other... maybe drop the
+rotation"). Rounds 1 and 2 turned plates or glass on sine curves AND swayed the full-screen sky
+gradient on one; all of it read as rocking back and forth.
+(2) **Plates are drawn as VECTORS, per pixel (`PLATE_FRAG`)**: the pixel's ray meets the
+plate's plane, and the shader walks the plate's triangles covering that point in 2D draw order,
+compositing each exactly as GeometricShape.js does (three-stop linear gradient from point 0 to
+point 2, canvas hard-light onto the layer so far), edges antialiased to one pixel. Crisp at any
+distance. Bitmap plates were tried in round 3 and rejected ("the soft edges on the shapes look
+weird"): a nearby plate is magnified 2-5x on a retina screen, and hiding the texture border
+needed a circular fade.
+(3) **Each plate's triangles are binned into a 32x32 grid ONCE, EXACTLY** (separating-axis
+triangle vs cell, not bounding boxes -- a long chord triangle's box spans far more cells), and
+each list entry carries the inside-test data inline so a pixel reads its candidates in one
+contiguous run. Typical designs average 2-7 candidates per cell; a full-coherence lattice has
+~360 genuinely overlapping at its centre.
+(4) **Each visible plate's render is CACHED and reused while it scales** (a flat, fixed,
+centred plate's image only scales about the centre between frames): drawn through a field 1.15x
+wider than the camera's, redrawn once showing it would magnify past 1.25x (one optional redraw
+per frame, most-magnified first; forced past 1.6x). On a retina screen the cache is 1.5 device
+px per CSS px. Measured in the studio at 2880x1800: defaults median 9.7ms / p95 10.1ms;
+everything up median 9.8ms / p95 10-27ms. Round 1 (3D sheets, three draw calls per triangle)
+was 27.6ms / 85ms. **The export passes `exact: true`**, which redraws every plate every frame at
+full resolution, so files and the loop seam are exact.
+(5) **It is a layer COMPOSITOR.** Each layer renders into its own transparent target (plates
+into their caches), composited onto an accumulated frame (ping-pong) with the design's own blend
+for that layer (`firstBlend`, `secondBlend`, `thirdBlend`, `overlayBlend`) via canvas's
+separable-blend formula -- all eight 2D modes exact, including overlay/soft-light/lighten/darken,
+which fixed-function blending cannot express. Built wrong first: `lighten` as screen
+accumulated stacked plates to white, and additive stars vanished on pale skies.
+(6) **Colours stay raw sRGB and blend in sRGB**, like Canvas2D: custom shaders omit
+`colorspace_fragment`, star colours use `setHSL(..., LinearSRGBColorSpace)` for "no conversion".
+(7) **Plates fade into the sky, never into dark fog**; how they arrive and leave is (10). Rush streaks are their
+own layer composited `screen`.
+(8) **Callers draw with `world.render(renderer)`**, not `renderer.render(scene, camera)`.
+(9) **The old tunnel's CAGE is back as a frame around the plates** (round 5, Aaron: "with that
+cage tunnel thing also in there, but never fully filled like it can get with the settings all
+the way up... modify it a bit more to fit the scene"). `buildCage` is the old
+`buildGeometricTunnel`, on its own `-3d-cage` rng stream, changed to fit: wire/panel density
+CAPPED (`CAGE_MAX_WIRE` 0.5 against the old 1.15; `CAGE_MAX_PANEL` 0.2), so no setting fills it
+into a bore; its angular shimmer (a sine wobble) removed; a depth FADE (`CAGE_FADE`, nearer than
+the plates') instead of the vanishing-point warp, which had collapsed the far cage into a knot
+at the centre; the design's resolved palette plus the star field's contrast palette, not the old
+scene's own. Two layers: panels composite with the design's geometry blend, lines with
+COMPOSITE_FRAG's blend 8 -- light over dark, darkened over bright, decided PER PIXEL. Screen alone
+vanished on a pale sky, and a sky-wide luminance switch turned a vivid design's cage into dark
+scratches. `cage: false` turns it off. Costs ~nothing (medians ~10ms either way).
+(10) **Artwork flows OUT OF THE CENTRE** (round 6, Aaron: plates "just appear half way through
+rather than coming in from the center"). Two parts, both needed. Plates and blobs ride the stars'
+vanishing-point WARP; for a flat plate at one depth the warp is a uniform shrink, identical to
+the plate sitting further away, so it is folded into the plate's depth (`dz / warp`) and the
+vector pass and cache take it unchanged; the far fade (`PLATE_FADE` 330->390) sits where a plate is
+already a speck. And the plate being reached OPENS FROM THE MIDDLE, SHAPE BY SHAPE (`PLATE_HOLE`,
+`uHoleQ`): each shape fades out whole as the opening passes its nearest point to the flight
+axis. Without the opening the warp was mostly invisible -- the front plate covered the whole
+screen until it faded, hiding the next one until it was mid-size. A screen-space circular
+aperture was built first and cut a feathered ring through the shapes (the same "soft edges" he
+had already rejected); per-shape opening keeps every edge crisp. The opening is baked into the
+render, so the cache redraws a plate once its opening moves (`PLATE_HOLE_EPS`).
+Two traps hit while building the shaders, worth knowing: `PLATE_FRAG.replace('BLEND_FUNCS', ...)`
+replaces the FIRST occurrence, so a GLSL comment mentioning the placeholder silently broke the
+shader (frame rate looked perfect because nothing was drawn -- always check for compile errors
+before trusting a timing); and a GLSL template with `${'${X}'}` emits the literal text.
+Verified: loop seam byte-identical at 10s and at 37s (4 laps) through the exact path, each with
+a mid-cycle control that differs; a real Export MP4 (3840x2160, 120 frames, 5.000s, no console
+errors); `check-leaks.mjs` 10/10; route smoke 10/10. Re-run after the phone pass below
+(2026-09-30, including (e)): seam identical at 5/10/37s with differing mid-cycle controls, Export
+MP4 3840x2160 120 frames 5.000s, check-leaks 11/11, route smoke 10/10.
+**Phone pass (iPhone 18 Pro, LAN build, 2026-09-29/30)** -- four things worth not re-deriving:
+(a) **Star colours are computed on the GPU** (`STAR_COLOR_GLSL`/`withStarColour`, from palette +
+cycle progress as uniforms). Rewriting every star's colour buffer from JS each frame was 8.5ms of
+CPU per frame and held the phone at 22-26 fps; now ~60.
+(b) **The small/far star LAYOUT is cached per content length** (`STAR_FIELD_CACHE`), shared by
+every design -- the noise-field rejection sampling was ~220ms of each build and was the freeze
+after Generate. Designs still differ: colour is per design, and each turns/slides the layout.
+Build 233ms -> 21ms.
+(c) **The preview keeps ONE renderer** and builds the next scene behind the current one;
+non-Generate changes (Duration, sliders, logo) are debounced (`REBUILD_DEBOUNCE_MS`). Rebuilding the
+renderer blacked the preview out on every Duration change. `check-leaks.mjs` asserts it.
+(d) **Generate shows "Generating" until the new scene is on screen** (`threeDBuilding`, cleared by
+`onSceneReady`, which also fires on a build error so the button can never stick).
+**And it plays like a 2D Generate** (Aaron, 2026-09-30): the scene fades out, the studio's hexagon
+loader shows (it renders on `isBuilding3D()` as well as `isLoading`, so leaving 3D mid-build can't
+strand it), the new scene builds only once the old one is hidden, and it is revealed at
+`threeDRevealAt` -- one `HEXAGON_CYCLE` (2s) after the click -- so the loader always finishes a
+cycle, strokes fully drawn out, instead of flashing for the ~20ms a build takes. Traced per frame:
+fade out 0-170ms, loader until ~2.02s, new scene fading in ~2.06-2.45s. `check-leaks.mjs` now
+waits for the button to return between Generates rather than a fixed 1.2s.
+Every path that puts a 3D build in front of the visitor goes through `threeDBuildState()` --
+Generate, entering the Animation tab with 3D on, and turning 3D on -- because the first press of
+the Animation tab originally built its scene with no loader at all (Aaron caught it). The first
+scene has nothing to fade out but holds the same way.
+**The first press still froze the loader on the phone and showed half a cycle** -- two causes, both
+fixed. (1) The star LAYOUT (cached per content length, (b) above) is ~500ms of one task the first
+time a length is seen: 500 of a 556ms long task at 4x CPU throttle; `generateArtwork` was 2ms and
+the plates 30ms. Placement is now a generator (`starFieldSteps`): `cachedStarField` runs it to
+completion, and the preview awaits `warmTunnelStars(duration)`, which runs the same generator in
+~8ms slices before building -- the sliced and one-pass layouts render byte-identical (pixel hash),
+and a build arriving mid-warm finishes the pending generator instead of restarting. This also takes
+the stall out of a Duration change to a new length. (2) The hold was wall-clock, while GSAP -- which
+animates the loader -- pauses through a long stall rather than jumping, so a stall ate its cycle.
+`threeDRevealAt` is now `gsap.ticker.time`-based. The preview also draws the new scene once while
+hidden, so its shader compile lands over the loader rather than on the fade-in's first frame.
+At 4x throttle: one 556ms task -> two of ~85ms; the loader reaches full stroke and draws fully out
+before the fade-in, every run.
+(e) **The ~60 -> ~50 fps drop after ~20s was GPU headroom, NOT the display** -- a ProMotion 48Hz
+idle was the first theory and Aaron's test killed it: tapping the UI in and out did not restore 60,
+only pause/play did (which stops drawing and lets the GPU queue drain). Not thermal either (a reload
+restored it). Desktop never reproduces it, so the lever was cost, measured with a forced sync
+(`readPixels` 1px; `gl.finish()` returns instantly in Chromium and measures nothing): the 4x MSAA
+layer target was two-thirds of the frame, 4.9ms of GPU time at 804x1748 against 1.7ms without it,
+because every layer paid a resolve. Now only the cage and streak layers use it (`layerTargetAA`);
+sky blobs, stars and overlay go through a plain target. **~5.0ms -> ~2.2ms on all four designs
+tested**; the only pixels that change are the faint outer borders of star sprite quads (1.5% of
+subpixels, invisible side by side). Pixel ratio barely moved GPU time; the preview canvas also lost
+its MSAA (it only ever receives a copy and the logo plane). The export renderer is unchanged.
+The logo mark's accent comes from `resolveDesignPalette` like 2D's; `scenePalette.js` is gone.
+**Carried over from the previous (wireframe tunnel) scene, still true:**
+- **`setTime(seconds, rush, logo)` drives all motion** -- no internal clock -- so the GSAP-driven
+  preview and the MP4 exporter step identical frames, and everything is periodic in the cycle so
+  exports loop seamlessly.
+- **Flight speed is duration-independent**: `FLIGHT_SPEED` (240 u/s) x Duration of unique content,
+  capped at `MAX_CONTENT_LENGTH` (2400), past which the camera does an exact integer number of laps
+  (seam-safe). The speed ramp's `rush` widens the FOV mid-cycle.
+- **three.js is its own lazy chunk** (~185KB gzip): nothing loads it until 3D is used, a 3D thumbnail
+  is saved, or a 3D animation is played in the gallery.
+- **Video tab in 3D**: Frames/Star Frames are hidden (2D-only); Duration and the geometry sliders
+  apply live; the 2D frames stay in state, so toggling 3D off restores them without a rebuild (or
+  starts one if none were ever built).
+- **Export** renders the scene per frame into its own WebGL canvas at export resolution, with
+  `exact: true`, constructing each VideoFrame in the same task (no preserveDrawingBuffer), and shares
+  the whole encoder/muxer path with 2D.
+- **WebGL can genuinely fail to initialise** (GPU blocklists, headless): the preview reports it and
+  the studio falls back to 2D with an alert rather than a black screen.
+- **Rush streaks** are one line segment per star extruded toward +z, AWAY from the camera -- the
+  physically correct direction (the stars are static and the camera flies +z) -- riding `rush` and
+  hidden entirely below `RUSH_STREAK_EPS`; at rush 0 the scene is pixel-identical to one without them.
+- **The vanishing-point warp** compresses distant stars toward the centre so nothing pops in at the
+  far end; plates and blobs ride the same curve (folded into their depth, see (10) above).
+
+**3D is the DEFAULT animation mode as of 2026-09-30** (Aaron: "it really captures the artwork
+perfectly now"). `DEFAULT_VIDEO_PREFS.threeDMode` is true. The trap: the Video-tab mirror writes EVERY
+key, so every existing `cf-studio:video` entry says `threeDMode: false` whether or not anyone chose 2D.
+`writeVideoPrefs` now stamps `threeDChoice: 1`, and `readVideoPrefs` honours a stored `threeDMode`
+only on an entry carrying it; older entries take the new default. Verified all three cases in a
+browser (nothing stored / old unmarked false / marked false -> 3D / 3D / 2D). RESET entering 3D from a
+2D animation builds a scene the way the 3D toggle does, or it would show nothing.
+
+**The 2D animation build (2026-09-30).** A default 20+10 build was 5.4s, of which **3.0s was fixed
+100ms sleeps** between frames, 1.1s JPEG + 0.5-0.85s PNG encoding and only ~0.6s rendering (desktop
+GPU raster); the share/gallery load path slept **700ms** per frame, ~21s. Both now go through
+`renderAnimationFrames`: a one-frame yield (`yieldToPaint`, rAF with a 100ms timeout fallback so a
+background tab keeps building) and the next frame rendering while the previous one encodes, at most
+two in flight. **5.4s -> 2.35s Chromium, 5.8s -> 2.5s WebKit**; a real 2D Export MP4 unchanged
+(3840x2160, 120 frames, 5.000s). A null `toBlob` now rejects and returns the controls instead of
+throwing out of the callback and stranding "Generating". Older notes calling the 2D build "30s+" are
+stale. **Playback was measured and left alone**: ~3 frames + ~2 star frames composite at once by
+design; `autoAlpha` on the hidden frames changed nothing measurable and risks the decode race the
+preview's `decode()` wait exists for, so it was reverted.
+
+**What was tried and why it went**, so it isn't re-proposed: floating lattice monuments and
+floating shards (July) popped in at a dark fog line; the wireframe lattice TUNNEL read as a
+different object (LINES over dark fog) and its sliders only filled the scaffold. In the
+2026-09-29 rebuild: round 1, the plates' triangles as 3D sheets, looked right paused but moved
+like flat cards turning back and forth and ran at 28 fps at full coherence; round 2, a mirror-
+tube kaleidoscope ("not quite like that", and still rotating); round 3 compared no mirrors / a
+static tube / loose free-standing mirrors, and Aaron picked no mirrors; round 4 fixed their soft
+edges with vector plates; round 5 brought the cage back, capped and adapted; round 6 made the
+artwork flow out of the centre.
+
+### Saved animations: 3D saves, and the gallery plays both kinds on request (2026-09-30)
+Aaron: saving 3D, plus "loading the modal with the thumbnail and the user can press the play button
+and that loads the 2d/3d animation so its consistent and playable but on user choice".
+**Format (`src/lib/savedAnimation.js`) -- both kinds stay `kind: 'animation'`**, so no migration
+(the column's check allows only image/animation) and no deploy ordering. `data` tells them apart:
+2D `{ animation, frames: [compact...], video? }`, 3D `{ animation, mode: '3d', sceneVersion, design,
+video }`. A flight is a pure function of one design + Duration (no `Math.random` in tunnelScene; the
+seam is byte-identical), so a saved one is ~300 bytes. `video` = `{ duration, speedRamp, logoMark,
+starFrames? }` is new for BOTH kinds; rows from before have none and replay with the defaults.
+`SCENE_VERSION` is a record like `generatorVersion`, never a rendering instruction: a saved flight
+always replays with the scene code in the bundle (Aaron accepted this, as for 2D).
+Things worth not re-deriving:
+(1) **The 3D thumbnail is a real WebGL frame of the flight** (`animation3d/renderStill.js`, exact
+path, lazily imported), taken at the SEAM (`STILL_AT = 0`): compared across 0-0.5 on three designs,
+the seam is when the first plate fills the view; by 0.3 the rush streaks cross it.
+`backfill-thumbnails.mjs` SKIPS 3D rows explicitly -- it has no WebGL and recomposing the 2D design
+would replace the still with a different picture. `check-render-regression.mjs` now includes 3D
+rows' designs (they print), and still leaves 2D animations out.
+(2) **Animations never print, 3D included** (`printableRow`). A 3D row briefly printed as its one
+design; Aaron pulled it because the artwork picker (images only) couldn't offer it, and the deeper
+reason: its thumbnail is a frame of the flight while the print is the flat 2D artwork, which can look
+nothing alike. Don't add animations to the picker either -- the same mismatch lands in its tiles.
+(3) **Loading a share link switches the studio to the row's mode.** A 2D row loaded with 3D on
+showed NOTHING -- the 2D preview only renders outside 3D -- which predated this but became the
+common case once 3D was the default. Loading also applies the row's Duration/ramp/logo.
+(4) **Changing a recorded playback setting clears "Saved"** (`SAVED_PLAYBACK_KEYS`, both kinds),
+guarded on `prevState.isSaved` so a load -- which sets those settings and `isSaved` together --
+does not read as an edit.
+(5) **The modal opens on the thumbnail; play is a choice** (`GalleryAnimationPlayer`). 3D builds in
+ms and is held behind the hexagon loader for one `HEXAGON_CYCLE`, like the studio. 2D rebuilds every
+frame square at `DISPLAY_RENDER_CAP` (phones keep 1440 copies) with a "Building frame n of N" count;
+seconds and ~20-30 decoded images, which is why it waits to be asked. Tap pauses. Closing cancels a
+build and revokes every frame. The 2D frame builder now lives in `render/animationFrames.js`,
+shared by the studio and the modal.
+(6) **Clear the playing state on CLOSE, not on the next open** -- clearing it on open rendered the
+player for one commit when the same design was reopened, and that throwaway 3D mount logged "preview
+init failed" (its container was already gone). Animation3DPreview also now bails if its container
+has disappeared by the time three.js loads.
+Verified against a mocked Supabase in Playwright (every request intercepted -- nothing touched the
+live project; `.lab/mocksb.mjs`): 3D save stores a 297-byte row and uploads a 640x640 still; its
+share link replays in 3D with its saved Duration and reads "Saved"; a Duration change clears it; a 2D
+save records its playback and its share link plays in 2D under the 3D default; in the modal, image /
+3D / new 2D / pre-`video` 2D rows each behave, closing mid-build leaves nothing -- desktop and a 402px phone viewport, no console errors.
+
+### Pre-merge sweep of the 3D branch (2026-09-30) -- what it found
+Aaron asked for "a thorough check across the board" before merging. Every repo check passes
+(typecheck, lint 0 errors, reexport, render-density 390/390, render-regression, label-backdrop,
+legwrap-taper, routes 10/10, leaks 11/11, hero build race, route-intro-once) plus the session's own
+end-to-end tests. Four real bugs came out of flows no check exercised, all fixed:
+(1) **A palette or slider edit in 3D was treated as a new piece** -- the preview compared design
+OBJECTS, and every edit makes a new one, so each release faded the flight out and back and restarted
+its loop. `Animation3DPreview` now compares SEEDS: a new seed gets the loader sequence; the same seed
+reshaped swaps in place, debounced, keeping its position (measured: opacity never below 1.00).
+(2) **Leaving Animation mid-2D-build crashed the build** (predates the branch): `onModeToggle`
+nulled `animationConfigs` under the running loop, which threw on its next frame. Builds now take a
+token (`startAnimationBuild`/`cancelAnimationBuild`); leaving the mode or starting another build
+stops one between frames, quietly (`AnimationBuildCancelled` is not an error).
+(3) **Save could store a PARTIAL 2D animation mid-build** -- it counts `animationConfigs`, which the
+build appended to frame by frame. Configs are now collected locally and published only with the
+finished set.
+(4) **The Image tab was empty after opening a shared animation** (both kinds) -- the studio never had
+a still to restore. It now renders the animation's own design (a flight's one design, a 2D
+animation's first frame), or a fresh one if there is none.
+Also verified in the flows test: 3D toggled on mid-2D-build and back, exports 3D 9:16 (2160x3840) and
+2D 1:1 (2160x2160) with the logo on, and the phone-sized studio (3D default, Generate, no overflow).
+
+### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)
+Aaron: "it just adds the light logo". Same decision and threshold as the printed label_outside
+(`labelBackdrop`'s `LABEL_BRIGHT_BACKDROP`), measured over the square the mark occupies at the loop
+seam; the dark variant is label_outside's (inverted greys, `MARK_DARK_INK` ring) via
+`generateLogoMark`'s `darkInk`, same rng draws so the same chords survive. 2D measures frame 1's
+artwork exactly (it IS the seam). **3D cannot use the 2D artwork as a stand-in**: over 60 designs it
+agreed with the real seam frame on 48 (correlation 0.57), so the real seam frame is rendered at a
+fixed 256px square (`render3DStillPixels`) -- fixed so the preview, every export ratio and the gallery
+modal reach one answer. Async in 3D: cached per design+Duration, the export awaits it
+(`ensureLogoInk`). **Settled as-is (Aaron, 2026-09-30: "there's no perfect answer here... I think
+it's fine")**, having seen both inks side by side on bright and dark seams in both modes. On a busy,
+multicoloured 3D seam the dark mark reads about as well as the light one rather than better; that
+was weighed and accepted, so don't retune the 3D threshold without a new complaint.
 
 ### Logo mark at the animation loop seam (2026-08-12)
 A **Logo** toggle in the studio's Video settings tab: the design's own vectorclash mark flies
@@ -1804,15 +1957,10 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
   section for the shared half of this — `design.colors` is a stored identity, empty for every
   auto-palette design, so both the tag and this overlay were locked to `#d1ff1a`.
   `generateMarkLines` now resolves it itself, which covers 2D (a frame's config carries its own
-  gradient stops). **3D is the one case it cannot derive**: `tunnelScene` invents its own
-  palette for an auto-palette design, so `logoMarkConfig()` passes an explicit override from
-  `resolveScenePalette` (`animation3d/scenePalette.js`, extracted from tunnelScene so the scene
-  and the mark cannot drift). That helper **takes the rng rather than making one** — the scene
-  passes its own `-3d` stream and an external caller passes a fresh `makeRng(`${seed}-3d`)`,
-  landing on the identical palette without shifting anything downstream in the scene. It lives
-  apart from `tunnelScene.js` only because that file statically imports three.js, which must
-  stay in its own lazy chunk. `logoMarkConfig`'s memo key is now seed **+ palette**, since 3D
-  applies palette edits live against an unchanged seed.
+  gradient stops). 3D used to be the one case it could not derive, because the old tunnel
+  invented its own palette; since the 2026-09-29 rebuild the 3D sky IS the 2D resolved
+  palette, so `logoMarkConfig()` passes `resolveDesignPalette(threeDDesign)`. The memo key is
+  seed **+ palette**, since 3D applies palette edits live against an unchanged seed.
 - **The 2D overlay canvas must leave the layer tree while the mark is absent — the LAYER is
   the cost, not the drawing (2026-08-13, Aaron: the framerate suffers a lot now).** A
   full-viewport `<canvas>` over the frame stack is composited every frame whether or not

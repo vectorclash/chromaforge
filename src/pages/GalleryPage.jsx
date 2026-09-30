@@ -32,6 +32,7 @@ import AuthorBadge from '../components/ui/AuthorBadge';
 import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { humanError } from '../lib/errorMessage';
+import { printableRow } from '../lib/savedAnimation';
 
 // Kept in step with GALLERY_TILE_COUNT, which the route-level fallback uses to reserve the
 // same grid before this page's chunk has even loaded.
@@ -464,11 +465,10 @@ export default function GalleryPage() {
                     <HeartIcon filled={likedIds.has(design.id)} />
                     {design.likes_count > 0 && <span className="text-xs">{design.likes_count}</span>}
                   </button>
-                  {/* Animations aren't printable -- the mockup pipeline expects a flat
-                      { seed, colors } design, not a frames array. */}
-                  {design.kind !== 'animation' && (
+                  {/* Animations don't print -- see lib/savedAnimation's printableRow. */}
+                  {printableRow(design) && (
                     <button
-                      onClick={e => onPrint(design, e)}
+                      onClick={e => onPrint(printableRow(design), e)}
                       className="cursor-pointer p-1 -m-1 text-text hover:text-accent"
                       aria-label="Print this design"
                       title="Print this design"

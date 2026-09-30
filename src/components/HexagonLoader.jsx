@@ -19,6 +19,11 @@ function glowGradient() {
   return `linear-gradient(42deg, ${toMiddle(a)} 32%, ${m} 50%, ${toMiddle(z)} 68%)`;
 }
 
+// One full cycle: every hexagon draws in over 1s and back out over 1s, then it starts again.
+// The 3D preview holds a freshly generated scene until a cycle has finished (see
+// Animation3DPreview), so the loader is never cut off mid-stroke.
+export const HEXAGON_CYCLE = 2;
+
 class HexagonLoader extends React.Component {
   componentDidMount() {
     gsap.registerPlugin(DrawSVGPlugin);
@@ -123,7 +128,7 @@ class HexagonLoader extends React.Component {
           );
         }
       }
-      gsap.delayedCall(2, this.animateHexagon.bind(this));
+      gsap.delayedCall(HEXAGON_CYCLE, this.animateHexagon.bind(this));
     }
   }
 

@@ -6,11 +6,8 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 import { getDesignIdFromUrl, getShareUrlPrefix, buildShareUrl } from '../utils/urlConfig';
 import { getDesign } from '../lib/designs';
-import { randomSeed, meanLuminance, makeRng } from '../render/prng';
-import { resolvedPalette } from '../render/resolvedPalette';
-// Palette resolution only -- deliberately NOT tunnelScene itself, which statically imports
-// three.js and must stay in its own lazy chunk.
-import { resolveScenePalette } from '../animation3d/scenePalette';
+import { randomSeed } from '../render/prng';
+import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
@@ -23,6 +20,9 @@ import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../u
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { generateLogoMark } from '../render/generateLogoMark';
+import { logoBackdrop2D, logoBackdrop3D, darkInkFor } from '../render/logoInk';
+import { renderFrames, renderStarFrames as renderStarFramesShared, animTiming, AnimationBuildCancelled } from '../render/animationFrames';
+import { build3DAnimationData, build2DAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { drawLogoMark } from '../render/renderLogoMark';
 import { isMobileDevice } from '../utils/device';
 import { readDesignPrefs, readVideoPrefs, writeVideoPrefs, clearStudioPrefs, DEFAULT_VIDEO_PREFS } from '../lib/studioPrefs';
@@ -30,7 +30,7 @@ import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
 import DotRipple from './DotRipple';
-import HexagonLoader from './HexagonLoader';
+import HexagonLoader, { HEXAGON_CYCLE } from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
@@ -38,8 +38,6 @@ import CloseButton from './buttons/CloseButton';
 import SettingsRange from './ui/SettingsRange';
 import PalettePicker from './ui/PalettePicker';
 import ConfirmDialog from './ui/ConfirmDialog';
-import GenerateStarField from './Canvas/GenerateStarField';
-import StarField from './Canvas/StarField';
 import FileName from './FileNameGenerator';
 import SettingsButton from './buttons/SettingsButton';
 import PlayPauseButton from './buttons/PlayPauseButton';
@@ -116,6 +114,8 @@ const ANIM_LIMIT = ANIM_LIMITS[isMobileDevice() ? 'mobile' : 'desktop'];
 // localStorage. Derived from the stored shape's own defaults so the two cannot drift: adding
 // a field to DEFAULT_VIDEO_PREFS is all it takes for it to be remembered.
 const VIDEO_PREF_KEYS = Object.keys(DEFAULT_VIDEO_PREFS);
+// The Video-tab settings a saved animation records (see lib/savedAnimation's compactVideo)
+const SAVED_PLAYBACK_KEYS = ['cycleDuration', 'speedRamp', 'logoMark'];
 
 // Mobile 2D frames are RASTERIZED at this long edge instead of the studio's 2160. This is
 // the fix that actually buys the headroom — capping counts alone would have meant a mobile
@@ -243,10 +243,11 @@ export default class DisplayCanvas extends React.Component {
       // why defaulting it ON costs nothing: toggling it off is instant, no regeneration.
       speedRamp: videoPrefs.speedRamp,
       // 3D animation mode: instead of crossfading pre-rendered 2D frames, fly a camera
-      // through a real-time three.js star tunnel (src/animation3d/tunnelScene.js).
+      // through a real-time three.js flight through the design's own artwork -- its 2D
+      // layers pulled apart in depth (src/animation3d/tunnelScene.js).
       // threeDDesign is the compact { seed, colors, settings } identity of the current 3D
-      // scene -- deliberately the same shape as a 2D design, so save/load support can be
-      // added later without a format change (saving is disabled in 3D mode for now).
+      // scene -- the same shape as a 2D design, which is what a saved 3D animation stores
+      // (lib/savedAnimation).
       threeDMode: videoPrefs.threeDMode,
       threeDDesign: null,
       // Stamp the design's own vectorclash mark onto the animation's loop seam -- see
@@ -304,6 +305,8 @@ export default class DisplayCanvas extends React.Component {
     // reported live 2026-08-16 (hero disagreeing with the shirt, About blob, mini generator,
     // footer and mobile nav, all of which agreed with each other).
     this.buildToken = 0;
+    // The 2D animation build's own token (see startAnimationBuild)
+    this.animationBuildToken = 0;
     // The StudioContext design mainConfig was built from, when the canvas adopted it rather than
     // made it (see buildAdoptedDesign); null whenever mainConfig is a design of the canvas's own.
     // mainConfig is then a different, full-size object, so this is how the canvas recognises the
@@ -501,6 +504,7 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentWillUnmount() {
+    this.unmounted = true;
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
       window.removeEventListener('scroll', this.onHeroParallaxScroll);
@@ -530,6 +534,21 @@ export default class DisplayCanvas extends React.Component {
     // animation progress, export progress and loading flags, none of which touch them.
     if (prevState && VIDEO_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
       writeVideoPrefs(this.state);
+    }
+    // A saved animation records how it plays (lib/savedAnimation), so changing any of that makes
+    // what is on screen no longer the saved row -- same as a palette or slider edit.
+    if (
+      prevState &&
+      this.state.animationMode &&
+      this.state.isSaved &&
+      // Already saved BEFORE this update: a load sets the row's playback settings and isSaved
+      // in one go, which must not read as an edit
+      prevState.isSaved &&
+      SAVED_PLAYBACK_KEYS.some(key => prevState[key] !== this.state[key])
+    ) {
+      this.shareUrl = null;
+      this.shareDesignId = null;
+      this.setState({ isSaved: false });
     }
     if (
       this.props.initialDesign &&
@@ -675,19 +694,49 @@ export default class DisplayCanvas extends React.Component {
           this.shareUrl = buildShareUrl(designId);
           this.shareDesignId = designId;
           const config = row.data;
-          if (config.animation && config.frames) {
+          if (is3DAnimation(config)) {
+            // A 3D flight replays from its one design and the playback it was saved with
+            const video = storedVideo(config);
+            const design = { seed: config.design.seed, colors: config.design.colors || [], settings: config.design.settings ?? null };
+            this.adoptDesignSettings(design.settings);
+            this.adoptDesignColors(design.colors);
             this.setState({
               animationMode: true,
+              threeDMode: true,
+              threeDDesign: design,
+              cycleDuration: Math.min(ANIM_LIMIT.duration, video.cycleDuration),
+              speedRamp: video.speedRamp,
+              logoMark: video.logoMark,
               isSaved: true,
-              generateDisabled: true,
-              animationProgress: 0
+              isLoading: false,
+              generateDisabled: false,
+              animationPaused: false,
+              ...this.threeDBuildState()
             });
+          } else if (is2DAnimation(config)) {
+            const video = storedVideo(config);
+            const frameCount = config.frames.length;
+            // threeDMode off explicitly: 3D is the default, and the 2D preview only renders
+            // outside it, so a 2D row loaded with 3D on showed nothing at all.
+            this.setState(
+              {
+                animationMode: true,
+                threeDMode: false,
+                isSaved: true,
+                generateDisabled: true,
+                animationProgress: 0,
+                cycleDuration: Math.min(ANIM_LIMIT.duration, video.cycleDuration),
+                speedRamp: video.speedRamp,
+                logoMark: video.logoMark,
+                starFrameCount: Math.min(maxStarFrames(frameCount), video.starFrameCount ?? Math.ceil(frameCount / 2))
+              },
+              () => this.loadAnimationFromConfigs(config.frames)
+            );
             // All frames of one animation share their generation settings and palette
             // (they're built in a single session with the sliders/colors in one position),
             // so the first frame's are the animation's.
             this.adoptDesignSettings(config.frames[0]?.settings);
             this.adoptDesignColors(config.frames[0]?.colors);
-            this.loadAnimationFromConfigs(config.frames);
           } else {
             this.loadImageFromUrl(config, designId);
           }
@@ -738,12 +787,7 @@ export default class DisplayCanvas extends React.Component {
   getAnimTiming(frameCount = null) {
     const { cycleDuration, starFrameCount } = this.state;
     const fc = frameCount ?? this.state.frameCount;
-    const starCount = starFrameCount ?? Math.max(1, Math.ceil(fc / 2));
-    const spacing = cycleDuration / fc;
-    const fade = spacing * (5.0 / 3.5);
-    const starSpacing = cycleDuration / starCount;
-    const starFade = starSpacing * (8.0 / 7.0);
-    return { frameCount: fc, starCount, spacing, fade, starSpacing, starFade, cycleDuration };
+    return animTiming(fc, cycleDuration, starFrameCount ?? Math.max(1, Math.ceil(fc / 2)));
   }
 
   // The mark that flies through the animation's loop seam. Opt-in for everyone: it is
@@ -762,22 +806,59 @@ export default class DisplayCanvas extends React.Component {
     // The palette the mark's accent spins from has to be the one the animation ACTUALLY
     // renders with, and `design.colors` is not that -- it's the stored identity, empty for
     // every auto-palette design, which sent the accent to generateLabelMark's fallback
-    // (#ccff00) and made the mark come out yellow-green on most designs. 3D resolves it the
-    // way the scene itself does (a fresh `-3d` stream lands on the same palette without
-    // touching the scene's); 2D reads the artwork's own resolved gradient stops.
-    const palette = this.state.threeDMode
-      ? resolveScenePalette(makeRng(`${design.seed}-3d`), design.colors || [])
-      : resolvedPalette(design);
+    // (#ccff00) and made the mark come out yellow-green on most designs. 2D reads the
+    // artwork's own resolved gradient stops. 3D paints its sky with the SAME palette -- the
+    // flight is built from the seed's 2D artwork -- but its design is compact, so it is
+    // regenerated from the seed.
+    const threeD = this.state.threeDMode;
+    const palette = threeD ? resolveDesignPalette(design) : resolvedPalette(design);
+    // Light or dark ink, from the artwork at the loop seam (render/logoInk). 3D's seam frame also
+    // depends on the design's settings and the Duration, so those are part of its key.
+    const inkKey = threeD
+      ? `3d|${design.seed}|${palette.join(',')}|${JSON.stringify(design.settings ?? null)}|${this.state.cycleDuration}`
+      : `2d|${design.seed}|${palette.join(',')}`;
+    const darkInk = this.logoDarkInk(design, inkKey, threeD);
     // Memoized because render() calls this every pass and the result is a prop: a fresh object
     // each time would retrigger AnimationPreview's effect (and rebuild its whole GSAP
     // timeline) on every unrelated state change. Keyed on the palette too, not the seed alone
     // -- 3D applies palette edits live against an unchanged seed.
-    const key = `${design.seed}|${palette.join(',')}`;
+    const key = `${inkKey}|${darkInk}`;
     if (this._logoMarkSeed !== key) {
       this._logoMarkSeed = key;
-      this._logoMark = generateLogoMark(design, { palette });
+      this._logoMark = generateLogoMark(design, { palette, darkInk });
     }
     return this._logoMark;
+  }
+
+  // Cached per design. 2D measures synchronously (one small render of frame 1). 3D renders its
+  // real seam frame in a throwaway WebGL context, so it resolves later: the mark stays light until
+  // then and re-renders once known -- well inside the loader's hold on a Generate. The export
+  // waits for it (ensureLogoInk), so a file never disagrees with the preview.
+  logoDarkInk(design, key, threeD) {
+    this._logoInk = this._logoInk || new Map();
+    this._logoInkPending = this._logoInkPending || new Map();
+    if (this._logoInk.has(key)) return this._logoInk.get(key);
+    if (!threeD) {
+      const dark = darkInkFor(logoBackdrop2D(design, this.props.width, this.props.height));
+      this._logoInk.set(key, dark);
+      return dark;
+    }
+    if (!this._logoInkPending.has(key)) {
+      this._logoInkPending.set(
+        key,
+        logoBackdrop3D(design, this.state.cycleDuration).then(luminance => {
+          this._logoInk.set(key, darkInkFor(luminance));
+          this._logoInkPending.delete(key);
+          if (!this.unmounted) this.forceUpdate();
+        })
+      );
+    }
+    return false;
+  }
+
+  async ensureLogoInk() {
+    this.logoMarkConfig();
+    await Promise.all([...(this._logoInkPending?.values() ?? [])]);
   }
 
   // Whether the picked export ratio differs from the one the 2D frames were baked at (the
@@ -792,6 +873,21 @@ export default class DisplayCanvas extends React.Component {
   // geometry sliders. Building the actual three.js scene from this is Animation3DPreview's
   // job (and exportAnimationVideo's, at export resolution) -- this is cheap and synchronous,
   // unlike the 30s+ 2D frame build.
+  // A 3D scene build counts only while the 3D preview is actually showing, so leaving 3D or
+  // animation mode mid-build can never strand the Generate button on "Generating".
+  isBuilding3D() {
+    const { threeDBuilding, animationMode, threeDMode, threeDDesign } = this.state;
+    return !!(threeDBuilding && animationMode && threeDMode && threeDDesign);
+  }
+
+  // State for any path that puts a 3D scene build in front of the visitor -- Generate, entering
+  // the Animation tab with 3D on, turning 3D on. The hexagon loader shows while it is set, and the
+  // preview holds the new scene until one full loader cycle has played (see Animation3DPreview).
+  threeDBuildState() {
+    // On GSAP's clock, which the loader animates on (see Animation3DPreview)
+    return { threeDBuilding: true, threeDRevealAt: gsap.ticker.time + HEXAGON_CYCLE };
+  }
+
   buildThreeDDesign(seed = randomSeed()) {
     return {
       seed,
@@ -813,7 +909,9 @@ export default class DisplayCanvas extends React.Component {
         threeDMode: true,
         threeDDesign: animationMode && !threeDDesign ? this.buildThreeDDesign() : threeDDesign,
         isSaved: false,
-        animationPaused: false
+        animationPaused: false,
+        // The preview mounts now and builds its first scene
+        ...(animationMode ? this.threeDBuildState() : {})
       });
     } else {
       this.setState({ threeDMode: false }, () => {
@@ -918,58 +1016,47 @@ export default class DisplayCanvas extends React.Component {
     element = null;
   }
 
-  async buildImageAsBlob(config) {
-    // Yield once before the synchronous composite so the loader stays responsive
-    // between animation frames (the per-frame breathe() in the callers spaces them out).
-    await new Promise(r => setTimeout(r, 0));
-
-    const canvas = renderArtwork(config);
-    // Generated at full studio size (density depends on canvas area), stored smaller on
-    // phones — see MOBILE_ANIM_RASTER. `out === canvas` on desktop.
-    const out = rasterizeAnimationFrame(canvas);
-
-    return new Promise(resolve => {
-      out.toBlob(blob => {
-        if (out !== canvas) this.clearElement(out);
-        this.clearElement(canvas);
-        resolve(URL.createObjectURL(blob));
-      }, 'image/jpeg', 0.98);
-    });
+  // ── 2D animation frames ─────────────────────────────────────────────────────
+  // Built by render/animationFrames.js (shared with the gallery modal's play button); see its
+  // header for the measurements behind the pipelining.
+  //
+  // Every build takes a token, and a newer build or leaving animation mode (cancelAnimationBuild)
+  // stops it between frames. Before, nothing did: switching to Image mid-build nulled
+  // animationConfigs under the running loop, which then threw on its next frame -- and a build
+  // left running would have dropped its frames over the still once it finished.
+  renderAnimationFrames(count, draw, type, quality, onFrame, isCancelled) {
+    return renderFrames(count, draw, { type, quality, onFrame, rasterize: rasterizeAnimationFrame, isCancelled });
   }
 
-  // Builds a star-only frame as a transparent PNG — stars composite naturally
-  // over whatever gradient frame is showing without any blend mode tricks.
-  buildStarOnlyBlob(starFieldConfig) {
-    return new Promise(resolve => {
-      let canvas = document.createElement('canvas');
-      let context = canvas.getContext('2d');
-      canvas.width = this.props.width;
-      canvas.height = this.props.height;
+  renderStarFrames(count, colorValues, isCancelled) {
+    return renderStarFramesShared(count, this.props.width, this.props.height, colorValues, { rasterize: rasterizeAnimationFrame, isCancelled });
+  }
 
-      let starField = StarField(starFieldConfig);
-      context.drawImage(starField, 0, 0);
+  startAnimationBuild() {
+    const token = ++this.animationBuildToken;
+    return () => token !== this.animationBuildToken;
+  }
 
-      // Same treatment as the main frames: full-size generation, phone-sized raster.
-      const out = rasterizeAnimationFrame(canvas);
+  cancelAnimationBuild() {
+    this.animationBuildToken++;
+  }
 
-      out.toBlob(blob => {
-        if (out !== canvas) this.clearElement(out);
-        this.clearElement(canvas);
-        resolve(URL.createObjectURL(blob));
-      }, 'image/png');
-    });
+  // A frame or star encode failed (see render/animationFrames): leave animation mode's loader and
+  // put the controls back rather than stranding the studio on "Generating". A CANCELLED build
+  // is not a failure -- whatever cancelled it already owns the state -- so it just stops.
+  recoverFromFailedAnimationBuild(e) {
+    if (e instanceof AnimationBuildCancelled) return;
+    console.error(e);
+    this.setState({ generateDisabled: false, isLoading: false });
   }
 
   async buildAnimationFrames() {
     const { frameCount, starCount } = this.getAnimTiming();
-    const frames = [];
-    const starFrames = [];
-    this.animationConfigs = [];
-
-    const breathe = () => new Promise(r => setTimeout(r, 100));
-
-    // Initial pause so the loader animation has time to settle before heavy work starts
-    await breathe();
+    const isCancelled = this.startAnimationBuild();
+    // Collected locally and published only when the whole set is built: Save counts
+    // animationConfigs, so a partial list would have saved a partial animation mid-build.
+    const configs = [];
+    this.animationConfigs = null;
 
     // Frames are built with the StudioContext mirror switched OFF and the design is pushed once
     // at the end. Mirroring every frame made each one a new currentDesign, so every
@@ -977,15 +1064,16 @@ export default class DisplayCanvas extends React.Component {
     // crossfade per frame -- up to 60 of them, on the main thread, competing with the frame
     // build itself. The design the rest of the app ends on is unchanged: the last frame.
     this.suppressDesignSync = true;
+    let frames, starFrames;
     try {
-      for (let i = 0; i < frameCount; i++) {
+      frames = await this.renderAnimationFrames(frameCount, () => {
         const config = this.buildConfig();
-        this.animationConfigs.push(config);
-        const blobUrl = await this.buildImageAsBlob(config);
-        frames.push(blobUrl);
-        this.setState({ animationProgress: i + 1 });
-        if (i < frameCount - 1) await breathe();
-      }
+        configs.push(config);
+        return renderArtwork(config);
+      }, 'image/jpeg', 0.98, n => !isCancelled() && this.setState({ animationProgress: n }), isCancelled);
+    } catch (e) {
+      this.recoverFromFailedAnimationBuild(e);
+      return;
     } finally {
       this.suppressDesignSync = false;
     }
@@ -993,29 +1081,15 @@ export default class DisplayCanvas extends React.Component {
 
     this.changeGradient(this.mainConfig.gradientBackgroundConfig.colors);
 
-    // Generate star-only overlay frames using the animation's colour palette.
-    // Each one gets a freshly randomised star layout for variety.
-    const colorValues = this.mainConfig.gradientBackgroundConfig.colors.slice();
-    for (let i = 0; i < starCount; i++) {
-      await breathe();
-      // backgroundHue/sizeFrame stay at their defaults here (these overlay frames aren't
-      // tied to a placement, and the hue bias only applies to an empty palette anyway), but
-      // the background lightness is passed for real -- it's what decides whether the stars
-      // are driven light or dark to contrast, so leaving it at the 0.5 default would give
-      // these frames a different star treatment than the main frames they overlay.
-      const starConfig = new GenerateStarField(
-        this.props.width,
-        this.props.height,
-        colorValues.slice(),
-        Math.random,
-        null,
-        null,
-        meanLuminance(colorValues)
-      );
-      const blobUrl = await this.buildStarOnlyBlob(starConfig);
-      starFrames.push(blobUrl);
+    try {
+      starFrames = await this.renderStarFrames(starCount, this.mainConfig.gradientBackgroundConfig.colors.slice(), isCancelled);
+    } catch (e) {
+      frames.forEach(url => URL.revokeObjectURL(url));
+      this.recoverFromFailedAnimationBuild(e);
+      return;
     }
 
+    this.animationConfigs = configs;
     this.setState({
       animationFrames: frames,
       animationStarFrames: starFrames,
@@ -1034,45 +1108,36 @@ export default class DisplayCanvas extends React.Component {
     const resolvedConfigs = configs.map(c =>
       generateArtwork(c.seed, this.props.width, this.props.height, c.colors, c.settings ?? null)
     );
-    this.animationConfigs = resolvedConfigs;
-    const frames = [];
-    const starFrames = [];
+    const isCancelled = this.startAnimationBuild();
+    this.animationConfigs = null;
 
-    const breathe = () => new Promise(r => setTimeout(r, 700));
-
-    await breathe();
-
-    for (let i = 0; i < resolvedConfigs.length; i++) {
-      const blobUrl = await this.buildImageAsBlob(resolvedConfigs[i]);
-      frames.push(blobUrl);
-      this.setState({ animationProgress: i + 1 });
-      if (i < resolvedConfigs.length - 1) await breathe();
+    let frames, starFrames;
+    try {
+      frames = await this.renderAnimationFrames(
+        resolvedConfigs.length,
+        i => renderArtwork(resolvedConfigs[i]),
+        'image/jpeg',
+        0.98,
+        n => !isCancelled() && this.setState({ animationProgress: n }),
+        isCancelled
+      );
+    } catch (e) {
+      this.recoverFromFailedAnimationBuild(e);
+      return;
     }
 
     this.changeGradient(resolvedConfigs[resolvedConfigs.length - 1].gradientBackgroundConfig.colors);
 
     const { starCount } = this.getAnimTiming(resolvedConfigs.length);
-    const colorValues = resolvedConfigs[0].gradientBackgroundConfig.colors.slice();
-    for (let i = 0; i < starCount; i++) {
-      await breathe();
-      // backgroundHue/sizeFrame stay at their defaults here (these overlay frames aren't
-      // tied to a placement, and the hue bias only applies to an empty palette anyway), but
-      // the background lightness is passed for real -- it's what decides whether the stars
-      // are driven light or dark to contrast, so leaving it at the 0.5 default would give
-      // these frames a different star treatment than the main frames they overlay.
-      const starConfig = new GenerateStarField(
-        this.props.width,
-        this.props.height,
-        colorValues.slice(),
-        Math.random,
-        null,
-        null,
-        meanLuminance(colorValues)
-      );
-      const blobUrl = await this.buildStarOnlyBlob(starConfig);
-      starFrames.push(blobUrl);
+    try {
+      starFrames = await this.renderStarFrames(starCount, resolvedConfigs[0].gradientBackgroundConfig.colors.slice(), isCancelled);
+    } catch (e) {
+      frames.forEach(url => URL.revokeObjectURL(url));
+      this.recoverFromFailedAnimationBuild(e);
+      return;
     }
 
+    this.animationConfigs = resolvedConfigs;
     this.setState({
       animationFrames: frames,
       animationStarFrames: starFrames,
@@ -1509,10 +1574,6 @@ export default class DisplayCanvas extends React.Component {
   onSaveButtonClick(e) {
     const { isSaving, isSaved, animationMode } = this.state;
 
-    // 3D animations can't be saved yet (deferred -- the { seed, colors, settings } design
-    // is save-shaped, but the gallery/share load paths don't know how to replay it).
-    if (animationMode && this.state.threeDMode) return;
-
     if (isSaved) {
       // isSaved is only ever set true alongside this.shareUrl -- once by init()'s
       // getDesign() load, once by saveToGallery()'s own success handler below -- so there's
@@ -1521,13 +1582,21 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
+    // A 3D flight saves as its one design plus how it plays (see lib/savedAnimation); a 2D
+    // animation as its frames plus the same. Both record the Duration/ramp/logo they were
+    // saved with so the gallery and share links replay them as they were made.
+    const threeD = animationMode && this.state.threeDMode;
     const kind = animationMode ? 'animation' : 'image';
-    const data = animationMode
-      ? { animation: true, frames: this.animationConfigs.map(toCompactDesign) }
-      : toCompactDesign(this.mainConfig);
-    const ready = animationMode
-      ? this.animationConfigs && this.animationConfigs.length > 0
-      : !!this.mainConfig;
+    const data = threeD
+      ? build3DAnimationData(this.state.threeDDesign, this.state)
+      : animationMode
+        ? build2DAnimationData(this.animationConfigs, this.state)
+        : toCompactDesign(this.mainConfig);
+    const ready = threeD
+      ? !!this.state.threeDDesign && !this.isBuilding3D()
+      : animationMode
+        ? this.animationConfigs && this.animationConfigs.length > 0
+        : !!this.mainConfig;
     if (!ready || isSaving) return;
 
     // The gallery (DB) save is now the only source of a share link -- unlike the old
@@ -1643,6 +1712,7 @@ export default class DisplayCanvas extends React.Component {
     // computed once in the loop so both modes are driven by the same curve even though they
     // draw it completely differently: 2D composites it onto the finished frame, 3D hands it
     // to the scene, which carries a real textured plane in the tunnel.
+    await this.ensureLogoInk();
     const logoCfg = this.logoMarkConfig();
     let drawAt;
     let canvas;
@@ -1675,7 +1745,10 @@ export default class DisplayCanvas extends React.Component {
         duration: CYCLE_DURATION,
         width,
         height,
-        logoMark: logoCfg
+        logoMark: logoCfg,
+        // Redraw every plate every frame: the preview reuses a plate's render across a few
+        // frames (scaled), which is invisible live but would make the file inexact.
+        exact: true
       });
       canvas = renderer.domElement;
       // Star sprite textures decode async -- without this, the first ~second of encoded
@@ -1685,7 +1758,7 @@ export default class DisplayCanvas extends React.Component {
       // same task as the render (no await in between), so no preserveDrawingBuffer needed.
       drawAt = (elapsed, rush = 0, logo = null) => {
         world.setTime(elapsed, rush, logo);
-        renderer.render(world.scene, world.camera);
+        world.render(renderer);
       };
     } else {
       canvas = document.createElement('canvas');
@@ -2091,6 +2164,15 @@ export default class DisplayCanvas extends React.Component {
           this.onGenerateButtonClick();
           return;
         }
+        // ...and entering it (3D is the default) needs a scene to mount, as onThreeDToggle's
+        // on-branch does. Built here rather than in the updater so it reads the reset palette.
+        if (!wasThreeD && this.state.threeDMode && this.state.animationMode) {
+          this.setState({
+            threeDDesign: this.state.threeDDesign || this.buildThreeDDesign(),
+            animationPaused: false,
+            ...this.threeDBuildState()
+          });
+        }
         // One regenerate covers both halves: it reads the live palette AND the live geometry
         // sliders off state (see regenerateCurrentSeed), and no-ops into a dirty flag in
         // animation mode.
@@ -2190,7 +2272,7 @@ export default class DisplayCanvas extends React.Component {
   onGenerateButtonClick(e) {
     const { generateDisabled, animationMode, animationFrames } = this.state;
 
-    if (!generateDisabled) {
+    if (!generateDisabled && !this.isBuilding3D()) {
       // Clear URL when generating new image
       window.history.pushState({}, '', window.location.pathname);
       // isSaved (React state, below) isn't enough on its own -- this.shareUrl/shareDesignId
@@ -2208,8 +2290,13 @@ export default class DisplayCanvas extends React.Component {
         // 3D mode: a new scene is just a new seed -- built synchronously by the preview
         // component, no frame rendering. Nothing 2D is touched (frames stay snapshotted
         // in state for when 3D is toggled back off).
+        // threeDBuilding holds the button on "Generating" until Animation3DPreview reports the
+        // new scene is on screen (onSceneReady). Without it the button never changed and the page
+        // simply froze for the build (Aaron, 2026-09-29).
+        // Plays the way a 2D Generate reads: artwork out, loader, artwork in (threeDBuildState)
         this.setState({
           threeDDesign: this.buildThreeDDesign(),
+          ...this.threeDBuildState(),
           isSaved: false,
           showBranchNotice: false,
           animationPaused: false,
@@ -2292,7 +2379,8 @@ export default class DisplayCanvas extends React.Component {
           animationMode: true,
           isSaved: false,
           animationPaused: false,
-          threeDDesign: this.state.threeDDesign || this.buildThreeDDesign()
+          threeDDesign: this.state.threeDDesign || this.buildThreeDDesign(),
+          ...this.threeDBuildState()
         });
       } else if (this.animationModeState) {
         // Restore previous animation state if available
@@ -2330,6 +2418,12 @@ export default class DisplayCanvas extends React.Component {
         });
       }
     } else {
+      // A 2D build still running belongs to the mode being left
+      this.cancelAnimationBuild();
+      // What the Image tab falls back to when there is no still to restore (the studio was
+      // opened on a shared animation): the animation's own design. Read before it is cleared.
+      const fallbackDesign =
+        this.state.threeDMode && this.state.threeDDesign ? this.state.threeDDesign : this.animationConfigs?.[0] ?? null;
       // Switching TO image — snapshot animation mode state (don't revoke URLs)
       if (animationFrames.length > 0) {
         this.animationModeState = {
@@ -2385,13 +2479,38 @@ export default class DisplayCanvas extends React.Component {
       } else {
         this.shareUrl = null;
         this.shareDesignId = null;
-        this.setState({
-          animationMode: false,
-          animationFrames: [],
-          animationStarFrames: [],
-          animationProgress: 0,
-          isSaved: false
-        });
+        // No still to restore -- a studio opened straight onto a shared animation never had
+        // one, and the Image tab showed an empty canvas. Show the animation's own design
+        // instead (a 3D flight is one design; a 2D animation's is its first frame), or a
+        // fresh one if there is none.
+        const hasStill = !!this.mainConfig && !!this.imageBlobUrl;
+        this.setState(
+          {
+            animationMode: false,
+            animationFrames: [],
+            animationStarFrames: [],
+            animationProgress: 0,
+            isSaved: false,
+            ...(hasStill ? {} : { isLoading: true, generateDisabled: true })
+          },
+          () => {
+            if (hasStill) return;
+            if (fallbackDesign?.seed) {
+              this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+              this.buildImage(
+                this.buildConfig(
+                  fallbackDesign.seed,
+                  this.props.width,
+                  this.props.height,
+                  fallbackDesign.colors || [],
+                  fallbackDesign.settings ?? null
+                )
+              );
+            } else {
+              this.setState({ generateDisabled: false }, () => this.onGenerateButtonClick());
+            }
+          }
+        );
       }
     }
 
@@ -2852,7 +2971,7 @@ export default class DisplayCanvas extends React.Component {
             it was briefly swapped for the hero's dot ripple -- but the cause was the panel's
             blur-from-zero reveal tween, confirmed by putting the hexagon back once that tween was
             gone (see fadeArtwork). */}
-        {isLoading && !compact ? <HexagonLoader /> : ''}
+        {(isLoading || this.isBuilding3D()) && !compact ? <HexagonLoader /> : ''}
         {!compact && (
           <div
             className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
@@ -2891,6 +3010,10 @@ export default class DisplayCanvas extends React.Component {
             paused={animationPaused || isExporting}
             speedRamp={speedRamp}
             logoMark={this.logoMarkConfig()}
+            revealAt={this.state.threeDRevealAt}
+            onSceneReady={() => {
+              if (this.state.threeDBuilding) this.setState({ threeDBuilding: false });
+            }}
             onInitError={() => {
               alert('3D mode needs WebGL, which is unavailable in this browser. Switching back to 2D.');
               this.onThreeDToggle();
@@ -3028,13 +3151,15 @@ export default class DisplayCanvas extends React.Component {
               <div className="row">
                 <button
                   onClick={this.onGenerateButtonClick.bind(this)}
-                  className={'button-large' + (generateDisabled ? ' disabled' : ' enabled')}
+                  className={'button-large' + (generateDisabled || this.isBuilding3D() ? ' disabled' : ' enabled')}
                 >
-                  {generateDisabled
-                    ? animationMode
-                      ? `Generating ${animationProgress} / ${frameCount}`
-                      : 'Generating'
-                    : 'Generate'}
+                  {this.isBuilding3D()
+                    ? 'Generating'
+                    : generateDisabled
+                      ? animationMode
+                        ? `Generating ${animationProgress} / ${frameCount}`
+                        : 'Generating'
+                      : 'Generate'}
                 </button>
               </div>
               {/* The three blocks that come and go in this column all animate their own
@@ -3076,9 +3201,6 @@ export default class DisplayCanvas extends React.Component {
                 <button
                   onClick={this.onSaveButtonClick.bind(this)}
                   className="button-small"
-                  disabled={animationMode && threeDMode}
-                  title={animationMode && threeDMode ? '3D animations can’t be saved yet' : undefined}
-                  style={animationMode && threeDMode ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
                 >
                   {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
                 </button>
@@ -3457,7 +3579,7 @@ export default class DisplayCanvas extends React.Component {
                 <div className="settings-field">
                   <span className="settings-label">
                     3D
-                    <span className="settings-label-note"> fly through a 3D scene</span>
+                    <span className="settings-label-note"> fly through the artwork</span>
                   </span>
                   <button
                     className={'settings-toggle' + (threeDMode ? ' on' : '')}

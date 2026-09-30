@@ -11,6 +11,8 @@ import { getThumbnailUrl } from '../../lib/designs';
 import { useStudio } from '../../context/StudioContext';
 import AuthorBadge from './AuthorBadge';
 import samplePalette from '../../utils/samplePalette';
+import GalleryAnimationPlayer, { PlayGlyph } from './GalleryAnimationPlayer';
+import { factsDesign, printableRow } from '../../lib/savedAnimation';
 
 // Rendered bigger than the 320x320 gallery thumbnail so the artwork actually looks crisp
 // full-screen-ish, but well short of print resolution -- this is a preview, not a print
@@ -88,8 +90,23 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
   // fresh render of identical content -- the same bug class as MobileNav's DotRipple
   // replaying on every reopen (see MobileNav.jsx).
   const renderedIdRef = useRef(null);
+  // An animation plays only when asked (see GalleryAnimationPlayer): the modal opens on its
+  // thumbnail, and this is which design's play button was pressed. Keyed by id, so moving to
+  // another design -- or closing -- returns to the thumbnail and releases the player.
+  const [playingId, setPlayingId] = useState(null);
+  const [playError, setPlayError] = useState(false);
   const fullSrcRef = useRef(null);
   fullSrcRef.current = fullSrc;
+
+  // Closing returns an animation to its thumbnail. Cleared on close rather than on the next
+  // open: otherwise reopening the same design rendered the player for one commit before the
+  // reset below caught up, and that throwaway mount started a WebGL build for nothing.
+  useEffect(() => {
+    if (!design) {
+      setPlayingId(null);
+      setPlayError(false);
+    }
+  }, [design]);
 
   // Reset only when the design genuinely changes (not close->reopen of the same one) so
   // the previous design's full-res image can't linger visible under the next design's
@@ -99,6 +116,8 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
     setFullSrc(null);
     setFullLoaded(false);
     setSampledColors(null);
+    setPlayingId(null);
+    setPlayError(false);
     if (fullSrcRef.current) URL.revokeObjectURL(fullSrcRef.current);
   }, [design?.id]);
 
@@ -143,13 +162,18 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
 
   if (!design) return null;
 
-  const storedColors = Array.isArray(design.data?.colors) ? design.data.colors : [];
+  const isAnimation = design.kind === 'animation';
+  const playing = isAnimation && playingId === design.id;
+  // A 3D animation is one design, so it has the same facts as an image; a 2D one has none
+  const facts = factsDesign(design.data);
+  const printable = printableRow(design);
+  const storedColors = Array.isArray(facts?.colors) ? facts.colors : [];
   const swatches = (storedColors.length ? storedColors : sampledColors || []).slice(0, SWATCH_COUNT);
-  const seed = design.data?.seed;
+  const seed = facts?.seed;
   // Only surfaced when the design actually carries non-default settings -- compactDesign
   // omits `settings` entirely otherwise, and a "coherence 0" chip on every design that
   // never touched the sliders would be noise standing in for an answer nobody asked for.
-  const coherence = design.data?.settings?.geometry?.coherence;
+  const coherence = facts?.settings?.geometry?.coherence;
   const hasChips = swatches.length > 0 || seed || coherence != null;
 
   // Reads the palette off the render once it's on screen. Runs in the load handler rather
@@ -237,7 +261,36 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
                 }
               />
             )}
+            {playing && (
+              <GalleryAnimationPlayer
+                key={design.id}
+                data={design.data}
+                onError={() => {
+                  setPlayingId(null);
+                  setPlayError(true);
+                }}
+              />
+            )}
           </div>
+          {isAnimation && !playing && (
+            <button
+              type="button"
+              onClick={() => {
+                setPlayError(false);
+                setPlayingId(design.id);
+              }}
+              className="absolute inset-0 z-[3] flex animate-reveal-quick flex-col items-center justify-center gap-2 transition hover:scale-[1.03] active:scale-95"
+              style={{ animationDelay: '220ms' }}
+              aria-label="Play animation"
+            >
+              <PlayGlyph size={72} />
+              {playError && (
+                <span className="rounded-full bg-black/60 px-3 py-1 font-quicksand text-xs font-semibold text-white/85">
+                  Couldn’t play this one here — try Open in studio
+                </span>
+              )}
+            </button>
+          )}
           {/* Scrims, not panels: a solid bar would read as a second surface sitting on the
               artwork, while a gradient keeps the composition continuous underneath and only
               buys the contrast the text actually needs. Two of them (top and bottom), each
@@ -351,10 +404,10 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
             )}
           </button>
 
-          {design.kind !== 'animation' && (
+          {printable && (
             <button
               type="button"
-              onClick={() => onPrint(design)}
+              onClick={() => onPrint(printable)}
               className={PILL + PILL_IDLE}
               aria-label="Print this design"
             >
