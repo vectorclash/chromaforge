@@ -6,7 +6,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import { getGeometrySettings } from '../render/designSettings';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
-import { LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
+import { LOGO_SCREEN_FRACTION, LOGO_OCTAVES, logoAlpha, logoDraw } from '../utils/logoIntro';
 import { drawLogoMark } from '../render/renderLogoMark';
 import largeStarUrl from '../assets/images/star-sprite-large-3d.png';
 import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
@@ -102,6 +102,19 @@ const LARGE_STAR_COUNT = 90;
 // hands over to plain perspective; the ramp's rush pulls it nearer (RUSH_WARP_PULL).
 const WARP_START = 78;
 const RUSH_WARP_PULL = 43;
+// The FOV boost and the warp pull follow `surge` = rush squared. Both change how big everything
+// looks without the camera moving, so their shape over the cycle matters at both ends:
+//   - The seam. rush is lowest exactly there, where the camera is nearly stopped, and on plain
+//     rush they zoomed the geometry in as a loop ended and back out as the next began -- an
+//     overshoot (Aaron, 2026-09-30). Squared, near the seam growth tracks the camera's own
+//     motion to within 2.7% on average (on plain rush it strayed 30%).
+//   - The peak. rush now has zero slope there (speedRamp's rounded rise), so the zoom rate
+//     turns over smoothly: 2% across two frames. On the old cornered ramp it flipped 27%, and
+//     cubing that ramp to fix the seam made it 63% -- "a very weird glitch in the motion".
+// The streaks keep plain rush; they resize nothing.
+function surgeOf(rush) {
+  return rush * rush;
+}
 const STREAK_LENGTH = 12;
 // Lower than the tunnel's 0.45: at 0.45 the streak layer turned the frame hairy.
 const STREAK_OPACITY = 0.3;
@@ -1635,6 +1648,16 @@ function* starFieldSteps(rng, count, L, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS
 }
 
 // ─── Logo mark ────────────────────────────────────────────────────────────────────────
+// The mark is an object IN the flight: it sits LOGO_SEAM_DISTANCE ahead of where the camera is
+// at the loop seam, and the camera's own travel carries it -- approaching from the distance as a
+// loop ends, holding at its seam pose through the ramp's near-stop, and flying past as the next
+// loop gets under way -- on the same vanishing-point warp as the plates. Its size, fade and
+// stroke come from logoIntro's curves, evaluated at its real distance (s = 0 at the seam, +/-1
+// where the mark is 2^+/-LOGO_OCTAVES of its seam size), so the seam frame is exactly the pose it
+// always was. It used to hang a fixed distance ahead of the camera and move on logoIntro's own
+// clock, whose floor (0.25x) is not the flight's (0.03x): through the near-stop it zoomed about
+// four times faster than the world around it (Aaron, 2026-09-30: "make sure the logo animation is
+// in sync too"). 2D keeps logoIntro's clock, which there IS the animation's own ramp.
 const LOGO_SEAM_DISTANCE = 60;
 const LOGO_PLANE_SIZE = LOGO_SCREEN_FRACTION * 2 * LOGO_SEAM_DISTANCE * Math.tan((BASE_FOV * Math.PI) / 360);
 const LOGO_TEXTURE_SIZE = 512;
@@ -1954,12 +1977,15 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   };
   let streaksOn = false;
 
-  function setTime(seconds, rush = 0, logoState = null) {
+  // showLogo: whether the mark is drawn at all (the scene must also have been built with one);
+  // where it is and how it looks come from the flight -- see "Logo mark".
+  function setTime(seconds, rush = 0, showLogo = false) {
     const progress = (((seconds / duration) % 1) + 1) % 1;
 
-    camera.fov = BASE_FOV + RUSH_FOV_BOOST * rush;
+    const surge = surgeOf(rush);
+    camera.fov = BASE_FOV + RUSH_FOV_BOOST * surge;
     camera.updateProjectionMatrix();
-    warpStartNow = WARP_START - RUSH_WARP_PULL * rush;
+    warpStartNow = WARP_START - RUSH_WARP_PULL * surge;
     uWarpStart.value = warpStartNow;
     const streaking = rush > RUSH_STREAK_EPS;
     streaksOn = streaking;
@@ -2018,11 +2044,19 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     visiblePlates.sort((p, q) => q.dz - p.dz);
 
     if (logo) {
-      logo.mesh.visible = !!logoState;
-      if (logoState) {
-        logo.mesh.position.set(0, 0, camZ + LOGO_SEAM_DISTANCE / logoState.scale);
-        logo.mat.opacity = logoState.alpha;
-        const draw = Math.round(logoState.draw * 200) / 200;
+      // The mark's distance ahead along the cycle's whole travel (laps * L), so it comes round
+      // once per cycle however many laps the camera makes
+      const total = laps * L;
+      const travel = progress * total;
+      const ahead = travel < total / 2 ? LOGO_SEAM_DISTANCE - travel : total + LOGO_SEAM_DISTANCE - travel;
+      const depth = Math.max(0.5, ahead) / Math.max(1e-3, warpFactor(ahead, warpStartNow));
+      const s = Math.log2(LOGO_SEAM_DISTANCE / depth) / LOGO_OCTAVES;
+      const on = showLogo && ahead > 0 && Math.abs(s) < 1;
+      logo.mesh.visible = on;
+      if (on) {
+        logo.mesh.position.set(0, 0, camZ + depth);
+        logo.mat.opacity = logoAlpha(s);
+        const draw = Math.round(logoDraw(s) * 200) / 200;
         if (draw !== logo.lastDraw) {
           logo.lastDraw = draw;
           logo.ctx.clearRect(0, 0, LOGO_TEXTURE_SIZE, LOGO_TEXTURE_SIZE);

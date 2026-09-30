@@ -1965,12 +1965,13 @@ export default class DisplayCanvas extends React.Component {
       // rush only means anything to the 3D drawAt (FOV/warp speed enhancement); the 2D
       // compositor ignores it.
       //
-      // The logo mark takes the LINEAR clock, not `elapsed`: logoIntro applies its own warp
-      // with its own floor (3D's 0.03 would leave the mark hanging at the seam for seconds
-      // of wall time). Note the mark is NOT offset by OFFSET -- OFFSET exists to start the
-      // frame crossfades one period in, and the mark's whole job is to sit exactly on the
-      // seam, which `linear` already puts it on at f = 0 and f = TOTAL_FRAMES.
-      const logo = logoCfg ? logoState(linear, PERIOD, speedRamp) : null;
+      // 2D's logo mark takes the LINEAR clock, not `elapsed`: logoIntro applies the warp
+      // itself. Note the mark is NOT offset by OFFSET -- OFFSET exists to start the frame
+      // crossfades one period in, and the mark's whole job is to sit exactly on the seam,
+      // which `linear` already puts it on at f = 0 and f = TOTAL_FRAMES. 3D's mark is an
+      // object in the flight, positioned from the camera's own travel, so it is only told
+      // whether to show (tunnelScene, "Logo mark").
+      const logo = is3D ? !!logoCfg : logoCfg ? logoState(linear, PERIOD, speedRamp) : null;
       drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0, logo);
 
       const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });

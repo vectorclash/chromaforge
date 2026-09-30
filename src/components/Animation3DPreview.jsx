@@ -2,7 +2,6 @@ import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
-import { logoState } from '../utils/logoIntro';
 
 // 3D animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
 // (src/animation3d/tunnelScene.js) with a single looping GSAP timeline, mirroring
@@ -41,7 +40,7 @@ function drawGhost(s, ramp) {
   ghost.world.setTime(
     ramp ? rampTime(t, ghost.duration, RAMP_FLOOR_3D) : t,
     ramp ? rampRush(t, ghost.duration) : 0,
-    ghost.logo ? logoState(t, ghost.duration, ramp) : null
+    !!ghost.logo
   );
   renderer.getDrawingBufferSize(fader.size);
   if (fader.target.width !== fader.size.x || fader.target.height !== fader.size.y) {
@@ -105,14 +104,13 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
       // The tween stays linear; the speed ramp is applied as a time WARP into setTime -- the
       // same rampTime the exporter uses, so preview and MP4 match. RAMP_FLOOR_3D must match
       // what exportAnimationVideo passes for 3D. rush drives the FOV/vanishing-point speed
-      // enhancement, from the same clock. The logo mark takes the LINEAR clock: logoIntro
-      // applies its own warp with its own floor, because 3D's 0.03 floor would leave the mark
-      // hanging at its frame-1 pose for seconds of wall time at the seam.
+      // enhancement, from the same clock. The logo mark needs no clock of its own: it is an
+      // object in the flight, positioned from the camera's travel (tunnelScene, "Logo mark").
       s.progress = proxy.t / duration;
       world.setTime(
         ramp ? rampTime(proxy.t, duration, RAMP_FLOOR_3D) : proxy.t,
         ramp ? rampRush(proxy.t, duration) : 0,
-        mark ? logoState(proxy.t, duration, ramp) : null
+        !!mark
       );
       world.render(renderer);
       if (s.ghost) drawGhost(s, ramp);
@@ -275,7 +273,7 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         if (first || newDesign) {
           // One draw while still hidden compiles the new scene's shaders now, over the loader,
           // instead of as a hitch on the first frame of the fade-in.
-          built.setTime(0, 0, null);
+          built.setTime(0, 0, false);
           built.render(s.renderer);
           // revealAt is on GSAP's clock, the one the loader animates on: GSAP pauses through a
           // long stall rather than jumping ahead, so a wall-clock wait would let a stall eat into

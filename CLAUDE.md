@@ -1460,13 +1460,20 @@ source of the warp; the 2D preview drives its GSAP timeline through it via a gsa
 the 3D preview/exporter pass warped time + a 0..1 `rush` factor into `setTime`, so preview
 and export stay motion-identical and loops stay seamless — velocity is symmetrically zero
 at the seam).
-**Ramp shape reworked + defaulted ON, 2026-07-28.** Velocity is
-`RAMP_FLOOR + A * (1 - |2p - 1|)^RAMP_CURVE` — a rounded triangle rising from the floor at
-the seam to the peak at mid-cycle, A solved so the mean stays exactly 1. Currently
-`RAMP_CURVE = 1.2`, **accelerating for the entire first half of every cycle and
-decelerating through the entire second half** (only ~23% of a loop reads as steady, vs ~70%
-for the shape before it). Both knobs are free — the closed-form integral lands on 0.5 at
-half a cycle and 1.0 at the seam for ANY (curve, floor), so retuning can't break the loop.
+**Ramp shape reworked + defaulted ON, 2026-07-28; peak ROUNDED 2026-09-30.** Velocity is
+`RAMP_FLOOR + A * g(u)` with `u = 1 - |2p - 1|` and `g(u) = u^q (1 + q(1 - u))`, q =
+`RAMP_CURVE` = **2.4** -- rising from the floor at the seam to the peak at mid-cycle with ZERO
+slope at both ends, A solved so the mean stays exactly 1. It was `u^1.2` until 2026-09-30, which
+had a CORNER at the peak (acceleration flipping +5.1 -> -5.1 between two frames) that every
+rush-driven 3D effect inherited as a lurch (Aaron: "even with the ramp the entire motion and
+everything in the scene needs to be a smooth transition through"). Rounding costs: a round top
+spends longer near the peak, so with the mean fixed the ends must sit slower. q = 2.4 keeps the
+old top speeds exactly in both modes (2.16x 3D, 1.90x 2D; top = f + (1-f)(q+2)/2) -- Aaron's
+pick over keeping the old near-stop -- so in 3D the loop spends 2.5s of 10s under 0.25x (was
+1.5s; the rejected round-1 plateau was 4.5s) and 1.7s above 90% of top (was 0.85s). q = 1.6
+would keep the old ends and peak at 1.78x. Both knobs are free -- the closed-form integral lands
+on 0.5 at half a cycle and 1.0 at the seam for ANY (curve, floor), so retuning can't break the
+loop. The notes below about "~23% steady" and the three July rounds describe the old u^1.2.
 **The floor is the one value that differs per mode**, hence `rampTime`'s third parameter:
 `RAMP_FLOOR_3D = 0.03` (a near stop at each loop end — 2.16x top speed; measured in the
 real scene, the camera goes ~7 world units/sec at the seam against 519 at mid-cycle) and
@@ -1752,6 +1759,19 @@ hiding the next: past 1% of the screen, >90% of a plate is visible. **The rush's
 the remaining lever and was deliberately left at 43**: at 0 the fastest growth from 1% to half
 the screen takes 20 frames instead of 8, but the peak loses its tight central cluster and fills
 with big plates -- a change of look for Aaron to choose, not a fix.
+**Everything that follows the ramp is smooth through the seam AND the peak** (same day, two
+rounds with Aaron). Round 1: at the loop's end the geometry "seems to scale in and overshoot and
+go back" -- the FOV boost and warp pull follow rush, which bottoms out AT the seam where the
+camera is nearly stopped, so they zoomed everything in as a loop ended and back out as the next
+began. Cubing rush fixed the seam but tripled the CORNER rush had at the peak (the ramp was a
+triangle under a power), and the zoom rate flipped 63% between two frames there ("a very weird
+glitch in the motion"; it was already 27% on plain rush). Round 2, the real fix, in two parts:
+speedRamp's rise is now ROUNDED (zero slope at both ends, see the MP4 export section), so the
+camera and rush are both smooth at the peak; and the resizing effects follow `surgeOf(rush)` =
+rush squared, flat at the seam. Measured over the whole cycle from the real scene object, beyond
+60 units (nearer than that is plain perspective): no plate ever shrinks, and the largest
+frame-to-frame change in a plate's growth is 6.8% (deployed before this: 31% at the peak). Near
+the seam growth tracks the camera's motion to within 2.7% (was 30%). Streaks keep plain rush.
 (14) **A Duration change is the same flight, longer, and it crossfades.** Plate placements
 (presence, turn, offset) are on per-index streams (`${seed}-3d-place-${k}`), so plate k is the
 same at any Duration; on the shared stream every Duration change re-rolled every plate, since
@@ -2043,13 +2063,19 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
   plane, `depthTest: false` + `renderOrder 999` + `fog: false` and deliberately NOT
   warp-shaded — the camera flies through a continuous bore, so anything depth-tested spends
   the window behind a ring.
-- **The 3D plane's z is set RELATIVE TO THE CAMERA every frame** (`camZ + LOGO_SEAM_DISTANCE
-  / scale`), which is the whole reason it needs no seam special case: `camZ` wraps modulo `L`
-  but an offset from it has nothing to wrap, so no duplicate copies at ±L are needed.
-  Measured across a real wrap: distance ahead runs 158 → 97 → 60 (seam) → 37 → 23 with the
-  camera jumping 2340 → 0 underneath it. Visibility is gated on `logoState` being non-null,
-  so it appears exactly **once per cycle even when the camera laps** (verified at a 20s
-  duration, laps = 2, 1200 samples).
+- **The 3D mark is an object IN the flight (2026-09-30), not camera-relative.** It sits
+  `LOGO_SEAM_DISTANCE` (60) ahead of where the camera is at the seam, measured along the cycle's
+  whole travel (`laps * L`), so it comes round once per cycle however many laps the camera makes.
+  The camera's own travel carries it, on the plates' vanishing-point warp; its scale, opacity and
+  stroke are logoIntro's curves evaluated at its real distance (s = log2(60 / depth) / octaves),
+  so the seam frame is byte-identical to the old pose and the loop still closes exactly. It used
+  to sit at `camZ + 60 / scale` on logoIntro's own clock, whose 0.25x floor is not the flight's
+  0.03x, so through the near-stop it zoomed ~4x faster than the world (Aaron: "make sure the logo
+  animation is in sync too"). Measured on real renders: it now slows into the seam with the
+  flight (radius 128 -> 133 -> 137 -> 142 px per quarter second) where it used to grow 121 -> 137
+  -> 154 regardless. setTime's third argument is now just `showLogo`. 2D is unchanged -- there
+  logoIntro's clock IS the animation's own ramp (both floor 0.25). With the ramp OFF the 3D camera
+  runs at a constant 240 u/s, so the mark passes in well under a second.
 - **A scene with the mark off is pixel-identical to one built without the plane at all**, and
   a `logoMark` prop change rebuilds the 3D scene (cheap — 3D builds are instant, unlike the
   30s+ 2D frame build). `LOGO_SCREEN_FRACTION` is shared by the 2D preview and the 2D export
