@@ -482,6 +482,24 @@ body {
   min-height: 100dvh;
 }
 
+/* No double-tap zoom. iOS Safari has ignored the viewport's `user-scalable=no` since iOS 10, so
+   two quick taps on a control -- the Video tab's Duration steppers, say -- zoomed the page
+   (Aaron, 2026-09-30). `manipulation` drops only the double-tap gesture: pinch zoom and panning
+   still work, and it also removes the tap delay. In the base layer so any component that sets
+   its own touch-action (pan-y on the shirt and carousels, none on the scroll strip) still wins. */
+@layer base {
+  html,
+  button,
+  a,
+  input,
+  select,
+  label,
+  summary,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+}
+
 /* The one place scrolling is still locked: the standalone /studio route, whose full-bleed
    canvas is meant to be immersive (StudioPage adds this; see useScrollLock for the
    transient modal/overlay equivalent, which needs `position: fixed` rather than this

@@ -1741,6 +1741,31 @@ everything-up +0.8ms at both. Seam byte-identical at 5/10/37s in both paths.
 Same pass: **large star sprites now ride the warp's POSITION as well as its scale** -- they were
 shrunk by it but left on plain perspective lines, so far ones sat off-centre and drifted outward
 slower than the small stars, plates and cage around them.
+(13) **The opening is driven by how far away a plate LOOKS, not its raw depth** (same day, Aaron
+on iPhone: geometry "just appearing"). It started at raw depth 170, plus 50 at the ramp's peak,
+but the peak also pulls the warp in (78 -> 35), so a plate 220 away was a ~1% speck when its
+centre began opening; the opening outran the shapes and some plates flashed up and dissolved
+without ever growing. Now `restingDepth` inverts the warp at rest, so the opening starts at the
+same on-screen size at any speed (and exactly as before at rest). Measured at 402x874: plates now
+reach ~100% of the screen before opening, where some opened at <1%. NOT the plate in front
+hiding the next: past 1% of the screen, >90% of a plate is visible. **The rush's warp pull is
+the remaining lever and was deliberately left at 43**: at 0 the fastest growth from 1% to half
+the screen takes 20 frames instead of 8, but the peak loses its tight central cluster and fills
+with big plates -- a change of look for Aaron to choose, not a fix.
+(14) **A Duration change is the same flight, longer, and it crossfades.** Plate placements
+(presence, turn, offset) are on per-index streams (`${seed}-3d-place-${k}`), so plate k is the
+same at any Duration; on the shared stream every Duration change re-rolled every plate, since
+the blobs and large stars before them take a length-dependent number of draws. This moved every
+existing flight's plate turns and offsets once (saved 3D rows replay with the bundle's code).
+The stars, blobs and cage are laid out along the loop's length and still change, so any
+same-seed swap (Duration, palette, sliders, logo) now CROSSFADES over `SWAP_FADE` with both
+scenes playing (the old one into an offscreen target). Worst frame spike at a Duration step:
+0.9-6.8 against 16.8-42.5 for the straight cut. It resumes at the same cycle fraction:
+matching the camera's place among the plates was built and dropped, because near the loop ends a
+fraction of a plate is a big slice of the cycle and a +/-1s step jumped the pacing by up to half
+a cycle. Long Durations do NOT need more plates: content length caps at `MAX_CONTENT_LENGTH`
+(2400) and the camera laps it, so plates stay ~150 apart at any Duration; what grows is
+repetition (a 60s loop passes the same ~16 placements six times).
 Two traps hit while building the shaders, worth knowing: `PLATE_FRAG.replace('BLEND_FUNCS', ...)`
 replaces the FIRST occurrence, so a GLSL comment mentioning the placeholder silently broke the
 shader (frame rate looked perfect because nothing was drawn -- always check for compile errors

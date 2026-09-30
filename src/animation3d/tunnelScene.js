@@ -76,9 +76,13 @@ const PLATE_FADE = [0.5, 4, 330, 390];
 // artwork flows outward from the centre continuously. Before this the nearest plate covered
 // the whole screen until it faded out, hiding the next one until it was already mid-size (Aaron:
 // they "just appear half way through rather than coming in from the center").
-// Radius in half-heights of the screen, opening from PLATE_HOLE[0] units of depth to [1].
+// Radius in half-heights of the screen, opening from PLATE_HOLE[0] units of depth to [1] --
+// depth as the plate LOOKS, i.e. measured on the resting warp (see restingDepth). It used to be
+// raw depth, plus 50 at the ramp's peak, and the two pulled the same wrong way: the rush pulls the
+// warp in, so at the peak a plate 220 away was still a speck of ~1% of the screen when its centre
+// began opening. The opening outran the shapes, and some plates flashed up small and dissolved
+// without ever growing -- geometry "just appearing" (Aaron, iPhone, 2026-09-30).
 const PLATE_HOLE = [170, 6];
-const PLATE_HOLE_RUSH = 50; // opens earlier at the ramp's peak, where the camera covers ground fast
 const PLATE_HOLE_SOFT = 0.35; // how far ahead of the opening a shape starts fading, in half-heights
 const BLOB_FADE = [4, 40, 330, 390];
 
@@ -534,7 +538,7 @@ const PLATE_COMP_FRAG = /* glsl */ `
 // Placements along the flight: which plate content, and where it sits. Layout comes from the
 // scene stream and shapes from each content's own stream, so a slider change re-shapes plates
 // without moving where they sit, and vice versa.
-function buildPlates(rng, seed, designGeometry, paletteColors, settings, geometry, L) {
+function buildPlates(seed, designGeometry, paletteColors, settings, geometry, L) {
   const coh = geometry.coherence;
   const frameHalf = FRAME_D * Math.tan((BASE_FOV * Math.PI) / 360);
 
@@ -554,21 +558,27 @@ function buildPlates(rng, seed, designGeometry, paletteColors, settings, geometr
   }
   const data = packPlateData(contents);
 
-  const count = Math.max(3, Math.round(L / PLATE_SPACING));
+  const count = plateCount(L);
   const plates = [];
   for (let k = 0; k < count; k++) {
+    // Each placement on its own stream, keyed by its index, so plate k is the same plate at any
+    // Duration: a longer flight is this one with more plates, not a re-roll of all of them. On the
+    // shared stream every Duration change re-rolled every plate's presence, turn and offset, since
+    // the blobs and large stars drawn before them take a length-dependent number of draws.
+    const prng = makeRng(`${seed}-3d-place-${k}`);
     // Plate 0 carries the design's own geometry, if the design has any; the rest follow the
     // Chance slider, so low chance leaves stretches of open sky.
-    const present = contents.length > 0 && (k === 0 ? !!designGeometry : rng() < geometry.chance);
-    const ang = rng() * TWO_PI;
+    const odds = prng();
+    const present = contents.length > 0 && (k === 0 ? !!designGeometry : odds < geometry.chance);
+    const ang = prng() * TWO_PI;
     plates.push({
       z: (k / count) * L,
       present,
       content: contents.length ? contents[k % contents.length] : null,
       rot: [Math.cos(ang), Math.sin(ang)],
       // Coherent lattices close onto the flight path, so the camera flies through them
-      ox: (rng() - 0.5) * 2 * PLATE_OFFSET * frameHalf * 2 * (1 - coh),
-      oy: (rng() - 0.5) * 2 * PLATE_OFFSET * frameHalf * 1.4 * (1 - coh)
+      ox: (prng() - 0.5) * 2 * PLATE_OFFSET * frameHalf * 2 * (1 - coh),
+      oy: (prng() - 0.5) * 2 * PLATE_OFFSET * frameHalf * 1.4 * (1 - coh)
     });
   }
   return { plates, data };
@@ -1326,6 +1336,23 @@ function warpFactor(d, start = WARP_START) {
   return (d / start) * Math.exp(-(d - start) / start);
 }
 
+// The depth at which a plate would look the size it does now, were the warp at rest: inverts
+// d / warpFactor(d) (monotonic) for the resting WARP_START. At rest it is the plate's own depth,
+// so the aperture opens exactly as it always did there; at the ramp's peak, where the warp is
+// pulled in, it reads further away, as the plate looks.
+function restingDepth(effD) {
+  if (effD <= WARP_START) return effD;
+  let lo = WARP_START;
+  let hi = WARP_START * 2;
+  while (hi / warpFactor(hi) < effD && hi < 1e5) hi *= 2;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (mid / warpFactor(mid) < effD) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 function applyWarpShader(mat, uWarpStart, uStreak = null) {
   mat.onBeforeCompile = shader => {
     shader.uniforms.uWarpStart = uWarpStart;
@@ -1527,10 +1554,21 @@ function cachedStarField(kind, count, L, rMin, rMax) {
   return storeStarField(key, step.value);
 }
 
+// A flight's layout for a Duration: the content length L the camera laps, how many laps a cycle
+// takes, and how many plates sit along L.
+function plateCount(L) {
+  return Math.max(3, Math.round(L / PLATE_SPACING));
+}
+function flightLayout(duration) {
+  const travel = FLIGHT_SPEED * duration;
+  const laps = Math.max(1, Math.ceil(travel / MAX_CONTENT_LENGTH));
+  const L = travel / laps;
+  return { L, laps, plates: plateCount(L) };
+}
+
 // The two star fields a scene of this duration uses -- the same derivation as createTunnelScene
 function starFieldSpecs(duration) {
-  const travel = FLIGHT_SPEED * duration;
-  const L = travel / Math.max(1, Math.ceil(travel / MAX_CONTENT_LENGTH));
+  const { L } = flightLayout(duration);
   const lenScale = L / REFERENCE_LENGTH;
   return [
     ['near', Math.round(SMALL_STAR_COUNT * lenScale), L, TUNNEL_CORE, TUNNEL_RADIUS],
@@ -1619,9 +1657,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     colors.length === 1 ? expandMonochromePalette(colors[0], makeRng(`${seed}-palette`)) : colors;
 
   const camera = new THREE.PerspectiveCamera(BASE_FOV, (width || 1) / (height || 1), 0.1, 600);
-  const travel = FLIGHT_SPEED * duration;
-  const laps = Math.max(1, Math.ceil(travel / MAX_CONTENT_LENGTH));
-  const L = travel / laps;
+  const { L, laps } = flightLayout(duration);
   const lenScale = L / REFERENCE_LENGTH;
   const spriteScale = Math.sqrt(lenScale);
   const disposables = [];
@@ -1774,7 +1810,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   }
 
   // ── Geometry plates, drawn as vectors (see "The geometry layer")
-  const { plates, data: plateData } = buildPlates(rng, seed, art.geometryConfig || null, paletteColors, settings, geometry, L);
+  const { plates, data: plateData } = buildPlates(seed, art.geometryConfig || null, paletteColors, settings, geometry, L);
   disposables.push(plateData.triTex, plateData.cellTex);
   const plateUniformsState = {
     uTris: { value: plateData.triTex },
@@ -1971,9 +2007,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       const warp = Math.max(1e-3, warpFactor(dz, warpStartNow));
       if (alpha < 0.002) continue;
       // Aperture radius: nothing until PLATE_HOLE[0], past the screen's corners by PLATE_HOLE[1].
-      // Squared, so it opens gently and then races outward the way perspective does.
-      const holeStart = PLATE_HOLE[0] + PLATE_HOLE_RUSH * rush;
-      const ht = Math.min(1, Math.max(0, (holeStart - dz) / (holeStart - PLATE_HOLE[1])));
+      // Squared, so it opens gently and then races outward the way perspective does. Driven by
+      // how far away the plate looks, so it opens at the same size on screen at any speed.
+      const seen = restingDepth(Math.max(0.5, dz) / warp);
+      const ht = Math.min(1, Math.max(0, (PLATE_HOLE[0] - seen) / (PLATE_HOLE[0] - PLATE_HOLE[1])));
       const hole = ht * ht * (Math.hypot(camera.aspect, 1) + PLATE_HOLE_SOFT);
       if (ht >= 1) continue;
       visiblePlates.push({ plate, dz: Math.max(0.5, dz) / warp, alpha, hole });

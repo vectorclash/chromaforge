@@ -21,9 +21,48 @@ import { logoState } from '../utils/logoIntro';
 // click blacked the preview out for the length of a rebuild, and a run of clicks queued rebuild
 // after rebuild. Now: quick successive changes are debounced into one build, the current scene
 // keeps playing while the next one builds, and the loop keeps its place across the swap. Only
-// a new DESIGN fades in; a Duration or logo change is a straight swap. The speed ramp touches
-// only the timeline, so toggling it does not rebuild the scene at all.
+// a new DESIGN fades in over the loader; any other change CROSSFADES, both scenes playing, over
+// SWAP_FADE (2026-09-30, Aaron: changing Duration still "feels weird changing the animation").
+// A straight swap cut the stars and colour fields -- laid out along the loop's length, so a new
+// Duration re-lays them -- from one frame to the next. It resumes at the same cycle FRACTION, so
+// the ramp's pacing carries straight through; matching the camera's place among the plates
+// instead was tried and dropped, since near the loop ends, where the warp crawls, a fraction of a
+// plate is a large slice of the cycle and a +/-1s Duration step jumped the pacing by up to half a
+// cycle. The speed ramp touches only the timeline, so toggling it does not rebuild the scene.
 const REBUILD_DEBOUNCE_MS = 220;
+const SWAP_FADE = DURATION_SLOW;
+
+// The outgoing scene keeps playing on its own clock while it fades out over the incoming one.
+// It renders into an offscreen target, which is then drawn over the frame at its opacity.
+function drawGhost(s, ramp) {
+  const { ghost, fader, renderer } = s;
+  if (!ghost || !fader || !renderer) return;
+  const t = (ghost.p0 * ghost.duration + (gsap.ticker.time - ghost.t0)) % ghost.duration;
+  ghost.world.setTime(
+    ramp ? rampTime(t, ghost.duration, RAMP_FLOOR_3D) : t,
+    ramp ? rampRush(t, ghost.duration) : 0,
+    ghost.logo ? logoState(t, ghost.duration, ramp) : null
+  );
+  renderer.getDrawingBufferSize(fader.size);
+  if (fader.target.width !== fader.size.x || fader.target.height !== fader.size.y) {
+    fader.target.setSize(fader.size.x, fader.size.y);
+  }
+  renderer.setRenderTarget(fader.target);
+  ghost.world.render(renderer);
+  renderer.setRenderTarget(null);
+  fader.material.uniforms.uOpacity.value = ghost.opacity.value;
+  const autoClear = renderer.autoClear;
+  renderer.autoClear = false;
+  renderer.render(fader.scene, fader.camera);
+  renderer.autoClear = autoClear;
+}
+
+function endGhost(s) {
+  if (!s.ghost) return;
+  s.ghost.tween?.kill();
+  s.ghost.world.dispose();
+  s.ghost = null;
+}
 
 export default function Animation3DPreview({ design, cycleDuration, paused = false, speedRamp = false, logoMark = null, revealAt = 0, onClick, onInitError, onSceneReady }) {
   const containerRef = useRef(null);
@@ -35,7 +74,11 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
     worldLogo: null,
     worldDesign: null,
     tl: null,
-    progress: 0
+    progress: 0,
+    draw: null,
+    // The outgoing scene during a crossfade, and what draws it over the incoming one
+    ghost: null,
+    fader: null
   });
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
@@ -72,7 +115,9 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         mark ? logoState(proxy.t, duration, ramp) : null
       );
       world.render(renderer);
+      if (s.ghost) drawGhost(s, ramp);
     };
+    s.draw = draw;
     const tl = gsap.timeline({ repeat: -1, paused: pausedRef.current });
     tl.to(proxy, { t: duration, duration, ease: 'none', onUpdate: draw });
     tl.time(Math.min(0.999, Math.max(0, fromProgress)) * duration);
@@ -91,7 +136,8 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
 
     (async () => {
       try {
-        const { WebGLRenderer } = await import('three');
+        const THREE = await import('three');
+        const { WebGLRenderer } = THREE;
         const container = containerRef.current;
         if (cancelled || !container) return;
         // No canvas MSAA: the frame is assembled in render targets and the canvas only ever
@@ -103,6 +149,24 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         renderer.domElement.classList.add('absolute', 'top-0', 'left-0', 'h-full', 'w-full');
         container.appendChild(renderer.domElement);
         s.renderer = renderer;
+        // The crossfade's pass: the outgoing scene's frame, drawn over at an opacity. Raw values
+        // in, raw values out (no colour-space conversion), like the scene's own copy pass.
+        const material = new THREE.ShaderMaterial({
+          uniforms: { uFrame: { value: null }, uOpacity: { value: 1 } },
+          vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+          fragmentShader:
+            'uniform sampler2D uFrame; uniform float uOpacity; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(uFrame, vUv).rgb, uOpacity); }',
+          transparent: true,
+          depthTest: false,
+          depthWrite: false
+        });
+        const target = new THREE.WebGLRenderTarget(1, 1);
+        material.uniforms.uFrame.value = target.texture;
+        const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        quad.frustumCulled = false;
+        const scene = new THREE.Scene();
+        scene.add(quad);
+        s.fader = { target, material, quad, scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), size: new THREE.Vector2() };
         setRendererReady(true);
       } catch (e) {
         // WebGL context creation can genuinely fail (GPU blocklists, headless/remote
@@ -135,6 +199,13 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
       window.removeEventListener('orientationchange', onResize);
       s.tl?.kill();
       s.tl = null;
+      endGhost(s);
+      if (s.fader) {
+        s.fader.target.dispose();
+        s.fader.material.dispose();
+        s.fader.quad.geometry.dispose();
+        s.fader = null;
+      }
       s.world?.dispose();
       s.world = null;
       if (s.renderer) {
@@ -226,13 +297,22 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         }
         const old = s.world;
         const resumeAt = newDesign ? 0 : s.progress;
+        // The same piece reshaped crossfades while playing; a new design has already faded out,
+        // and a paused preview has nothing to fade between, so those swap straight
+        endGhost(s);
+        if (old && !newDesign && !pausedRef.current && s.fader) {
+          const opacity = { value: 1 };
+          s.ghost = { world: old, duration: s.worldDuration, logo: s.worldLogo, p0: s.progress, t0: gsap.ticker.time, opacity };
+          s.ghost.tween = gsap.to(opacity, { value: 0, duration: SWAP_FADE, ease: 'power2.inOut', onComplete: () => endGhost(s) });
+        } else {
+          old?.dispose();
+        }
         s.world = built;
         s.worldDuration = cycleDuration;
         s.worldLogo = logoMark;
         s.worldDesign = design;
         built = null;
         startTimeline(resumeAt);
-        old?.dispose();
         if (first || newDesign) {
           setReady(true);
           gsap.fromTo(container, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut' });
@@ -266,6 +346,11 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
   useLayoutEffect(() => {
     if (paused) {
       live.current.tl?.pause();
+      // A crossfade cannot finish while nothing draws, so it ends here instead of freezing mid-mix
+      if (live.current.ghost) {
+        endGhost(live.current);
+        live.current.draw?.();
+      }
     } else {
       live.current.tl?.play();
     }
