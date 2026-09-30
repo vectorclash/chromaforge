@@ -80,7 +80,6 @@ const PLATE_FADE = [0.5, 4, 330, 390];
 const PLATE_HOLE = [170, 6];
 const PLATE_HOLE_RUSH = 50; // opens earlier at the ramp's peak, where the camera covers ground fast
 const PLATE_HOLE_SOFT = 0.35; // how far ahead of the opening a shape starts fading, in half-heights
-const PLATE_HOLE_EPS = 0.02; // redraw a cached plate once its opening moves this far
 const BLOB_FADE = [4, 40, 330, 390];
 
 // ─── Radial field ─────────────────────────────────────────────────────────────────────
@@ -291,6 +290,12 @@ const GRID = 32; // cells per side of each plate's triangle grid
 const PLATE_CACHE_MARGIN = 1.15;
 const PLATE_CACHE_MAX_ZOOM = 1.25; // redraw from here, one plate per frame (most zoomed first)
 const PLATE_CACHE_FORCE_ZOOM = 1.6; // redraw regardless -- the budget never lets edges go softer
+// A plate covering less than this fraction of the screen is redrawn every frame instead of
+// scaled from its cache. The pass costs roughly what the plate covers, so a small plate is cheap
+// -- and a small plate is one growing out of the vanishing point, where a cached image magnified
+// soft and then snapping sharp on its redraw read as the geometry popping in rather than
+// scaling up (2026-09-30).
+const PLATE_CACHE_MIN_COVER = 0.12;
 // Cache resolution in device pixels per CSS pixel. On a retina screen that is 1.5 rather than
 // 2, which keeps each edge's antialiasing ramp under one CSS pixel wide while drawing 44%
 // fewer pixels in the expensive pass; at a pixel ratio of 1.5 or less, and in exports, the
@@ -1764,7 +1769,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       sprite.scale.setScalar(baseScale);
       sprite.position.set(largeField.pos[i * 3], largeField.pos[i * 3 + 1], largeField.pos[i * 3 + 2] + zOff);
       starScene.add(sprite);
-      largeSprites.push({ sprite, index: i, baseScale });
+      largeSprites.push({ sprite, index: i, baseScale, x: sprite.position.x, y: sprite.position.y });
     }
   }
 
@@ -1936,9 +1941,16 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     // as the whole frame rocking one way and then the other.
 
     starColourUniforms.uStarProgress.value = progress;
-    for (const { sprite, index, baseScale } of largeSprites) {
+    // The warp moves a large star toward the axis as well as shrinking it, exactly as the shader
+    // does for the small stars, plates, blobs and cage. Shrinking alone left them on plain
+    // perspective lines: far ones sat well off the centre and drifted outward slower than
+    // everything around them, rather than flowing out of the vanishing point with it.
+    for (const { sprite, index, baseScale, x, y } of largeSprites) {
       sprite.material.color.copy(starColor(largeField, index, progress));
-      sprite.scale.setScalar(baseScale * warpFactor(sprite.position.z - camZ, warpStartNow));
+      const w = warpFactor(sprite.position.z - camZ, warpStartNow);
+      sprite.scale.setScalar(baseScale * w);
+      sprite.position.x = x * w;
+      sprite.position.y = y * w;
     }
 
     blobs.update(camZ, warpStartNow);
@@ -1988,6 +2000,12 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       }
     }
   }
+
+  // The fraction of the screen a plate's bounding square covers, at view depth `depth`
+  const plateCover = (plate, depth, tanY) => {
+    const e = (plate.content.half * Math.SQRT2 * PX + Math.hypot(plate.ox, plate.oy)) / (depth * tanY);
+    return (Math.min(e, camera.aspect) * Math.min(e, 1)) / camera.aspect;
+  };
 
   // Callers draw with world.render(renderer). The frame is assembled layer by layer in the
   // order renderArtwork uses -- sky, radial field, stars, geometry (stars after it instead
@@ -2071,9 +2089,12 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       }
       // How much of the cached view the current view spans (1 = all of it)
       let scale = c.fresh ? (tanY * depth) / (c.tan * c.dz) : 0;
-      // The aperture is baked into the render, so a plate whose opening has moved is redrawn
-      const holeMoved = Math.abs(hole - (c.hole ?? 0)) > PLATE_HOLE_EPS;
-      if (exact || !c.fresh || holeMoved || scale > 1 || scale < 1 / PLATE_CACHE_FORCE_ZOOM || plate === budgetPlate) {
+      // The aperture is baked into the render, so a plate whose opening has moved AT ALL is
+      // redrawn. A threshold here (it was 0.02 half-heights) advanced the opening in steps: near
+      // the loop ends, where the camera is slow, a plate held for several frames and then its
+      // fading shapes jumped.
+      const holeMoved = hole !== (c.hole ?? 0);
+      if (exact || !c.fresh || holeMoved || plateCover(plate, depth, tanY) < PLATE_CACHE_MIN_COVER || scale > 1 || scale < 1 / PLATE_CACHE_FORCE_ZOOM || plate === budgetPlate) {
         const tanC = exact ? tanY : tanY * PLATE_CACHE_MARGIN;
         plateUniforms(plate, plateUniformsState);
         // Aperture in the plate's own units, fixed in the world: screen half-heights at this depth

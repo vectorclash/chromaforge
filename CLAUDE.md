@@ -1725,6 +1725,22 @@ proportional to camera speed. One curve, in `warpFactor` and inline in both shad
 cage). It never reaches zero (a plate is ~2% size at 390, under the far fade), which is why the
 warped cage no longer knots. Side effect, accepted: mid-distance plates are smaller than before.
 Seam re-verified byte-identical at 5/10/37s; check-leaks 11/11, routes 10/10.
+(12) **The preview's plate cache was what "popped", never the geometry** (2026-09-30, Aaron:
+"the geometry popping in rather than scaling up correctly"). Measured before touching anything:
+in the EXACT path every plate is born a 1px speck and grows smoothly (per-plate contribution, 3
+designs), and a plate's own render target scales between frames with only resampling residual
+(1-5%, unchanged by 16x supersampling). The jumps were preview-only: the opening was baked into
+the cache and redrawn only after moving 0.02 half-heights, so near the slow loop ends it held for
+frames and then jumped; and a growing plate was shown magnified up to 1.6x (x1.33 more on retina,
+where the cache is 0.75 res) and then snapped sharp. Now a plate is redrawn whenever its opening
+moves at all, and every frame while it covers under `PLATE_CACHE_MIN_COVER` (12%) of the screen --
+small plates are cheap and are exactly the ones growing out of the centre. Preview-vs-exact frame
+jumps at DPR 2: 11-34 frames per 10s loop over the threshold -> 0, worst 30-44 -> 6-10 (the AA
+floor). Cost, GPU-synced: defaults 5.3 -> 5.6ms at 2880x1800, 3.7 -> 3.7ms at a 402x874@3 phone;
+everything-up +0.8ms at both. Seam byte-identical at 5/10/37s in both paths.
+Same pass: **large star sprites now ride the warp's POSITION as well as its scale** -- they were
+shrunk by it but left on plain perspective lines, so far ones sat off-centre and drifted outward
+slower than the small stars, plates and cage around them.
 Two traps hit while building the shaders, worth knowing: `PLATE_FRAG.replace('BLEND_FUNCS', ...)`
 replaces the FIRST occurrence, so a GLSL comment mentioning the placeholder silently broke the
 shader (frame rate looked perfect because nothing was drawn -- always check for compile errors
