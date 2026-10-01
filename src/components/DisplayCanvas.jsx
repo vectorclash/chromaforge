@@ -612,6 +612,18 @@ export default class DisplayCanvas extends React.Component {
     if (this.state.downloadVisible && prevState && PREVIEW_KEYS.some(key => prevState[key] !== this.state[key])) {
       this.queueDownloadPreview();
     }
+    // A 3D flight is the studio's live work too, so it reaches StudioContext like a still or a
+    // 2D animation's last frame does. Every change to it (Generate, a palette or slider edit, a
+    // loaded row) makes a new threeDDesign, and none of those paths go through buildConfig, so
+    // without this the homepage, footer and mini-generator stayed on whatever design was there
+    // before 3D -- with the old palette. Built at the same 1080 square generateRandom uses, with
+    // the panel's odds stamped the way buildConfig stamps them.
+    if (prevState && this.state.threeDDesign && this.state.threeDDesign !== prevState.threeDDesign) {
+      const { seed, colors, settings } = this.state.threeDDesign;
+      const config = generateArtwork(seed, 1080, 1080, colors, settings);
+      config.geometryChance = this.state.geometrySettings.chance;
+      this.props.onDesignChange?.(config);
+    }
     // The large buttons wear the palette of the artwork on screen. Stills and 2D animation
     // builds set it as they build; a 3D flight has no build of its own here, so it follows
     // whichever animation is showing -- a new or reshaped flight, entering Animation, or turning
