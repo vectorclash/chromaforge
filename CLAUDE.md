@@ -1701,38 +1701,60 @@ cage tunnel thing also in there, but never fully filled like it can get with the
 the way up... modify it a bit more to fit the scene"). `buildCage` is the old
 `buildGeometricTunnel`, on its own `-3d-cage` rng stream, changed to fit: wire/panel density
 CAPPED (`CAGE_MAX_WIRE` 0.5 against the old 1.15; `CAGE_MAX_PANEL` 0.2), so no setting fills it
-into a bore; its angular shimmer (a sine wobble) removed; a depth FADE (`CAGE_FADE`, nearer than
-the plates') instead of the vanishing-point warp, which had collapsed the far cage into a knot
-at the centre; the design's resolved palette plus the star field's contrast palette, not the old
+into a bore; its angular shimmer (a sine wobble) removed; it fades into the shared haze like
+everything else (11), with its WIRES also dimmed below a pixel (`CAGE_WIRE_WIDTH`) -- GL draws a
+line 1px wide at any distance, so undimmed the receding cage piled into a bright white tangle at
+the vanishing point; the design's resolved palette plus the star field's contrast palette, not the old
 scene's own. Two layers: panels composite with the design's geometry blend, lines with
 COMPOSITE_FRAG's blend 8 -- light over dark, darkened over bright, decided PER PIXEL. Screen alone
 vanished on a pale sky, and a sky-wide luminance switch turned a vivid design's cage into dark
 scratches. `cage: false` turns it off. Costs ~nothing (medians ~10ms either way).
 (10) **Artwork flows OUT OF THE CENTRE** (round 6, Aaron: plates "just appear half way through
-rather than coming in from the center"). Two parts, both needed. Plates and blobs ride the stars'
-vanishing-point WARP; for a flat plate at one depth the warp is a uniform shrink, identical to
-the plate sitting further away, so it is folded into the plate's depth (`dz / warp`) and the
-vector pass and cache take it unchanged; the far fade (`PLATE_FADE` 330->390) sits where a plate is
-already a speck. And the plate being reached OPENS FROM THE MIDDLE, SHAPE BY SHAPE (`PLATE_HOLE`,
-`uHoleQ`): each shape fades out whole as the opening passes its nearest point to the flight
-axis. Without the opening the warp was mostly invisible -- the front plate covered the whole
-screen until it faded, hiding the next one until it was mid-size. A screen-space circular
+rather than coming in from the center"). Far plates are small and central because of the lens
+and the haze (11); and the plate being reached OPENS FROM THE MIDDLE, SHAPE BY SHAPE
+(`PLATE_HOLE`, `uHoleQ`): each shape fades out whole as the opening passes its nearest point to
+the flight axis. Without the opening the front plate covered the whole screen until it faded,
+hiding the next one until it was mid-size. A screen-space circular
 aperture was built first and cut a feathered ring through the shapes (the same "soft edges" he
 had already rejected); per-shape opening keeps every edge crisp. The opening is baked into the
 render, so the cache redraws a plate once its opening moves (`PLATE_HOLE_EPS`).
-(11) **The warp is a STEADY log-zoom, not a smoothstep, and the cage rides it too** (2026-09-30,
-Aaron: the plates' scale-up "making them feel a bit separate from the rest"; picked "steady flow +
-cage" from a synced three-way comparison, https://claude.ai/artifact/1PFZ2qPNRTq6UoEKfJccyw).
-The old warp (smoothstep, 100 -> 0 at 395) gave a plate's on-screen growth rate ~6x perspective's
-at birth, a MINIMUM around 120, then a rise: burst, stall, rush, on a clock of its own. Stars used
-it too, but as points spread through all depths they never read as one event; the cage used no
-warp at all, so plates outpaced the frame around them. Now past `WARP_START` (78, rush pulls it to
-35) the lateral factor is `(d/s)*exp(-(d-s)/s)`: a constant growth rate of 1/s per unit flown,
-joining perspective C1 at `s`, so growth only ever speeds up on approach and is always
-proportional to camera speed. One curve, in `warpFactor` and inline in both shaders (stars/streaks,
-cage). It never reaches zero (a plate is ~2% size at 390, under the far fade), which is why the
-warped cage no longer knots. Side effect, accepted: mid-distance plates are smaller than before.
-Seam re-verified byte-identical at 5/10/37s; check-leaks 11/11, routes 10/10.
+(11) **ONE PHYSICAL SPACE: plain perspective, one lens, one haze** (2026-09-30, Aaron: "these
+elements wouldn't just scale up out of nothing, you're moving through space with each of these
+elements existing within that space... is there a way to fully simulate all elements into a
+single physical space?"). Every element sits at a real place and is seen through one camera; on
+screen, things grow only because the camera approaches them, so growth is in step with the flight
+by construction. Three things were tried first and each gave far geometry a growth rate of its
+OWN, which is what read as out of sync -- do not reintroduce any of them: a smoothstep warp to
+zero at 395 (burst, stall, rush); a "steady log-zoom" warp, `(d/s)*exp(-(d-s)/s)` past 78,
+which rush pulled in to 35; and a "birth" term scaling plates up from zero over 270-390 (a fix
+for plates fading in at 6-21% of the screen, measured, at the end of a 60-unit fade band).
+Four parts, all needed:
+- **The lens** (`LENS_FOV`, 100 vertical) is the one control for how strongly distance gathers
+  far things into the centre -- Aaron's own suggestion, and the physical version of what the warp
+  faked. World sizes stay tuned through `REF_FOV` (70, the old camera), so changing the lens
+  changes the picture, not the world. The rush's FOV boost (+14 at the peak) is unchanged.
+- **The haze** (`haze()`, `HAZE_GLSL`): gaussian past `HAZE_CLEAR` (150), length `HAZE_DEPTH`.
+  It lowers ALPHA, so each piece melts into whatever is behind it -- the design's own sky at that
+  pixel, or a further layer -- never toward a fog colour (Aaron's condition). One curve for every
+  layer; plates, blobs and the cage keep only their near fades. `HAZE_DEPTH` 150 is Aaron's pick
+  by eye from 380 and 300: about two plates deep (the next plate back at ~37%, the one after a 2%
+  ghost). `VIEW_FAR` (540 at that setting) is DERIVED from the haze and must stay under the
+  shortest loop's content length (1200) less `BEHIND`, or a plate would be counted once where it
+  should appear twice; the camera's far plane sits 100 past it.
+- **Sub-pixel coverage.** GL never draws a point or line under 1px, so far stars and cage wires
+  stayed full strength while everything else shrank. Points scale their alpha by covered area,
+  wires by covered width (`CAGE_WIRE_WIDTH` 0.12, ~1px at 60 units on 1080p), which also makes a
+  4K export and a phone preview agree. And three sizes attenuated points by distance alone,
+  leaving the lens out, so on a wide lens stars kept their pixel size while the world shrank --
+  `gl_PointSize` is scaled by `projectionMatrix[1][1] * tan(REF_FOV/2)`.
+- **The opening** is driven by depth as REF_FOV would show it (`dz * tan(fov/2) / tan(35deg)`), so
+  neither the lens nor the rush's FOV boost moves where on screen a plate opens.
+Verified: loop seam byte-identical at 5/10/37s with differing mid-cycle controls; preview-path
+frame cost GPU-synced at 1440x900 unchanged (median 1.7ms against the warp's 1.8ms, p95 1.9-2.0
+against 2.3-2.4); check-leaks 11/11 incl. a real 3D export; routes 10/10. NOT measured on a
+phone. Accepted look: a plate is visible whole at mid-distance and plates nest inside each other
+toward the centre, which at busy moments makes the middle dense -- that is what a real corridor
+of them looks like.
 (12) **The preview's plate cache was what "popped", never the geometry** (2026-09-30, Aaron:
 "the geometry popping in rather than scaling up correctly"). Measured before touching anything:
 in the EXACT path every plate is born a 1px speck and grows smoothly (per-plate contribution, 3
@@ -1746,31 +1768,21 @@ small plates are cheap and are exactly the ones growing out of the centre. Previ
 jumps at DPR 2: 11-34 frames per 10s loop over the threshold -> 0, worst 30-44 -> 6-10 (the AA
 floor). Cost, GPU-synced: defaults 5.3 -> 5.6ms at 2880x1800, 3.7 -> 3.7ms at a 402x874@3 phone;
 everything-up +0.8ms at both. Seam byte-identical at 5/10/37s in both paths.
-Same pass: **large star sprites now ride the warp's POSITION as well as its scale** -- they were
-shrunk by it but left on plain perspective lines, so far ones sat off-centre and drifted outward
-slower than the small stars, plates and cage around them.
-(13) **The opening is driven by how far away a plate LOOKS, not its raw depth** (same day, Aaron
-on iPhone: geometry "just appearing"). It started at raw depth 170, plus 50 at the ramp's peak,
-but the peak also pulls the warp in (78 -> 35), so a plate 220 away was a ~1% speck when its
-centre began opening; the opening outran the shapes and some plates flashed up and dissolved
-without ever growing. Now `restingDepth` inverts the warp at rest, so the opening starts at the
-same on-screen size at any speed (and exactly as before at rest). Measured at 402x874: plates now
-reach ~100% of the screen before opening, where some opened at <1%. NOT the plate in front
-hiding the next: past 1% of the screen, >90% of a plate is visible. **The rush's warp pull is
-the remaining lever and was deliberately left at 43**: at 0 the fastest growth from 1% to half
-the screen takes 20 frames instead of 8, but the peak loses its tight central cluster and fills
-with big plates -- a change of look for Aaron to choose, not a fix.
+(13) **The opening is driven by how big a plate LOOKS, not its raw depth** (same day, Aaron on
+iPhone: geometry "just appearing"). Driven by raw depth plus 50 at the ramp's peak, it ran ahead
+of plates that still looked tiny, and some flashed up and dissolved without ever growing. Now
+see (11)'s last point.
 **Everything that follows the ramp is smooth through the seam AND the peak** (same day, two
 rounds with Aaron). Round 1: at the loop's end the geometry "seems to scale in and overshoot and
-go back" -- the FOV boost and warp pull follow rush, which bottoms out AT the seam where the
-camera is nearly stopped, so they zoomed everything in as a loop ended and back out as the next
-began. Cubing rush fixed the seam but tripled the CORNER rush had at the peak (the ramp was a
+go back" -- the FOV boost (and the warp pull, since removed) followed rush, which bottoms out AT
+the seam where the camera is nearly stopped, so they zoomed everything in as a loop ended and
+back out as the next began. Cubing rush fixed the seam but tripled the CORNER rush had at the peak (the ramp was a
 triangle under a power), and the zoom rate flipped 63% between two frames there ("a very weird
 glitch in the motion"; it was already 27% on plain rush). Round 2, the real fix, in two parts:
 speedRamp's rise is now ROUNDED (zero slope at both ends, see the MP4 export section), so the
 camera and rush are both smooth at the peak; and the resizing effects follow `surgeOf(rush)` =
-rush squared, flat at the seam. Measured over the whole cycle from the real scene object, beyond
-60 units (nearer than that is plain perspective): no plate ever shrinks, and the largest
+rush squared, flat at the seam. Measured over the whole cycle from the real scene object, under
+the warp (not re-measured in the physical space, where only the FOV boost remains): no plate ever shrinks, and the largest
 frame-to-frame change in a plate's growth is 6.8% (deployed before this: 31% at the peak). Near
 the seam growth tracks the camera's motion to within 2.7% (was 30%). Streaks keep plain rush.
 (14) **A Duration change is the same flight, longer, and it crossfades.** Plate placements
@@ -1865,8 +1877,8 @@ The logo mark's accent comes from `resolveDesignPalette` like 2D's; `scenePalett
 - **Rush streaks** are one line segment per star extruded toward +z, AWAY from the camera -- the
   physically correct direction (the stars are static and the camera flies +z) -- riding `rush` and
   hidden entirely below `RUSH_STREAK_EPS`; at rush 0 the scene is pixel-identical to one without them.
-- **The vanishing-point warp** compresses distant stars toward the centre so nothing pops in at the
-  far end; plates and blobs ride the same curve (folded into their depth, see (10) above).
+- **Nothing pops in at the far end because of the haze and sub-pixel coverage**, not a warp -- see
+  (11) above.
 
 **3D is the DEFAULT animation mode as of 2026-09-30** (Aaron: "it really captures the artwork
 perfectly now"). `DEFAULT_VIDEO_PREFS.threeDMode` is true. The trap: the Video-tab mirror writes EVERY
@@ -2067,7 +2079,7 @@ through the animation's loop seam. Playback/export state only — like Speed Ram
 - **The 3D mark is an object IN the flight (2026-09-30), not camera-relative.** It sits
   `LOGO_SEAM_DISTANCE` (60) ahead of where the camera is at the seam, measured along the cycle's
   whole travel (`laps * L`), so it comes round once per cycle however many laps the camera makes.
-  The camera's own travel carries it, on the plates' vanishing-point warp; its scale, opacity and
+  The camera's own travel carries it, in the same space as the plates; its scale, opacity and
   stroke are logoIntro's curves evaluated at its real distance (s = log2(60 / depth) / octaves),
   so the seam frame is byte-identical to the old pose and the loop still closes exactly. It used
   to sit at `camZ + 60 / scale` on logoIntro's own clock, whose 0.25x floor is not the flight's

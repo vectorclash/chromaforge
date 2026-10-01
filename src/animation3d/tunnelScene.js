@@ -46,7 +46,15 @@ import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
 const FLIGHT_SPEED = 240; // world units/sec, duration-independent (Aaron, 2026-07-18)
 const MAX_CONTENT_LENGTH = 2400;
 const REFERENCE_LENGTH = 400;
-const BASE_FOV = 70;
+// World sizes are set through this field of view (PX below): the 2D canvas fills the frame at
+// FRAME_D through a 70-degree lens. Changing it resizes the world, not the picture.
+const REF_FOV = 70;
+// The camera's lens, as a vertical field of view. Everything sits in one physical space under
+// plain perspective, so this is THE control for how strongly distance gathers things into the
+// centre: wider, and far plates, stars and cage sit smaller and closer together around the
+// vanishing point while near ones sweep out past the edges faster. It replaced a warp that faked
+// that for the far end only, with a growth rate of its own (see "The space").
+const LENS_FOV = 100;
 const RUSH_FOV_BOOST = 14;
 const TWO_PI = Math.PI * 2;
 
@@ -57,18 +65,43 @@ const TWO_PI = Math.PI * 2;
 const REF_W = 3840;
 const REF_H = 2160;
 const FRAME_D = 100;
-const PX = (2 * FRAME_D * Math.tan((BASE_FOV * Math.PI) / 360)) / REF_H;
+const TAN_REF = Math.tan((REF_FOV * Math.PI) / 360);
+const PX = (2 * FRAME_D * TAN_REF) / REF_H;
+
+// ─── The space ────────────────────────────────────────────────────────────────────────
+// Every element -- plates, cage, stars, blobs -- sits at a real place in ONE space and is seen
+// through one camera under plain perspective. Nothing is scaled or pulled toward the centre on
+// its own account, so everything grows on screen exactly as the flight carries it (Aaron,
+// 2026-09-30: "you're moving through space with each of these elements existing within that
+// space... is there a way to fully simulate all elements into a single physical space?").
+// Distance is hidden the way air hides it: HAZE. Each element becomes more transparent with
+// depth, so it melts into whatever lies behind it -- the design's own sky at that pixel, or a
+// further layer -- never into a fog colour. One curve for every layer, flat near the camera and
+// long enough that anything appearing at the far end is a faint ghost, not a fade band.
+// It replaced (2026-09-30) a vanishing-point WARP that shrank far things exponentially, a
+// short fade band at 330-390, and briefly a "birth" term scaling plates up from zero: each
+// gave far geometry a growth rate of its own, which read as moving out of sync with the scene.
+const HAZE_CLEAR = 150; // the air is clear nearer than this
+// Gaussian fall-off length beyond it. Aaron's pick by eye (2026-09-30, from 380 and 300): about
+// two plates deep -- the plate behind the nearest at ~37%, the one after it a 2% ghost.
+const HAZE_DEPTH = 150;
+// Where the haze has left under 0.12%: nothing is drawn past it. Must stay under the shortest
+// loop's content length (FLIGHT_SPEED * 5s = 1200) less BEHIND, or a plate would be counted
+// once where it should appear twice.
+const VIEW_FAR = Math.round(HAZE_CLEAR + 2.6 * HAZE_DEPTH);
+function haze(d) {
+  const x = Math.max(0, d - HAZE_CLEAR) / HAZE_DEPTH;
+  return Math.exp(-x * x);
+}
+const HAZE_GLSL = `float haze(float d) { float x = max(0.0, d - ${HAZE_CLEAR.toFixed(1)}) / ${HAZE_DEPTH.toFixed(1)}; return exp(-x * x); }\n`;
 
 // ─── Plates ───────────────────────────────────────────────────────────────────────────
 const PLATE_SPACING = 150; // world units between plates
-const VIEW_FAR = 400; // nothing beyond this is drawn
 const BEHIND = 30; // how far behind the camera something stays in the visible list
 
-// Fades, as view-space depth: [near start, near end, far start, far end]. Near: a plate the
-// camera is passing through dissolves instead of popping off. Far: it dissolves into the sky.
-// The far fade sits where the warp (below) has shrunk a plate to a speck at the vanishing
-// point, so each plate is born at the centre and grows outward with the stars.
-const PLATE_FADE = [0.5, 4, 330, 390];
+// Near fade, as view-space depth: a plate the camera is passing through dissolves instead of
+// popping off. Far, the haze takes it.
+const PLATE_NEAR_FADE = [0.5, 4];
 // A plate the camera is reaching OPENS FROM ITS CENTRE, shape by shape: an opening grows from
 // the flight axis outward, each shape fading out whole as it reaches it, and the plate's outer
 // parts stream off the edges.
@@ -77,14 +110,13 @@ const PLATE_FADE = [0.5, 4, 330, 390];
 // the whole screen until it faded out, hiding the next one until it was already mid-size (Aaron:
 // they "just appear half way through rather than coming in from the center").
 // Radius in half-heights of the screen, opening from PLATE_HOLE[0] units of depth to [1] --
-// depth as the plate LOOKS, i.e. measured on the resting warp (see restingDepth). It used to be
-// raw depth, plus 50 at the ramp's peak, and the two pulled the same wrong way: the rush pulls the
-// warp in, so at the peak a plate 220 away was still a speck of ~1% of the screen when its centre
-// began opening. The opening outran the shapes, and some plates flashed up small and dissolved
-// without ever growing -- geometry "just appearing" (Aaron, iPhone, 2026-09-30).
+// depth as the plate LOOKS, i.e. as REF_FOV would show it, so a plate opens at the same size on
+// screen whatever the lens or the rush's FOV boost makes of its distance. Driven by raw depth
+// (plus 50 at the ramp's peak), the opening once ran ahead of plates that still looked tiny, and
+// some flashed up small and dissolved without ever growing (Aaron, iPhone, 2026-09-30).
 const PLATE_HOLE = [170, 6];
 const PLATE_HOLE_SOFT = 0.35; // how far ahead of the opening a shape starts fading, in half-heights
-const BLOB_FADE = [4, 40, 330, 390];
+const BLOB_NEAR_FADE = [4, 40];
 
 // ─── Radial field ─────────────────────────────────────────────────────────────────────
 const BLOBS_PER_REF = 5; // per REFERENCE_LENGTH of flight
@@ -97,13 +129,8 @@ const SMALL_STAR_COUNT = 5000;
 const FAR_STAR_COUNT = 7000;
 const FAR_STAR_RADIUS = 140;
 const LARGE_STAR_COUNT = 90;
-// The vanishing-point warp: past WARP_START, lateral positions shrink so that anything far
-// away sits near the centre and grows out of it (see warpFactor). WARP_START is where the warp
-// hands over to plain perspective; the ramp's rush pulls it nearer (RUSH_WARP_PULL).
-const WARP_START = 78;
-const RUSH_WARP_PULL = 43;
-// The FOV boost and the warp pull follow `surge` = rush squared. Both change how big everything
-// looks without the camera moving, so their shape over the cycle matters at both ends:
+// The FOV boost follows `surge` = rush squared. It changes how big everything looks without the
+// camera moving, so its shape over the cycle matters at both ends:
 //   - The seam. rush is lowest exactly there, where the camera is nearly stopped, and on plain
 //     rush they zoomed the geometry in as a loop ended and back out as the next began -- an
 //     overshoot (Aaron, 2026-09-30). Squared, near the seam growth tracks the camera's own
@@ -553,7 +580,7 @@ const PLATE_COMP_FRAG = /* glsl */ `
 // without moving where they sit, and vice versa.
 function buildPlates(seed, designGeometry, paletteColors, settings, geometry, L) {
   const coh = geometry.coherence;
-  const frameHalf = FRAME_D * Math.tan((BASE_FOV * Math.PI) / 360);
+  const frameHalf = FRAME_D * Math.tan((REF_FOV * Math.PI) / 360);
 
   // Plate contents. Content 0 is the design's own geometry layer when it has one.
   const contents = [];
@@ -617,27 +644,32 @@ const CAGE_MAX_WIRE = 0.5;
 const CAGE_MAX_PANEL = 0.2;
 const CAGE_LINE_OPACITY = 0.75;
 const CAGE_PANEL_OPACITY = 0.7;
-// Fades by view depth, and fades out nearer than the plates do, because distant rings project
-// into the centre and read as a scribble before they fade. It rides the same vanishing-point
-// warp as everything else (2026-09-30), so the cage and the plates it frames move as one space;
-// unwarped, the plates outpaced it. The OLD warp collapsed the far cage into a tangled knot;
-// this one never reaches zero, and the cage has faded before it gets small.
-const CAGE_FADE = [2, 24, 100, 230];
+// Fades out as the camera passes it, and into the haze with distance like everything else. It
+// used to stop at 230 because distant rings projected into the centre as a scribble; under the
+// haze they are faint by the time they get that small.
+const CAGE_NEAR_FADE = [2, 24];
+// The wires' real thickness, world units. GL draws a line one pixel wide at any distance, so a
+// far wire would stay full strength while everything around it shrank, and the receding cage
+// piled into a bright tangle at the vanishing point. Below a pixel a wire's alpha scales with the
+// width it really covers, as a star's does with its area -- which also keeps a 4K export and a
+// phone preview showing the same cage. About a pixel at 60 units on a 1080p screen.
+const CAGE_WIRE_WIDTH = 0.12;
 
-// The same warp as applyWarpShader, inline here because this replaces project_vertex itself.
-function applyDepthFade(mat, uWarpStart) {
+// uViewHalfH (half the drawing buffer's height, px) makes it a wire: see CAGE_WIRE_WIDTH.
+function applyDepthFade(mat, uViewHalfH = null) {
   mat.onBeforeCompile = shader => {
-    shader.uniforms.uWarpStart = uWarpStart;
+    let cover = '';
+    if (uViewHalfH) {
+      shader.uniforms.uViewHalfH = uViewHalfH;
+      // projectionMatrix[1][1] is 1 / tan(fov / 2): pixels per world unit at distance 1, over H/2
+      cover = ` * clamp(${CAGE_WIRE_WIDTH.toFixed(3)} * uViewHalfH * projectionMatrix[1][1] / max(-mvPosition.z, 0.01), 0.0, 1.0)`;
+    }
     shader.vertexShader =
-      'varying float vCageFade;\nuniform float uWarpStart;\n' +
+      'varying float vCageFade;\n' + (uViewHalfH ? 'uniform float uViewHalfH;\n' : '') + HAZE_GLSL +
       shader.vertexShader.replace(
         '#include <project_vertex>',
-        `vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
-      float cageD = -mvPosition.z;
-      if (cageD > uWarpStart) mvPosition.xy *= (cageD / uWarpStart) * exp(-(cageD - uWarpStart) / uWarpStart);
-      gl_Position = projectionMatrix * mvPosition;
-      vCageFade = smoothstep(${CAGE_FADE[0].toFixed(1)}, ${CAGE_FADE[1].toFixed(1)}, cageD)
-        * (1.0 - smoothstep(${CAGE_FADE[2].toFixed(1)}, ${CAGE_FADE[3].toFixed(1)}, cageD));`
+        `#include <project_vertex>
+      vCageFade = smoothstep(${CAGE_NEAR_FADE[0].toFixed(1)}, ${CAGE_NEAR_FADE[1].toFixed(1)}, -mvPosition.z) * haze(-mvPosition.z)${cover};`
       );
     shader.fragmentShader =
       'varying float vCageFade;\n' +
@@ -646,6 +678,7 @@ function applyDepthFade(mat, uWarpStart) {
         'gl_FragColor.a *= vCageFade;\n#include <premultiplied_alpha_fragment>'
       );
   };
+  mat.customProgramCacheKey = () => `cage-${mat.type}-${!!uViewHalfH}`;
   return mat;
 }
 
@@ -671,7 +704,7 @@ function applyDepthFade(mat, uWarpStart) {
 // index mapping (which also bridges rings of different side counts at zone boundaries),
 // and all motion/profiles use integer cycle frequencies — so exports still loop
 // seamlessly.
-function buildCage(rng, geometry, uWarpStart, L) {
+function buildCage(rng, geometry, L, uViewHalfH) {
   const clampNum = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   // Length scaling: counts stretch linearly with content length so structure density
   // per unit distance stays what it was tuned at (REFERENCE_LENGTH); integer spatial
@@ -1020,7 +1053,7 @@ function buildCage(rng, geometry, uWarpStart, L) {
     opacity: CAGE_LINE_OPACITY,
     depthWrite: false,
     fog: false
-  })), uWarpStart);
+  })), uViewHalfH);
   const edgeLines = new THREE.LineSegments(edgeGeo, edgeMat);
   edgeLines.frustumCulled = false; // vertices animate every frame
   group.add(edgeLines);
@@ -1038,7 +1071,7 @@ function buildCage(rng, geometry, uWarpStart, L) {
     opacity: CAGE_PANEL_OPACITY,
     depthWrite: false,
     fog: false
-  })), uWarpStart);
+  })));
   const panelMesh = new THREE.Mesh(panelGeo, panelMat);
   panelMesh.frustumCulled = false;
   group.add(panelMesh);
@@ -1215,7 +1248,8 @@ const BLOB_FRAG = /* glsl */ `
   varying float vN;
   varying float vA;
   varying float vDepth;
-  uniform vec4 uFade;
+  uniform vec2 uFade;
+  ${HAZE_GLSL}
   void main() {
     float r = length(vUv);
     if (r >= 1.0) discard;
@@ -1231,7 +1265,7 @@ const BLOB_FRAG = /* glsl */ `
     float edge = pow(1.0 - smoothstep(0.0, 1.0, r), 1.6);
     float a = vA * edge
       * smoothstep(uFade.x, uFade.y, vDepth)
-      * (1.0 - smoothstep(uFade.z, uFade.w, vDepth));
+      * haze(vDepth);
     if (a < 0.002) discard;
     gl_FragColor = blendOut(col, a);
   }
@@ -1296,14 +1330,14 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
   const materials = blendMaterials('layer-over', {
     vertexShader: BLOB_VERT,
     fragmentShader: BLOB_FRAG,
-    uniforms: { uFade: { value: new THREE.Vector4(...BLOB_FADE) } }
+    uniforms: { uFade: { value: new THREE.Vector2(...BLOB_NEAR_FADE) } }
   });
   const mesh = new THREE.Mesh(geo, materials);
   mesh.frustumCulled = false;
 
   const depth = new Float32Array(n);
   const order = [];
-  function update(camZ, warpStart) {
+  function update(camZ) {
     order.length = 0;
     for (let i = 0; i < n; i++) {
       const b = blobs[i];
@@ -1313,10 +1347,8 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
       depth[i] = dz;
       for (let c = 0; c < 4; c++) {
         const o = (i * 4 + c) * 3;
-        // The stars' vanishing-point warp, so blobs too are born at the centre and grow outward
-        const w = warpFactor(dz, warpStart);
-        positions[o] = (b.cx + corners[c][0] * b.half) * w;
-        positions[o + 1] = (b.cy + corners[c][1] * b.half) * w;
+        positions[o] = b.cx + corners[c][0] * b.half;
+        positions[o + 1] = b.cy + corners[c][1] * b.half;
         positions[o + 2] = camZ + dz;
       }
       order.push(i);
@@ -1335,41 +1367,13 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
 }
 
 // ─── Stars ────────────────────────────────────────────────────────────────────────────
-// Beyond `start`, the apparent size of anything goes as start/d * this factor, i.e. a CONSTANT
-// log-zoom rate of 1/start per unit flown, joining plain perspective (rate 1/d) smoothly at
-// `start`. So a thing's growth on screen only ever speeds up as the camera approaches, and is
-// always proportional to the camera's own speed -- it moves in time with the flight.
-// It replaced a smoothstep that reached zero at 395 (2026-09-30, Aaron: the plates' "scale up
-// at the beginning" made them feel separate from everything else). That curve's rate was ~6x
-// perspective's at birth, fell to its minimum around 120 and then rose again: every plate
-// burst out of the centre, stalled, then rushed past, on a clock of its own. Stars used the
-// same curve, but as points spread through all depths they never read as one event.
-function warpFactor(d, start = WARP_START) {
-  if (d <= start) return 1;
-  return (d / start) * Math.exp(-(d - start) / start);
-}
-
-// The depth at which a plate would look the size it does now, were the warp at rest: inverts
-// d / warpFactor(d) (monotonic) for the resting WARP_START. At rest it is the plate's own depth,
-// so the aperture opens exactly as it always did there; at the ramp's peak, where the warp is
-// pulled in, it reads further away, as the plate looks.
-function restingDepth(effD) {
-  if (effD <= WARP_START) return effD;
-  let lo = WARP_START;
-  let hi = WARP_START * 2;
-  while (hi / warpFactor(hi) < effD && hi < 1e5) hi *= 2;
-  for (let i = 0; i < 40; i++) {
-    const mid = (lo + hi) / 2;
-    if (mid / warpFactor(mid) < effD) lo = mid;
-    else hi = mid;
-  }
-  return (lo + hi) / 2;
-}
-
-function applyWarpShader(mat, uWarpStart, uStreak = null) {
+// Haze for the star layers, and for points their size below a pixel: GL never draws a point
+// smaller than one pixel, so without this a far star stays a full-strength dot however far
+// away it is (and a 4K export's would read dimmer than the same star in a 1080p preview).
+// Scaling by the covered area keeps a star's total light what its real size gives it.
+function applyHazeShader(mat, uStreak = null, points = false) {
   mat.onBeforeCompile = shader => {
-    shader.uniforms.uWarpStart = uWarpStart;
-    let decls = 'uniform float uWarpStart;\n';
+    let decls = 'varying float vHaze;\n' + HAZE_GLSL;
     if (uStreak) {
       shader.uniforms.uStreak = uStreak;
       decls += 'uniform float uStreak;\nattribute float aStreak;\n';
@@ -1389,18 +1393,25 @@ function applyWarpShader(mat, uWarpStart, uStreak = null) {
       );
     }
     shader.vertexShader =
-      decls +
-      shader.vertexShader.replace(
-        '#include <project_vertex>',
-        `
-      vec4 mvPosition = vec4( transformed, 1.0 );
-      mvPosition = modelViewMatrix * mvPosition;
-      float warpD = -mvPosition.z;
-      if (warpD > uWarpStart) mvPosition.xy *= (warpD / uWarpStart) * exp(-(warpD - uWarpStart) / uWarpStart);
-      gl_Position = projectionMatrix * mvPosition;
-      `
+      decls + shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n      vHaze = haze(-mvPosition.z);');
+    if (points) {
+      // three sizes an attenuated point by distance alone, leaving out the lens, so on a wide lens
+      // the stars would stay their pixel size while everything else shrank. projectionMatrix[1][1]
+      // is 1 / tan(fov / 2); scaled by REF_FOV's tan, star sizes read as tuned at REF_FOV.
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <logdepthbuf_vertex>',
+        `gl_PointSize *= projectionMatrix[1][1] * ${TAN_REF.toFixed(5)};
+      vHaze *= clamp(gl_PointSize * gl_PointSize, 0.0, 1.0);
+      gl_PointSize = max(gl_PointSize, 1.0);
+      #include <logdepthbuf_vertex>`
       );
+    }
+    shader.fragmentShader =
+      'varying float vHaze;\n' +
+      shader.fragmentShader.replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vHaze;\n#include <premultiplied_alpha_fragment>');
   };
+  // three keys compiled programs on onBeforeCompile's source, which both variants share
+  mat.customProgramCacheKey = () => `haze-${mat.type}-${points}-${!!uStreak}`;
   return mat;
 }
 
@@ -1459,7 +1470,7 @@ function starTraitAttributes(geo, field, dup = 1) {
   geo.setAttribute('aWhite', new THREE.BufferAttribute(white, 1));
 }
 
-// Chains onto a material's existing onBeforeCompile (the warp, and for streaks the extrusion)
+// Chains onto a material's existing onBeforeCompile (the haze, and for streaks the extrusion)
 // and replaces the vertex-colour read with the computed colour.
 function withStarColour(mat, uniforms) {
   const prev = mat.onBeforeCompile;
@@ -1472,7 +1483,7 @@ function withStarColour(mat, uniforms) {
   return mat;
 }
 
-function makeStarStreaks(field, uWarpStart, uStreak) {
+function makeStarStreaks(field, uStreak) {
   const n = field.count;
   const pos = new Float32Array(n * 2 * 3);
   const col = new Float32Array(n * 2 * 3);
@@ -1486,7 +1497,7 @@ function makeStarStreaks(field, uWarpStart, uStreak) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('aStreak', new THREE.BufferAttribute(dir, 1));
   starTraitAttributes(geo, field, 2);
-  const mat = applyWarpShader(
+  const mat = applyHazeShader(
     new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
@@ -1495,7 +1506,6 @@ function makeStarStreaks(field, uWarpStart, uStreak) {
       depthWrite: false,
       fog: false
     }),
-    uWarpStart,
     uStreak
   );
   const lines = [];
@@ -1651,7 +1661,7 @@ function* starFieldSteps(rng, count, L, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS
 // The mark is an object IN the flight: it sits LOGO_SEAM_DISTANCE ahead of where the camera is
 // at the loop seam, and the camera's own travel carries it -- approaching from the distance as a
 // loop ends, holding at its seam pose through the ramp's near-stop, and flying past as the next
-// loop gets under way -- on the same vanishing-point warp as the plates. Its size, fade and
+// loop gets under way -- in the same space as the plates. Its size, fade and
 // stroke come from logoIntro's curves, evaluated at its real distance (s = 0 at the seam, +/-1
 // where the mark is 2^+/-LOGO_OCTAVES of its seam size), so the seam frame is exactly the pose it
 // always was. It used to hang a fixed distance ahead of the camera and move on logoIntro's own
@@ -1659,7 +1669,7 @@ function* starFieldSteps(rng, count, L, rMin = TUNNEL_CORE, rMax = TUNNEL_RADIUS
 // four times faster than the world around it (Aaron, 2026-09-30: "make sure the logo animation is
 // in sync too"). 2D keeps logoIntro's clock, which there IS the animation's own ramp.
 const LOGO_SEAM_DISTANCE = 60;
-const LOGO_PLANE_SIZE = LOGO_SCREEN_FRACTION * 2 * LOGO_SEAM_DISTANCE * Math.tan((BASE_FOV * Math.PI) / 360);
+const LOGO_PLANE_SIZE = LOGO_SCREEN_FRACTION * 2 * LOGO_SEAM_DISTANCE * Math.tan((LENS_FOV * Math.PI) / 360);
 const LOGO_TEXTURE_SIZE = 512;
 
 // The palette a scene renders with, for callers outside it (the logo mark's accent): the
@@ -1679,7 +1689,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   const paletteColors =
     colors.length === 1 ? expandMonochromePalette(colors[0], makeRng(`${seed}-palette`)) : colors;
 
-  const camera = new THREE.PerspectiveCamera(BASE_FOV, (width || 1) / (height || 1), 0.1, 600);
+  const camera = new THREE.PerspectiveCamera(LENS_FOV, (width || 1) / (height || 1), 0.1, VIEW_FAR + 100);
   const { L, laps } = flightLayout(duration);
   const lenScale = L / REFERENCE_LENGTH;
   const spriteScale = Math.sqrt(lenScale);
@@ -1703,9 +1713,8 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       blending: THREE.NoBlending
     });
 
-  const uWarpStart = { value: WARP_START };
-  let warpStartNow = WARP_START;
   const uStreak = { value: 0 };
+  const uViewHalfH = { value: (height || REF_H) / 2 };
 
   // ── Sky: the design's own background gradient
   const skyScene = new THREE.Scene();
@@ -1768,11 +1777,12 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     geo.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
     starTraitAttributes(geo, field);
     const mat = withStarColour(
-      applyWarpShader(
+      applyHazeShader(
         starBlend(
           new THREE.PointsMaterial({ size, vertexColors: true, opacity, sizeAttenuation: true, alphaTest: 0.01, fog: false })
         ),
-        uWarpStart
+        null,
+        true
       ),
       starColourUniforms
     );
@@ -1794,7 +1804,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   const starTurn = rng() * TWO_PI;
   const starSlide = rng() * L;
 
-  const streakLayers = [makeStarStreaks(field, uWarpStart, uStreak), makeStarStreaks(farField, uWarpStart, uStreak)];
+  const streakLayers = [makeStarStreaks(field, uStreak), makeStarStreaks(farField, uStreak)];
   for (const layer of streakLayers) {
     starBlend(layer.mat);
     withStarColour(layer.mat, starColourUniforms);
@@ -1874,7 +1884,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // carries hues the sky does not already have.
   const cagePaletteHsl = [...art.gradientBackgroundConfig.colors, ...art.starFieldConfig.gradientConfig.colors].map(toHsl);
   if (cageOn) {
-    cage = buildCage(makeRng(`${seed}-3d-cage`), geometry, uWarpStart, L);
+    cage = buildCage(makeRng(`${seed}-3d-cage`), geometry, L, uViewHalfH);
     cage.group.traverse(obj => {
       if (obj.geometry) disposables.push(obj.geometry);
       if (obj.material) disposables.push(obj.material);
@@ -1983,10 +1993,8 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const progress = (((seconds / duration) % 1) + 1) % 1;
 
     const surge = surgeOf(rush);
-    camera.fov = BASE_FOV + RUSH_FOV_BOOST * surge;
+    camera.fov = LENS_FOV + RUSH_FOV_BOOST * surge;
     camera.updateProjectionMatrix();
-    warpStartNow = WARP_START - RUSH_WARP_PULL * surge;
-    uWarpStart.value = warpStartNow;
     const streaking = rush > RUSH_STREAK_EPS;
     streaksOn = streaking;
     uStreak.value = STREAK_LENGTH * rush;
@@ -2003,43 +2011,37 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     // as the whole frame rocking one way and then the other.
 
     starColourUniforms.uStarProgress.value = progress;
-    // The warp moves a large star toward the axis as well as shrinking it, exactly as the shader
-    // does for the small stars, plates, blobs and cage. Shrinking alone left them on plain
-    // perspective lines: far ones sat well off the centre and drifted outward slower than
-    // everything around them, rather than flowing out of the vanishing point with it.
-    for (const { sprite, index, baseScale, x, y } of largeSprites) {
+    // A large star's three copies (-L, 0, +L) share one material, and at most one of them is
+    // inside the draw distance, so the wrapped distance gives that copy's haze.
+    for (const { sprite, index } of largeSprites) {
       sprite.material.color.copy(starColor(largeField, index, progress));
-      const w = warpFactor(sprite.position.z - camZ, warpStartNow);
-      sprite.scale.setScalar(baseScale * w);
-      sprite.position.x = x * w;
-      sprite.position.y = y * w;
+      let dz = (((sprite.position.z - camZ) % L) + L) % L;
+      if (dz > L - BEHIND) dz -= L;
+      sprite.material.opacity = haze(dz);
     }
 
-    blobs.update(camZ, warpStartNow);
+    blobs.update(camZ);
     if (cage) cage.update(progress, cagePaletteHsl, camZ);
 
     // Plates in view, far to near, each with its fade
+    const tanNow = Math.tan((camera.fov * Math.PI) / 360);
     visiblePlates = [];
     for (const plate of plates) {
       if (!plate.present) continue;
       let dz = (((plate.z - camZ) % L) + L) % L;
       if (dz > L - BEHIND) dz -= L;
-      const alpha = smooth(PLATE_FADE[0], PLATE_FADE[1], dz) * (1 - smooth(PLATE_FADE[2], PLATE_FADE[3], dz));
-      // The stars' vanishing-point warp, applied to plates too (Aaron, 2026-09-29: they "just
-      // appear half way through rather than coming in from the center"). A plate is flat and at
-      // one depth, so the warp is a uniform shrink toward the axis -- exactly the same picture as
-      // the plate sitting further away. So it is folded into the plate's DEPTH, which the vector
-      // pass and its render cache already take, and needs nothing else.
-      const warp = Math.max(1e-3, warpFactor(dz, warpStartNow));
+      if (dz > VIEW_FAR) continue;
+      const alpha = smooth(PLATE_NEAR_FADE[0], PLATE_NEAR_FADE[1], dz) * haze(dz);
       if (alpha < 0.002) continue;
       // Aperture radius: nothing until PLATE_HOLE[0], past the screen's corners by PLATE_HOLE[1].
       // Squared, so it opens gently and then races outward the way perspective does. Driven by
-      // how far away the plate looks, so it opens at the same size on screen at any speed.
-      const seen = restingDepth(Math.max(0.5, dz) / warp);
+      // how big the plate looks (its depth as REF_FOV would show it), so it opens at the same
+      // size on screen whatever the lens or the rush's FOV boost.
+      const seen = (Math.max(0.5, dz) * tanNow) / TAN_REF;
       const ht = Math.min(1, Math.max(0, (PLATE_HOLE[0] - seen) / (PLATE_HOLE[0] - PLATE_HOLE[1])));
       const hole = ht * ht * (Math.hypot(camera.aspect, 1) + PLATE_HOLE_SOFT);
       if (ht >= 1) continue;
-      visiblePlates.push({ plate, dz: Math.max(0.5, dz) / warp, alpha, hole });
+      visiblePlates.push({ plate, dz: Math.max(0.5, dz), alpha, hole });
     }
     visiblePlates.sort((p, q) => q.dz - p.dz);
 
@@ -2049,7 +2051,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       const total = laps * L;
       const travel = progress * total;
       const ahead = travel < total / 2 ? LOGO_SEAM_DISTANCE - travel : total + LOGO_SEAM_DISTANCE - travel;
-      const depth = Math.max(0.5, ahead) / Math.max(1e-3, warpFactor(ahead, warpStartNow));
+      const depth = Math.max(0.5, ahead);
       const s = Math.log2(LOGO_SEAM_DISTANCE / depth) / LOGO_OCTAVES;
       const on = showLogo && ahead > 0 && Math.abs(s) < 1;
       logo.mesh.visible = on;
@@ -2085,6 +2087,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   const _clear = new THREE.Color();
   function render(renderer) {
     renderer.getDrawingBufferSize(_size);
+    uViewHalfH.value = _size.y / 2;
     for (const t of [layerTarget, layerTargetAA, accum, spare]) {
       if (t.width !== _size.x || t.height !== _size.y) t.setSize(_size.x, _size.y);
     }
@@ -2147,7 +2150,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const cw = Math.max(1, Math.round(_size.x * cacheRes));
     const ch = Math.max(1, Math.round(_size.y * cacheRes));
     for (const { plate, dz, alpha, hole } of visiblePlates) {
-      const depth = dz; // already warp-adjusted (see setTime)
+      const depth = dz;
       let c = cacheOf.get(plate);
       if (!c) {
         const rt = cachePool.pop() || new THREE.WebGLRenderTarget(cw, ch);
