@@ -1729,43 +1729,53 @@ hiding the next one until it was mid-size. A screen-space circular
 aperture was built first and cut a feathered ring through the shapes (the same "soft edges" he
 had already rejected); per-shape opening keeps every edge crisp. The opening is baked into the
 render, so the cache redraws a plate once its opening moves (`PLATE_HOLE_EPS`).
-(11) **ONE PHYSICAL SPACE: plain perspective, one lens, one haze** (2026-09-30, Aaron: "these
-elements wouldn't just scale up out of nothing, you're moving through space with each of these
-elements existing within that space... is there a way to fully simulate all elements into a
-single physical space?"). Every element sits at a real place and is seen through one camera; on
-screen, things grow only because the camera approaches them, so growth is in step with the flight
-by construction. Three things were tried first and each gave far geometry a growth rate of its
-OWN, which is what read as out of sync -- do not reintroduce any of them: a smoothstep warp to
-zero at 395 (burst, stall, rush); a "steady log-zoom" warp, `(d/s)*exp(-(d-s)/s)` past 78,
-which rush pulled in to 35; and a "birth" term scaling plates up from zero over 270-390 (a fix
-for plates fading in at 6-21% of the screen, measured, at the end of a 60-unit fade band).
-Four parts, all needed:
-- **The lens** (`LENS_FOV`, 100 vertical) is the one control for how strongly distance gathers
-  far things into the centre -- Aaron's own suggestion, and the physical version of what the warp
-  faked. World sizes stay tuned through `REF_FOV` (70, the old camera), so changing the lens
-  changes the picture, not the world. The rush's FOV boost (+14 at the peak) is unchanged.
-- **The haze** (`haze()`, `HAZE_GLSL`): gaussian past `HAZE_CLEAR` (150), length `HAZE_DEPTH`.
-  It lowers ALPHA, so each piece melts into whatever is behind it -- the design's own sky at that
-  pixel, or a further layer -- never toward a fog colour (Aaron's condition). One curve for every
-  layer; plates, blobs and the cage keep only their near fades. `HAZE_DEPTH` 150 is Aaron's pick
-  by eye from 380 and 300: about two plates deep (the next plate back at ~37%, the one after a 2%
-  ghost). `VIEW_FAR` (540 at that setting) is DERIVED from the haze and must stay under the
-  shortest loop's content length (1200) less `BEHIND`, or a plate would be counted once where it
-  should appear twice; the camera's far plane sits 100 past it.
+(11) **ONE SPACE: one lens, one depth warp, one haze -- every layer bent identically**
+(2026-09-30, Aaron: "you're moving through space with each of these elements existing within that
+space"; warp added back 2026-10-01). Every element sits at a real place, seen through one camera,
+and everything that hides distance is a function of depth alone applied the same way to every
+layer, so nothing grows on screen at a rate of its own. Four parts, all needed:
+- **The warp** (`warpW`, `WARP_START` 60, `WARP_POWER` 4 -- both Aaron's picks from a live
+  panel). Past 60, each element's distance from the flight axis is scaled by `warpW(d)`, i.e.
+  drawn as from an effective depth `D = d / warpW(d)`, which blends smoothly (no jump in growth
+  rate) from plain perspective into `D ~ d^4`. Growth on screen stays proportional to the camera's
+  speed and slows with distance like perspective, just steeper. Applied to plates (drawn at
+  effective depth -- a uniform shrink, since a plate sits at one depth), stars, streaks, cage,
+  blobs, large star sprites and the logo (which is unwarped at its seam pose, depth 60).
+  **Why it came back:** with plain perspective the haze could not hide LARGE geometry -- at Spread
+  1.0 a shape was still half the screen tall while a 2% ghost, so big plates "just pop in from the
+  haze" (Aaron). No haze length fixes that; the shortest loop is too short to put them far enough
+  away. Under this warp the same shape is under 3% of its plain size by depth 300.
+  **The earlier warps were wrong in their CURVE, and must not come back:** a smoothstep to zero at
+  395 (burst, stall, rush), then `(d/s)*exp(-(d-s)/s)` past 78, whose effective depth grew
+  EXPONENTIALLY -- everything past 78 grew at one fixed rate however far away it was, which is
+  what read as "scaling up out of nothing" -- and which the rush pulled in to 35, zooming the scene.
+  This one has no rush term. Also a "birth" term scaling plates up from zero (rejected).
+  **Rejected the same day against the same pop, both prototyped live:** a screen-space lens
+  (power/eased radial squeeze of the finished frame; "at no settings did this look even remotely
+  good") and per-shape arrival (far plates assembling shape by shape, replacing the haze).
+- **The lens** (`LENS_FOV`, 100 vertical). World sizes stay tuned through `REF_FOV` (70, the old
+  camera), so changing the lens changes the picture, not the world. The rush's FOV boost (+14 at
+  the peak) is unchanged.
+- **The haze** (`haze()`, `SPACE_GLSL`): gaussian past `HAZE_CLEAR` (150), length `HAZE_DEPTH`
+  (150). It lowers ALPHA, so each piece melts into whatever is behind it -- the design's own sky
+  at that pixel, or a further layer -- never toward a fog colour (Aaron's condition). Measured on
+  REAL distance. **Under the warp it barely matters, and that was measured, not assumed:** exact
+  renders at 150/150 and 450/300 differ by 0.13/255 on average (8.5 max at the centre knot), and
+  every setting past 220 rendered the same. So it stays at the cheapest -- a longer haze keeps more
+  plates, each a full-screen pass, in the draw list. `VIEW_FAR` (540) is DERIVED from it and must
+  stay under the shortest loop's content length (1200) less `BEHIND`, or a plate would be counted
+  once where it should appear twice; the camera's far plane sits 100 past it.
 - **Sub-pixel coverage.** GL never draws a point or line under 1px, so far stars and cage wires
   stayed full strength while everything else shrank. Points scale their alpha by covered area,
-  wires by covered width (`CAGE_WIRE_WIDTH` 0.12, ~1px at 60 units on 1080p), which also makes a
-  4K export and a phone preview agree. And three sizes attenuated points by distance alone,
-  leaving the lens out, so on a wide lens stars kept their pixel size while the world shrank --
-  `gl_PointSize` is scaled by `projectionMatrix[1][1] * tan(REF_FOV/2)`.
-- **The opening** is driven by depth as REF_FOV would show it (`dz * tan(fov/2) / tan(35deg)`), so
-  neither the lens nor the rush's FOV boost moves where on screen a plate opens.
-Verified: loop seam byte-identical at 5/10/37s with differing mid-cycle controls; preview-path
-frame cost GPU-synced at 1440x900 unchanged (median 1.7ms against the warp's 1.8ms, p95 1.9-2.0
-against 2.3-2.4); check-leaks 11/11 incl. a real 3D export; routes 10/10. NOT measured on a
-phone. Accepted look: a plate is visible whole at mid-distance and plates nest inside each other
-toward the centre, which at busy moments makes the middle dense -- that is what a real corridor
-of them looks like.
+  wires by covered width (`CAGE_WIRE_WIDTH` 0.12, ~1px at 60 units on 1080p), both including the
+  warp's shrink, which also makes a 4K export and a phone preview agree. `gl_PointSize` is scaled
+  by `projectionMatrix[1][1] * tan(REF_FOV/2)` and by `warpW`.
+- **The opening** is driven by how big a plate LOOKS -- its warped depth as REF_FOV would show it
+  (`D * tan(fov/2) / tan(35deg)`) -- so neither the lens, the warp nor the rush's FOV boost moves
+  where on screen a plate opens.
+Verified (2026-10-01): loop seam byte-identical at 5/10/37s with the ramp on, against mid-cycle
+frames that differ; preview frame time unchanged on desktop (16.7ms median either way);
+check-leaks 11/11 incl. a real 3D export; routes 10/10. NOT measured on a phone.
 (12) **The preview's plate cache was what "popped", never the geometry** (2026-09-30, Aaron:
 "the geometry popping in rather than scaling up correctly"). Measured before touching anything:
 in the EXACT path every plate is born a 1px speck and grows smoothly (per-plate contribution, 3
@@ -1915,8 +1925,8 @@ The logo mark's accent comes from `resolveDesignPalette` like 2D's; `scenePalett
 - **Rush streaks** are one line segment per star extruded toward +z, AWAY from the camera -- the
   physically correct direction (the stars are static and the camera flies +z) -- riding `rush` and
   hidden entirely below `RUSH_STREAK_EPS`; at rush 0 the scene is pixel-identical to one without them.
-- **Nothing pops in at the far end because of the haze and sub-pixel coverage**, not a warp -- see
-  (11) above.
+- **Nothing pops in at the far end because of the depth warp, the haze and sub-pixel coverage**
+  -- see (11) above.
 
 **3D is the DEFAULT animation mode as of 2026-09-30** (Aaron: "it really captures the artwork
 perfectly now"). `DEFAULT_VIDEO_PREFS.threeDMode` is true. The trap: the Video-tab mirror writes EVERY

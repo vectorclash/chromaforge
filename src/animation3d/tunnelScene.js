@@ -49,11 +49,9 @@ const REFERENCE_LENGTH = 400;
 // World sizes are set through this field of view (PX below): the 2D canvas fills the frame at
 // FRAME_D through a 70-degree lens. Changing it resizes the world, not the picture.
 const REF_FOV = 70;
-// The camera's lens, as a vertical field of view. Everything sits in one physical space under
-// plain perspective, so this is THE control for how strongly distance gathers things into the
-// centre: wider, and far plates, stars and cage sit smaller and closer together around the
-// vanishing point while near ones sweep out past the edges faster. It replaced a warp that faked
-// that for the far end only, with a growth rate of its own (see "The space").
+// The camera's lens, as a vertical field of view. Wider, and everything sits smaller and closer
+// to the vanishing point. Distance gathers things into the centre through the warp past
+// WARP_START (see "The space"); nearer than that this lens is all there is.
 const LENS_FOV = 100;
 const RUSH_FOV_BOOST = 14;
 const TWO_PI = Math.PI * 2;
@@ -70,21 +68,38 @@ const PX = (2 * FRAME_D * TAN_REF) / REF_H;
 
 // ─── The space ────────────────────────────────────────────────────────────────────────
 // Every element -- plates, cage, stars, blobs -- sits at a real place in ONE space and is seen
-// through one camera under plain perspective. Nothing is scaled or pulled toward the centre on
-// its own account, so everything grows on screen exactly as the flight carries it (Aaron,
-// 2026-09-30: "you're moving through space with each of these elements existing within that
-// space... is there a way to fully simulate all elements into a single physical space?").
-// Distance is hidden the way air hides it: HAZE. Each element becomes more transparent with
-// depth, so it melts into whatever lies behind it -- the design's own sky at that pixel, or a
-// further layer -- never into a fog colour. One curve for every layer, flat near the camera and
-// long enough that anything appearing at the far end is a faint ghost, not a fade band.
-// It replaced (2026-09-30) a vanishing-point WARP that shrank far things exponentially, a
-// short fade band at 330-390, and briefly a "birth" term scaling plates up from zero: each
-// gave far geometry a growth rate of its own, which read as moving out of sync with the scene.
+// through one camera. Two things hide distance, and both are functions of depth alone, applied
+// identically to every layer, so nothing grows on screen at a rate of its own.
+//
+// The WARP gathers far things into the vanishing point. Past WARP_START each element's distance
+// from the flight axis is scaled by warpW(d) -- the same picture as plain perspective seen from
+// an effective depth D = d / warpW(d). D is d up to WARP_START and then bends smoothly (no jump
+// in growth rate) into D ~ d^WARP_POWER. On screen a thing still grows in proportion to the
+// camera's speed, slowly when far and faster on approach -- perspective's shape, only steeper.
+// Needed because the haze alone could not hide large geometry: at Spread 1.0 a shape was still
+// half the screen tall while a 2% ghost (Aaron, 2026-10-01: big plates "just pop in from the
+// haze"). Under this warp it is under 3% of its plain size by depth 300.
+// Two warps were tried before this, and both gave far geometry a clock of its own -- a
+// smoothstep to zero at 395 (burst, stall, rush), then (d/s) * exp(-(d-s)/s), whose D grew
+// EXPONENTIALLY, so everything past 78 grew at one fixed rate however far away it was, and the
+// rush pulled it in, zooming the scene. Do not bring either back; and this one deliberately has
+// no rush term. A screen-space lens and per-shape arrival were also prototyped against the same
+// pop on 2026-10-01 and rejected on sight.
+//
+// The HAZE lowers alpha with real distance, so each piece melts into whatever is behind it -- the
+// design's own sky at that pixel, or a further layer -- never into a fog colour. Under the warp
+// it only ever acts on figures already shrunk to specks: rendered at haze 150/150 against
+// 450/300 the frames differ by 0.13/255 on average, so it stays at the cheapest setting (a longer
+// haze keeps more plates, each a full-screen pass, in the draw list).
+const WARP_START = 60; // Aaron's pick, 2026-10-01; also LOGO_SEAM_DISTANCE, so the seam pose is unwarped
+const WARP_POWER = 4; // the strength, Aaron's pick (the top of the range he tried, 1-4)
+function warpW(d) {
+  if (d <= WARP_START) return 1;
+  const x = (d - WARP_START) / WARP_START;
+  return Math.pow(1 + x * x, -0.5 * (WARP_POWER - 1));
+}
 const HAZE_CLEAR = 150; // the air is clear nearer than this
-// Gaussian fall-off length beyond it. Aaron's pick by eye (2026-09-30, from 380 and 300): about
-// two plates deep -- the plate behind the nearest at ~37%, the one after it a 2% ghost.
-const HAZE_DEPTH = 150;
+const HAZE_DEPTH = 150; // gaussian fall-off length beyond it
 // Where the haze has left under 0.12%: nothing is drawn past it. Must stay under the shortest
 // loop's content length (FLIGHT_SPEED * 5s = 1200) less BEHIND, or a plate would be counted
 // once where it should appear twice.
@@ -93,7 +108,9 @@ function haze(d) {
   const x = Math.max(0, d - HAZE_CLEAR) / HAZE_DEPTH;
   return Math.exp(-x * x);
 }
-const HAZE_GLSL = `float haze(float d) { float x = max(0.0, d - ${HAZE_CLEAR.toFixed(1)}) / ${HAZE_DEPTH.toFixed(1)}; return exp(-x * x); }\n`;
+const SPACE_GLSL = `float haze(float d) { float x = max(0.0, d - ${HAZE_CLEAR.toFixed(1)}) / ${HAZE_DEPTH.toFixed(1)}; return exp(-x * x); }
+float warpW(float d) { if (d <= ${WARP_START.toFixed(1)}) return 1.0; float x = (d - ${WARP_START.toFixed(1)}) / ${WARP_START.toFixed(1)}; return pow(1.0 + x * x, ${(-0.5 * (WARP_POWER - 1)).toFixed(3)}); }
+`;
 
 // ─── Plates ───────────────────────────────────────────────────────────────────────────
 const PLATE_SPACING = 150; // world units between plates
@@ -665,11 +682,14 @@ function applyDepthFade(mat, uViewHalfH = null) {
       cover = ` * clamp(${CAGE_WIRE_WIDTH.toFixed(3)} * uViewHalfH * projectionMatrix[1][1] / max(-mvPosition.z, 0.01), 0.0, 1.0)`;
     }
     shader.vertexShader =
-      'varying float vCageFade;\n' + (uViewHalfH ? 'uniform float uViewHalfH;\n' : '') + HAZE_GLSL +
+      'varying float vCageFade;\n' + (uViewHalfH ? 'uniform float uViewHalfH;\n' : '') + SPACE_GLSL +
       shader.vertexShader.replace(
         '#include <project_vertex>',
         `#include <project_vertex>
-      vCageFade = smoothstep(${CAGE_NEAR_FADE[0].toFixed(1)}, ${CAGE_NEAR_FADE[1].toFixed(1)}, -mvPosition.z) * haze(-mvPosition.z)${cover};`
+      float cageW = warpW(-mvPosition.z);
+      mvPosition.xy *= cageW;
+      gl_Position = projectionMatrix * mvPosition;
+      vCageFade = smoothstep(${CAGE_NEAR_FADE[0].toFixed(1)}, ${CAGE_NEAR_FADE[1].toFixed(1)}, -mvPosition.z) * haze(-mvPosition.z)${cover ? cover + ' * cageW' : ''};`
       );
     shader.fragmentShader =
       'varying float vCageFade;\n' +
@@ -1249,7 +1269,7 @@ const BLOB_FRAG = /* glsl */ `
   varying float vA;
   varying float vDepth;
   uniform vec2 uFade;
-  ${HAZE_GLSL}
+  ${SPACE_GLSL}
   void main() {
     float r = length(vUv);
     if (r >= 1.0) discard;
@@ -1345,10 +1365,11 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
       if (dz > L - BEHIND) dz -= L;
       if (dz > VIEW_FAR || dz < -BEHIND) continue;
       depth[i] = dz;
+      const w = warpW(dz);
       for (let c = 0; c < 4; c++) {
         const o = (i * 4 + c) * 3;
-        positions[o] = b.cx + corners[c][0] * b.half;
-        positions[o + 1] = b.cy + corners[c][1] * b.half;
+        positions[o] = (b.cx + corners[c][0] * b.half) * w;
+        positions[o + 1] = (b.cy + corners[c][1] * b.half) * w;
         positions[o + 2] = camZ + dz;
       }
       order.push(i);
@@ -1373,7 +1394,7 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
 // Scaling by the covered area keeps a star's total light what its real size gives it.
 function applyHazeShader(mat, uStreak = null, points = false) {
   mat.onBeforeCompile = shader => {
-    let decls = 'varying float vHaze;\n' + HAZE_GLSL;
+    let decls = 'varying float vHaze;\n' + SPACE_GLSL;
     if (uStreak) {
       shader.uniforms.uStreak = uStreak;
       decls += 'uniform float uStreak;\nattribute float aStreak;\n';
@@ -1393,14 +1414,18 @@ function applyHazeShader(mat, uStreak = null, points = false) {
       );
     }
     shader.vertexShader =
-      decls + shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n      vHaze = haze(-mvPosition.z);');
+      decls +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\n      float starW = warpW(-mvPosition.z);\n      mvPosition.xy *= starW;\n      gl_Position = projectionMatrix * mvPosition;\n      vHaze = haze(-mvPosition.z);'
+      );
     if (points) {
       // three sizes an attenuated point by distance alone, leaving out the lens, so on a wide lens
       // the stars would stay their pixel size while everything else shrank. projectionMatrix[1][1]
       // is 1 / tan(fov / 2); scaled by REF_FOV's tan, star sizes read as tuned at REF_FOV.
       shader.vertexShader = shader.vertexShader.replace(
         '#include <logdepthbuf_vertex>',
-        `gl_PointSize *= projectionMatrix[1][1] * ${TAN_REF.toFixed(5)};
+        `gl_PointSize *= projectionMatrix[1][1] * ${TAN_REF.toFixed(5)} * starW;
       vHaze *= clamp(gl_PointSize * gl_PointSize, 0.0, 1.0);
       gl_PointSize = max(gl_PointSize, 1.0);
       #include <logdepthbuf_vertex>`
@@ -2013,8 +2038,12 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     starColourUniforms.uStarProgress.value = progress;
     // A large star's three copies (-L, 0, +L) share one material, and at most one of them is
     // inside the draw distance, so the wrapped distance gives that copy's haze.
-    for (const { sprite, index } of largeSprites) {
+    for (const { sprite, index, baseScale, x, y } of largeSprites) {
       sprite.material.color.copy(starColor(largeField, index, progress));
+      const w = warpW(sprite.position.z - camZ);
+      sprite.scale.setScalar(baseScale * w);
+      sprite.position.x = x * w;
+      sprite.position.y = y * w;
       let dz = (((sprite.position.z - camZ) % L) + L) % L;
       if (dz > L - BEHIND) dz -= L;
       sprite.material.opacity = haze(dz);
@@ -2032,16 +2061,19 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       if (dz > L - BEHIND) dz -= L;
       if (dz > VIEW_FAR) continue;
       const alpha = smooth(PLATE_NEAR_FADE[0], PLATE_NEAR_FADE[1], dz) * haze(dz);
+      // The warp, for a plate: it sits at one depth, so it is a uniform shrink toward the axis,
+      // the same picture as drawing it at its effective depth.
+      const effD = Math.max(0.5, dz) / warpW(dz);
       if (alpha < 0.002) continue;
       // Aperture radius: nothing until PLATE_HOLE[0], past the screen's corners by PLATE_HOLE[1].
       // Squared, so it opens gently and then races outward the way perspective does. Driven by
-      // how big the plate looks (its depth as REF_FOV would show it), so it opens at the same
-      // size on screen whatever the lens or the rush's FOV boost.
-      const seen = (Math.max(0.5, dz) * tanNow) / TAN_REF;
+      // how big the plate looks (its warped depth as REF_FOV would show it), so it opens at the
+      // same size on screen whatever the lens, the warp or the rush's FOV boost.
+      const seen = (effD * tanNow) / TAN_REF;
       const ht = Math.min(1, Math.max(0, (PLATE_HOLE[0] - seen) / (PLATE_HOLE[0] - PLATE_HOLE[1])));
       const hole = ht * ht * (Math.hypot(camera.aspect, 1) + PLATE_HOLE_SOFT);
       if (ht >= 1) continue;
-      visiblePlates.push({ plate, dz: Math.max(0.5, dz), alpha, hole });
+      visiblePlates.push({ plate, dz: effD, alpha, hole });
     }
     visiblePlates.sort((p, q) => q.dz - p.dz);
 
@@ -2057,6 +2089,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       logo.mesh.visible = on;
       if (on) {
         logo.mesh.position.set(0, 0, camZ + depth);
+        logo.mesh.scale.setScalar(warpW(depth)); // 1 at and inside the seam distance
         logo.mat.opacity = logoAlpha(s);
         const draw = Math.round(logoDraw(s) * 200) / 200;
         if (draw !== logo.lastDraw) {
