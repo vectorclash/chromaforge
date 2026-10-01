@@ -2217,6 +2217,7 @@ export default function ProductPage() {
         open={sizeGuideOpen}
         productId={product.id}
         productTitle={product.title}
+        selectedSize={variant?.size}
         onClose={() => setSizeGuideOpen(false)}
       />
 

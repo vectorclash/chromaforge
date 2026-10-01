@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SolidPanel from './SolidPanel';
 import Button from './Button';
 import useScrollLock from '../../hooks/useScrollLock';
@@ -102,12 +102,40 @@ function htmlToText(html) {
     .trim();
 }
 
+// The flat-garment table's columns are bare letters (A, B, C) keyed to Printful's diagram, and
+// what each letter means only arrives as image_description prose beneath it -- so a reader had
+// to scroll past the diagram to learn what "A" was, then back up to read the numbers. This
+// lifts the names into the column headers. Every product's legend (all 18, checked
+// 2026-10-01) is one "letter, optional dash, name" per line once htmlToText has run:
+// "A 1/2 chest width", "B -  Length", "A Waist" followed by a sentence of instructions.
+// Returns a map only when EVERY column letter got a name: a partial legend would leave some
+// columns explained in the header and the rest only below, which is worse than either.
+function parseLegend(text, labels) {
+  if (!text || !labels.length) return null;
+  const names = {};
+  for (const line of text.split('\n')) {
+    const m = line.match(/^([A-Z])\s*[-–—:]?\s+(.+)$/) || line.match(/^([A-Z])\s*[-–—:]\s*(.+)$/);
+    if (!m || !labels.includes(m[1]) || names[m[1]]) continue;
+    const name = m[2].trim();
+    // Every real name is a short noun phrase ("1/2 hem width" is the longest at 3 words). A
+    // longer or punctuated line is prose that merely starts with the word "A".
+    if (name.split(/\s+/).length > 3 || /[.!?]$/.test(name)) continue;
+    names[m[1]] =name.charAt(0).toUpperCase() + name.slice(1);
+  }
+  return labels.every(l => names[l]) ? names : null;
+}
+
 // Local disclosure, same chevron/summary shape as ProductPage's "Print options" panel.
 // Used rather than showing everything at once because the full guide is genuinely long: the
 // men's tee's body table is six rows of ONE measurement, and Printful's diagram beneath it
 // is physically larger than the data it annotates -- then the flat-garment section repeats
 // the whole pattern with a second diagram.
 function Disclosure({ label, open, onToggle, children }) {
+  const [settled, setSettled] = useState(open);
+  // Closing un-settles at once, so the clip is back before the row starts shrinking.
+  useEffect(() => {
+    if (!open) setSettled(false);
+  }, [open]);
   return (
     <div>
       <button
@@ -134,7 +162,24 @@ function Disclosure({ label, open, onToggle, children }) {
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
-      {open && <div className="mt-3 animate-fade-slide-up">{children}</div>}
+      {/* Always mounted and opened by class -- the same grid-rows expansion as ProductPage's
+          Print options (see .print-options-panel, which these rules share). A conditional
+          mount can animate in but has nothing on screen to animate on the way out, so this
+          used to pop shut. `inert` keeps collapsed content out of the tab order; the clip is
+          dropped once settled so the open content's focus rings aren't sliced. */}
+      <div
+        className={'disclosure-panel' + (open ? ' is-open' : '') + (settled ? ' is-settled' : '')}
+        style={{ '--panel-gap': '0.75rem' }}
+        inert={!open}
+        onTransitionEnd={e => {
+          if (e.target === e.currentTarget && e.propertyName === 'grid-template-rows') setSettled(open);
+        }}
+      >
+        <div className="disclosure-inner">
+          {/* The cascade staggers this div's children, so content always sits one level in. */}
+          <div className="space-y-3">{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -142,7 +187,12 @@ function Disclosure({ label, open, onToggle, children }) {
 // Sizes become ROWS and measurements COLUMNS, not the other way round: a product can carry
 // up to 11 sizes (the hoodie runs 2XS-6XL) but never more than about five measurements, and
 // 11 columns cannot be read on a phone.
-function MeasurementTable({ table, unit }) {
+//
+// `names` (from parseLegend) puts each letter's meaning under it in the header. `selectedSize`
+// is the size picked on the product page; its row is marked so the guide opens on the
+// customer's own answer. Only an exact match is marked -- a product whose variant labels
+// differ from its guide's (none today) simply marks nothing rather than guessing.
+function MeasurementTable({ table, unit, names, selectedSize }) {
   const measurements = table.measurements || [];
   if (!measurements.length) return null;
   const sizes = [];
@@ -170,50 +220,121 @@ function MeasurementTable({ table, unit }) {
       <table className="w-full min-w-[18rem] border-collapse text-left font-quicksand text-sm">
         <thead>
           <tr className="border-b border-hairline">
-            <th scope="col" className="py-2 pr-3 text-xs font-bold uppercase tracking-wide text-text-muted">
+            <th scope="col" className="py-2 pr-3 pl-2 align-bottom text-xs font-bold uppercase tracking-wide text-text-muted">
               Size
             </th>
             {measurements.map(m => (
               <th
                 key={m.type_label}
                 scope="col"
-                className="py-2 pr-3 text-xs font-bold uppercase tracking-wide text-text-muted"
+                className="py-2 pr-3 align-bottom text-xs font-bold uppercase tracking-wide text-text-muted"
               >
                 {m.type_label}
+                {names?.[m.type_label] && (
+                  <span className="mt-0.5 block max-w-[7rem] text-[11px] font-semibold normal-case leading-tight tracking-normal text-text-secondary">
+                    {names[m.type_label]}
+                  </span>
+                )}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {sizes.map(size => (
-            <tr key={size} className="border-b border-hairline/50 last:border-0">
-              <th scope="row" className="py-2 pr-3 font-bold text-text">
-                {size}
-              </th>
-              {measurements.map(m => (
-                <td key={m.type_label} className="py-2 pr-3 text-text-secondary">
-                  {valueFor(m, size)}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {sizes.map(size => {
+            const selected = size === selectedSize;
+            return (
+              <tr
+                key={size}
+                aria-current={selected ? 'true' : undefined}
+                className={
+                  'border-b border-hairline/50 last:border-0 ' + (selected ? 'bg-accent/10' : '')
+                }
+              >
+                <th
+                  scope="row"
+                  className={
+                    'py-2 pr-3 font-bold ' + (selected ? 'pl-2 text-accent shadow-[inset_2px_0_0_var(--color-accent)]' : 'pl-2 text-text')
+                  }
+                >
+                  {size}
+                </th>
+                {measurements.map(m => (
+                  <td
+                    key={m.type_label}
+                    className={'py-2 pr-3 ' + (selected ? 'text-text' : 'text-text-secondary')}
+                  >
+                    {valueFor(m, size)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-export default function SizeGuideModal({ open, productId, productTitle, onClose }) {
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
+// Which edges of the scrolling body currently hide content. Drives the hairlines under the
+// header and above the footer, so a body that scrolls says so -- and one that fits draws no
+// rule at all. Re-measured on scroll, on resize, and whenever the body's own content changes
+// size (a disclosure opening, the guide arriving, the diagram decoding).
+function useScrollEdges(ref, deps) {
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const top = el.scrollTop > 1;
+      const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+      setEdges(prev => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+    };
+    measure();
+    el.addEventListener('scroll', measure, { passive: true });
+    // A disclosure opens with fade-slide-up, whose 16px translate is scrollable overflow for
+    // as long as it runs. When it ends nothing changes SIZE, so the observer below never
+    // fires and the footer rule stayed on over a body with nothing left to scroll (measured
+    // on the neck gaiter: scrollHeight 453 -> 443 with no resize). Diagrams decoding late
+    // are caught the same way; `load` does not bubble, hence capture.
+    el.addEventListener('animationend', measure);
+    el.addEventListener('transitionend', measure);
+    el.addEventListener('load', measure, true);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    for (const child of el.children) ro.observe(child);
+    return () => {
+      el.removeEventListener('scroll', measure);
+      el.removeEventListener('animationend', measure);
+      el.removeEventListener('transitionend', measure);
+      el.removeEventListener('load', measure, true);
+      ro.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return edges;
+}
+
+export default function SizeGuideModal({ open, productId, productTitle, selectedSize, onClose }) {
   useScrollLock(open);
   const [guide, setGuide] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [unitKey, setUnitKey] = useState('in');
-  // Both collapsed by default -- see the Disclosure comment for why the full guide is too
-  // long to show at once.
   const [howToOpen, setHowToOpen] = useState(false);
-  const [garmentOpen, setGarmentOpen] = useState(false);
+  // null = "not chosen yet", which resolves to closed when a body table exists above it and
+  // OPEN when it is the only table -- otherwise a product with no body table (the
+  // windbreaker, every bag, the hats) opened onto a single collapsed button and a footnote.
+  const [garmentChoice, setGarmentChoice] = useState(null);
   const unit = UNITS.find(u => u.key === unitKey) || UNITS[0];
+  const bodyRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
@@ -239,145 +360,183 @@ export default function SizeGuideModal({ open, productId, productTitle, onClose 
     };
   }, [open, productId]);
 
+  // A different product gets its own default for the garment section.
+  useEffect(() => {
+    setGarmentChoice(null);
+    setHowToOpen(false);
+  }, [productId]);
+
+  const edges = useScrollEdges(bodyRef, [open, guide, loading, error, howToOpen, garmentChoice]);
+
   if (!open) return null;
 
   const tables = guide?.size_tables || [];
   // Body measurements first where they exist -- that's the table that answers "which size
   // am I", while the flat-garment one answers "how big is the garment".
   const ordered = [...tables].sort((a, b) => (a.type === 'measure_yourself' ? -1 : 0) - (b.type === 'measure_yourself' ? -1 : 0));
+  const hasBody = ordered.some(t => t.type === 'measure_yourself');
+  const garmentOpen = garmentChoice ?? !hasBody;
 
   return (
     <div
       className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm"
       onClick={onClose}
     >
+      {/* Header and footer stay put and only the middle scrolls. When the whole panel
+          scrolled, a guide a few pixels too tall for the viewport (the hoodie, by 23px at
+          1280x900) left the bottom of the panel sliced through, which read as broken rather
+          than scrollable. */}
       <SolidPanel
-        className="flex max-h-[92vh] w-full max-w-lg animate-pop-in flex-col overflow-y-auto p-5 sm:p-6"
+        className="flex max-h-[92vh] w-full max-w-lg animate-pop-in flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="size-guide-title"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div
+          className={
+            'shrink-0 border-b px-5 pt-4 pb-3 transition-colors sm:px-6 sm:pt-5 ' +
+            (edges.top ? 'border-hairline' : 'border-transparent')
+          }
+        >
+          <div className="flex items-center justify-between gap-4">
             <h2 id="size-guide-title" className="font-quicksand text-lg font-bold text-text">
               Size guide
             </h2>
-            <p className="truncate text-sm text-text-secondary">{productTitle}</p>
+            {/* Same close control as the artwork picker and gallery modals. It replaced a
+                full-size Close button that sat alone at the right of an otherwise empty
+                footer row, repeating what Esc and the backdrop already do. */}
+            <Button type="button" variant="icon" className="-mr-2" onClick={onClose} aria-label="Close">
+              <CloseIcon />
+            </Button>
           </div>
-          <div className="flex shrink-0 gap-1">
-            {UNITS.map(u => (
-              <button
-                key={u.key}
-                type="button"
-                onClick={() => setUnitKey(u.key)}
-                aria-pressed={unitKey === u.key}
-                className={
-                  'cursor-pointer rounded-lg border px-2.5 py-1 font-quicksand text-xs font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
-                  (unitKey === u.key
-                    ? 'border-accent bg-accent text-ink-950'
-                    : 'border-hairline text-text-secondary hover:border-text')
-                }
-              >
-                {u.label}
-              </button>
-            ))}
+          <div className="mt-1 flex items-center justify-between gap-4">
+            <p className="min-w-0 text-sm text-text-secondary">{productTitle}</p>
+            <div className="flex shrink-0 gap-1">
+              {UNITS.map(u => (
+                <button
+                  key={u.key}
+                  type="button"
+                  onClick={() => setUnitKey(u.key)}
+                  aria-pressed={unitKey === u.key}
+                  className={
+                    'cursor-pointer rounded-lg border px-2.5 py-1 font-quicksand text-xs font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    (unitKey === u.key
+                      ? 'border-accent bg-accent text-ink-950'
+                      : 'border-hairline text-text-secondary hover:border-text')
+                  }
+                >
+                  {u.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {loading && <p className="mt-6 text-sm text-text-secondary">Loading size guide…</p>}
-        {error && <p className="mt-6 text-sm text-accent">{error}</p>}
-        {/* Only reachable when Printful genuinely returns an empty size_tables array. A
-            malformed/stale response can't land here -- getSizeGuide shape-checks and throws,
-            so that case renders as an error rather than as a confident claim about what
-            Printful publishes. */}
-        {!loading && !error && !ordered.length && (
-          <p className="mt-6 text-sm text-text-secondary">
-            No size guide is published for this product.
-          </p>
-        )}
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 sm:px-6">
+          {loading && <p className="mt-3 text-sm text-text-secondary">Loading size guide…</p>}
+          {error && <p className="mt-3 text-sm text-accent">{error}</p>}
+          {/* Only reachable when Printful genuinely returns an empty size_tables array. A
+              malformed/stale response can't land here -- getSizeGuide shape-checks and throws,
+              so that case renders as an error rather than as a confident claim about what
+              Printful publishes. */}
+          {!loading && !error && guide && !ordered.length && (
+            <p className="mt-3 text-sm text-text-secondary">
+              No size guide is published for this product.
+            </p>
+          )}
 
-        {ordered.map(table => {
-          const isBody = table.type === 'measure_yourself';
-          const description = htmlToText(table.description);
-          const imageDescription = htmlToText(table.image_description);
-          const diagram = table.image_url && (
-            <>
-              {/* Printful's own measuring diagram. A third-party image, but NOT new
-                  third-party exposure: this page already loads product photos and generated
-                  mockups from the same Printful CDN, so no host is contacted here that the
-                  page wasn't contacting anyway. (Contrast the gallery's avatar rule, where
-                  rendering a provider URL would have introduced a brand-new host.)
-                  Height-capped and object-contain: the artwork is mostly whitespace around a
-                  small figure, so at full bleed it dwarfed the table it annotates. */}
-              <img
-                src={table.image_url}
-                alt={`${isBody ? 'How to measure' : 'Garment measurement'} diagram for ${productTitle}`}
-                loading="lazy"
-                className="max-h-56 w-full rounded-xl bg-white object-contain p-2"
-              />
-              {imageDescription && (
-                <p className="mt-2 whitespace-pre-line text-xs text-text-muted">{imageDescription}</p>
-              )}
-            </>
-          );
-
-          // Body measurements are the answer to "which size am I", so that table stays open.
-          // Its diagram is not: the description already explains the measurement in words, so
-          // the picture is a nice-to-have that was taking more room than the numbers.
-          if (isBody) {
-            return (
-              <section key={table.type} className="mt-5 space-y-3">
-                <h3 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
-                  Your measurements
-                </h3>
-                {description && (
-                  <p className="whitespace-pre-line text-xs text-text-muted">{description}</p>
+          {ordered.map(table => {
+            const isBody = table.type === 'measure_yourself';
+            const description = htmlToText(table.description);
+            const imageDescription = htmlToText(table.image_description);
+            // Garment tables only: their columns ARE letters. A body table's columns are
+            // already words, and its image_description is measuring instructions.
+            const names = isBody
+              ? null
+              : parseLegend(imageDescription, (table.measurements || []).map(m => m.type_label));
+            const diagram = table.image_url && (
+              <>
+                {/* Printful's own measuring diagram. A third-party image, but NOT new
+                    third-party exposure: this page already loads product photos and generated
+                    mockups from the same Printful CDN, so no host is contacted here that the
+                    page wasn't contacting anyway. (Contrast the gallery's avatar rule, where
+                    rendering a provider URL would have introduced a brand-new host.)
+                    Height-capped and object-contain: the artwork is mostly whitespace around a
+                    small figure, so at full bleed it dwarfed the table it annotates. */}
+                <img
+                  src={table.image_url}
+                  alt={`${isBody ? 'How to measure' : 'Garment measurement'} diagram for ${productTitle}`}
+                  loading="lazy"
+                  className="max-h-56 w-full rounded-xl bg-white object-contain p-2"
+                />
+                {/* Once the letters are named in the table's own header, this legend would
+                    only repeat them. It stays as the fallback when the legend can't be read. */}
+                {imageDescription && !names && (
+                  <p className="whitespace-pre-line text-xs text-text-muted">{imageDescription}</p>
                 )}
-                <MeasurementTable table={table} unit={unit} />
-                {diagram && (
-                  <Disclosure
-                    label="How to measure"
-                    open={howToOpen}
-                    onToggle={() => setHowToOpen(o => !o)}
-                  >
-                    {diagram}
-                  </Disclosure>
-                )}
-              </section>
+              </>
             );
-          }
 
-          // The flat-garment table answers "how big is the garment", a follow-up question --
-          // and its A/B/C labels are unreadable without the diagram, so the whole section
-          // (table AND image together) collapses as one unit rather than separately.
-          return (
-            <section key={table.type} className="mt-4">
-              <Disclosure
-                label="Garment measurements"
-                open={garmentOpen}
-                onToggle={() => setGarmentOpen(o => !o)}
-              >
-                <div className="space-y-3">
+            // Body measurements are the answer to "which size am I", so that table stays open.
+            // Its diagram is not: the description already explains the measurement in words, so
+            // the picture is a nice-to-have that was taking more room than the numbers.
+            if (isBody) {
+              return (
+                <section key={table.type} className="mt-3 space-y-3">
+                  <h3 className="font-quicksand text-xs font-bold uppercase tracking-[0.14em] text-text-muted">
+                    Your measurements
+                  </h3>
                   {description && (
                     <p className="whitespace-pre-line text-xs text-text-muted">{description}</p>
                   )}
-                  <MeasurementTable table={table} unit={unit} />
-                  {diagram}
-                </div>
-              </Disclosure>
-            </section>
-          );
-        })}
+                  <MeasurementTable table={table} unit={unit} selectedSize={selectedSize} />
+                  {diagram && (
+                    <Disclosure
+                      label="How to measure"
+                      open={howToOpen}
+                      onToggle={() => setHowToOpen(o => !o)}
+                    >
+                      {diagram}
+                    </Disclosure>
+                  )}
+                </section>
+              );
+            }
 
-        <p className="mt-6 text-xs text-text-muted">
-          Measurements are published by Printful, who make these garments. Products are made
-          by hand, so allow up to 1&Prime; of variance.
-        </p>
-        <div className="mt-4 flex justify-end">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Close
-          </Button>
+            // The flat-garment table answers "how big is the garment", a follow-up question --
+            // so the whole section (table AND image together) collapses as one unit when a body
+            // table sits above it.
+            return (
+              <section key={table.type} className={hasBody ? 'mt-4' : 'mt-3'}>
+                <Disclosure
+                  label="Product measurements"
+                  open={garmentOpen}
+                  onToggle={() => setGarmentChoice(!garmentOpen)}
+                >
+                  {description && (
+                    <p className="whitespace-pre-line text-xs text-text-muted">{description}</p>
+                  )}
+                  <MeasurementTable table={table} unit={unit} names={names} selectedSize={selectedSize} />
+                  {diagram}
+                </Disclosure>
+              </section>
+            );
+          })}
+        </div>
+
+        {/* Deliberately makes no variance claim of its own. It used to say "allow up to 1″",
+            directly under Printful's own garment text saying up to 2″ on the windbreaker --
+            the garment descriptions already state each product's tolerance. */}
+        <div
+          className={
+            'shrink-0 border-t px-5 pt-3 pb-4 transition-colors sm:px-6 sm:pb-5 ' +
+            (edges.bottom ? 'border-hairline' : 'border-transparent')
+          }
+        >
+          <p className="text-xs text-text-muted">
+            Measurements are published by Printful, who make each piece by hand.
+          </p>
         </div>
       </SolidPanel>
     </div>
