@@ -750,7 +750,6 @@ export default class DisplayCanvas extends React.Component {
               isSaved: true,
               isLoading: false,
               generateDisabled: false,
-              animationPaused: false,
               ...this.threeDBuildState()
             });
           } else if (is2DAnimation(config)) {
@@ -993,7 +992,6 @@ export default class DisplayCanvas extends React.Component {
         threeDMode: true,
         threeDDesign: animationMode && !threeDDesign ? this.buildThreeDDesign() : threeDDesign,
         isSaved: false,
-        animationPaused: false,
         // The preview mounts now and builds its first scene
         ...(animationMode ? this.threeDBuildState() : {})
       });
@@ -1184,6 +1182,8 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
+      // The new frames play; the old ones stayed paused through their fade-out (see onSceneReady)
+      animationPaused: false,
       loaderHeld: 'frames',
       animTiming: this.getAnimTiming(),
       settingsDirty: false,
@@ -1239,6 +1239,8 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
+      // The new frames play; the old ones stayed paused through their fade-out (see onSceneReady)
+      animationPaused: false,
       loaderHeld: 'frames',
       animTiming: this.getAnimTiming(resolvedConfigs.length),
       settingsDirty: false,
@@ -2334,7 +2336,6 @@ export default class DisplayCanvas extends React.Component {
         if (!wasThreeD && this.state.threeDMode && this.state.animationMode) {
           this.setState({
             threeDDesign: this.state.threeDDesign || this.buildThreeDDesign(),
-            animationPaused: false,
             ...this.threeDBuildState()
           });
         }
@@ -2464,7 +2465,6 @@ export default class DisplayCanvas extends React.Component {
           ...this.threeDBuildState(),
           isSaved: false,
           showBranchNotice: false,
-          animationPaused: false,
           settingsDirty: false
         });
       } else if (animationMode) {
@@ -2482,8 +2482,7 @@ export default class DisplayCanvas extends React.Component {
           generateDisabled: true,
           isLoading: true,
           isSaved: false,
-          showBranchNotice: false,
-          animationPaused: false
+          showBranchNotice: false
         });
         const buildToken = this.animationBuildToken;
         const start = () => {
@@ -2556,7 +2555,6 @@ export default class DisplayCanvas extends React.Component {
         this.setState({
           animationMode: true,
           isSaved: false,
-          animationPaused: false,
           threeDDesign: this.state.threeDDesign || this.buildThreeDDesign(),
           ...this.threeDBuildState()
         });
@@ -3196,7 +3194,11 @@ export default class DisplayCanvas extends React.Component {
             logoMark={this.logoMarkConfig()}
             revealAt={this.state.threeDRevealAt}
             onSceneReady={() => {
-              if (this.state.threeDBuilding) this.setState({ threeDBuilding: false });
+              // A paused preview stays paused through the old scene's fade-out and plays once the
+              // new one takes over -- clearing the pause when the build STARTED resumed the old
+              // scene for the length of its fade (Aaron, 2026-10-01). Only builds that put a new
+              // scene in front set threeDBuilding, so a slider change while paused stays paused.
+              if (this.state.threeDBuilding) this.setState({ threeDBuilding: false, animationPaused: false });
             }}
             onSceneRevealed={() => this.releaseLoader('3d')}
             onInitError={() => {
