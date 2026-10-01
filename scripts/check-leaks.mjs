@@ -128,7 +128,7 @@ function instrument({ origin, failEncoderAt }) {
     localStorage.setItem('cf-studio:design', JSON.stringify({ v: 1, colors: [], settings: { geometry: { chance: 1 } } }));
     localStorage.setItem(
       'cf-studio:video',
-      JSON.stringify({ v: 1, threeDMode: true, cycleDuration: 5, speedRamp: true, logoMark: false, frameCount: 20, starFrameCount: 10, exportAspect: '1:1', exportFps: 24 })
+      JSON.stringify({ v: 1, threeDMode: true, cycleDuration: 5, speedRamp: true, logoMark: false, frameCount: 20, starFrameCount: 10, exportAspect: '1:1', exportFps: 24, exportSize: '4k' })
     );
   }
 }
@@ -238,14 +238,26 @@ async function openStudio3D(browser, base, opts) {
   return { context, page };
 }
 
+// Download opens the studio's Download panel (2026-10-01); its own Download button does the
+// export. Opening the panel also renders a 3D preview still through its own WebGL context, so
+// this covers that context's release as well.
 const exportOnce = async page => {
-  const button = page.locator('button.button-small', { hasText: /Export MP4|Exporting/ });
+  await page.locator('#controls-main button.button-small', { hasText: /Download MP4/ }).click();
+  const panel = page.locator('#controls-download');
+  await panel.waitFor({ state: 'visible' });
+  await page.waitForTimeout(1500);
+  const button = panel.locator('button.button-small', { hasText: /^(Download|Downloaded|Preparing\.\.\.)$/ });
   await button.click();
+  let done = false;
   for (let s = 0; s < 120; s++) {
     await page.waitForTimeout(500);
-    if (s > 1 && (await button.textContent()).trim() === 'Export MP4') return true;
+    if (s > 1 && (await button.textContent()).trim() !== 'Preparing...') {
+      done = true;
+      break;
+    }
   }
-  return false;
+  await panel.locator('button.button-small', { hasText: 'BACK' }).click();
+  return done;
 };
 
 async function studio(browser, base) {
@@ -272,7 +284,7 @@ async function studio(browser, base) {
   const failing = await openStudio3D(browser, base, { failEncoderAt: 20 });
   const recovered = await exportOnce(failing.page);
   gl = await failing.page.evaluate(() => ({ made: window.__leak.made, lost: window.__leak.lost }));
-  check(recovered, 'a failed export returns the studio to "Export MP4"', recovered ? '' : 'still "Exporting..." after 60s');
+  check(recovered, 'a failed export returns the panel to "Download"', recovered ? '' : 'still "Preparing..." after 60s');
   check(gl.made - gl.lost <= 1, 'a failed export still releases its WebGL context', `made ${gl.made}, lost ${gl.lost}`);
   await failing.context.close();
 }

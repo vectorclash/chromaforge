@@ -25,6 +25,9 @@ import {
 
 const DESIGN_KEY = 'cf-studio:design';
 const VIDEO_KEY = 'cf-studio:video';
+// The Download panel's still-image choices. Its own key for the same reason as the split
+// above: only DisplayCanvas writes it, but on a different change than the video settings.
+const IMAGE_KEY = 'cf-studio:image';
 // Bumped only if a stored shape changes meaning. A mismatch is discarded, not migrated --
 // these are conveniences, and re-picking a palette costs the user seconds.
 const VERSION = 1;
@@ -145,7 +148,20 @@ export const DEFAULT_VIDEO_PREFS = {
   speedRamp: true,
   logoMark: false,
   exportAspect: '16:9',
-  exportFps: 24
+  exportFps: 24,
+  // Short-edge size from lib/downloadOptions' VIDEO_SIZES. '4k' is what every export was
+  // before the Download panel existed. Phones ignore it and always get 1080p.
+  exportSize: '4k'
+};
+
+// The still-image download. '16:9' + '4k' + jpg is exactly the file Download produced before
+// it had any options, so a visitor who never opens the choices gets the same image as ever.
+export const DEFAULT_IMAGE_PREFS = {
+  imageRatio: '16:9',
+  imageSize: '4k',
+  imageFormat: 'jpg',
+  customWidth: 1080,
+  customHeight: 1080
 };
 
 // `limits` is the caller's resolved ANIM_LIMIT (device-dependent: a phone caps frames,
@@ -173,8 +189,32 @@ export function readVideoPrefs(limits, aspects) {
     speedRamp: stored.speedRamp !== false,
     logoMark: stored.logoMark === true,
     exportAspect: aspects.includes(stored.exportAspect) ? stored.exportAspect : d.exportAspect,
-    exportFps: limits.fps.includes(stored.exportFps) ? stored.exportFps : d.exportFps
+    exportFps: limits.fps.includes(stored.exportFps) ? stored.exportFps : d.exportFps,
+    exportSize: ['1080p', '4k'].includes(stored.exportSize) ? stored.exportSize : d.exportSize
   };
+}
+
+// `ratios` and `sizes` are the caller's lists (sizes are device-dependent: no 8K on a phone),
+// for the same reason readVideoPrefs takes its limits. Custom dimensions are only range-checked
+// here; the device's pixel budget is applied where the image is made (clampCustomSize), so a
+// desktop's 8000x8000 comes back to a phone as typed and is clamped visibly in the panel.
+export function readImagePrefs(ratios, sizes) {
+  const stored = readKey(IMAGE_KEY);
+  const d = DEFAULT_IMAGE_PREFS;
+  if (!stored) return { ...d };
+  return {
+    imageRatio: stored.imageRatio === 'custom' || ratios.includes(stored.imageRatio) ? stored.imageRatio : d.imageRatio,
+    imageSize: sizes.includes(stored.imageSize) ? stored.imageSize : d.imageSize,
+    imageFormat: stored.imageFormat === 'png' ? 'png' : 'jpg',
+    customWidth: clampInt(stored.customWidth, 1, 100000, d.customWidth),
+    customHeight: clampInt(stored.customHeight, 1, 100000, d.customHeight)
+  };
+}
+
+export function writeImagePrefs(image) {
+  const out = {};
+  for (const key of Object.keys(DEFAULT_IMAGE_PREFS)) out[key] = image[key];
+  writeKey(IMAGE_KEY, out);
 }
 
 export function writeVideoPrefs(video) {
@@ -191,6 +231,7 @@ export function clearStudioPrefs() {
   try {
     localStorage.removeItem(DESIGN_KEY);
     localStorage.removeItem(VIDEO_KEY);
+    localStorage.removeItem(IMAGE_KEY);
   } catch {
     /* nothing stored is the same outcome as failing to clear an unreadable store */
   }

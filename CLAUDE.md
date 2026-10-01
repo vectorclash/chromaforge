@@ -1572,15 +1572,26 @@ by `MAX_EXPORT_BYTES` (600MB).
   a partial or torn frame would read as catastrophic PSNR, not 29dB. `latencyMode: 'quality'`
   is already the "take your time" knob and there is no other.
 
-**Download ratio + frame rate pickers, 2026-07-28** (Aaron, for ad formats; the row is labelled
-**Download** and the button **Download MP4** since 2026-10-01 -- one verb for a still and a video,
-where it used to say Export for the video): one Video-tab row
-carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840, `4:5`
-2160×2700 -- Instagram's feed portrait, added 2026-09-30, halving on mobile to exactly its
-1080×1350 -- and `1:1` 2160×2160) and `EXPORT_FPS_OPTIONS` (24/30/60). Export-only state, so switching either is
-instant — no rebuild, no `settingsDirty`. Deliberately ONE row rather than two: both answer
-"what file comes out of Download", and the Video tab already carries six rows (Aaron
-explicitly didn't want the panel cluttered).
+**Download opens a panel of choices (2026-10-01, Aaron), replacing the Video tab's export row.**
+`#controls-download` is a sibling of the Save and Settings panels, built from their parts. A still
+gets Ratio (16:9 / 9:16 / 4:5 / 1:1 / Custom), Size (1080p / 4K / 8K, phones stop at 4K) or a
+custom width x height, and JPG/PNG; a video gets Ratio, Size (1080p / 4K, phones always 1080p) and
+frame rate. Rules and limits live in `lib/downloadOptions.js` (pure, Node-testable); choices are
+remembered in `cf-studio:image` and the video key (`exportSize` added), and RESET clears both.
+Four things worth not re-deriving:
+(1) **The preview is what makes offering ratios honest.** Every ratio is its own composition, not a
+crop, so the panel renders the chosen shape: the real renderer for a still, a real frame of the
+flight for 3D (`render3DStill`), the actual cover-crop of frame 1 for 2D (which can only crop).
+Size never changes the preview: within one ratio the composition is identical at every resolution.
+(2) **A still is re-rendered from the design, and that was proven identical to the screen**: a
+fresh 4K PNG re-encoded as 98% JPEG matched the on-screen JPG with 0 pixels different. A JPG at
+the studio's own size skips the render and reuses the on-screen blob, so the default download is
+exactly the old one. Below 2000px it renders at the density floor and halves down (avatar-size
+files would otherwise alias). 8K renders in ~0.3s on desktop.
+(3) **Custom is capped by TOTAL pixels** (33.2 MP desktop, 8.3 MP phone; 16384 / 4096 a side),
+scaled down uniformly so the shape survives -- the render-print-file lesson. Typed text is only
+committed on blur/Enter; an emptied box reverts to the last valid value.
+(4) `check-leaks.mjs` exports through the panel now; its preview's WebGL context is covered too.
 **Export filenames follow the piece (2026-09-30, Aaron: "the animation export gives a different
 file name every time").** A piece keeps ONE name: its gallery title if it is a saved or loaded
 row, otherwise one minted the first time Download or Save asks, and Save passes that name as the
@@ -1588,9 +1599,10 @@ row's title so the file and the card match. It used to be a fresh `FileName()` p
 save minting yet another. `DisplayCanvas.pieceNames` is a WeakMap keyed by the piece object
 (`pieceOnScreen`: the still's config, the 3D design or the 2D frame set), so Generate, a slider or
 a palette edit starts a new name with no reset code; a saved animation whose playback changes
-drops its name, or saving it again would make a second row with the same title. MP4s append the
-two export-only settings, `Name-1f3a_9x16_60fps.mp4` -- the only things that make several files
-out of one saved piece. Stills take the bare name. StudioContext carries `savedDesignTitle` so a
+drops its name, or saving it again would make a second row with the same title. Since 2026-10-01
+every file carries what makes it different from other files of the same piece: pixel size for a
+still (`Name-1f3a_3840x2160.png`), plus frame rate and loop length for a video
+(`Name-1f3a_2160x3840_60fps_10s.mp4` -- without the length, a 5s and a 10s loop collided). StudioContext carries `savedDesignTitle` so a
 mini-generator save keeps its name in the studio.
 **Mobile OOM crashes from the animation settings, fixed 2026-07-28** (Aaron: phones would
 "crash and refresh" when the Video settings were pushed up). It was an out-of-memory kill,

@@ -1440,7 +1440,8 @@
 
    dvh, not vh: iOS resolves vh against the EXPANDED viewport it only gives a scrolling
    page, so a vh cap here would still overflow by the height of the toolbars. */
-.display-canvas .controls-container #controls-settings {
+.display-canvas .controls-container #controls-settings,
+.display-canvas .controls-container #controls-download {
   max-height: calc(100dvh - 32px);
 }
 .display-canvas .controls-inner .settings-tabs,
@@ -1509,7 +1510,9 @@
      (rather than display: none) lets both buttons ease out on the transition they already
      carry; pointer-events stops them taking taps meant for the panel underneath. */
   .display-canvas:has(#controls-settings.controls-visible) .controls-open,
-  .display-canvas:has(#controls-settings.controls-visible) .animation-pause {
+  .display-canvas:has(#controls-settings.controls-visible) .animation-pause,
+  .display-canvas:has(#controls-download.controls-visible) .controls-open,
+  .display-canvas:has(#controls-download.controls-visible) .animation-pause {
     opacity: 0 !important;
     transform: scale(0.8);
     pointer-events: none;
@@ -2336,4 +2339,66 @@
   backdrop-filter: blur(calc(8px * var(--header-bar)));
   transition-property: --header-scrim, --header-bar;
   transition-timing-function: ease;
+}
+
+/* The studio's Download panel (DisplayCanvas.renderDownloadPanel). Built from the settings
+   panel's own parts; these are the only pieces it adds.
+
+   The preview stage is a FIXED height so flicking from 16:9 to 9:16 reshapes the picture
+   inside it and never moves the rows below. The image keeps its own aspect (it is rendered
+   at the chosen shape), so max-width/max-height alone letterbox it correctly. */
+.display-canvas .controls-inner .download-preview {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 150px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.display-canvas .controls-inner .download-preview img {
+  display: block;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.2s ease;
+}
+/* Holds the previous picture, dimmed, while the next renders -- never a blank flash. */
+.display-canvas .controls-inner .download-preview img.is-busy {
+  opacity: 0.45;
+}
+/* Custom width x height: number inputs dressed as the panel's selects (same fill, border,
+   36px height), minus the select's caret padding and the browser's spinner arrows. */
+.display-canvas .controls-inner .settings-number {
+  width: 76px;
+  padding: 0 8px;
+  background-image: none;
+  text-align: center;
+  cursor: text;
+  -moz-appearance: textfield;
+}
+.display-canvas .controls-inner .settings-number::-webkit-outer-spin-button,
+.display-canvas .controls-inner .settings-number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.display-canvas .controls-inner .download-custom {
+  gap: 6px;
+}
+.display-canvas .controls-inner .download-times {
+  color: rgba(250, 250, 250, 0.45);
+  font-size: 13px;
+}
+/* Always occupies its 3px so a video starting to encode doesn't shift the BACK rail; it is
+   only drawn while one is. */
+.display-canvas .controls-inner .download-progress {
+  flex-shrink: 0;
+  margin: 4px 0 0;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.display-canvas .controls-inner .download-progress.is-active {
+  opacity: 1;
 }

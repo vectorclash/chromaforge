@@ -25,7 +25,30 @@ import { renderFrames, renderStarFrames as renderStarFramesShared, animTiming, A
 import { build3DAnimationData, build2DAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { drawLogoMark } from '../render/renderLogoMark';
 import { isMobileDevice } from '../utils/device';
-import { readDesignPrefs, readVideoPrefs, writeVideoPrefs, clearStudioPrefs, DEFAULT_VIDEO_PREFS } from '../lib/studioPrefs';
+import {
+  readDesignPrefs,
+  readVideoPrefs,
+  writeVideoPrefs,
+  readImagePrefs,
+  writeImagePrefs,
+  clearStudioPrefs,
+  DEFAULT_VIDEO_PREFS,
+  DEFAULT_IMAGE_PREFS
+} from '../lib/studioPrefs';
+import {
+  RATIOS,
+  VIDEO_SIZES,
+  SIZE_LABELS,
+  LIMITS,
+  imageSizesFor,
+  imageDims,
+  videoDims,
+  clampCustomSize,
+  imageFileName,
+  videoFileName,
+  previewDims
+} from '../lib/downloadOptions';
+import { densityFloorSize } from '../render/scale';
 import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
@@ -117,6 +140,10 @@ const ANIM_LIMIT = ANIM_LIMITS[isMobileDevice() ? 'mobile' : 'desktop'];
 // localStorage. Derived from the stored shape's own defaults so the two cannot drift: adding
 // a field to DEFAULT_VIDEO_PREFS is all it takes for it to be remembered.
 const VIDEO_PREF_KEYS = Object.keys(DEFAULT_VIDEO_PREFS);
+const IMAGE_PREF_KEYS = Object.keys(DEFAULT_IMAGE_PREFS);
+// What changes the Download panel's preview. Size and format never do: within one ratio the
+// composition is identical at every resolution, so the preview is the same picture.
+const PREVIEW_KEYS = ['downloadVisible', 'imageRatio', 'customWidth', 'customHeight', 'exportAspect', 'animationMode', 'threeDDesign', 'cycleDuration', 'speedRamp'];
 // The Video-tab settings a saved animation records (see lib/savedAnimation's compactVideo)
 const SAVED_PLAYBACK_KEYS = ['cycleDuration', 'speedRamp', 'logoMark'];
 
@@ -136,10 +163,9 @@ const MOBILE_ANIM_RASTER = 1440;
 // the viewport. See componentDidMount for the progress mapping.
 const HERO_PARALLAX_SCALE = 1.3;
 
-// MP4 export framing. Sizes are the desktop targets; mobile halves them (see
-// exportAnimationVideo) because full 4K encoding needs ~500MB+ of GPU/RAM that iOS
-// WebViews refuse. '16:9' is the historical export size, so leaving it selected keeps the
-// old behaviour exactly.
+// MP4 framing: the ratios and sizes now live in lib/downloadOptions.js (RATIOS, VIDEO_SIZES),
+// shared with the still-image download. '16:9' at 4K is the historical export, so leaving it
+// selected keeps the old behaviour exactly; phones always get 1080p.
 //
 // 3D renders natively at whichever ratio is picked — the scene is built at export size and
 // the camera aspect follows, so portrait/square is a genuine recompose, not a crop. 2D
@@ -149,12 +175,6 @@ const HERO_PARALLAX_SCALE = 1.3;
 // but a 9:16 export off a 16:9 build keeps only the middle 31.6% of the width (measured).
 // '4:5' is Instagram's feed portrait: 2160x2700 on desktop, which mobile halves to exactly
 // Instagram's own 1080x1350.
-const EXPORT_ASPECTS = {
-  '16:9': [3840, 2160],
-  '9:16': [2160, 3840],
-  '4:5': [2160, 2700],
-  '1:1': [2160, 2160]
-};
 
 // Downscales a rendered animation frame to MOBILE_ANIM_RASTER on phones, preserving
 // aspect. Returns the canvas itself on desktop, so that path is untouched.
@@ -205,7 +225,8 @@ export default class DisplayCanvas extends React.Component {
     this.playIntro = props.compact && heroIntroEnabled();
     if (this.playIntro) resetHeroReveal();
     const designPrefs = readDesignPrefs();
-    const videoPrefs = readVideoPrefs(ANIM_LIMIT, Object.keys(EXPORT_ASPECTS));
+    const videoPrefs = readVideoPrefs(ANIM_LIMIT, Object.keys(RATIOS));
+    const imagePrefs = readImagePrefs(Object.keys(RATIOS), imageSizesFor(isMobileDevice()));
     this.state = {
       // 'wait' while the first artwork renders (only the dot grid and its ripple are on
       // screen), 'reveal' from the moment it paints, 'off' when this mount is not introducing
@@ -240,6 +261,19 @@ export default class DisplayCanvas extends React.Component {
       // needs no rebuild.
       exportAspect: videoPrefs.exportAspect,
       exportFps: videoPrefs.exportFps,
+      exportSize: videoPrefs.exportSize,
+      // The Download panel (see renderDownloadPanel). The image choices are remembered like
+      // the video ones; the custom size is edited as text and only committed (clamped to the
+      // device's budget) on blur or Enter, so typing is never rewritten under the cursor.
+      ...imagePrefs,
+      customWidthInput: String(imagePrefs.customWidth),
+      customHeightInput: String(imagePrefs.customHeight),
+      customSizeNote: null,
+      downloadVisible: false,
+      imageDownloading: false,
+      downloadDone: false,
+      downloadPreviewUrl: null,
+      downloadPreviewBusy: false,
       // Speed ramp: playback-time warp (see utils/speedRamp) -- each loop accelerates
       // through its whole first half and decelerates through its whole second half, still
       // looping seamlessly. 3D nearly stops at the seam and peaks at 2.16x; 2D keeps a
@@ -334,6 +368,11 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentDidMount() {
+    // Cleared here, not only set in componentWillUnmount: React's StrictMode (dev) unmounts and
+    // remounts the SAME instance, so a flag that is only ever set leaves a live studio believing
+    // it is gone -- the Download panel's preview was dropped and its button stuck on
+    // "Preparing...", and the production build (no double mount) never showed it.
+    this.unmounted = false;
     // init() used to be the createjs LoadQueue's 'complete' callback, waiting on the two
     // star PNGs. Both star shapes are drawn from code now (render/starSprite.js), so the
     // render pipeline needs nothing preloaded and this runs straight away. Nothing in init
@@ -524,6 +563,9 @@ export default class DisplayCanvas extends React.Component {
 
   componentWillUnmount() {
     this.unmounted = true;
+    clearTimeout(this.downloadPreviewTimer);
+    clearTimeout(this.downloadDoneTimer);
+    if (this.downloadPreviewUrl) URL.revokeObjectURL(this.downloadPreviewUrl);
     this.heroRevealFallback?.kill();
     this.pendingHeroReveal = null;
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
@@ -560,6 +602,12 @@ export default class DisplayCanvas extends React.Component {
     // animation progress, export progress and loading flags, none of which touch them.
     if (prevState && VIDEO_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
       writeVideoPrefs(this.state);
+    }
+    if (prevState && IMAGE_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
+      writeImagePrefs(this.state);
+    }
+    if (this.state.downloadVisible && prevState && PREVIEW_KEYS.some(key => prevState[key] !== this.state[key])) {
+      this.queueDownloadPreview();
     }
     // The large buttons wear the palette of the artwork on screen. Stills and 2D animation
     // builds set it as they build; a 3D flight has no build of its own here, so it follows
@@ -911,7 +959,7 @@ export default class DisplayCanvas extends React.Component {
   // studio canvas: 16:9 on desktop, 1:1 on mobile) — i.e. whether exporting will crop them.
   // 3D is never cropped; it re-renders at the export size.
   exportWillCrop() {
-    const [w, h] = EXPORT_ASPECTS[this.state.exportAspect] ?? EXPORT_ASPECTS['16:9'];
+    const { width: w, height: h } = this.downloadVideoDims();
     return Math.abs(w / h - this.props.width / this.props.height) > 1e-6;
   }
 
@@ -1782,17 +1830,199 @@ export default class DisplayCanvas extends React.Component {
     this.saveToGallery(kind, data, this.pieceName(this.pieceOnScreen())); // no-ops when signed out
   }
 
-  onDownloadButtonClick(e) {
-    const { animationMode, animationFrames, isExporting, threeDMode, threeDDesign } = this.state;
+  // Download opens a panel of choices rather than downloading straight away (Aaron,
+  // 2026-10-01): a still gets ratio, size (or a custom width x height) and format, a video its
+  // ratio, size and frame rate. Every choice is remembered (lib/studioPrefs.js), so a repeat
+  // download is two clicks, and the panel's own Download button does the work.
+  onDownloadButtonClick() {
+    const { animationMode, animationFrames, threeDMode, threeDDesign } = this.state;
+    if (animationMode && !(threeDMode ? !!threeDDesign : animationFrames.length > 0)) return;
+    if (!animationMode && !this.mainConfig) return;
+    this.openDownloadPanel();
+  }
 
-    if (animationMode) {
-      const ready = threeDMode ? !!threeDDesign : animationFrames.length > 0;
-      if (ready && !isExporting) {
-        this.exportAnimationVideo();
+  // Same entrance as the Save panel (main controls blur back, this pops forward), then its
+  // rows fly up on the settings tabs' stagger, so it reads as one of the studio's own panels.
+  openDownloadPanel() {
+    gsap.to('#controls-main', {
+      duration: DURATION_FAST,
+      alpha: 0.5,
+      scale: 0.9,
+      filter: 'blur(3px)',
+      ease: 'back.out(1.7)'
+    });
+    gsap.from('#controls-download', { duration: DURATION_FAST, alpha: 0, scale: 1.2, ease: 'back.out(1.7)' });
+    this.setState({ downloadVisible: true, downloadDone: false }, () => {
+      const els = '#controls-download .download-preview, #controls-download .settings-field, #controls-download .row';
+      gsap.set(els, { alpha: 0, y: 20 });
+      gsap.to(els, { duration: DURATION_BASE, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' });
+    });
+  }
+
+  // The size the still will actually be, for these choices on this device.
+  downloadImageDims() {
+    return imageDims(this.state, isMobileDevice());
+  }
+
+  downloadVideoDims() {
+    return videoDims(this.state, isMobileDevice());
+  }
+
+  // Commit a typed custom size: clamp it to what this device can render and say why if it
+  // had to change. Runs on blur, Enter and the Download click -- never per keystroke.
+  commitCustomSize() {
+    // An emptied or non-numeric box means "not finished typing", not "32px": it goes back to
+    // the last size that was valid.
+    const typed = (raw, last) => {
+      const n = Number(raw);
+      return raw !== '' && Number.isFinite(n) && n > 0 ? n : last;
+    };
+    const { width, height, note } = clampCustomSize(
+      typed(this.state.customWidthInput, this.state.customWidth),
+      typed(this.state.customHeightInput, this.state.customHeight),
+      isMobileDevice()
+    );
+    this.setState({
+      customWidth: width,
+      customHeight: height,
+      customWidthInput: String(width),
+      customHeightInput: String(height),
+      customSizeNote: note
+    });
+    return { width, height };
+  }
+
+  // Debounced so typing a custom size or flicking through ratios renders once it settles.
+  queueDownloadPreview() {
+    clearTimeout(this.downloadPreviewTimer);
+    this.downloadPreviewTimer = setTimeout(() => this.buildDownloadPreview(), 180);
+  }
+
+  // The preview is the reason the panel can offer ratios at all: each ratio is its own
+  // composition, not a crop, so without it a 9:16 download is a layout nobody has seen.
+  //  - still: the real renderer at the chosen shape
+  //  - 3D video: a real frame of the flight at the chosen shape (the seam, as gallery stills)
+  //  - 2D video: the actual cover-crop of its first frame, since 2D CAN only crop
+  async buildDownloadPreview() {
+    if (!this.state.downloadVisible) return;
+    const token = (this.downloadPreviewToken = (this.downloadPreviewToken || 0) + 1);
+    const { animationMode, threeDMode, threeDDesign, animationFrames } = this.state;
+    const target = animationMode ? this.downloadVideoDims() : this.downloadImageDims();
+    const { width, height } = previewDims(target.width, target.height);
+    this.setState({ downloadPreviewBusy: true });
+    // Let the busy state paint before a render can hold the main thread.
+    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    let blob = null;
+    try {
+      if (!animationMode) {
+        blob = await this.renderStillBlob(width, height, 'image/jpeg', 0.9);
+      } else if (threeDMode && threeDDesign) {
+        const { render3DStill } = await import('../animation3d/renderStill');
+        blob = await render3DStill(threeDDesign, {
+          duration: this.state.cycleDuration,
+          speedRamp: this.state.speedRamp,
+          width,
+          height
+        });
+      } else if (animationFrames[0]) {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = animationFrames[0];
+        });
+        const c = document.createElement('canvas');
+        c.width = width;
+        c.height = height;
+        const { sx, sy, sw, sh } = coverSourceRect(img.naturalWidth, img.naturalHeight, width, height);
+        c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, width, height);
+        blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+        this.clearElement(c);
       }
-    } else if (this.blob) {
-      saveAs(this.blob, `${this.pieceName(this.blobConfig ?? this.mainConfig)}.jpg`);
+    } catch (e) {
+      console.warn('[Chromaforge] Download preview failed:', e);
     }
+    if (this.unmounted || token !== this.downloadPreviewToken) return;
+    const old = this.downloadPreviewUrl;
+    this.downloadPreviewUrl = blob ? URL.createObjectURL(blob) : null;
+    this.setState({ downloadPreviewUrl: this.downloadPreviewUrl, downloadPreviewBusy: false }, () => {
+      if (old) URL.revokeObjectURL(old);
+    });
+  }
+
+  // The still at any size, from the design on screen. Below the density floor it renders at
+  // DISPLAY_RENDER_CAP and steps down in halves: drawing thousands of sub-pixel specks straight
+  // into a 256px canvas aliases, which is why gallery thumbnails are made the same way. Within
+  // one ratio the composition is the same at every size (render/scale.js), so a small avatar
+  // is the same picture as the 8K.
+  async renderStillBlob(width, height, type, quality) {
+    const config = this.mainConfig;
+    if (!config) throw new Error('Nothing to download yet.');
+    // The on-screen still IS this file when the choice matches it -- exactly what Download
+    // produced before it had options -- so it costs nothing.
+    if (
+      type === 'image/jpeg' &&
+      this.blob &&
+      this.blobConfig === config &&
+      width === this.props.width &&
+      height === this.props.height
+    ) {
+      return this.blob;
+    }
+    const design = toCompactDesign(config);
+    const gen = densityFloorSize(width, height);
+    const built = generateArtwork(design.seed, gen.width, gen.height, design.colors, design.settings);
+    let canvas = renderArtwork(built);
+    while (canvas.width > width) {
+      const next = document.createElement('canvas');
+      next.width = Math.max(width, Math.round(canvas.width / 2));
+      next.height = next.width === width ? height : Math.round(canvas.height / 2);
+      const ctx = next.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(canvas, 0, 0, next.width, next.height);
+      this.clearElement(canvas);
+      canvas = next;
+    }
+    const blob = await new Promise(r => canvas.toBlob(r, type, quality));
+    this.clearElement(canvas);
+    // WebKit gives up on very large canvases under memory pressure and hands back null.
+    if (!blob) throw new Error('The browser could not encode an image this large.');
+    return blob;
+  }
+
+  async onDownloadConfirm() {
+    const { animationMode, isExporting, imageDownloading } = this.state;
+    if (isExporting || imageDownloading) return;
+    if (animationMode) {
+      await this.exportAnimationVideo();
+      if (!this.unmounted) this.flashDownloadDone();
+      return;
+    }
+    const custom = this.state.imageRatio === 'custom';
+    const { width, height } = custom ? this.commitCustomSize() : this.downloadImageDims();
+    const png = this.state.imageFormat === 'png';
+    this.setState({ imageDownloading: true });
+    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    try {
+      const blob = await this.renderStillBlob(width, height, png ? 'image/png' : 'image/jpeg', 0.98);
+      saveAs(blob, imageFileName(this.pieceName(this.blobConfig ?? this.mainConfig), width, height, png ? 'png' : 'jpg'));
+      this.flashDownloadDone();
+    } catch (e) {
+      console.warn('[Chromaforge] Image download failed:', e);
+      alert('The download didn\u2019t finish. Try a smaller size.');
+    } finally {
+      // Unconditional: setState after a real unmount is a harmless no-op, while a guard here is
+      // exactly what once stranded the button on "Preparing..." (see componentDidMount).
+      this.setState({ imageDownloading: false });
+    }
+  }
+
+  // A short "Downloaded" on the panel's button, so the click visibly did something even when
+  // the browser saves silently.
+  flashDownloadDone() {
+    clearTimeout(this.downloadDoneTimer);
+    this.setState({ downloadDone: true });
+    this.downloadDoneTimer = setTimeout(() => !this.unmounted && this.setState({ downloadDone: false }), 1800);
   }
 
   // What Save and Download act on: the 3D flight, the 2D frame set, or the still's config.
@@ -1835,9 +2065,11 @@ export default class DisplayCanvas extends React.Component {
     // disabled, previews frozen, RESET disabled -- with the 3D renderer's WebGL context and
     // the in-flight VideoFrame never released. Simulated by closing the encoder at frame 20.
     const releases = [];
+    let ok = true;
     try {
       await this.encodeAnimationVideo(releases);
     } catch (e) {
+      ok = false;
       console.error('[Chromaforge] Export failed:', e);
       alert('The download didn\u2019t finish. Please try again.');
     } finally {
@@ -1850,6 +2082,7 @@ export default class DisplayCanvas extends React.Component {
       }
       this.setState({ isExporting: false, exportProgress: 0 });
     }
+    return ok;
   }
 
   async encodeAnimationVideo(releases) {
@@ -1874,13 +2107,10 @@ export default class DisplayCanvas extends React.Component {
 
     const isMobile = isMobileDevice();
 
-    // Export framing comes from the picker, not from the studio canvas, so the same
-    // design exports identically from any screen. Mobile halves it to stay within iOS
-    // memory limits (full 4K encoding needs ~500MB+ of GPU/RAM which iOS WebViews don't
-    // allow) — halving rather than the old flat 1080x1080 so the CHOSEN ratio survives.
-    const [aspectWidth, aspectHeight] = EXPORT_ASPECTS[this.state.exportAspect] ?? EXPORT_ASPECTS['16:9'];
-    const width = isMobile ? aspectWidth / 2 : aspectWidth;
-    const height = isMobile ? aspectHeight / 2 : aspectHeight;
+    // Export framing comes from the Download panel, not from the studio canvas, so the same
+    // design exports identically from any screen. Phones always get 1080p: full 4K encoding
+    // needs ~500MB+ of GPU/RAM, which iOS WebViews don't allow (see videoDims).
+    const { width, height } = this.downloadVideoDims();
 
     const { spacing: SPACING, fade: FADE, starSpacing: STAR_SPACING, starFade: STAR_FADE, cycleDuration: CYCLE_DURATION } =
       this.getAnimTiming(is3D ? this.state.frameCount : images.length);
@@ -1895,12 +2125,9 @@ export default class DisplayCanvas extends React.Component {
     // just because the value survived from somewhere else.
     const FPS = ANIM_LIMIT.fps.includes(this.state.exportFps) ? this.state.exportFps : ANIM_LIMIT.fps[0];
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
-    // The piece's own name, then the two settings that exist only at export. Those are the
-    // ones that make several different files out of ONE saved animation, so without them a
-    // 16:9 and a 9:16 of it would land as the same name and the browser would number them.
-    // Everything else that shapes the file (Duration, ramp, logo, 3D) is part of the piece.
-    const aspectLabel = (EXPORT_ASPECTS[this.state.exportAspect] ? this.state.exportAspect : '16:9').replace(':', 'x');
-    const filename = `${this.pieceName(is3D ? threeDDesign : this.animationConfigs)}_${aspectLabel}_${FPS}fps.mp4`;
+    // The piece's own name, then what makes this file different from others made from the
+    // same piece: pixel size, frame rate and loop length (see videoFileName).
+    const filename = videoFileName(this.pieceName(is3D ? threeDDesign : this.animationConfigs), width, height, FPS, CYCLE_DURATION);
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
     // Frame source: a 2D canvas compositing the pre-rendered frames, or (3D mode) a WebGL
@@ -1974,7 +2201,7 @@ export default class DisplayCanvas extends React.Component {
     const srcWidth  = images[0]?.naturalWidth || this.props.width;
     const srcHeight = images[0]?.naturalHeight || this.props.height;
     // Cover-crop the pre-rendered frames into the chosen export ratio instead of
-    // stretching them into it (see EXPORT_ASPECTS). A no-op when the ratios match.
+    // stretching them into it (see the MP4 framing note at the top of this file). A no-op when the ratios match.
     const { sx: SRC_X, sy: SRC_Y, sw: SRC_W, sh: SRC_H } = coverSourceRect(
       srcWidth, srcHeight, width, height
     );
@@ -2346,6 +2573,10 @@ export default class DisplayCanvas extends React.Component {
         colors: [],
         geometrySettings: { ...STUDIO_DEFAULT_GEOMETRY_SETTINGS },
         ...DEFAULT_VIDEO_PREFS,
+        ...DEFAULT_IMAGE_PREFS,
+        customWidthInput: String(DEFAULT_IMAGE_PREFS.customWidth),
+        customHeightInput: String(DEFAULT_IMAGE_PREFS.customHeight),
+        customSizeNote: null,
         // A 2D animation's frames are baked from the settings above during a 30s+ Generate,
         // so changing them while one is on screen only marks them stale -- the same
         // "regenerate to apply" notice the Video tab's own steppers set.
@@ -2923,6 +3154,7 @@ export default class DisplayCanvas extends React.Component {
     this.setState({
       controlsBlurred: false,
       saveVisible: false,
+      downloadVisible: false,
       linkCopied: false,
       linkCopyFailed: false,
       galleryStatus: null,
@@ -3083,6 +3315,233 @@ export default class DisplayCanvas extends React.Component {
   }
 
   //
+
+
+  // The Download panel: a sibling of the Save and Settings panels, built from the same parts
+  // (.controls-settings glass, .settings-field rows, .settings-select, the BACK rail).
+  renderDownloadPanel() {
+    const {
+      animationMode,
+      threeDMode,
+      downloadVisible,
+      imageRatio,
+      imageSize,
+      imageFormat,
+      customWidthInput,
+      customHeightInput,
+      customSizeNote,
+      exportAspect,
+      exportFps,
+      exportSize,
+      isExporting,
+      exportProgress,
+      imageDownloading,
+      downloadDone,
+      downloadPreviewUrl,
+      downloadPreviewBusy
+    } = this.state;
+    const mobile = isMobileDevice();
+    const busy = isExporting || imageDownloading;
+    const dims = animationMode ? this.downloadVideoDims() : this.downloadImageDims();
+    const dimsLabel = `${dims.width} \u00d7 ${dims.height}`;
+    const custom = !animationMode && imageRatio === 'custom';
+    const limit = mobile ? LIMITS.mobile : LIMITS.desktop;
+    const onCustomKey = e => {
+      if (e.key === 'Enter') e.currentTarget.blur();
+    };
+
+    return (
+      <div
+        id="controls-download"
+        className={
+          'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+          (downloadVisible ? ' controls-visible' : '')
+        }
+        role="dialog"
+        aria-label={animationMode ? 'Download video' : 'Download image'}
+      >
+        <h6 className="m-0 mb-4 font-display text-xl font-bold text-neutral-50">
+          {animationMode ? 'Download video' : 'Download image'}
+        </h6>
+
+        <div className="settings-scroll">
+          {/* A fixed-height stage so switching between a wide and a tall ratio never moves
+              the rows below it. The preview keeps its own shape inside it. */}
+          <div className="download-preview" aria-hidden="true">
+            {downloadPreviewUrl && (
+              <img
+                src={downloadPreviewUrl}
+                alt=""
+                className={downloadPreviewBusy ? 'is-busy' : ''}
+              />
+            )}
+          </div>
+
+          {animationMode ? (
+            <>
+              <div className="settings-field">
+                <span className="settings-label">
+                  Ratio
+                  {/* 3D re-renders at the picked ratio; 2D can only crop the frames it baked
+                      during Generate, and the preview above shows exactly that crop. */}
+                  {!threeDMode && this.exportWillCrop() && (
+                    <span className="settings-label-note"> 2D crops to fit</span>
+                  )}
+                </span>
+                <select
+                  className="settings-select"
+                  value={exportAspect}
+                  onChange={e => this.setState({ exportAspect: e.target.value })}
+                  aria-label="Video aspect ratio"
+                >
+                  {Object.keys(RATIOS).map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Phones always encode 1080p (see videoDims), so there is nothing to pick. */}
+              {!mobile && (
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Size <span className="settings-label-note">{dimsLabel}</span>
+                  </span>
+                  <select
+                    className="settings-select"
+                    value={exportSize}
+                    onChange={e => this.setState({ exportSize: e.target.value })}
+                    aria-label="Video size"
+                  >
+                    {Object.keys(VIDEO_SIZES).map(k => (
+                      <option key={k} value={k}>{SIZE_LABELS[k]}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="settings-field">
+                <span className="settings-label">
+                  Frame rate
+                  {mobile && <span className="settings-label-note"> {dimsLabel}</span>}
+                </span>
+                <select
+                  className="settings-select"
+                  value={exportFps}
+                  onChange={e => this.setState({ exportFps: Number(e.target.value) })}
+                  aria-label="Video frame rate"
+                >
+                  {ANIM_LIMIT.fps.map(fps => (
+                    <option key={fps} value={fps}>{fps} fps</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="settings-field">
+                <span className="settings-label">Ratio</span>
+                <select
+                  className="settings-select"
+                  value={imageRatio}
+                  onChange={e => this.setState({ imageRatio: e.target.value, customSizeNote: null })}
+                  aria-label="Image aspect ratio"
+                >
+                  {Object.keys(RATIOS).map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              {custom ? (
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Size
+                    <span className="settings-label-note">
+                      {' '}
+                      {customSizeNote || `up to ${Math.round(limit.pixels / 1e5) / 10} MP`}
+                    </span>
+                  </span>
+                  <div className="settings-selects download-custom">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={32}
+                      max={limit.maxSide}
+                      className="settings-select settings-number"
+                      value={customWidthInput}
+                      onChange={e => this.setState({ customWidthInput: e.target.value })}
+                      onBlur={() => this.commitCustomSize()}
+                      onKeyDown={onCustomKey}
+                      aria-label="Width in pixels"
+                    />
+                    <span className="download-times" aria-hidden="true">{'\u00d7'}</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={32}
+                      max={limit.maxSide}
+                      className="settings-select settings-number"
+                      value={customHeightInput}
+                      onChange={e => this.setState({ customHeightInput: e.target.value })}
+                      onBlur={() => this.commitCustomSize()}
+                      onKeyDown={onCustomKey}
+                      aria-label="Height in pixels"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Size <span className="settings-label-note">{dimsLabel}</span>
+                  </span>
+                  <select
+                    className="settings-select"
+                    value={imageSizesFor(mobile).includes(imageSize) ? imageSize : '4k'}
+                    onChange={e => this.setState({ imageSize: e.target.value })}
+                    aria-label="Image size"
+                  >
+                    {imageSizesFor(mobile).map(k => (
+                      <option key={k} value={k}>{SIZE_LABELS[k]}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="settings-field">
+                <span className="settings-label">Format</span>
+                <select
+                  className="settings-select"
+                  value={imageFormat}
+                  onChange={e => this.setState({ imageFormat: e.target.value })}
+                  aria-label="Image format"
+                >
+                  <option value="jpg">JPG</option>
+                  <option value="png">PNG</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {animationMode && (
+            <div className={'animation-progress download-progress' + (isExporting ? ' is-active' : '')}>
+              <div className="animation-progress-bar" style={{ width: `${isExporting ? exportProgress : 0}%` }} />
+            </div>
+          )}
+        </div>
+
+        <div className="row">
+          <button onClick={this.onSettingsCloseButtonClick.bind(this)} className="button-small">
+            BACK
+          </button>
+          <button
+            onClick={this.onDownloadConfirm.bind(this)}
+            className="button-small"
+            disabled={busy}
+            style={busy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+          >
+            {busy ? 'Preparing...' : downloadDone ? 'Downloaded' : 'Download'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   render() {
     const {
@@ -3883,52 +4342,9 @@ export default class DisplayCanvas extends React.Component {
                     <span className="settings-toggle-thumb" />
                   </button>
                 </div>
-                {/* ── Export group ─────────────────────────────────────────────────────
-                    Everything above this point describes the animation itself (what the
-                    scene is, how long a loop runs, how it's paced); everything below only
-                    affects the FILE that Download produces and changes nothing on screen.
-                    The group is marked by a wider gap rather than a heading, which would
-                    cost a whole row in a panel Aaron already called cluttered.
-
-                    Ratio and frame rate share ONE row: both answer "what file comes out",
-                    and two more full-width rows would crowd this further. */}
-                <div className="settings-field settings-group-start">
-                  <span className="settings-label">
-                    Download
-                    {/* No note in the normal case -- "16:9" and "24 fps" already say what
-                        the selects do, and the longer text wrapped to a second line at
-                        phone width. The one thing worth saying is that 3D re-renders at the
-                        picked ratio while 2D crops its pre-rendered frames, and even that
-                        only when the pick actually differs from the ratio those frames were
-                        built at (16:9 desktop, 1:1 mobile) -- otherwise nothing is cropped
-                        and the warning would be a lie. */}
-                    {!threeDMode && this.exportWillCrop() && (
-                      <span className="settings-label-note"> 2D crops to fit</span>
-                    )}
-                  </span>
-                  <div className="settings-selects">
-                    <select
-                      className="settings-select"
-                      value={exportAspect}
-                      onChange={e => this.setState({ exportAspect: e.target.value })}
-                      aria-label="Download aspect ratio"
-                    >
-                      {Object.keys(EXPORT_ASPECTS).map(ratio => (
-                        <option key={ratio} value={ratio}>{ratio}</option>
-                      ))}
-                    </select>
-                    <select
-                      className="settings-select"
-                      value={exportFps}
-                      onChange={e => this.setState({ exportFps: Number(e.target.value) })}
-                      aria-label="Download frame rate"
-                    >
-                      {ANIM_LIMIT.fps.map(fps => (
-                        <option key={fps} value={fps}>{fps} fps</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                {/* The download ratio and frame rate used to be a row here. They moved into the
+                    Download panel (2026-10-01) with the rest of the file's choices: they change
+                    nothing on screen, only the file, and this tab is the tallest in the panel. */}
               </>
             )}
             </div>
@@ -4177,6 +4593,7 @@ export default class DisplayCanvas extends React.Component {
             </div>
           </div>
 
+          {!compact && this.renderDownloadPanel()}
         </div>
         {/* Homepage hero (compact) gets its copyright notice from the site's SiteFooter
             instead -- this tiny in-canvas notice is only needed on the standalone /studio
@@ -4190,7 +4607,7 @@ export default class DisplayCanvas extends React.Component {
         <ConfirmDialog
           open={confirmResetOpen}
           title="Reset studio settings?"
-          message="Your palette, geometry sliders and video settings all go back to their defaults, on this browser. Saved designs are not affected."
+          message="Your palette, geometry sliders, video and download settings all go back to their defaults, on this browser. Saved designs are not affected."
           confirmLabel="Reset to defaults"
           onConfirm={this.resetStudioSettings.bind(this)}
           onCancel={() => this.setState({ confirmResetOpen: false })}
