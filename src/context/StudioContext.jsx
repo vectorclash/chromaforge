@@ -114,6 +114,9 @@ export function StudioProvider({ children }) {
   // mini-generator widget) is handed off into the Studio via initialDesign, rather than
   // loaded via a share/gallery URL (the only other path that used to set a share link).
   const [savedDesignId, setSavedDesignId] = useState(null);
+  // ...and its title, so the studio's exports of a design saved elsewhere (the mini-generator)
+  // carry the name it has in the gallery.
+  const [savedDesignTitle, setSavedDesignTitle] = useState(null);
   // One-shot hand-off for "Print this" from the Gallery: set when a gallery card's print
   // action fires, read (and cleared) by ProductPage on mount so the artwork-picker defaults
   // to this design instead of the live studio design. Deliberately separate from
@@ -254,9 +257,10 @@ export function StudioProvider({ children }) {
   //
   // Gives every save a generated name (the same astro-themed generator already used for
   // export filenames -- src/components/FileNameGenerator.js) rather than leaving the gallery
-  // row title null, which is why every card read "Untitled".
+  // row title null, which is why every card read "Untitled". The studio passes the name its
+  // exports of this piece already carry, so the downloaded file and the gallery card match.
   const saveCurrentDesign = useCallback(
-    async (kind, data) => {
+    async (kind, data, title = null) => {
       if (!user) throw new Error('Sign in to save designs.');
       // Compact here -- not left to each caller -- so a future save path can't repeat a
       // real bug this fixed: the mini-generator widget's Save button passed the raw,
@@ -266,10 +270,11 @@ export function StudioProvider({ children }) {
       // egress. toCompactDesign is idempotent, so this is a no-op for callers (DisplayCanvas's
       // own Save button) that already compact before calling this.
       const compactData = data.animation ? compactAnimationData(data) : toCompactDesign(data);
-      const row = await saveDesign({ kind, data: compactData, title: FileName(), isPublic: true });
+      const row = await saveDesign({ kind, data: compactData, title: title || FileName(), isPublic: true });
       if (kind === 'image') {
         setSavedDesign(data);
         setSavedDesignId(row.id);
+        setSavedDesignTitle(row.title);
       }
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
       // A 3D flight's thumbnail is a real frame of the flight (its seam frame), not the 2D
@@ -307,10 +312,11 @@ export function StudioProvider({ children }) {
   // Takes the design the canvas actually built (not the raw row), so it is the very object
   // handed to setCurrentDesign and isSameDesign cannot disagree about a normalised `settings`
   // or an auto-palette's empty `colors`.
-  const markDesignSaved = useCallback((design, id) => {
+  const markDesignSaved = useCallback((design, id, title = null) => {
     if (!design || !id) return;
     setSavedDesign(design);
     setSavedDesignId(id);
+    setSavedDesignTitle(title);
   }, []);
 
   // The inverse of markDesignSaved, for the Gallery's delete action: the row backing the
@@ -328,6 +334,7 @@ export function StudioProvider({ children }) {
       if (!id || id !== savedDesignId) return;
       setSavedDesign(null);
       setSavedDesignId(null);
+      setSavedDesignTitle(null);
     },
     [savedDesignId]
   );
@@ -352,6 +359,7 @@ export function StudioProvider({ children }) {
     // the actual identity of a design (seed + colors) instead of by object reference.
     isCurrentDesignSaved: isSameDesign(savedDesign, currentDesign),
     savedDesignId,
+    savedDesignTitle,
     printQueueDesign,
     setPrintQueueDesign
   };

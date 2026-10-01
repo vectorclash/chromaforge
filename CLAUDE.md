@@ -1579,6 +1579,17 @@ carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840,
 instant — no rebuild, no `settingsDirty`. Deliberately ONE row rather than two: both answer
 "what file comes out of Download", and the Video tab already carries six rows (Aaron
 explicitly didn't want the panel cluttered).
+**Export filenames follow the piece (2026-09-30, Aaron: "the animation export gives a different
+file name every time").** A piece keeps ONE name: its gallery title if it is a saved or loaded
+row, otherwise one minted the first time Download or Save asks, and Save passes that name as the
+row's title so the file and the card match. It used to be a fresh `FileName()` per click, with the
+save minting yet another. `DisplayCanvas.pieceNames` is a WeakMap keyed by the piece object
+(`pieceOnScreen`: the still's config, the 3D design or the 2D frame set), so Generate, a slider or
+a palette edit starts a new name with no reset code; a saved animation whose playback changes
+drops its name, or saving it again would make a second row with the same title. MP4s append the
+two export-only settings, `Name-1f3a_9x16_60fps.mp4` -- the only things that make several files
+out of one saved piece. Stills take the bare name. StudioContext carries `savedDesignTitle` so a
+mini-generator save keeps its name in the studio.
 **Mobile OOM crashes from the animation settings, fixed 2026-07-28** (Aaron: phones would
 "crash and refresh" when the Video settings were pushed up). It was an out-of-memory kill,
 and the two modes fail for unrelated reasons — all numbers below MEASURED on an emulated

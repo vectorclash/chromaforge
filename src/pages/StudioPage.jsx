@@ -53,6 +53,7 @@ export default function StudioPage({ compact = true }) {
     saveCurrentDesign,
     isCurrentDesignSaved,
     savedDesignId,
+    savedDesignTitle,
     markDesignSaved
   } = useStudio();
   const { user } = useAuth();
@@ -77,6 +78,7 @@ export default function StudioPage({ compact = true }) {
       initialDesign={currentDesign}
       isDesignSaved={isCurrentDesignSaved}
       savedDesignId={savedDesignId}
+      savedDesignTitle={savedDesignTitle}
       onDesignChange={setCurrentDesign}
       onNavigate={navigate}
       saveCurrentDesign={saveCurrentDesign}

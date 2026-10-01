@@ -315,6 +315,16 @@ export default class DisplayCanvas extends React.Component {
     // mainConfig is then a different, full-size object, so this is how the canvas recognises the
     // shared design it is already showing.
     this.adoptedDesign = null;
+    // The name each piece goes by: its gallery title once it is saved or loaded from the
+    // gallery, otherwise one minted the first time it is asked for. Keyed by the piece object
+    // itself (pieceOnScreen), so a piece keeps its name across every export and into its save,
+    // and anything that makes a new piece (Generate, a slider, a palette edit) starts a new one
+    // without having to be told. Exports used to take a fresh random name per click, and the
+    // save took yet another, so no two files of one piece matched each other or the gallery.
+    this.pieceNames = new WeakMap();
+    // The config the still on screen (this.blob) was rendered from, which can trail mainConfig
+    // while a rebuild is in flight -- Download is live through it.
+    this.blobConfig = null;
   }
 
   componentDidMount() {
@@ -551,6 +561,9 @@ export default class DisplayCanvas extends React.Component {
     ) {
       this.shareUrl = null;
       this.shareDesignId = null;
+      // It no longer plays the way the saved row does, so it is no longer that row and must not
+      // carry its title -- saved, it would be a second gallery row with the same name.
+      this.pieceNames.delete(this.pieceOnScreen());
       this.setState({ isSaved: false });
     }
     if (
@@ -680,7 +693,9 @@ export default class DisplayCanvas extends React.Component {
     this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
     this.adoptDesignSettings(design.settings);
     this.adoptDesignColors(design.colors);
-    this.buildImage(this.buildAdoptedDesign(design));
+    const adopted = this.buildAdoptedDesign(design);
+    if (alreadySaved) this.namePiece(adopted, this.props.savedDesignTitle);
+    this.buildImage(adopted);
   }
 
   init() {
@@ -701,6 +716,7 @@ export default class DisplayCanvas extends React.Component {
             // A 3D flight replays from its one design and the playback it was saved with
             const video = storedVideo(config);
             const design = { seed: config.design.seed, colors: config.design.colors || [], settings: config.design.settings ?? null };
+            this.namePiece(design, row.title);
             this.adoptDesignSettings(design.settings);
             this.adoptDesignColors(design.colors);
             this.setState({
@@ -733,7 +749,7 @@ export default class DisplayCanvas extends React.Component {
                 logoMark: video.logoMark,
                 starFrameCount: Math.min(maxStarFrames(frameCount), video.starFrameCount ?? Math.ceil(frameCount / 2))
               },
-              () => this.loadAnimationFromConfigs(config.frames)
+              () => this.loadAnimationFromConfigs(config.frames, row.title)
             );
             // All frames of one animation share their generation settings and palette
             // (they're built in a single session with the sliders/colors in one position),
@@ -741,7 +757,7 @@ export default class DisplayCanvas extends React.Component {
             this.adoptDesignSettings(config.frames[0]?.settings);
             this.adoptDesignColors(config.frames[0]?.colors);
           } else {
-            this.loadImageFromUrl(config, designId);
+            this.loadImageFromUrl(config, designId, row.title);
           }
         })
         .catch(err => {
@@ -775,7 +791,9 @@ export default class DisplayCanvas extends React.Component {
       this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
       this.adoptDesignColors(this.props.initialDesign.colors);
-      this.buildImage(this.buildAdoptedDesign(this.props.initialDesign));
+      const adopted = this.buildAdoptedDesign(this.props.initialDesign);
+      if (alreadySaved) this.namePiece(adopted, this.props.savedDesignTitle);
+      this.buildImage(adopted);
     } else {
       this.onGenerateButtonClick();
     }
@@ -1009,7 +1027,7 @@ export default class DisplayCanvas extends React.Component {
 
     const token = ++this.buildToken;
     const canvas = renderArtwork(config);
-    canvas.toBlob(blob => this.setImage(blob, token), 'image/jpeg', 0.98);
+    canvas.toBlob(blob => this.setImage(blob, token, config), 'image/jpeg', 0.98);
     this.clearElement(canvas);
   }
 
@@ -1103,7 +1121,7 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
-  async loadAnimationFromConfigs(configs) {
+  async loadAnimationFromConfigs(configs, title = null) {
     // `configs` from a share link / gallery row are each the compact { seed, colors } form --
     // regenerate every frame's full composition before rendering, same as loadImageFromUrl.
     // this.animationConfigs holds fully-resolved configs everywhere else (buildAnimationFrames,
@@ -1140,6 +1158,7 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
+    this.namePiece(resolvedConfigs, title);
     this.animationConfigs = resolvedConfigs;
     this.setState({
       animationFrames: frames,
@@ -1184,12 +1203,12 @@ export default class DisplayCanvas extends React.Component {
   // at all (see utils/urlConfig.js), only Download. Delegates the actual save + thumbnail
   // upload to StudioContext.saveCurrentDesign (passed down by StudioPage), shared with the
   // mini-generator widget's Save button.
-  async saveToGallery(kind, data) {
+  async saveToGallery(kind, data, title) {
     if (!this.props.user) return;
 
     this.setState({ galleryStatus: 'saving', galleryError: null });
     try {
-      const row = await this.props.saveCurrentDesign(kind, data);
+      const row = await this.props.saveCurrentDesign(kind, data, title);
       // isSaved/shareUrl flip together, only once the real row (and therefore a real,
       // permanent id to link to) exists -- see onSaveButtonClick's own comment.
       this.shareUrl = buildShareUrl(row.id);
@@ -1262,7 +1281,7 @@ export default class DisplayCanvas extends React.Component {
   // up to StudioContext so the shared "is the current design saved" fact agrees with the
   // isSaved: true set just below -- otherwise the studio panel reads Saved while every
   // MiniGenerator elsewhere still offers Save for a design already in the gallery.
-  loadImageFromUrl(config, designId = null) {
+  loadImageFromUrl(config, designId = null, title = null) {
     this.setState({
       isLoading: true,
       isSaved: true
@@ -1289,7 +1308,8 @@ export default class DisplayCanvas extends React.Component {
     // After buildConfig, so the object marked saved is the exact one it just handed to
     // setCurrentDesign -- comparing a raw row against a built config would have to agree
     // about a normalised `settings` and an auto-palette's empty `colors`.
-    if (designId) this.props.markDesignSaved?.(built, designId);
+    this.namePiece(built, title);
+    if (designId) this.props.markDesignSaved?.(built, designId, title);
     this.buildImage(built);
   }
 
@@ -1375,7 +1395,7 @@ export default class DisplayCanvas extends React.Component {
   // `token` is the buildImage generation this blob belongs to (see this.buildToken). Every
   // step below re-checks it, not just the entry: this method spans an encode, an image decode
   // and a DURATION_HOLD delayed call, and a newer build can start at any point in that span.
-  setImage(blob, token) {
+  setImage(blob, token, config) {
     if (token !== this.buildToken) return;
 
     // A null blob is a real WebKit behaviour (canvas.toBlob giving up under memory pressure at
@@ -1416,6 +1436,7 @@ export default class DisplayCanvas extends React.Component {
         // Adopted as "the artwork" only once it is actually on screen, so Download and the
         // animation-mode stash always refer to what the visitor is looking at.
         this.blob = blob;
+        this.blobConfig = config;
         this.imageBlobUrl = url;
         this.showImageUrl(imageContainer, url);
 
@@ -1610,7 +1631,8 @@ export default class DisplayCanvas extends React.Component {
     // which naturally covers this in-flight moment the same way it covers signed-out users.
     this.setState({ showBranchNotice: false });
     this.openSavePanel();
-    this.saveToGallery(kind, data); // no-ops when signed out
+    // Under the name its exports already carry, so the file and the gallery card match
+    this.saveToGallery(kind, data, this.pieceName(this.pieceOnScreen())); // no-ops when signed out
   }
 
   onDownloadButtonClick(e) {
@@ -1622,9 +1644,31 @@ export default class DisplayCanvas extends React.Component {
         this.exportAnimationVideo();
       }
     } else if (this.blob) {
-      const filename = FileName();
-      saveAs(this.blob, filename + '.jpg');
+      saveAs(this.blob, `${this.pieceName(this.blobConfig ?? this.mainConfig)}.jpg`);
     }
+  }
+
+  // What Save and Download act on: the 3D flight, the 2D frame set, or the still's config.
+  pieceOnScreen() {
+    const { animationMode, threeDMode, threeDDesign } = this.state;
+    if (!animationMode) return this.mainConfig;
+    return threeDMode ? threeDDesign : this.animationConfigs;
+  }
+
+  pieceName(piece) {
+    if (!piece) return FileName();
+    let name = this.pieceNames.get(piece);
+    if (!name) {
+      name = FileName();
+      this.pieceNames.set(piece, name);
+    }
+    return name;
+  }
+
+  // A piece that IS a gallery row goes by that row's title. Rows saved before titles existed
+  // have none, and simply get a minted name like an unsaved piece.
+  namePiece(piece, title) {
+    if (piece && title) this.pieceNames.set(piece, title);
   }
 
   async exportAnimationVideo() {
@@ -1704,6 +1748,12 @@ export default class DisplayCanvas extends React.Component {
     // just because the value survived from somewhere else.
     const FPS = ANIM_LIMIT.fps.includes(this.state.exportFps) ? this.state.exportFps : ANIM_LIMIT.fps[0];
     const TOTAL_FRAMES = Math.ceil(CYCLE_DURATION * FPS);
+    // The piece's own name, then the two settings that exist only at export. Those are the
+    // ones that make several different files out of ONE saved animation, so without them a
+    // 16:9 and a 9:16 of it would land as the same name and the browser would number them.
+    // Everything else that shapes the file (Duration, ramp, logo, 3D) is part of the piece.
+    const aspectLabel = (EXPORT_ASPECTS[this.state.exportAspect] ? this.state.exportAspect : '16:9').replace(':', 'x');
+    const filename = `${this.pieceName(is3D ? threeDDesign : this.animationConfigs)}_${aspectLabel}_${FPS}fps.mp4`;
     const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
     // Frame source: a 2D canvas compositing the pre-rendered frames, or (3D mode) a WebGL
@@ -2023,7 +2073,7 @@ export default class DisplayCanvas extends React.Component {
     muxer.finalize();
     this.setState({ exportProgress: 100 });
     const blob = new Blob([target.buffer], { type: 'video/mp4' });
-    saveAs(blob, `${FileName()}.mp4`);
+    saveAs(blob, filename);
   }
 
   // Geometry setting changed. Update the state immediately (the value readout and the fill
@@ -2447,6 +2497,7 @@ export default class DisplayCanvas extends React.Component {
           this.imageModeState;
         this.imageModeState = null;
         this.blob = blob;
+        this.blobConfig = config;
         this.imageBlobUrl = blobUrl;
         this.mainConfig = config;
         // Published by hand below as the canvas's own, so it is no longer following an adopted one.
