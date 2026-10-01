@@ -556,6 +556,19 @@ export default class DisplayCanvas extends React.Component {
     if (prevState && VIDEO_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
       writeVideoPrefs(this.state);
     }
+    // The large buttons wear the palette of the artwork on screen. Stills and 2D animation
+    // builds set it as they build; a 3D flight has no build of its own here, so it follows
+    // whichever animation is showing -- a new or reshaped flight, entering Animation, or turning
+    // 3D on or off.
+    if (
+      prevState &&
+      this.state.animationMode &&
+      (prevState.animationMode !== this.state.animationMode ||
+        prevState.threeDMode !== this.state.threeDMode ||
+        prevState.threeDDesign !== this.state.threeDDesign)
+    ) {
+      this.syncAnimationButtons();
+    }
     // A saved animation records how it plays (lib/savedAnimation), so changing any of that makes
     // what is on screen no longer the saved row -- same as a palette or slider edit.
     if (
@@ -1232,7 +1245,24 @@ export default class DisplayCanvas extends React.Component {
     });
   }
 
+  syncAnimationButtons() {
+    let colors = null;
+    const design = this.state.threeDDesign;
+    if (this.state.threeDMode && design?.seed) {
+      // The palette depends only on the seed and the chosen colours (it is drawn before anything
+      // reads the settings), so a slider drag in 3D does not regenerate it on every tick.
+      const key = `${design.seed}|${(design.colors || []).join(',')}`;
+      if (this.threeDPalette?.key !== key) this.threeDPalette = { key, colors: resolveDesignPalette(design) };
+      colors = this.threeDPalette.colors;
+    } else if (!this.state.threeDMode && this.animationConfigs?.length) {
+      colors = this.animationConfigs[this.animationConfigs.length - 1].gradientBackgroundConfig.colors;
+    }
+    // Only on a real change: changeGradient also re-rolls the border colour
+    if (colors?.length && colors.join(',') !== this.buttonPalette) this.changeGradient(colors);
+  }
+
   changeGradient(colors) {
+    this.buttonPalette = colors.join(',');
     let buttonGradient =
       'linear-gradient(42deg, ' + colors[0] + ', ' + colors[colors.length - 1] + ')';
     let buttonColor;
