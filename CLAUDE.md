@@ -1572,7 +1572,9 @@ by `MAX_EXPORT_BYTES` (600MB).
   a partial or torn frame would read as catastrophic PSNR, not 29dB. `latencyMode: 'quality'`
   is already the "take your time" knob and there is no other.
 
-**Export ratio + frame rate pickers, 2026-07-28** (Aaron, for ad formats): one Video-tab row
+**Download ratio + frame rate pickers, 2026-07-28** (Aaron, for ad formats; the row is labelled
+**Download** and the button **Download MP4** since 2026-10-01 -- one verb for a still and a video,
+where it used to say Export for the video): one Video-tab row
 carrying two selects — `EXPORT_ASPECTS` (`16:9` 3840×2160, `9:16` 2160×3840, `4:5`
 2160×2700 -- Instagram's feed portrait, added 2026-09-30, halving on mobile to exactly its
 1080×1350 -- and `1:1` 2160×2160) and `EXPORT_FPS_OPTIONS` (24/30/60). Export-only state, so switching either is

@@ -6,6 +6,7 @@ import FadeImage from './FadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HeartIcon from '../buttons/HeartIcon';
 import ArrowIcon from '../buttons/ArrowIcon';
+import ShareIcon from '../buttons/ShareIcon';
 import AnimationIcon from '../buttons/AnimationIcon';
 import { getThumbnailUrl } from '../../lib/designs';
 import { useStudio } from '../../context/StudioContext';
@@ -13,6 +14,8 @@ import AuthorBadge from './AuthorBadge';
 import samplePalette from '../../utils/samplePalette';
 import GalleryAnimationPlayer, { PlayGlyph } from './GalleryAnimationPlayer';
 import { factsDesign, printableRow } from '../../lib/savedAnimation';
+import { buildStudioShareUrl } from '../../utils/urlConfig';
+import { copyText } from '../../utils/clipboard';
 
 // Rendered bigger than the 320x320 gallery thumbnail so the artwork actually looks crisp
 // full-screen-ish, but well short of print resolution -- this is a preview, not a print
@@ -54,6 +57,14 @@ const PILL =
   'flex h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 font-quicksand text-sm font-semibold transition';
 const PILL_IDLE = ' border-hairline bg-ink-800 text-text hover:border-accent/40 hover:text-accent';
 const PILL_ACTIVE = ' border-accent/50 bg-accent/10 text-accent';
+
+function CheckIcon({ size = 18 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12.5l4.5 4.5L19 7" />
+    </svg>
+  );
+}
 
 function CloseIcon() {
   return (
@@ -97,6 +108,15 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
   const [playError, setPlayError] = useState(false);
   const fullSrcRef = useRef(null);
   fullSrcRef.current = fullSrc;
+  // 'idle' | 'copied' | 'failed' -- the Share pill's own brief confirmation, which reverts
+  // on a timer and is cleared outright when the design changes or the modal closes.
+  const [shareState, setShareState] = useState('idle');
+  const shareTimerRef = useRef(null);
+  useEffect(() => {
+    clearTimeout(shareTimerRef.current);
+    setShareState('idle');
+  }, [design?.id]);
+  useEffect(() => () => clearTimeout(shareTimerRef.current), []);
 
   // Closing returns an animation to its thumbnail. Cleared on close rather than on the next
   // open: otherwise reopening the same design rendered the player for one commit before the
@@ -175,6 +195,31 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
   // never touched the sliders would be noise standing in for an answer nobody asked for.
   const coherence = facts?.settings?.geometry?.coherence;
   const hasChips = swatches.length > 0 || seed || coherence != null;
+
+  // Every design can be shared: saves are always public (the is_public column exists but
+  // nothing sets it false), and the link is the same /studio?id=<row id> a studio save
+  // produces, which opens the design -- image, 2D or 3D animation -- in the studio.
+  // Phones get the system share sheet, which is where people expect to send a link to
+  // Messages or a chat. Desktop copies instead, even where navigator.share exists (Safari,
+  // Chrome on macOS/Windows): there a share sheet is unfamiliar, and a copied link is what
+  // the studio's own share box already gives.
+  const handleShare = async () => {
+    const url = buildStudioShareUrl(design.id);
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches;
+    if (coarse && navigator.share) {
+      try {
+        await navigator.share({ title: design.title || 'Chromaforge design', url });
+        return;
+      } catch (err) {
+        // Dismissing the sheet is a choice, not a failure. Anything else falls back to copy.
+        if (err?.name === 'AbortError') return;
+      }
+    }
+    const ok = await copyText(url);
+    clearTimeout(shareTimerRef.current);
+    setShareState(ok ? 'copied' : 'failed');
+    shareTimerRef.current = setTimeout(() => setShareState('idle'), 2200);
+  };
 
   // Reads the palette off the render once it's on screen. Runs in the load handler rather
   // than an effect because it needs the decoded image, which is exactly what this event
@@ -415,6 +460,36 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
               <span>Print</span>
             </button>
           )}
+
+          {/* The pill is sized to "Copied" from the start (an invisible copy shares the grid
+              cell), so confirming doesn't shove Delete 8px sideways. The visible label is keyed
+              on the state so each change arrives on the modal's own reveal-quick rather than
+              swapping text in a single frame. */}
+          <button
+            type="button"
+            onClick={handleShare}
+            className={PILL + (shareState === 'copied' ? PILL_ACTIVE : PILL_IDLE)}
+            aria-label="Share this design"
+          >
+            <span className="grid">
+              <span aria-hidden="true" className="invisible col-start-1 row-start-1 flex items-center gap-2">
+                <CheckIcon size={18} />
+                <span>Copied</span>
+              </span>
+              <span
+                key={shareState}
+                className="col-start-1 row-start-1 flex animate-reveal-quick items-center justify-center gap-2"
+              >
+                {shareState === 'copied' ? <CheckIcon size={18} /> : <ShareIcon size={18} />}
+                <span>
+                  {shareState === 'copied' ? 'Copied' : shareState === 'failed' ? 'Copy failed' : 'Share'}
+                </span>
+              </span>
+            </span>
+          </button>
+          <span className="sr-only" aria-live="polite">
+            {shareState === 'copied' ? 'Link copied' : shareState === 'failed' ? 'Could not copy the link' : ''}
+          </span>
 
           {canDelete && (
             <button

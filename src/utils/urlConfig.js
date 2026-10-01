@@ -26,3 +26,11 @@ export function getShareUrlPrefix() {
 export function buildShareUrl(designId) {
   return getShareUrlPrefix() + designId;
 }
+
+// A share link for a design viewed somewhere OTHER than the studio (the gallery modal).
+// buildShareUrl uses the current page's path, which is right from the studio but would give
+// /gallery?id=..., and nothing reads ?id there -- only DisplayCanvas does. /studio is also
+// exactly what a link copied from the studio itself looks like.
+export function buildStudioShareUrl(designId) {
+  return `${window.location.origin}/studio?id=${designId}`;
+}

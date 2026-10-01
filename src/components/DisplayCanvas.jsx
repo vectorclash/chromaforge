@@ -1823,7 +1823,7 @@ export default class DisplayCanvas extends React.Component {
     // It is unavailable in all iOS browsers on iOS < 17.4, and in Firefox on iOS
     // (which is WebKit-based and shares Safari's feature set).
     if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
-      alert('MP4 export requires WebCodecs, which is not supported in this browser.\n\nTry Chrome or Edge on a desktop/laptop to export MP4.');
+      alert('Downloading an MP4 needs WebCodecs, which this browser doesn\u2019t support.\n\nTry Chrome or Edge on a desktop or laptop.');
       return;
     }
 
@@ -1839,7 +1839,7 @@ export default class DisplayCanvas extends React.Component {
       await this.encodeAnimationVideo(releases);
     } catch (e) {
       console.error('[Chromaforge] Export failed:', e);
-      alert('Export failed. Please try again.');
+      alert('The download didn\u2019t finish. Please try again.');
     } finally {
       for (const release of releases.reverse()) {
         try {
@@ -2144,7 +2144,7 @@ export default class DisplayCanvas extends React.Component {
       });
     } catch (e) {
       console.error('VideoEncoder configure failed:', e);
-      alert('MP4 export is not supported in this browser. Try Chrome or Edge on a desktop.');
+      alert('Downloading an MP4 isn\u2019t supported in this browser. Try Chrome or Edge on a desktop.');
       return;
     }
 
@@ -3439,7 +3439,10 @@ export default class DisplayCanvas extends React.Component {
                       : {}
                   }
                 >
-                  {isExporting ? 'Exporting...' : animationMode ? 'Export MP4' : 'Download'}
+                  {/* One verb for both (2026-10-01): it used to read Download for a still
+                      and Export MP4 for an animation, for the same action. "Preparing" while
+                      the MP4 encodes -- nothing has downloaded yet at that point. */}
+                  {isExporting ? 'Preparing...' : animationMode ? 'Download MP4' : 'Download'}
                 </button>
               </div>
               <div className="row">
@@ -3891,7 +3894,7 @@ export default class DisplayCanvas extends React.Component {
                     and two more full-width rows would crowd this further. */}
                 <div className="settings-field settings-group-start">
                   <span className="settings-label">
-                    Export
+                    Download
                     {/* No note in the normal case -- "16:9" and "24 fps" already say what
                         the selects do, and the longer text wrapped to a second line at
                         phone width. The one thing worth saying is that 3D re-renders at the
@@ -3908,7 +3911,7 @@ export default class DisplayCanvas extends React.Component {
                       className="settings-select"
                       value={exportAspect}
                       onChange={e => this.setState({ exportAspect: e.target.value })}
-                      aria-label="Export aspect ratio"
+                      aria-label="Download aspect ratio"
                     >
                       {Object.keys(EXPORT_ASPECTS).map(ratio => (
                         <option key={ratio} value={ratio}>{ratio}</option>
@@ -3918,7 +3921,7 @@ export default class DisplayCanvas extends React.Component {
                       className="settings-select"
                       value={exportFps}
                       onChange={e => this.setState({ exportFps: Number(e.target.value) })}
-                      aria-label="Export frame rate"
+                      aria-label="Download frame rate"
                     >
                       {ANIM_LIMIT.fps.map(fps => (
                         <option key={fps} value={fps}>{fps} fps</option>
