@@ -20,9 +20,10 @@ function glowGradient() {
 }
 
 // One full cycle: every hexagon draws in over 1s and back out over 1s, then it starts again.
-// The 3D preview holds a freshly generated scene until a cycle has finished (see
-// Animation3DPreview), so the loader is never cut off mid-stroke.
 export const HEXAGON_CYCLE = 2;
+// The moment every stroke is fully drawn: the earliest the studio reveals any artwork, which then
+// fades in OVER the loader while the strokes retract underneath (DisplayCanvas.loaderShown).
+export const HEXAGON_DRAWN = HEXAGON_CYCLE / 2;
 
 class HexagonLoader extends React.Component {
   componentDidMount() {
@@ -133,9 +134,12 @@ class HexagonLoader extends React.Component {
   }
 
   render() {
+    // z-0, BELOW every artwork layer (the studio's still shares this z and comes later in the DOM;
+    // both animation previews are z-[1]), so arriving artwork fades in over the loader rather than
+    // the loader having to vanish first. The gallery's player wraps it in its own overlay.
     return (
       <div
-        className="hexagon-loader relative flex w-[150px] items-center justify-center z-[1]"
+        className="hexagon-loader relative flex w-[150px] items-center justify-center z-0"
         ref={mount => {
           this.mount = mount;
         }}

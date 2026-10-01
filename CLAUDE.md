@@ -1833,12 +1833,39 @@ renderer blacked the preview out on every Duration change. `check-leaks.mjs` ass
 (d) **Generate shows "Generating" until the new scene is on screen** (`threeDBuilding`, cleared by
 `onSceneReady`, which also fires on a build error so the button can never stick).
 **And it plays like a 2D Generate** (Aaron, 2026-09-30): the scene fades out, the studio's hexagon
-loader shows (it renders on `isBuilding3D()` as well as `isLoading`, so leaving 3D mid-build can't
-strand it), the new scene builds only once the old one is hidden, and it is revealed at
-`threeDRevealAt` -- one `HEXAGON_CYCLE` (2s) after the click -- so the loader always finishes a
-cycle, strokes fully drawn out, instead of flashing for the ~20ms a build takes. Traced per frame:
-fade out 0-170ms, loader until ~2.02s, new scene fading in ~2.06-2.45s. `check-leaks.mjs` now
-waits for the button to return between Generates rather than a fixed 1.2s.
+loader shows, the new scene builds only once the old one is hidden, and it fades in over the loader.
+**That handoff is now ONE rule for every studio artwork -- still, 2D frames, 3D flight (Aaron,
+2026-09-30: "I just want things to be consistent").** `DisplayCanvas.loaderShown` owns it: the old
+artwork fades out over the loader (~0.16s), the new one is revealed once ready but never before
+the loader's strokes are fully drawn (`HEXAGON_DRAWN`, 1s, `loaderDrawnAt` set when the loader
+mounts), and it fades in OVER the loader while the strokes retract underneath. The loader leaves
+only when that layer reports its fade-in finished (`loaderHeld`, released by `fadeArtwork`'s
+onComplete, AnimationPreview's `onRevealed`, Animation3DPreview's `onSceneRevealed`), so it is
+covered, never cut. `loaderHeld` names the layer it waits for, so a mode switch mid-fade cannot
+strand it. Requires every artwork layer to sit ABOVE the loader: the loader is z-0 and first in
+the DOM, `.image-container` shares z-0 later, both previews are z-[1], and AnimationPreview mounts
+transparent (it used to be an opaque black box for the whole decode).
+Measured, 2-3 runs each, desktop: reveal starts 1.09-1.23s, fully in 1.42-1.56s, the artwork at
+opacity 1 when the loader leaves, 0 empty frames, in all three modes. Before: a still held a flat
+`DURATION_HOLD` after it was ready (render ~40ms, encoded ~120ms, then a full second) and the
+loader vanished as it began to fade in; 3D waited a whole cycle, strokes drawn out to nothing
+(~0.43s of empty screen, fully in at 2.43s); 2D frames cut the old animation and then the loader to
+black. Things worth not re-deriving:
+(1) **The homepage hero is deliberately NOT on this rule.** It has the dot ripple, not this loader,
+and its t-shirt (`waiting`) and DotRipple's two-pulse window are timed to the old
+render-plus-`DURATION_HOLD`, so `setImage` keeps that for `compact`.
+(2) **The gallery modal's player follows the same beat from the other side**: its loader is an
+overlay ON TOP of the animation (it dims the thumbnail), so it reveals at full stroke and FADES
+OUT over the arriving animation rather than being covered.
+(3) **A still that lands after entering Animation replaces the stashed one** (`imageModeState`)
+instead of being revealed: revealed, it faded in behind the animation and showed through every 3D
+Generate's fade-out. Returning to Image shows it.
+(4) **`fadeArtwork` overwrites.** GSAP runs overlapping tweens side by side by default, so entering
+Animation within the still's 0.5s fade-in left the fade-in running past the fade-out -- the same
+still-behind-3D symptom by a second route.
+(5) `check-hero-build-race.mjs` fails its widget-click step intermittently on a cold server, on the
+pre-change commit too (1 of 3 cold runs) -- a harness flake, not this.
+`check-leaks.mjs` waits for the button to return between Generates rather than a fixed 1.2s.
 Every path that puts a 3D build in front of the visitor goes through `threeDBuildState()` --
 Generate, entering the Animation tab with 3D on, and turning 3D on -- because the first press of
 the Animation tab originally built its scene with no loader at all (Aaron caught it). The first

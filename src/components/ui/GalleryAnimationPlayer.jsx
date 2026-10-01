@@ -1,8 +1,8 @@
 // A saved animation, playable in the gallery modal -- on request. The modal always opens on the
 // thumbnail; this is the layer a play button mounts over it, for either kind (lib/savedAnimation):
 //
-//   3D: the flight is built from its one design in a few ms, held behind the hexagon loader for
-//       one full cycle exactly as the studio does it, then faded in.
+//   3D: the flight is built from its one design in a few ms, held behind the hexagon loader until
+//       its strokes are fully drawn, as the studio does it, then faded in as the loader fades out.
 //   2D: every frame is rebuilt from its seed (seconds, and ~20-30 decoded images of memory), which
 //       is why nothing plays until someone asks. Frames are square here -- the modal is -- and
 //       generated at DISPLAY_RENDER_CAP; phones keep the studio's smaller raster copies.
@@ -13,7 +13,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import AnimationPreview from '../AnimationPreview';
 import Animation3DPreview from '../Animation3DPreview';
-import HexagonLoader, { HEXAGON_CYCLE } from '../HexagonLoader';
+import HexagonLoader, { HEXAGON_DRAWN } from '../HexagonLoader';
+import { DURATION_SLOW } from '../../utils/motionTokens';
 import { is3DAnimation, storedVideo } from '../../lib/savedAnimation';
 import { generateArtwork } from '../../render/generateArtwork';
 import renderArtwork from '../../render/renderArtwork';
@@ -46,6 +47,9 @@ export default function GalleryAnimationPlayer({ data, onError }) {
   const video = useMemo(() => storedVideo(data), [data]);
   const [paused, setPaused] = useState(false);
   const [ready, setReady] = useState(false);
+  // The loader leaves by fading out as the animation arrives, not by vanishing (see below)
+  const [loaderGone, setLoaderGone] = useState(false);
+  const loaderRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [built, setBuilt] = useState(null); // 2D: { frames, starFrames, timing }
   const onErrorRef = useRef(onError);
@@ -76,8 +80,16 @@ export default function GalleryAnimationPlayer({ data, onError }) {
   }, [video.logoMark, threeD, logoSource, ink3D]);
   // 3D with the mark on waits for its ink before building, so the scene is built once
   const waitingForInk = threeD && video.logoMark && ink3D === null;
-  // On GSAP's clock, like the studio's threeDRevealAt: the loader always finishes its cycle
-  const [revealAt] = useState(() => gsap.ticker.time + HEXAGON_CYCLE);
+  // The studio's handoff (DisplayCanvas.loaderShown): never revealed before the loader's strokes
+  // are fully drawn, on GSAP's clock. This loader sits ON TOP of the animation (it dims the
+  // thumbnail too), so where the studio's artwork covers its loader, this one fades out over the
+  // arriving animation instead -- the same beat, from the other side.
+  const [revealAt] = useState(() => gsap.ticker.time + HEXAGON_DRAWN);
+  useEffect(() => {
+    if (!ready || !loaderRef.current) return undefined;
+    const tween = gsap.to(loaderRef.current, { opacity: 0, duration: DURATION_SLOW, ease: 'power2.inOut', onComplete: () => setLoaderGone(true) });
+    return () => tween.kill();
+  }, [ready]);
 
   // 2D: rebuild every frame from its seed
   useEffect(() => {
@@ -98,6 +110,8 @@ export default function GalleryAnimationPlayer({ data, onError }) {
         const palette = configs[0].gradientBackgroundConfig.colors.slice();
         const starFrames = await renderStarFrames(starCount, FRAME_SIZE, FRAME_SIZE, palette, { rasterize, isCancelled });
         made = [...frames, ...starFrames];
+        const wait = revealAt - gsap.ticker.time;
+        if (wait > 0) await new Promise(r => gsap.delayedCall(wait, r));
         if (cancelled) return;
         setBuilt({ frames, starFrames, timing: animTiming(configs.length, video.cycleDuration, starCount) });
         setReady(true);
@@ -111,6 +125,8 @@ export default function GalleryAnimationPlayer({ data, onError }) {
       cancelled = true;
       made?.forEach(url => URL.revokeObjectURL(url));
     };
+    // revealAt is fixed at mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threeD, data, video]);
 
   const total = threeD ? 0 : data.frames.length;
@@ -150,8 +166,8 @@ export default function GalleryAnimationPlayer({ data, onError }) {
         )
       )}
 
-      {!ready && (
-        <div className="pointer-events-none absolute inset-0 z-[2] flex flex-col items-center justify-center gap-3 bg-black/45">
+      {!loaderGone && (
+        <div ref={loaderRef} className="pointer-events-none absolute inset-0 z-[2] flex flex-col items-center justify-center gap-3 bg-black/45">
           <HexagonLoader />
           {!threeD && (
             <span className="font-quicksand text-xs font-semibold tracking-wide text-white/80 tabular-nums">

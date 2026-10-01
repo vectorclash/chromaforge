@@ -30,7 +30,7 @@ import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
 import DotRipple from './DotRipple';
-import HexagonLoader, { HEXAGON_CYCLE } from './HexagonLoader';
+import HexagonLoader, { HEXAGON_DRAWN } from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
@@ -325,6 +325,9 @@ export default class DisplayCanvas extends React.Component {
     // The config the still on screen (this.blob) was rendered from, which can trail mainConfig
     // while a rebuild is in flight -- Download is live through it.
     this.blobConfig = null;
+    // When the studio loader's strokes are (or were) fully drawn, on GSAP's clock -- the earliest
+    // any artwork may replace it (see loaderShown). Set when the loader appears.
+    this.loaderDrawnAt = 0;
   }
 
   componentDidMount() {
@@ -540,6 +543,11 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentDidUpdate(prevProps, prevState) {
+    // The loader's cycle starts the moment it mounts (HexagonLoader's componentDidMount runs in
+    // this same commit, on the same GSAP tick), so its strokes are full HEXAGON_DRAWN from now.
+    if (this.loaderShown() && !this.loaderShown(prevState)) {
+      this.loaderDrawnAt = gsap.ticker.time + HEXAGON_DRAWN;
+    }
     // Remember the Video tab's own settings across visits. Unlike the palette and geometry
     // sliders -- which ride the design itself and are persisted once, centrally, in
     // StudioContext -- nothing carries these anywhere, so this is where they are written.
@@ -901,12 +909,54 @@ export default class DisplayCanvas extends React.Component {
     return !!(threeDBuilding && animationMode && threeDMode && threeDDesign);
   }
 
+  // ── The studio loader's handoff, the same for every kind of artwork ─────────────────────
+  // Aaron, 2026-09-30: "I just want things to be consistent." Whatever is being made -- a still,
+  // a 2D animation's frames, a 3D flight -- the hexagon loader shows from the click, the artwork
+  // is revealed once it is ready but never before the loader's strokes are fully drawn
+  // (loaderDrawnAt), and it fades in OVER the loader while the strokes retract underneath. The
+  // loader leaves only once the artwork covers it (`loaderHeld`, released by that layer's own
+  // fade-in), so it is never cut off and there is no empty beat between the two.
+  //
+  // It relies on every artwork layer sitting above the loader, which they do: the still's
+  // .image-container shares the loader's z and comes later in the DOM, and both animation
+  // previews sit at z-[1].
+  //
+  // Before this, a still held a flat DURATION_HOLD after it was ready and the loader vanished as
+  // it began to fade in; a 3D scene waited for a whole loader cycle, strokes drawn out to nothing
+  // (~0.43s of empty screen); 2D frames cut the loader to black. The homepage hero is untouched: it
+  // has the dot ripple, not this loader, and its shirt and entrance are timed against the old hold.
+  //
+  // `loaderHeld` names the layer it waits for, so a mode switch mid-fade can never strand it: it
+  // only counts while that layer is the one being shown.
+  loaderShown(state = this.state) {
+    if (this.props.compact) return false;
+    if (state.isLoading) return true;
+    const { animationMode, threeDMode, threeDDesign, threeDBuilding, loaderHeld } = state;
+    if (animationMode && threeDMode && threeDDesign) return !!threeDBuilding || loaderHeld === '3d';
+    if (animationMode) return loaderHeld === 'frames';
+    return loaderHeld === 'image';
+  }
+
+  releaseLoader(kind) {
+    if (this.state.loaderHeld === kind) this.setState({ loaderHeld: null });
+  }
+
+  // Resolves once the loader's strokes have been fully drawn -- straight away if they already
+  // have. On GSAP's clock, the one the loader animates on: GSAP pauses through a long stall rather
+  // than jumping ahead, so a wall-clock wait could let a stall eat into the stroke.
+  loaderDrawn() {
+    const wait = this.loaderDrawnAt - gsap.ticker.time;
+    return wait > 0 ? new Promise(resolve => gsap.delayedCall(wait, resolve)) : Promise.resolve();
+  }
+
   // State for any path that puts a 3D scene build in front of the visitor -- Generate, entering
-  // the Animation tab with 3D on, turning 3D on. The hexagon loader shows while it is set, and the
-  // preview holds the new scene until one full loader cycle has played (see Animation3DPreview).
+  // the Animation tab with 3D on, turning 3D on. The loader shows while it is set, and the preview
+  // holds the new scene until the loader's strokes are fully drawn (see Animation3DPreview). A
+  // loader that is already up (switching tabs mid-reveal) keeps its own clock.
   threeDBuildState() {
-    // On GSAP's clock, which the loader animates on (see Animation3DPreview)
-    return { threeDBuilding: true, threeDRevealAt: gsap.ticker.time + HEXAGON_CYCLE };
+    const now = gsap.ticker.time;
+    const revealAt = this.loaderShown() ? Math.max(this.loaderDrawnAt, now) : now + HEXAGON_DRAWN;
+    return { threeDBuilding: true, loaderHeld: '3d', threeDRevealAt: revealAt };
   }
 
   buildThreeDDesign(seed = randomSeed()) {
@@ -1110,12 +1160,18 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
+    await this.loaderDrawn();
+    if (isCancelled()) {
+      [...frames, ...starFrames].forEach(url => URL.revokeObjectURL(url));
+      return;
+    }
     this.animationConfigs = configs;
     this.setState({
       animationFrames: frames,
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
+      loaderHeld: 'frames',
       animTiming: this.getAnimTiming(),
       settingsDirty: false,
     });
@@ -1158,6 +1214,11 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
 
+    await this.loaderDrawn();
+    if (isCancelled()) {
+      [...frames, ...starFrames].forEach(url => URL.revokeObjectURL(url));
+      return;
+    }
     this.namePiece(resolvedConfigs, title);
     this.animationConfigs = resolvedConfigs;
     this.setState({
@@ -1165,6 +1226,7 @@ export default class DisplayCanvas extends React.Component {
       animationStarFrames: starFrames,
       generateDisabled: false,
       isLoading: false,
+      loaderHeld: 'frames',
       animTiming: this.getAnimTiming(resolvedConfigs.length),
       settingsDirty: false,
     });
@@ -1425,7 +1487,10 @@ export default class DisplayCanvas extends React.Component {
       // A build superseded before it reached the screen never will: release its full-size
       // JPEG now rather than holding it for the life of the tab.
       if (token !== this.buildToken) return URL.revokeObjectURL(url);
-      gsap.delayedCall(DURATION_HOLD, () => {
+      // The studio reveals as soon as its loader has drawn (see loaderShown). The homepage hero
+      // keeps the flat DURATION_HOLD: its dot ripple and the t-shirt beside it are timed to it.
+      const hold = this.props.compact ? DURATION_HOLD : Math.max(0, this.loaderDrawnAt - gsap.ticker.time);
+      gsap.delayedCall(hold, () => {
         if (token !== this.buildToken) return URL.revokeObjectURL(url);
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
@@ -1433,6 +1498,18 @@ export default class DisplayCanvas extends React.Component {
         // password-recovery link redirecting straight to /account) -- guard the same way
         // '#controls-main' already is a few lines below.
         if (!imageContainer) return URL.revokeObjectURL(url);
+        // Animation was entered while this still was on its way. It is the still the Image tab
+        // comes back to, so it replaces the one onModeToggle stashed -- revealed here instead, it
+        // faded in BEHIND the animation and showed through every 3D Generate's fade-out. (That
+        // stashed url is still the container's background; returning to Image releases it.)
+        if (this.state.animationMode) {
+          if (this.imageModeState) Object.assign(this.imageModeState, { blob, blobUrl: url, config });
+          else URL.revokeObjectURL(url);
+          // 3D never took these over, so they are this build's to hand back; a 2D frame build
+          // owns them and will.
+          if (this.state.threeDMode) this.setState({ generateDisabled: false, isLoading: false });
+          return;
+        }
         // Adopted as "the artwork" only once it is actually on screen, so Download and the
         // animation-mode stash always refer to what the visitor is looking at.
         this.blob = blob;
@@ -1455,6 +1532,7 @@ export default class DisplayCanvas extends React.Component {
         this.setState({
           generateDisabled: false,
           isLoading: false,
+          loaderHeld: this.props.compact ? null : 'image'
         }, () => {
           // The compact Save button (.controls-compact .button-small) carries its own
           // permanent backdrop-filter (components.css). Same iOS staleness bug as the studio
@@ -1473,10 +1551,13 @@ export default class DisplayCanvas extends React.Component {
             });
           }
 
+          const revealed = () => this.releaseLoader('image');
           this.fadeArtwork({
             duration: DURATION_SLOW,
             alpha: 1,
-            ease: 'power2.inOut'
+            ease: 'power2.inOut',
+            onComplete: revealed,
+            onInterrupt: revealed
           });
           // Beat zero of the hero's entrance: the artwork is on screen, so the rest of the
           // hero can land into it. No-op after the first paint, and on every non-hero mount.
@@ -2357,35 +2438,48 @@ export default class DisplayCanvas extends React.Component {
           settingsDirty: false
         });
       } else if (animationMode) {
-        // Revoke existing blob URLs to free memory
-        const { animationStarFrames } = this.state;
-        animationFrames.forEach(url => URL.revokeObjectURL(url));
-        animationStarFrames.forEach(url => URL.revokeObjectURL(url));
-        // Clear any previously saved animation state — new generation replaces it
-        if (this.animationModeState) {
-          this.animationModeState.frames.forEach(url => URL.revokeObjectURL(url));
-          this.animationModeState.starFrames.forEach(url => URL.revokeObjectURL(url));
-          this.animationModeState = null;
-        }
-
         this.fadeArtwork({
           duration: DURATION_FAST,
           alpha: 0,
           ease: 'power2.inOut'
         });
 
+        // The loader comes up now, under the playing animation, and the animation fades out over
+        // it like a still or a 3D flight does -- it used to be cleared on the spot, cutting
+        // straight from the old animation to the loader. The build waits for the fade, as 3D's
+        // does, so its main-thread time can't hitch it.
         this.setState({
           generateDisabled: true,
           isLoading: true,
           isSaved: false,
           showBranchNotice: false,
-          animationFrames: [],
-          animationStarFrames: [],
-          animationProgress: 0,
           animationPaused: false
         });
-
-        this.buildAnimationFrames();
+        const buildToken = this.animationBuildToken;
+        const start = () => {
+          // Leaving animation mode during the fade cancels the build (cancelAnimationBuild) and
+          // owns the frames from then on
+          if (buildToken !== this.animationBuildToken) return;
+          const { animationFrames: old, animationStarFrames: oldStars } = this.state;
+          // Clear any previously saved animation state — new generation replaces it
+          if (this.animationModeState) {
+            this.animationModeState.frames.forEach(url => URL.revokeObjectURL(url));
+            this.animationModeState.starFrames.forEach(url => URL.revokeObjectURL(url));
+            this.animationModeState = null;
+          }
+          this.setState({ animationFrames: [], animationStarFrames: [], animationProgress: 0 }, () => {
+            // Revoked once nothing shows them any more
+            old.forEach(url => URL.revokeObjectURL(url));
+            oldStars.forEach(url => URL.revokeObjectURL(url));
+          });
+          this.buildAnimationFrames();
+        };
+        const preview = document.querySelector('.animation-preview');
+        if (preview && animationFrames.length > 0) {
+          gsap.to(preview, { opacity: 0, duration: DURATION_FAST, ease: 'power2.inOut', onComplete: start });
+        } else {
+          start();
+        }
       } else {
         this.fadeArtwork({
           duration: DURATION_FAST,
@@ -2519,7 +2613,7 @@ export default class DisplayCanvas extends React.Component {
         const imageContainer = document.querySelector('.image-container');
         if (imageContainer) {
           this.showImageUrl(imageContainer, blobUrl);
-          gsap.set('.image-container', { alpha: 1 });
+          gsap.set('.image-container', { alpha: 1, overwrite: 'auto' });
         }
 
         this.setState({
@@ -2594,7 +2688,11 @@ export default class DisplayCanvas extends React.Component {
   // pixel of blur so each write is a real change the engine has to recomposite, then handed back
   // to the stylesheet. In and out alike.
   fadeArtwork(vars) {
-    const tween = gsap.to('.image-container', vars);
+    // overwrite: the newest fade wins. GSAP lets overlapping tweens run side by side by default,
+    // so entering Animation within the still's 0.5s fade-in left that fade-in running past the
+    // fade-out, and the still sat at full opacity behind the 3D scene for the rest of the visit
+    // -- showing through every 3D Generate's fade-out.
+    const tween = gsap.to('.image-container', { ...vars, overwrite: 'auto' });
     const panel = this.props.compact ? null : document.querySelector('#controls-main');
     if (!panel) return tween;
     this.backdropRefresh?.kill();
@@ -3026,7 +3124,7 @@ export default class DisplayCanvas extends React.Component {
             it was briefly swapped for the hero's dot ripple -- but the cause was the panel's
             blur-from-zero reveal tween, confirmed by putting the hexagon back once that tween was
             gone (see fadeArtwork). */}
-        {(isLoading || this.isBuilding3D()) && !compact ? <HexagonLoader /> : ''}
+        {this.loaderShown() ? <HexagonLoader /> : ''}
         {!compact && (
           <div
             className="controls-open absolute right-[25px] top-[25px] z-10 flex h-[3.5em] w-[3.5em] cursor-pointer items-center justify-center opacity-0 mix-blend-hard-light transition-all duration-[var(--duration-base)] ease-[ease] [-webkit-tap-highlight-color:transparent]"
@@ -3051,6 +3149,7 @@ export default class DisplayCanvas extends React.Component {
             paused={animationPaused || isExporting}
             speedRamp={speedRamp}
             logoMark={this.logoMarkConfig()}
+            onRevealed={() => this.releaseLoader('frames')}
           />
         )}
         {/* Both previews freeze while encoding (paused || isExporting) — a second live
@@ -3069,6 +3168,7 @@ export default class DisplayCanvas extends React.Component {
             onSceneReady={() => {
               if (this.state.threeDBuilding) this.setState({ threeDBuilding: false });
             }}
+            onSceneRevealed={() => this.releaseLoader('3d')}
             onInitError={() => {
               alert('3D mode needs WebGL, which is unavailable in this browser. Switching back to 2D.');
               this.onThreeDToggle();

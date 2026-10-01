@@ -63,7 +63,7 @@ function endGhost(s) {
   s.ghost = null;
 }
 
-export default function Animation3DPreview({ design, cycleDuration, paused = false, speedRamp = false, logoMark = null, revealAt = 0, onClick, onInitError, onSceneReady }) {
+export default function Animation3DPreview({ design, cycleDuration, paused = false, speedRamp = false, logoMark = null, revealAt = 0, onClick, onInitError, onSceneReady, onSceneRevealed }) {
   const containerRef = useRef(null);
   // Everything the effects share, kept off React state so a swap never re-renders mid-frame
   const live = useRef({
@@ -89,6 +89,10 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
   revealAtRef.current = revealAt;
   const onSceneReadyRef = useRef(onSceneReady);
   onSceneReadyRef.current = onSceneReady;
+  // Fires once the scene fully covers whatever is under it (the end of its fade-in), so a loader
+  // beneath it can go without being cut off. Not before onSceneReady, and on every outcome.
+  const onSceneRevealedRef = useRef(onSceneRevealed);
+  onSceneRevealedRef.current = onSceneRevealed;
   const [rendererReady, setRendererReady] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -237,9 +241,11 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
     const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
     // A Generate (a new design replacing one on screen) plays like a 2D Generate: the current
     // scene fades out over the studio's hexagon loader, the new one is built behind it, and it
-    // is revealed no earlier than revealAt -- the end of the loader's cycle -- so the loader
-    // always plays through rather than flashing for the ~20ms a build takes. The first scene
-    // (entering the Animation tab, turning 3D on) has nothing to fade out but holds the same way.
+    // is revealed no earlier than revealAt, so the loader is seen rather than flashing for the
+    // ~20ms a build takes. The studio passes the moment the loader's strokes are fully drawn and
+    // fades the scene in over it; the gallery, whose loader sits ON TOP of the scene, passes the
+    // end of a full cycle. The first scene (entering the Animation tab, turning 3D on) has
+    // nothing to fade out but holds the same way.
     const container = containerRef.current;
     const fadeOut = !first && newDesign
       ? new Promise(r => gsap.to(container, { opacity: 0, duration: DURATION_FAST, ease: 'power2.inOut', onComplete: r, onInterrupt: r }))
@@ -313,14 +319,19 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         startTimeline(resumeAt);
         if (first || newDesign) {
           setReady(true);
-          gsap.fromTo(container, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut' });
+          const revealed = () => onSceneRevealedRef.current?.();
+          gsap.fromTo(container, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut', onComplete: revealed, onInterrupt: revealed });
+          onSceneReadyRef.current?.();
+        } else {
+          onSceneReadyRef.current?.();
+          onSceneRevealedRef.current?.();
         }
-        onSceneReadyRef.current?.();
       } catch (e) {
         console.error('[Chromaforge 3D] scene build failed:', e);
         built?.dispose();
         built = null;
         onSceneReadyRef.current?.(); // never leave the Generate button stuck
+        onSceneRevealedRef.current?.(); // ...nor the loader up
         // ...nor the previous scene faded out behind a loader that has now gone
         if (!cancelled && fadeOut && s.world) {
           if (!pausedRef.current) s.tl?.play();

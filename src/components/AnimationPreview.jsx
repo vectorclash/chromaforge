@@ -33,9 +33,14 @@ export default function AnimationPreview({
   starSpacing = DEFAULT_STAR_SPACING,
   paused      = false,
   speedRamp   = false,
-  logoMark    = null
+  logoMark    = null,
+  onRevealed  = null
 }) {
   const containerRef = useRef(null);
+  // Called once the preview has fully faded in -- the studio keeps its loader up underneath
+  // until then, so the loader is covered rather than cut off (DisplayCanvas.loaderShown).
+  const onRevealedRef = useRef(onRevealed);
+  onRevealedRef.current = onRevealed;
   const imgRefs   = useRef([]);
   const starRefs  = useRef([]);
   const tlRef     = useRef(null);
@@ -62,7 +67,8 @@ export default function AnimationPreview({
     const startAnimation = () => {
       if (cancelled || killRef.current) return;
 
-      gsap.fromTo(containerRef.current, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut' });
+      const revealed = () => onRevealedRef.current?.();
+      gsap.fromTo(containerRef.current, { opacity: 0 }, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut', onComplete: revealed, onInterrupt: revealed });
 
       gsap.set(imgs, { opacity: 0, scale: 1, transformOrigin: 'center center' });
       gsap.set(imgs[0], { opacity: 1 });
@@ -288,7 +294,10 @@ export default function AnimationPreview({
 
   return (
     <div
-      className="animation-preview absolute top-0 left-0 z-[1] h-full w-full cursor-pointer bg-black"
+      // Transparent until its fade-in starts (startAnimation, after every frame has decoded). It
+      // used to mount as an opaque black box, so the decode wait cut the studio's loader to black
+      // before the fade-in had even begun.
+      className="animation-preview absolute top-0 left-0 z-[1] h-full w-full cursor-pointer bg-black opacity-0"
       ref={containerRef}
       onClick={onClick}
     >
