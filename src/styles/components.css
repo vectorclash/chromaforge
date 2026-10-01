@@ -2359,11 +2359,19 @@
 }
 .display-canvas .controls-inner .download-preview img {
   display: block;
+  /* Plays only when the element mounts -- into an empty stage (see downloadPreviewEpoch) --
+     never when a ratio change swaps the picture inside it. */
+  animation: download-preview-in 0.25s ease-out;
   max-width: calc(100% - 16px);
   max-height: calc(100% - 16px);
   border-radius: 4px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
   transition: opacity 0.2s ease;
+}
+@keyframes download-preview-in {
+  from {
+    opacity: 0;
+  }
 }
 /* Holds the previous picture, dimmed, while the next renders -- never a blank flash. */
 .display-canvas .controls-inner .download-preview img.is-busy {

@@ -274,6 +274,9 @@ export default class DisplayCanvas extends React.Component {
       downloadDone: false,
       downloadPreviewUrl: null,
       downloadPreviewBusy: false,
+      // Bumped whenever the stage is emptied, so the next preview mounts fresh and fades in.
+      // A ratio change keeps the same element and just swaps its picture.
+      downloadPreviewEpoch: 0,
       // Speed ramp: playback-time warp (see utils/speedRamp) -- each loop accelerates
       // through its whole first half and decelerates through its whole second half, still
       // looping seamlessly. 3D nearly stops at the seam and peaks at 2.16x; 2D keeps a
@@ -1852,7 +1855,23 @@ export default class DisplayCanvas extends React.Component {
       ease: 'back.out(1.7)'
     });
     gsap.from('#controls-download', { duration: DURATION_FAST, alpha: 0, scale: 1.2, ease: 'back.out(1.7)' });
-    this.setState({ downloadVisible: true, downloadDone: false }, () => {
+    // A preview of a DIFFERENT piece or mode must not be shown while this one renders (Aaron,
+    // 2026-10-01: download a still, switch to Animation, open Download, and the still flashed
+    // up before the flight's frame replaced it; a Generate did the same). Holding the previous
+    // picture is only right while reshaping the same piece, which is what flicking between
+    // ratios does -- so it is kept for that and dropped here otherwise.
+    const stale =
+      this.downloadPreviewUrl &&
+      (this.downloadPreviewPiece !== this.pieceOnScreen() || this.downloadPreviewMode !== this.state.animationMode);
+    if (stale) {
+      URL.revokeObjectURL(this.downloadPreviewUrl);
+      this.downloadPreviewUrl = null;
+    }
+    this.setState(s => ({
+      downloadVisible: true,
+      downloadDone: false,
+      ...(stale ? { downloadPreviewUrl: null, downloadPreviewEpoch: s.downloadPreviewEpoch + 1 } : null)
+    }), () => {
       const els = '#controls-download .download-preview, #controls-download .settings-field, #controls-download .row';
       gsap.set(els, { alpha: 0, y: 20 });
       gsap.to(els, { duration: DURATION_BASE, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' });
@@ -1907,6 +1926,7 @@ export default class DisplayCanvas extends React.Component {
     if (!this.state.downloadVisible) return;
     const token = (this.downloadPreviewToken = (this.downloadPreviewToken || 0) + 1);
     const { animationMode, threeDMode, threeDDesign, animationFrames } = this.state;
+    const piece = this.pieceOnScreen();
     const target = animationMode ? this.downloadVideoDims() : this.downloadImageDims();
     const { width, height } = previewDims(target.width, target.height);
     this.setState({ downloadPreviewBusy: true });
@@ -1945,6 +1965,8 @@ export default class DisplayCanvas extends React.Component {
     if (this.unmounted || token !== this.downloadPreviewToken) return;
     const old = this.downloadPreviewUrl;
     this.downloadPreviewUrl = blob ? URL.createObjectURL(blob) : null;
+    this.downloadPreviewPiece = piece;
+    this.downloadPreviewMode = animationMode;
     this.setState({ downloadPreviewUrl: this.downloadPreviewUrl, downloadPreviewBusy: false }, () => {
       if (old) URL.revokeObjectURL(old);
     });
@@ -3338,7 +3360,8 @@ export default class DisplayCanvas extends React.Component {
       imageDownloading,
       downloadDone,
       downloadPreviewUrl,
-      downloadPreviewBusy
+      downloadPreviewBusy,
+      downloadPreviewEpoch
     } = this.state;
     const mobile = isMobileDevice();
     const busy = isExporting || imageDownloading;
@@ -3370,6 +3393,7 @@ export default class DisplayCanvas extends React.Component {
           <div className="download-preview" aria-hidden="true">
             {downloadPreviewUrl && (
               <img
+                key={downloadPreviewEpoch}
                 src={downloadPreviewUrl}
                 alt=""
                 className={downloadPreviewBusy ? 'is-busy' : ''}
