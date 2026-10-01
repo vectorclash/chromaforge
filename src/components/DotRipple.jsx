@@ -44,13 +44,30 @@ import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
 // It changed (2026-09-23): the hero's FIRST load waits ~1.8s for its artwork, so the single
 // pass ended with a third of the wait still to go and the hero sat still (Aaron: "the hero loading animation
 // stops a third of the way through"). The answer is `active` -- a continuous mode, not a repeat:
-// while `active`, each layer launches a fresh ring (fresh colours) as its last one clears the
-// corners; when it goes false no new ring starts and the ones in flight run out to the edge and
-// fade as normal. The cut-off the repeat caused came from the HOST unmounting mid-ring, so a
-// caller using `active` keeps this mounted and lets the rings finish on their own. Hosts that
-// pass nothing (SiteFooter, MobileNav: a fixed crossfade hold) keep the one-shot behaviour above.
+// while `active`, rings keep launching; when it goes false no new ring starts and the ones in
+// flight run out to the edge and fade as normal. The cut-off the repeat caused came from the HOST
+// unmounting mid-ring, so a caller using `active` keeps this mounted and lets the rings finish on
+// their own. Hosts that pass nothing (SiteFooter, MobileNav: a fixed crossfade hold) keep the
+// one-shot behaviour above.
+//
+// THE CONTINUOUS MODE KEEPS ONE BEAT, and the hero's reveal lands on it (2026-10-01, Aaron: "sometimes
+// I see one ring, usually two. I just want all loading states to feel consistent"). Measured before:
+// the count drifted with render time (the hero held a flat second AFTER its artwork was ready, so a
+// render past ~200ms let a third ring start just before the reveal -- most phone Generates), and the
+// first two rings could bunch to 164ms apart and read as ONE: the first launched on the tick after the
+// hero's long render task, the second at a fixed time from the start. Now:
+//   - Rings launch on a CHAINED beat, RIPPLE_BEAT after the previous launch actually happened, so a
+//     stall delays every later ring equally and can never bunch them.
+//   - `onBeat(n)` (n = rings launched so far in this loading) is asked before each launch; returning
+//     false ends the loading on that beat instead of launching. The hero reveals its artwork there
+//     (DisplayCanvas.onHeroRippleBeat), so a Generate is always two evenly spaced rings and then the
+//     artwork arriving exactly where a third would have started -- the same phrase the footer and
+//     MobileNav play over their fixed two-beat hold. The studio's hexagon loader follows the same rule
+//     (reveal no earlier than the loader's own phrase, see loaderShown).
 const HOLD_WINDOW = DURATION_FAST + DURATION_HOLD;
 const RIPPLE_CYCLE = HOLD_WINDOW;
+// Two layers, so a new ring every half cycle
+export const RIPPLE_BEAT = RIPPLE_CYCLE / 2;
 
 const spun = () =>
   tinycolor('#CCFF00')
@@ -61,11 +78,13 @@ const spun = () =>
 // entrance -- the ripple sits on the dot grid, so appearing before the grid does is exactly
 // the pop that entrance exists to remove. Every other host passes nothing and is unchanged.
 // It rides the wrapper, not the layers: those already carry a GSAP opacity fade of their own.
-function DotRipple({ introDelay = null, active }) {
+function DotRipple({ introDelay = null, active, onBeat = null }) {
   const mount = useRef(null);
   const continuous = active !== undefined;
   const activeRef = useRef(active);
   activeRef.current = active;
+  const onBeatRef = useRef(onBeat);
+  onBeatRef.current = onBeat;
   const startRef = useRef(null);
 
   useEffect(() => {
@@ -75,10 +94,14 @@ function DotRipple({ introDelay = null, active }) {
     const falloffStartRaw = getComputedStyle(mount.current).getPropertyValue('--ripple-falloff-start').trim();
     const falloffStart = falloffStartRaw ? parseFloat(falloffStartRaw) : 0.5;
     const running = layers.map(() => null);
-    const pending = [];
+    const launchedAt = layers.map(() => -Infinity);
+    let next = null;
+    let count = 0;
 
     const ring = i => {
       const layer = layers[i];
+      running[i]?.kill();
+      launchedAt[i] = gsap.ticker.time;
       layer.style.setProperty('--ripple-c1', spun());
       layer.style.setProperty('--ripple-c2', spun());
       const proxy = { r: 0 };
@@ -92,31 +115,43 @@ function DotRipple({ introDelay = null, active }) {
           const intensity = t <= falloffStart ? 1 : Math.max(0, 1 - (t - falloffStart) / (1 - falloffStart));
           layer.style.setProperty('--ripple-intensity', intensity);
         },
-        // The next ring only launches if the host still wants it -- this is the whole stop.
         onComplete: () => {
           running[i] = null;
-          if (activeRef.current) ring(i);
         }
       });
     };
 
-    // (Re)start: each idle layer launches half a cycle after the previous, so the waves read
-    // as continuous. A layer still finishing its last ring just carries on into the next.
+    // One beat: ask the host, then launch on whichever layer is free (or has the oldest ring --
+    // only possible when a new loading starts while the last one's rings are still out).
+    const beat = () => {
+      next = null;
+      if (!activeRef.current) return;
+      if (onBeatRef.current && onBeatRef.current(count) === false) return;
+      let i = running.findIndex(t => !t);
+      if (i < 0) i = launchedAt.indexOf(Math.min(...launchedAt));
+      // A loading's first ring on each layer fades the layer in, as it always has
+      if (count < layers.length && !running[i]) gsap.fromTo(layers[i], { opacity: 0 }, { opacity: 1, duration: 0.4 });
+      ring(i);
+      count++;
+      // Chained from THIS launch, never from the start: see the header
+      next = gsap.delayedCall(RIPPLE_BEAT, beat);
+    };
+
+    // (Re)start a loading: its own count. The first ring launches on the next TICK, not here: this
+    // runs from a React effect, usually right after the hero's long render task, when GSAP's clock
+    // has not yet caught up -- a beat scheduled from that stale time fired ~150ms early and
+    // squeezed the first two rings together.
     startRef.current = () => {
-      layers.forEach((layer, i) => {
-        if (running[i]) return;
-        gsap.fromTo(layer, { opacity: 0 }, { opacity: 1, duration: 0.4 });
-        pending.push(gsap.delayedCall((i * RIPPLE_CYCLE) / layers.length, () => {
-          if (activeRef.current && !running[i]) ring(i);
-        }));
-      });
+      count = 0;
+      // Re-activated before the last loading's pending beat fired: that beat carries on the cadence
+      if (!next) next = gsap.delayedCall(0, beat);
     };
     if (activeRef.current) startRef.current();
 
     return () => {
       startRef.current = null;
       running.forEach(t => t?.kill());
-      pending.forEach(t => t.kill());
+      next?.kill();
       layers.forEach(layer => gsap.killTweensOf(layer));
     };
   }, [continuous]);

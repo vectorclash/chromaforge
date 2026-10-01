@@ -16,7 +16,7 @@ import {
   getGeometrySettings,
   getStudioGeometrySettings
 } from '../render/designSettings';
-import { DURATION_FAST, DURATION_BASE, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
+import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { generateLogoMark } from '../render/generateLogoMark';
@@ -29,7 +29,10 @@ import { readDesignPrefs, readVideoPrefs, writeVideoPrefs, clearStudioPrefs, DEF
 import { subscribeScrollLock } from '../hooks/useScrollLock';
 
 import Copyright from './Copyright';
-import DotRipple from './DotRipple';
+import DotRipple, { RIPPLE_BEAT } from './DotRipple';
+
+// Rings the hero's ripple plays before its artwork may arrive (see queueHeroReveal)
+const HERO_MIN_RINGS = 2;
 import HexagonLoader, { HEXAGON_DRAWN } from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
@@ -521,6 +524,8 @@ export default class DisplayCanvas extends React.Component {
 
   componentWillUnmount() {
     this.unmounted = true;
+    this.heroRevealFallback?.kill();
+    this.pendingHeroReveal = null;
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
     if (this.onHeroParallaxScroll) {
       window.removeEventListener('scroll', this.onHeroParallaxScroll);
@@ -1519,10 +1524,7 @@ export default class DisplayCanvas extends React.Component {
       // A build superseded before it reached the screen never will: release its full-size
       // JPEG now rather than holding it for the life of the tab.
       if (token !== this.buildToken) return URL.revokeObjectURL(url);
-      // The studio reveals as soon as its loader has drawn (see loaderShown). The homepage hero
-      // keeps the flat DURATION_HOLD: its dot ripple and the t-shirt beside it are timed to it.
-      const hold = this.props.compact ? DURATION_HOLD : Math.max(0, this.loaderDrawnAt - gsap.ticker.time);
-      gsap.delayedCall(hold, () => {
+      const reveal = () => {
         if (token !== this.buildToken) return URL.revokeObjectURL(url);
         let imageContainer = document.querySelector('.image-container');
         // This delayed call isn't cancelled on unmount, so it can still fire after the
@@ -1595,9 +1597,41 @@ export default class DisplayCanvas extends React.Component {
           // hero can land into it. No-op after the first paint, and on every non-hero mount.
           this.startHeroReveal();
         });
-      });
+      };
+      // The studio reveals as soon as its loader has drawn (see loaderShown). The homepage hero
+      // reveals on its dot ripple's beat (onHeroRippleBeat).
+      if (this.props.compact) this.queueHeroReveal(reveal);
+      else gsap.delayedCall(Math.max(0, this.loaderDrawnAt - gsap.ticker.time), reveal);
     });
   }
+
+  // The homepage hero's artwork arrives ON its dot ripple's beat, the way the studio's arrives
+  // once its hexagon has drawn: never before HERO_MIN_RINGS rings have launched, and then exactly
+  // where the next ring would have started (DotRipple's onBeat; see its header). It used to hold a
+  // flat DURATION_HOLD after the artwork was ready, so the ring count drifted with render time --
+  // two on desktop, three on most phone Generates (Aaron, 2026-10-01: "sometimes I see one ring,
+  // usually two"). The fallback only exists for a ripple that is not running at all; when it is,
+  // a beat always comes first.
+  queueHeroReveal(reveal) {
+    this.pendingHeroReveal = reveal;
+    this.heroRevealFallback?.kill();
+    this.heroRevealFallback = gsap.delayedCall(RIPPLE_BEAT * (HERO_MIN_RINGS + 1), () => this.runHeroReveal());
+  }
+
+  runHeroReveal() {
+    const reveal = this.pendingHeroReveal;
+    this.pendingHeroReveal = null;
+    this.heroRevealFallback?.kill();
+    this.heroRevealFallback = null;
+    reveal?.();
+  }
+
+  // n: rings this loading has launched so far. Returning false ends the loading on this beat.
+  onHeroRippleBeat = n => {
+    if (!this.pendingHeroReveal || n < HERO_MIN_RINGS) return true;
+    this.runHeroReveal();
+    return false;
+  };
 
   animateSettingsTab() {
     gsap.set('#controls-settings .color-container', { opacity: 1 });
@@ -3252,7 +3286,7 @@ export default class DisplayCanvas extends React.Component {
               {/* Always mounted, driven by `active`: rings keep coming for as long as the hero
                   is loading, however long that is, and the last ones run out to the edge
                   instead of being cut off by an unmount. See DotRipple. */}
-              <DotRipple active={isLoading} introDelay={heroPhase === 'wait' ? HERO_WAIT.grid : null} />
+              <DotRipple active={isLoading} onBeat={this.onHeroRippleBeat} introDelay={heroPhase === 'wait' ? HERO_WAIT.grid : null} />
               <div className="hero-compact-row flex flex-row items-center gap-4">
                 <TshirtPreview
                   size={190}

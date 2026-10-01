@@ -1861,9 +1861,9 @@ opacity 1 when the loader leaves, 0 empty frames, in all three modes. Before: a 
 loader vanished as it began to fade in; 3D waited a whole cycle, strokes drawn out to nothing
 (~0.43s of empty screen, fully in at 2.43s); 2D frames cut the old animation and then the loader to
 black. Things worth not re-deriving:
-(1) **The homepage hero is deliberately NOT on this rule.** It has the dot ripple, not this loader,
-and its t-shirt (`waiting`) and DotRipple's two-pulse window are timed to the old
-render-plus-`DURATION_HOLD`, so `setImage` keeps that for `compact`.
+(1) **The homepage hero follows the same rule with its own indicator** (2026-10-01): it has the dot
+ripple, not this loader, and its artwork arrives on the ripple's beat -- see "The hero's dot ripple
+keeps one beat" below. It used to hold a flat `DURATION_HOLD` after the artwork was ready.
 (2) **The gallery modal's player follows the same beat from the other side**: its loader is an
 overlay ON TOP of the animation (it dims the thumbnail), so it reveals at full stroke and FADES
 OUT over the arriving animation rather than being covered.
@@ -3568,6 +3568,32 @@ anywhere shifts every layer generated after it. If a change genuinely must touch
 stream, this check will fail, and that has to be an explicit, stated decision to rewrite
 everyone's saved artwork — not a side effect noticed in production.
 
+### The hero's dot ripple keeps one beat, and the artwork arrives on it (2026-10-01)
+Aaron: "sometimes I see one ring, usually two. I just want all loading states to feel consistent."
+The homepage hero's loading indicator is `DotRipple` in its continuous (`active`) mode, and its
+reveal is now tied to the ripple the way the studio's is tied to its hexagon (`loaderShown`): a
+Generate is always **two evenly spaced rings, then the artwork, arriving exactly where a third ring
+would have started** -- the same phrase the footer and MobileNav already play over their fixed
+two-beat hold. A longer wait (a slow first load) simply adds rings at the same rhythm.
+Measured before, on the production build: the hero held a flat `DURATION_HOLD` AFTER its artwork
+was ready, so the count drifted with render time (2 rings on desktop, 3 on most Generates on a
+4x-throttled phone, 4 on its cold load); and the first two rings could bunch to **164ms** apart and
+read as ONE, because the first launched on the tick after the render's long task while the second
+was scheduled from the start. After: every Generate on both is exactly 2 rings, 600ms apart; the
+desktop cold load is unchanged at ~1.7s, phone Generates are about the same (~1.55-1.73s -> ~1.63-1.66s,
+now steady), and desktop Generates got ~0.15s slower (~1.3s -> ~1.45s click to reveal), since the
+reveal now waits two full beats from the first ring rather than 1s from the artwork being ready.
+Three things worth not re-deriving:
+(1) **The beat is CHAINED** -- each ring is scheduled from the previous launch, never from the
+start -- so a stall delays every later ring equally and cannot bunch them.
+(2) **The first ring launches on the next GSAP TICK, not in the effect.** The effect runs right
+after the hero's render, before GSAP's clock has caught up with that long task, and a beat
+scheduled from the stale time fired ~150ms early (rings 450ms apart instead of 600).
+(3) **The ripple asks, the hero answers**: `onBeat(n)` is called before each launch with the rings
+launched so far; `DisplayCanvas.onHeroRippleBeat` runs the queued reveal and returns false once the
+artwork is ready and `HERO_MIN_RINGS` (2) have played, ending the loading on that beat. A fallback
+timer (3 beats) covers only a ripple that is not running at all.
+
 ### Mini generator (2026-09-23)
 - **ONE ambient mini generator** (`components/ui/MiniGenerator.jsx`, `useDockMorph`). The floating
   widget IS the footer's docked one -- SiteFooter only renders an empty `[data-mini-dock]` slot
@@ -3644,7 +3670,7 @@ Three things worth not re-deriving:
   animation mode left `currentDesign` on the LAST ANIMATION FRAME while the canvas showed the
   restored still. A guaranteed desync, no race required.
 Now: `buildImage` stamps each build with `++this.buildToken` and `setImage` re-checks it at
-entry, after the decode, and inside the `DURATION_HOLD` delayed call (all three, because a
+entry, after the decode, and inside the delayed reveal (all three, because a
 newer build can start anywhere in that span); `adoptInitialDesign` defers behind an in-flight
 build instead of starting a parallel one, re-reading the newest design on each retry, the same
 shape `regenerateCurrentSeed` already used for the sliders; and a null/undecodable blob fades
