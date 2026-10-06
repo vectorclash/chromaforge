@@ -36,3 +36,6 @@ render-service/avatar-backfill-preview/
 
 # Output of render-service/spike-test.js (regenerated on every run)
 render-service/spike-*.png
+
+# The local ad builder's photos, rendered music and saved ads (scripts/ad-builder-dev.mjs)
+/.ads/

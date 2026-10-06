@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!--
+  The local ad builder: Instagram Reels videos of a design flying through 3D and landing on the
+  products. Dev-server only: `npm run ads` starts the dev server and opens it (or, with `npm start`
+  already running, go to http://localhost:5173/ad-builder.html).
+  A production build bundles index.html alone, so this page is never deployed. See src/adBuilder.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>Ad builder</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- The artwork renderer's geometry layer draws through EaselJS, which the app loads globally. -->
+    <script src="/createjs.min.js"></script>
+    <!-- External src, not inline: Vite rewrites an inline module script to a protocol-relative URL
+         that Safari reads as a hostname (the star tuner hit this). -->
+    <script type="module" src="/src/adBuilder/main.jsx"></script>
+  </body>
+</html>

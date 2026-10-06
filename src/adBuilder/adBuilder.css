@@ -1,0 +1,29 @@
+/* The ad builder's scroll areas show their scrollbar all the time, so a list says how far it goes.
+   macOS hides scrollbars until something scrolls, which left the saved-designs grid with no sign
+   that dozens of designs sat below the first three rows. Styled like ScrollStrip's bar (a faint 4px-ish
+   track, the interactive colour for the thumb) so the vertical and horizontal ones read as one.
+
+   A styled ::-webkit-scrollbar is never an overlay scrollbar, which is what keeps it visible in
+   Chrome and Safari. Firefox has no such selector and takes the standard properties instead --
+   behind @supports, because Chrome IGNORES its ::-webkit-scrollbar styles once scrollbar-color is
+   set on the same element. */
+.ad-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.ad-scroll::-webkit-scrollbar-track {
+  background: rgba(250, 250, 250, 0.1);
+  border-radius: 3px;
+}
+.ad-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-interactive, #2cd8fe);
+  border-radius: 3px;
+}
+.ad-scroll::-webkit-scrollbar-thumb:hover {
+  background: #7fe8ff;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .ad-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-interactive, #2cd8fe) rgba(250, 250, 250, 0.1);
+  }
+}

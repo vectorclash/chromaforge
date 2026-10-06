@@ -1,9 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import adBuilderDev from './scripts/ad-builder-dev.mjs';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // adBuilderDev is serve-only: the local ad builder (ad-builder.html) and its routes never reach
+  // a production build, which bundles index.html alone.
+  plugins: [react(), tailwindcss(), adBuilderDev()],
   server: {
     // `npm start` opens a browser, as it always has. CF_NO_OPEN=1 starts the server without
     // one -- for anything that only needs the port (an agent, a script, a second server

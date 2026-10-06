@@ -21,6 +21,7 @@
   },
   "scripts": {
     "start": "vite",
+    "ads": "vite --open /ad-builder.html",
     "build": "vite build",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{js,jsx,json,css,scss}\"",

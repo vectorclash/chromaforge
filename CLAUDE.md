@@ -2038,6 +2038,89 @@ animation's first frame), or a fresh one if there is none.
 Also verified in the flows test: 3D toggled on mid-2D-build and back, exports 3D 9:16 (2160x3840) and
 2D 1:1 (2160x2160) with the logo on, and the phone-sized studio (3D default, Generate, no overflow).
 
+### Local ad builder (`ad-builder.html`, `src/adBuilder/`, 2026-10-06)
+Instagram Reels for the brand: the design's 3D flight as the hook, decelerating into its loop seam,
+then each product photo assembling out of FacetSwap's facets on a bar line of the music, with
+`chromaforge.app` over the products. `npm run ads` starts the dev server and opens it (with
+`npm start` already running, it is `http://localhost:5173/ad-builder.html`). Shape decided with Aaron (2026-10-06): products come AFTER the flight, never inside it (a
+cutout or model flying past is on screen too briefly and too small to sell anything, and a magnified
+bitmap goes soft -- the round-3 plate problem); Instagram only, so 1080x1920 at 30fps with no ratio
+picker; no end card (a Reel loops, and the URL rides the product shots instead). The July plan for
+this (shirts flying through the tunnel) was deleted by Aaron; don't revive it.
+Eight things worth not re-deriving:
+(1) **Dev-server only.** A production build bundles `index.html` alone, and the routes the page needs
+live in `scripts/ad-builder-dev.mjs`, a serve-only Vite plugin. Verified: nothing from it is in `dist`.
+(2) **Music is Orrery's, with no copy here** (Aaron: "I'd hate to have two versions"). Orrery's own
+export renderer (`~/Workspace/orrery/src/render.js`, or `ORRERY_DIR`) is served raw at `/orrery/` and
+loaded by URL in a hidden iframe, exactly how Orrery's EXPORT runs it -- its audio modules keep
+module-level state. Loaded by URL rather than imported so typecheck and CI never look for a folder
+only this machine has. Orrery gained `src/share.js` (its share-link format, moved out of `main.js`)
+and its render iframe exposes `planFromShare` and `exportBeatZero`. Paste an Orrery SHARE link; the
+plan's tempo sets the bar length, and every cut lands on a bar line.
+(3) **Every render is a new performance** -- Orrery picks notes with `Math.random` -- so a take is
+kept as a WAV in `.ads/media` and saved with the ad; Re-roll renders another. A take renders BY
+ITSELF when a link is loaded and again whenever the ad's length changes (it used to wait for a
+Render click, so the preview played silent, or ran out of music partway through the loop); only the
+latest request lands, and an open saved ad decodes its take before applying anything, so it is never
+replaced by a fresh render. Export waits until the take fits the ad. Orrery starts beat 0
+at `exportBeatZero` (0.12s); the builder renders that much extra and drops it.
+(4) **Photos are copied into `.ads/media`** (gitignored) through the dev server: Printful's mockup
+URLs expire in days, and an image from another origin taints the canvas the exporter reads.
+(5) **Mockups go through `useMockup` with the product page's DEFAULT print options**
+(`mockupDefaults.js`, mirrored from ProductPage's initial state -- change both together). Matching
+exactly also means a mockup made on a product page in the last 12h comes out of `cf-mockup-cache`
+here for free. A mockup is only ever made on a click: each one is a permanent Printful library file.
+(6) **Products are CUTOUTS by default, from Printful itself** (2026-10-06). A mockup task with
+`format: 'png'` comes back with the background already removed -- flat lays AND on-model shots,
+measured on one approved task (257: 50-74% of each 2000px view clear, a 0.3-0.5% antialiased edge, no
+halo, no baked shadow). The builder asks for 2000px PNG (`createMockupTask`'s `format`/`width`,
+keyed separately in `useMockup` so the shop's JPG keys are byte-identical). A cutout is placed by its
+own alpha: anything running off the image's BOTTOM edge is an on-model shot (Printful frames people at
+mid-thigh) and rises out of the frame's bottom edge; anything else floats in the safe zone with a
+shadow. Card (the photo on a panel) and Full frame (a cover crop, which loses 44% of a square's width)
+remain per product. **`width` needs `printful-mockup` deployed** -- until then the function ignores it
+and returns 1000px (it already forwarded `format`).
+(6b) **What makes it feel alive:** the flight keeps drifting behind the products at `BG_DRIFT` of
+real time (its ramp is nearly stopped at the seam, so it stays a drift); floating products push in,
+bob and rock over two bars; a cut breaks the outgoing product apart toward the centre
+(`drawFacets` run backwards) while the next assembles, with glints only on facets that hold product
+(`drawFacets`'s optional `visible` list -- FacetSwap passes none and is pixel-identical, re-verified).
+**A pulse on every beat was built and rejected on sight** (Aaron: "so very weird and creepy") -- a
+garment, and an on-model shot most of all, throbbing to the music reads as breathing. Don't re-add it;
+the music already sets every cut.
+(6c) **The text is the site's wordmark lockup, not a caption** (`lockup.js`; Aaron: the plain URL
+"feels odd"). Logo + CHROMA (Exo 400) + FORGE (Exo 900, accent-soft), a hairline in the DESIGN's
+palette, the URL under it. It arrives one beat after the first product with `--animate-resolve-in`'s
+own curve, travel and blur (scaled to a phone-sized video), and CHROMA runs the wordmark's hover
+hue-wave on every cut. Products are laid out clear of its band (top by default), inside Meta's Reels
+safe zone (top 14%, bottom 35%).
+(6d) **A product slot holds several photos, each its own beat** -- one mockup returns a full set,
+so one product can carry a whole ad. A photo takes its place in the order when CLICKED (a placeholder
+filled when its file lands), because downloads finish in any order. The view strip is the product
+page's `ScrollStrip` with `dragToScroll` (a mouse drag scrolls and selects nothing; the scrollbar is
+draggable). Ads saved with a single `photo` load as a one-photo list (`slotPhotos`).
+(6e) **Performance, measured 2026-10-06** (Aaron: "really slow sometimes", then smooth once music
+played). The preview holds 60fps in every case tested (flight, cuts, holds, 30 full-size mockup PNGs on
+the page, CPU throttled 4x), drawing a frame in ~2ms; one WebGL context survives 32 design switches,
+the heap stays flat, and nothing runs while paused. The one real cost was a music render: Orrery's
+renderer runs on the PAGE's main thread (same-origin iframe), and every progress tick re-rendered the
+builder -- now 5% steps, which removed every long task at 1x (a slow CPU still stutters for the length
+of a render; a renderer on another origin, e.g. `[::1]`, would get its own process if that ever
+matters). The "smooth with music" pattern is most likely Chrome's Energy Saver halving the frame rate
+of SILENT tabs -- audible tabs are reportedly exempt -- which is why the preview shows an fps / draw-ms
+readout: ~30fps at ~2ms means the browser, not the drawing.
+(7) **Shared with the app, not copied:** `lib/videoEncode.js` is the studio's encoder moved out of
+`DisplayCanvas` unchanged (codec choice, bitrate rule, back-pressure), plus an AAC track restored from
+3e14cc8 for the builder only -- studio downloads stay silent. `components/ui/facetMosaic.js` is
+FacetSwap's drawing as pure functions of time. Verified: `check-leaks.mjs` 11/11 (real 3D export and
+the failed-export recovery go through the moved encoder), and the facet drawing pixel-identical to
+FacetSwap's original in 21 of 21 cases (3 origins x 7 moments).
+(8) **One draw function for preview and export** (`adComposer.draw(ctx, t)`), the studio's rule; the
+export composer runs the flight `exact`. Verified end to end: a real export is 1080x1920 H.264, 277
+frames, 9.23s, with a 48kHz stereo AAC track at -17.9dB mean; the signed-in pass lists saved designs
+and reopens a saved ad with its music. **Not exercised:** generating a mockup from the builder itself (the cutout
+pass used the PNGs from the one approved task, uploaded as own photos) and an actual Instagram upload.
+
 ### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)
 Aaron: "it just adds the light logo". Same decision and threshold as the printed label_outside
 (`labelBackdrop`'s `LABEL_BRIGHT_BACKDROP`), measured over the square the mark occupies at the loop
