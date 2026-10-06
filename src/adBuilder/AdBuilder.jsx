@@ -84,7 +84,7 @@ export default function AdBuilder() {
   const [music, setMusic] = useState({ link: '', plan: null, audioUrl: null, duration: null });
   const [musicBuffer, setMusicBuffer] = useState(null);
   const [timing, setTiming] = useState({ flightBars: 2, productBars: 1 });
-  const [overlay, setOverlay] = useState({ show: true, text: 'chromaforge.app', position: 'top' });
+  const [overlay, setOverlay] = useState({ show: true, text: 'chromaforge.app', position: 'bottom' });
   const [name, setName] = useState('');
 
   // ── Supporting data and UI state ────────────────────────────────────────────

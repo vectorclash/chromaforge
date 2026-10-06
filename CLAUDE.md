@@ -2039,7 +2039,7 @@ Also verified in the flows test: 3D toggled on mid-2D-build and back, exports 3D
 2D 1:1 (2160x2160) with the logo on, and the phone-sized studio (3D default, Generate, no overflow).
 
 ### Local ad builder (`ad-builder.html`, `src/adBuilder/`, 2026-10-06)
-Instagram Reels for the brand: the design's 3D flight as the hook, decelerating into its loop seam,
+Instagram Reels for the brand: the design's 3D flight as the hook, slowing toward its loop seam,
 then each product photo assembling out of FacetSwap's facets on a bar line of the music, with
 `chromaforge.app` over the products. `npm run ads` starts the dev server and opens it (with
 `npm start` already running, it is `http://localhost:5173/ad-builder.html`). Shape decided with Aaron (2026-10-06): products come AFTER the flight, never inside it (a
@@ -2092,8 +2092,13 @@ the music already sets every cut.
 "feels odd"). Logo + CHROMA (Exo 400) + FORGE (Exo 900, accent-soft), a hairline in the DESIGN's
 palette, the URL under it. It arrives one beat after the first product with `--animate-resolve-in`'s
 own curve, travel and blur (scaled to a phone-sized video), and CHROMA runs the wordmark's hover
-hue-wave on every cut. Products are laid out clear of its band (top by default), inside Meta's Reels
-safe zone (top 14%, bottom 35%).
+hue-wave on every cut. Products are laid out clear of its band (bottom by default, Aaron's call),
+inside Meta's Reels safe zone (top 14%, bottom 35%).
+(6c2) **The first product arrives `SEAM_LEAD` (1.5s of flight time) BEFORE the loop seam, not on
+it.** The speed ramp nearly stops the camera at the seam (0.03x), and its last 1.5s run under a third
+of full speed, so ending the flight on the seam left a dead stretch before the first product (Aaron:
+"a pretty long gap of the scene slow"). The product now lands at ~0.35x, with the flight still slowing
+behind it. The flight is still the same number of bars -- it shows an earlier, faster stretch.
 (6d) **A product slot holds several photos, each its own beat** -- one mockup returns a full set,
 so one product can carry a whole ad. A photo takes its place in the order when CLICKED (a placeholder
 filled when its file lands), because downloads finish in any order. The view strip is the product

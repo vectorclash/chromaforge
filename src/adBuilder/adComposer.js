@@ -1,7 +1,7 @@
 import { coverCanvas, layoutFacets, drawFacets } from '../components/ui/facetMosaic';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { resolveDesignPalette } from '../render/resolvedPalette';
-import { SCENE_DURATION } from './adTimeline';
+import { SCENE_DURATION, SEAM_LEAD } from './adTimeline';
 import { createLockup, LOCKUP_BAND } from './lockup';
 
 // Draws any frame of an ad from its time alone -- the preview and the MP4 export both call
@@ -9,7 +9,7 @@ import { createLockup, LOCKUP_BAND } from './lockup';
 // animations). One composer per output size: the preview's runs the flight's cached path, the
 // export's runs it `exact`, which redraws every plate every frame at full resolution.
 //
-// A frame is up to three layers: the flight (always running -- after the seam it keeps drifting
+// A frame is up to three layers: the flight (always running -- behind the products it keeps drifting
 // slowly behind the products, so the artwork never freezes), the product photo, and the
 // brand lockup.
 
@@ -18,8 +18,8 @@ import { createLockup, LOCKUP_BAND } from './lockup';
 export const SAFE_TOP = 0.14;
 export const SAFE_BOTTOM = 0.35;
 
-// How fast the flight's own clock runs behind the products, against real time. Its speed ramp
-// is nearly stopped at the seam and builds from there, so this keeps it a drift, not a rush.
+// How fast the flight's own clock runs behind the products, against real time. It slows on into
+// the seam, nearly stopped there, and builds again after it -- this keeps it a drift, not a rush.
 const BG_DRIFT = 0.35;
 // Slow push-in over a product's time on screen. There is deliberately no pulse on the beat: one
 // was tried and rejected on sight (Aaron, 2026-10-06: "weird and creepy") -- a garment, and worse a
@@ -268,11 +268,11 @@ export async function createAdComposer({ design, width, height, exact, layered =
     sprites = photos.map(({ fit }, i) => buildSprite(imgs[i], fit || 'cutout', bands));
   }
 
-  // The flight ENDS on its loop seam, decelerating into it as the first product arrives, and
-  // then carries on at a fraction of real time behind the products.
+  // The flight ends SEAM_LEAD before its loop seam, still slowing as the first product arrives,
+  // and then carries on at a fraction of real time behind the products.
   function drawFlight(ctx, t, timeline) {
-    const tau =
-      t < timeline.flight ? SCENE_DURATION - timeline.flight + t : SCENE_DURATION + (t - timeline.flight) * BG_DRIFT;
+    const cut = SCENE_DURATION - SEAM_LEAD;
+    const tau = t < timeline.flight ? cut - timeline.flight + t : cut + (t - timeline.flight) * BG_DRIFT;
     world.setTime(rampTime(tau, SCENE_DURATION, RAMP_FLOOR_3D), rampRush(tau, SCENE_DURATION), false);
     world.render(renderer);
     // Same task as the render, so no preserveDrawingBuffer is needed.
