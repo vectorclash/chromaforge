@@ -121,7 +121,7 @@ function describeFailure(error) {
 // IS submitted to Printful's create-task endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap) {
+function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, image) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -178,7 +178,10 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   const secondarySignature = secondaryDesign ? JSON.stringify(secondaryDesign) : 'none';
   // VIEW_POLICY_VERSION first, so a policy or normalisation change invalidates every stored
   // preview rather than leaving browsers replaying a filmstrip built under the old rules.
-  return `v${VIEW_POLICY_VERSION}:${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}`;
+  // The image FORMAT and size: a transparent 2000px PNG is not the same photo as the shop's JPG.
+  // Appended only when not the default, so every key the shop has ever stored is unchanged.
+  const imageSignature = image.format !== 'jpg' || image.width ? `:${image.format}@${image.width || 'default'}` : '';
+  return `v${VIEW_POLICY_VERSION}:${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}${imageSignature}`;
 }
 
 
@@ -243,7 +246,10 @@ export function useMockup() {
       labelOutsideRegion = null,
       labelInsideRegion = null,
       productOptions = null,
-      secondaryDesign = null
+      secondaryDesign = null,
+      // The shop's JPGs unless asked otherwise -- see createMockupTask. Part of the cache key.
+      format = 'jpg',
+      width = null
     }) => {
       if (!design) {
         setStatus('failed');
@@ -274,7 +280,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap);
+      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width });
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -353,7 +359,9 @@ export function useMockup() {
               variantIds: [variant.id],
               files,
               productOptions: productOptions || cfg.productOptions,
-              optionGroups
+              optionGroups,
+              format,
+              width
             },
             onWait
           );
@@ -451,7 +459,9 @@ export function useMockup() {
       labelOutsideRegion = null,
       labelInsideRegion = null,
       productOptions = null,
-      secondaryDesign = null
+      secondaryDesign = null,
+      format = 'jpg',
+      width = null
     }) => {
       setError(null);
       const cfg = design && getMockupConfigForProduct(product.id);
@@ -460,7 +470,7 @@ export function useMockup() {
       const entries = cfg && mockupPlacementEntries(printfileSpecs, variant, cfg);
       const key =
         entries
-          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap)
+          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width })
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

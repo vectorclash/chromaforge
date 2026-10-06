@@ -1075,11 +1075,14 @@ export async function unwrapFunctionsError(error) {
 // v1 rather than the v2 beta). `files` comes from buildMockupFiles above, and `optionGroups` from
 // chooseOptionGroups -- there are no per-product (or per-variant) style IDs the way v2 needed, only
 // group NAMES read from the live catalogue.
-export async function createMockupTask({ productId, variantIds, files, productOptions, optionGroups }) {
+// `format: 'png'` comes back with a transparent background -- flat lays and on-model shots alike,
+// measured 2026-10-06 -- and `width` sets the image size (Printful allows 50-2000, default 1000).
+// The shop always uses the defaults; the local ad builder asks for 2000px PNG cutouts.
+export async function createMockupTask({ productId, variantIds, files, productOptions, optionGroups, format = 'jpg', width = null }) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.functions.invoke('printful-mockup', {
     method: 'POST',
-    body: { productId, variantIds, files, productOptions, optionGroups, format: 'jpg' }
+    body: { productId, variantIds, files, productOptions, optionGroups, format, ...(width ? { width } : {}) }
   });
   if (error) throw await unwrapFunctionsError(error);
   if (data.error) throw new Error(data.error.message || 'Mockup task creation failed');

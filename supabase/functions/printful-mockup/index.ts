@@ -200,7 +200,10 @@ Deno.serve(async req => {
     // -- the array shape is what PRODUCT_MOCKUP_CONFIG carries and what the v1 ORDER path also
     // consumes, so it stays the one representation everything else speaks.
     const body = await req.json();
-    const { productId, variantIds, files, format = "jpg", productOptions, optionGroups } = body;
+    const { productId, variantIds, files, format = "jpg", productOptions, optionGroups, width } = body;
+    // Image size, in Printful's own range (50-2000, its default 1000). Only the local ad builder
+    // sends it; anything else falls through to Printful's default rather than failing the task.
+    const imageWidth = Number.isInteger(width) && width >= 50 && width <= 2000 ? width : null;
 
     // Which camera-angle groups to ask for. Decided CLIENT-side (src/lib/printfulViewPolicy.js)
     // from the product's own style list, so the policy has one implementation shared with
@@ -231,6 +234,7 @@ Deno.serve(async req => {
         body: JSON.stringify({
           variant_ids: variantIds,
           format,
+          ...(imageWidth ? { width: imageWidth } : {}),
           files,
           ...(productOptionsObject && Object.keys(productOptionsObject).length
             ? { product_options: productOptionsObject }
