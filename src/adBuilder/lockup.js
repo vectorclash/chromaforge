@@ -118,13 +118,14 @@ export async function createLockup({ width, height, palette }) {
    * @param {number} t
    * @param {{ top: number, appearAt: number, ripples: number[], url: string }} o  top in px
    */
-  function draw(ctx, t, { top, appearAt, ripples, url }) {
+  function drawLive(ctx, t, { top, appearAt, ripples, url }) {
     const e = clamp01((t - appearAt) / (RESOLVE_MS / 1000));
     if (e <= 0) return;
     const p = resolveEase(e);
     const cx = width / 2;
     const markY = top + 48 * u;
-    const lineY = top + 102 * u;
+    // On a whole pixel, so a 3px line is crisp and the cached lockup lands exactly where the live one does.
+    const lineY = Math.round(top + 102 * u);
     const urlY = top + 140 * u;
 
     ctx.save();
@@ -186,6 +187,39 @@ export async function createLockup({ width, height, palette }) {
       }
     }
     ctx.restore();
+  }
+
+  // Once it has arrived and no wave is running, the lockup is a still picture -- so it is drawn
+  // once into a cache and blitted. Drawn live, its text carries ~10 blurred shadows a frame, and
+  // canvas shadows are slow in Safari, whose whole window crawled while the preview played.
+  const SETTLED_AFTER = 0.9; // seconds after appearAt: the entrance, hairline and URL are done
+  const margin = Math.ceil(40 * u); // room for the shadows
+  // Drawn at the same sub-pixel offset it will be shown at and blitted on whole pixels, so the
+  // cached lockup is the live one exactly, not a resampled copy.
+  let cache = null;
+  let cacheKey = null;
+  function settledImage(url, frac) {
+    const key = `${url}|${frac}`;
+    if (cache && cacheKey === key) return cache;
+    cache = document.createElement('canvas');
+    cache.width = width;
+    cache.height = Math.ceil(LOCKUP_BAND * height) + 2 * margin + 1;
+    drawLive(cache.getContext('2d'), 1e6, { top: margin + frac, appearAt: 0, ripples: [], url });
+    cacheKey = key;
+    return cache;
+  }
+
+  /**
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} t
+   * @param {{ top: number, appearAt: number, ripples: number[], url: string }} o  top in px
+   */
+  function draw(ctx, t, o) {
+    if (t < o.appearAt) return;
+    const waving = [...'CHROMA'].some((_, k) => wavePhase(t, o.ripples, k) >= 0);
+    if (t < o.appearAt + SETTLED_AFTER || waving) return drawLive(ctx, t, o);
+    const whole = Math.floor(o.top);
+    ctx.drawImage(settledImage(o.url, o.top - whole), 0, whole - margin);
   }
 
   return { draw };

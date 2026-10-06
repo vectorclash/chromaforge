@@ -10,6 +10,7 @@ import Button from '../components/ui/Button';
 import Toggle from '../components/ui/Toggle';
 import ProductSlot, { slotPhotos } from './ProductSlot';
 import InstagramOverlay from './InstagramOverlay';
+import DesignThumb from './DesignThumb';
 import { createAdComposer } from './adComposer';
 import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
@@ -168,6 +169,7 @@ export default function AdBuilder() {
 
   // ── Preview ─────────────────────────────────────────────────────────────────
   const canvasRef = useRef(null);
+  const flightHostRef = useRef(null);
   const composerRef = useRef(null);
   const scrubRef = useRef(null);
   const timeRef = useRef(null);
@@ -195,7 +197,8 @@ export default function AdBuilder() {
       timeRef.current.textContent = `${fmt(t)} / ${fmt(drawState.current.timeline.total)}`;
   };
 
-  const drawAt = t => {
+  // `readout: false` is for playback, which updates the time and scrubber on its own schedule.
+  const drawAt = (t, { readout = true } = {}) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -204,7 +207,7 @@ export default function AdBuilder() {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    showTime(t);
+    if (readout) showTime(t);
   };
 
   const flightKey = flightDesign ? JSON.stringify(flightDesign) : '';
@@ -214,12 +217,20 @@ export default function AdBuilder() {
     let built = null;
     setPreviewState('building');
     setPreviewError(null);
-    createAdComposer({ design: flightDesign, width: PREVIEW_W, height: PREVIEW_H, exact: false })
+    // Layered: the flight shows on its own canvas under the frame canvas -- see createAdComposer.
+    createAdComposer({
+      design: flightDesign,
+      width: PREVIEW_W,
+      height: PREVIEW_H,
+      exact: false,
+      layered: true
+    })
       .then(async c => {
         built = c;
         if (cancelled) return c.dispose();
         await c.setPhotos(photosRef.current.photos, photosRef.current.photoLayout);
         if (cancelled) return;
+        flightHostRef.current?.appendChild(c.flightCanvas);
         composerRef.current = c;
         setPreviewState('ready');
         drawAt(play.current.t);
@@ -330,8 +341,14 @@ export default function AdBuilder() {
       }
       p.t = t;
       const before = performance.now();
-      drawAt(t);
+      drawAt(t, { readout: false });
       recordFrame(t, now, performance.now() - before);
+      // The time and scrubber about ten times a second, not every frame: every DOM change is a
+      // style, layout and paint pass, and Safari was repainting far more than the change.
+      if (now - (p.readoutAt || 0) > 100) {
+        p.readoutAt = now;
+        showTime(t);
+      }
       p.raf = requestAnimationFrame(tick);
     };
     p.raf = requestAnimationFrame(tick);
@@ -597,7 +614,10 @@ export default function AdBuilder() {
   return (
     <div className="flex min-h-dvh bg-[#0c0b12] text-neutral-200">
       <aside
-        className="ad-scroll w-[440px] shrink-0 overflow-y-auto border-r border-white/10"
+        // Its own compositing layer, as are the thumbnail grid and the preview: in Safari the
+        // preview animating repainted this whole panel every frame -- 20fps with the thumbnails in
+        // view, 60 with them scrolled away -- and separate layers keep each one's repaints its own.
+        className="ad-scroll w-[440px] shrink-0 overflow-y-auto border-r border-white/10 will-change-transform"
         style={{ maxHeight: '100dvh' }}
       >
         <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -635,7 +655,7 @@ export default function AdBuilder() {
           {myDesigns && (
             // The scroller wraps the grid rather than being it: a height-capped grid shrinks its rows
             // to fit, and every square thumbnail then spills over the rows below it.
-            <div className="ad-scroll max-h-56 overflow-y-auto p-0.5 pr-2">
+            <div className="ad-scroll max-h-56 overflow-y-auto p-0.5 pr-2 will-change-transform">
               <div className="grid grid-cols-5 gap-1.5">
                 {myDesigns.map(row => (
                   <button
@@ -651,12 +671,7 @@ export default function AdBuilder() {
                     }`}
                     title={row.title || ''}
                   >
-                    <img
-                      src={getThumbnailUrl(row.user_id, row.id)}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
+                    <DesignThumb src={getThumbnailUrl(row.user_id, row.id)} size={73} />
                   </button>
                 ))}
               </div>
@@ -913,10 +928,16 @@ export default function AdBuilder() {
 
       <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
         <div
-          className="relative overflow-hidden rounded-xl bg-black shadow-2xl"
+          className="relative isolate overflow-hidden rounded-xl bg-black shadow-2xl will-change-transform"
           style={{ height: 'min(80dvh, 960px)', aspectRatio: '9 / 16' }}
         >
-          <canvas ref={canvasRef} width={PREVIEW_W} height={PREVIEW_H} className="h-full w-full" />
+          <div ref={flightHostRef} className="absolute inset-0" />
+          <canvas
+            ref={canvasRef}
+            width={PREVIEW_W}
+            height={PREVIEW_H}
+            className="absolute inset-0 h-full w-full"
+          />
           {showIg && <InstagramOverlay />}
           {!flightDesign && (
             <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">

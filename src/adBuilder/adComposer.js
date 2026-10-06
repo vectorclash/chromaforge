@@ -86,10 +86,16 @@ function analyseAlpha(img) {
   };
 }
 
+// `layered` is for the PREVIEW: the flight is not copied into the frame but left on its own WebGL
+// canvas (`flightCanvas`, which the page shows underneath), and draw() paints everything else onto
+// a transparent canvas laid over it. Copying a WebGL canvas into a 2D one every frame is a
+// read-back, and in Safari -- which runs canvas and WebGL in a separate GPU process -- that read-back
+// is the likeliest reason the whole window crawled while the preview played. The export composites
+// into one canvas, as it must.
 /**
- * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean }} o
+ * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean }} o
  */
-export async function createAdComposer({ design, width, height, exact }) {
+export async function createAdComposer({ design, width, height, exact, layered = false }) {
   const [{ WebGLRenderer }, { createTunnelScene, warmTunnelStars }] = await Promise.all([
     import('three'),
     import('../animation3d/tunnelScene')
@@ -111,6 +117,7 @@ export async function createAdComposer({ design, width, height, exact }) {
     renderer.dispose();
     // dispose() alone leaves the context alive until GC -- see Animation3DPreview
     renderer.forceContextLoss();
+    renderer.domElement.remove();
   };
   try {
     renderer.setPixelRatio(1);
@@ -269,7 +276,7 @@ export async function createAdComposer({ design, width, height, exact }) {
     world.setTime(rampTime(tau, SCENE_DURATION, RAMP_FLOOR_3D), rampRush(tau, SCENE_DURATION), false);
     world.render(renderer);
     // Same task as the render, so no preserveDrawingBuffer is needed.
-    ctx.drawImage(renderer.domElement, 0, 0, width, height);
+    if (!layered) ctx.drawImage(renderer.domElement, 0, 0, width, height);
   }
 
   // A product's motion at time t: the push-in once it has landed and, for a floating one, a slow
@@ -307,6 +314,7 @@ export async function createAdComposer({ design, width, height, exact }) {
    * @param {{ timeline: ReturnType<typeof import('./adTimeline').adTimeline>, overlay: { text: string, position: string, show: boolean } }} o
    */
   function draw(ctx, t, { timeline, overlay }) {
+    if (layered) ctx.clearRect(0, 0, width, height);
     const products = timeline.products.slice(0, sprites.length);
     let i = -1;
     for (let k = products.length - 1; k >= 0; k--) {
@@ -351,5 +359,12 @@ export async function createAdComposer({ design, width, height, exact }) {
     }
   }
 
-  return { width, height, draw, setPhotos, dispose: release };
+  if (layered) {
+    const c = renderer.domElement;
+    c.style.position = 'absolute';
+    c.style.inset = '0';
+    c.style.width = '100%';
+    c.style.height = '100%';
+  }
+  return { width, height, draw, setPhotos, dispose: release, flightCanvas: layered ? renderer.domElement : null };
 }

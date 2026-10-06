@@ -2099,16 +2099,32 @@ so one product can carry a whole ad. A photo takes its place in the order when C
 filled when its file lands), because downloads finish in any order. The view strip is the product
 page's `ScrollStrip` with `dragToScroll` (a mouse drag scrolls and selects nothing; the scrollbar is
 draggable). Ads saved with a single `photo` load as a one-photo list (`slotPhotos`).
-(6e) **Performance, measured 2026-10-06** (Aaron: "really slow sometimes", then smooth once music
-played). The preview holds 60fps in every case tested (flight, cuts, holds, 30 full-size mockup PNGs on
-the page, CPU throttled 4x), drawing a frame in ~2ms; one WebGL context survives 32 design switches,
-the heap stays flat, and nothing runs while paused. The one real cost was a music render: Orrery's
-renderer runs on the PAGE's main thread (same-origin iframe), and every progress tick re-rendered the
-builder -- now 5% steps, which removed every long task at 1x (a slow CPU still stutters for the length
-of a render; a renderer on another origin, e.g. `[::1]`, would get its own process if that ever
-matters). The "smooth with music" pattern is most likely Chrome's Energy Saver halving the frame rate
-of SILENT tabs -- audible tabs are reportedly exempt -- which is why the preview shows an fps / draw-ms
-readout: ~30fps at ~2ms means the browser, not the drawing.
+(6e) **Performance -- the Safari slowdown was the THUMBNAIL GRID, not the preview** (2026-10-06).
+Aaron saw ~20fps in Safari, 9fps with more of the saved-designs grid loaded, and 60 the moment the
+grid scrolled out of view (Firefox: 120 throughout). Safari was repainting the side panel every
+frame the preview drew, rescaling every loaded 640px thumbnail into its 73px tile each time. Two
+earlier "causes" were coincidences of that: adding music and adding a photo both meant scrolling the
+panel down to those sections. Fixed by drawing each thumbnail ONCE at its display size
+(`DesignThumb`, a canvas, loaded as it nears view), giving the panel, the grid and the preview their
+own layers, and updating the readouts ~10 times a second. Confirmed by Aaron in Safari.
+Things worth not re-deriving:
+- **Neither Playwright engine reproduced it**, headless or headed: 59-60fps everywhere. Only his
+  Safari could, and a Chrome Energy Saver theory and a "Safari throttles silent pages" experiment
+  (an inaudible keep-awake tone) were both wrong first. The readout under the preview (fps / draw
+  ms) is what separates "drawing is slow" from "the page is", and the decisive test was Aaron
+  scrolling the panel while watching it.
+- **The preview is layered**: the flight shows on its own WebGL canvas and the products and lockup
+  draw on a transparent 2D canvas above (`createAdComposer`'s `layered`), so no frame copies out of
+  WebGL -- a read-back, and in Safari a cross-process one. The export still composites into one
+  canvas. Not the cause here, but it halved draw cost and stays.
+- **The settled lockup is cached** (its ~10 shadowed draws are slow in Safari's 2D canvas): drawn
+  at the same sub-pixel offset and blitted on whole pixels, identical to live in Chromium (28/28
+  cases); in WebKit 6 pixels at the hairline's faded end differ, from small and large canvases
+  getting different backends.
+- **A music render still runs on the page's main thread** (same-origin iframe): progress updates
+  are 5% steps, which removed every long task at 1x; a renderer on another origin, e.g. `[::1]`,
+  would get its own process if that ever matters. safaridriver would not create a session from an
+  agent shell (timed out three times with remote automation on), so plan on Aaron's eyes for Safari.
 (7) **Shared with the app, not copied:** `lib/videoEncode.js` is the studio's encoder moved out of
 `DisplayCanvas` unchanged (codec choice, bitrate rule, back-pressure), plus an AAC track restored from
 3e14cc8 for the builder only -- studio downloads stay silent. `components/ui/facetMosaic.js` is
