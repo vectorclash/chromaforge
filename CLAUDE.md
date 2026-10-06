@@ -2078,8 +2078,9 @@ keyed separately in `useMockup` so the shop's JPG keys are byte-identical). A cu
 own alpha: anything running off the image's BOTTOM edge is an on-model shot (Printful frames people at
 mid-thigh) and rises out of the frame's bottom edge; anything else floats in the safe zone with a
 shadow. Card (the photo on a panel) and Full frame (a cover crop, which loses 44% of a square's width)
-remain per product. **`width` needs `printful-mockup` deployed** -- until then the function ignores it
-and returns 1000px (it already forwarded `format`).
+remain per product. `printful-mockup` forwards `width` (deployed 2026-10-06; checked by diffing the
+live function against the repo, not yet by a real 2000px task). The shop never sends it, so its
+previews stay at Printful's default 1000px.
 (6b) **What makes it feel alive:** the flight keeps drifting behind the products at `BG_DRIFT` of
 real time (its ramp is nearly stopped at the seam, so it stays a drift); floating products push in,
 bob and rock over two bars; a cut breaks the outgoing product apart toward the centre
