@@ -2,7 +2,7 @@ import React from 'react';
 import { gsap, TextPlugin } from 'gsap/all';
 import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { encodeMp4, exportBitrate, EncoderUnsupportedError } from '../lib/videoEncode';
 
 import { getDesignIdFromUrl, getShareUrlPrefix, buildShareUrl } from '../utils/urlConfig';
 import { getDesign } from '../lib/designs';
@@ -2162,7 +2162,6 @@ export default class DisplayCanvas extends React.Component {
     // The piece's own name, then what makes this file different from others made from the
     // same piece: pixel size, frame rate and loop length (see videoFileName).
     const filename = videoFileName(this.pieceName(is3D ? threeDDesign : this.animationConfigs), width, height, FPS, CYCLE_DURATION);
-    const FRAME_DURATION_US = Math.round(1_000_000 / FPS);
 
     // Frame source: a 2D canvas compositing the pre-rendered frames, or (3D mode) a WebGL
     // canvas the tunnel scene renders into per frame. Either way, `drawAt(elapsed, rush,
@@ -2312,175 +2311,71 @@ export default class DisplayCanvas extends React.Component {
       };
     }
 
-    // mp4-muxer + WebCodecs VideoEncoder — guarantees real H.264 MP4
-    const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: { codec: 'avc', width, height, frameRate: FPS },
-      fastStart: 'in-memory'
-    });
-
-    // Resolve a supported H.264 codec string. We prefer Constrained Baseline
-    // (profile 66 — `avc1.42xxxx`) because it CANNOT contain B-frames. The
-    // Windows hardware encoder otherwise emits B-frames and delivers chunks in
-    // decode order, so their presentation timestamps arrive non-monotonically;
-    // mp4-muxer then rejects every out-of-order chunk and drops ~half the
-    // frames, which is what collapsed 24fps exports to ~13fps on Windows. With
-    // no B-frames, decode order == presentation order and nothing is dropped.
-    // High Profile is kept as a fallback (it works fine on macOS/VideoToolbox).
-    // 25Mbps mobile (was 15): the fast parts of the animation — the 3D flythrough,
-    // and especially the speed ramp's mid-cycle peak — starve the encoder at 15 and
-    // came out visibly blocky/pixelated on real phone exports.
-    //
-    // Desktop bitrate is DERIVED from the export's own size and frame rate (2026-08-12,
-    // Aaron: 3D exports go blurry through the fast mid-cycle stretch). It used to be a flat
-    // 40Mbps, which is the actual fault — a 3840x2160 60fps export was handed the same
-    // budget as a 2160x2160 24fps one. Measured at the ramp's peak on a real 3D scene,
-    // encoded and decoded back through WebCodecs: 4K24 scored 29.5dB mean / 27.3dB worst
-    // PSNR at 40Mbps, 33.5/30.7 at 80, 35.7/34.0 at 120, and was still climbing at 160.
-    //
-    // The exponent is measured, not assumed: the same quality needed 40Mbps at 1080p24 and
-    // 80Mbps at 4K24 — four times the pixels for twice the bitrate — so the target scales
-    // with the SQUARE ROOT of area, and linearly with frame rate. K is set so 4K24 lands on
-    // ~120Mbps, near the knee of that curve.
-    //
-    // Then capped by memory, because mp4-muxer holds the entire file in RAM
-    // (ArrayBufferTarget + fastStart: 'in-memory'), so bitrate x duration IS the allocation.
-    // Without the cap a 60s 4K60 export would ask for ~2.2GB. Long exports trade quality for
-    // completing at all, which is the right way round.
-    //
-    // Mobile is deliberately left on its flat 25Mbps: phones already OOM-kill on this path
-    // (see ANIM_LIMITS) and Aaron's ask was specifically desktop.
-    const VIDEO_QUALITY_K = 1736; // bits per (sqrt-pixel x frame)
-    const MAX_EXPORT_BYTES = 600 * 1024 * 1024;
-    const bitrate = isMobile
-      ? 25_000_000
-      : Math.min(
-          Math.round(VIDEO_QUALITY_K * Math.sqrt(width * height) * FPS),
-          Math.floor((MAX_EXPORT_BYTES * 8) / CYCLE_DURATION)
-        );
-    // latencyMode: 'quality' gives the encoder real rate control and motion estimation
-    // headroom; 'realtime' (used previously) trades that away for encode speed, which is
-    // the other half of the fast-motion blockiness. The reordering concern that motivated
-    // 'realtime' doesn't apply to Constrained Baseline — that profile structurally cannot
-    // contain B-frames — so only the High Profile fallback (which CAN reorder) keeps the
-    // 'realtime' hint.
-    const latencyFor = codec => (codec.startsWith('avc1.42') ? 'quality' : 'realtime');
-    const codecCandidates = [
-      'avc1.42E034', // Constrained Baseline, Level 5.2 — no B-frames
-      'avc1.42E028', // Constrained Baseline, Level 4.0 — no B-frames (lower-res fallback)
-      'avc1.640034', // High Profile, Level 5.2 — may emit B-frames
-    ];
-    let videoCodec = null;
-    for (const c of codecCandidates) {
-      const cfg = { codec: c, width, height, bitrate, framerate: FPS, latencyMode: latencyFor(c) };
-      const ok = await VideoEncoder.isConfigSupported(cfg)
-        .then(r => r.supported)
-        .catch(() => false);
-      if (ok) { videoCodec = c; break; }
-    }
-    if (!videoCodec) videoCodec = 'avc1.640034';
-
-    let encoder;
+    // Codec choice, bitrate rule and the encode loop live in lib/videoEncode, shared with the
+    // local ad builder -- see that file for why each is the way it is.
+    const bitrate = exportBitrate({ width, height, fps: FPS, durationSec: CYCLE_DURATION, mobile: isMobile });
+    let crawl = null;
+    let blob;
     try {
-      encoder = new VideoEncoder({
-        output: (chunk, meta) => {
-          const data = new Uint8Array(chunk.byteLength);
-          chunk.copyTo(data);
-          muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, FRAME_DURATION_US, meta);
-        },
-        error: e => console.error('VideoEncoder error:', e)
-      });
-      releases.push(() => {
-        if (encoder.state !== 'closed') encoder.close();
-      });
-
-      encoder.configure({
-        codec: videoCodec,
+      blob = await encodeMp4({
         width,
         height,
+        fps: FPS,
+        totalFrames: TOTAL_FRAMES,
         bitrate,
-        framerate: FPS,
-        latencyMode: latencyFor(videoCodec)
+        releases,
+        renderFrame: f => {
+          // Speed ramp: warp the linear frame time through the same rampTime the live
+          // previews use, so the exported motion matches them exactly. rampTime maps
+          // [0, PERIOD] onto itself monotonically with equal velocity at both
+          // ends, so the export still covers exactly one seamless loop. The floor is
+          // per-mode (3D nearly stops at the seam, 2D keeps a cruise) and MUST match what
+          // the corresponding preview passes -- Animation3DPreview for 3D, AnimationPreview's
+          // ticker driver (which uses the default) for 2D.
+          const linear = f / FPS;
+          const elapsed =
+            OFFSET + (speedRamp ? rampTime(linear, PERIOD, is3D ? RAMP_FLOOR_3D : RAMP_FLOOR_2D) : linear);
+          // rush only means anything to the 3D drawAt (FOV/warp speed enhancement); the 2D
+          // compositor ignores it.
+          //
+          // 2D's logo mark takes the LINEAR clock, not `elapsed`: logoIntro applies the warp
+          // itself. Note the mark is NOT offset by OFFSET -- OFFSET exists to start the frame
+          // crossfades one period in, and the mark's whole job is to sit exactly on the seam,
+          // which `linear` already puts it on at f = 0 and f = TOTAL_FRAMES. 3D's mark is an
+          // object in the flight, positioned from the camera's own travel, so it is only told
+          // whether to show (tunnelScene, "Logo mark").
+          const logo = is3D ? !!logoCfg : logoCfg ? logoState(linear, PERIOD, speedRamp) : null;
+          drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0, logo);
+          return canvas;
+        },
+        // The render phase fills 0-90% of the bar.
+        onFrame: f => this.setState({ exportProgress: Math.round((f / TOTAL_FRAMES) * 90) }),
+        beforeFlush: () => {
+          if (cleanup3D) {
+            cleanup3D();
+          } else {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+          // encoder.flush() has no progress callbacks — animate the bar while we wait.
+          const crawlTarget = 99;
+          let fakeProgress = 90;
+          crawl = setInterval(() => {
+            fakeProgress += (crawlTarget - fakeProgress) * 0.15;
+            this.setState({ exportProgress: Math.round(fakeProgress) });
+          }, 200);
+          releases.push(() => clearInterval(crawl));
+        }
       });
     } catch (e) {
-      console.error('VideoEncoder configure failed:', e);
+      // A failure partway through reaches exportAnimationVideo's catch, which reports it and
+      // resets; only "this browser cannot encode at all" gets its own message here.
+      if (!(e instanceof EncoderUnsupportedError)) throw e;
       alert('Downloading an MP4 isn\u2019t supported in this browser. Try Chrome or Edge on a desktop.');
       return;
     }
-
-    // Encode frame by frame at a fixed timestep (no rAF timing jitter).
-    // Back-pressure: if the encoder queue grows too deep, yield until it drains —
-    // this prevents unbounded memory buildup that kills iOS tabs.
-    for (let f = 0; f < TOTAL_FRAMES; f++) {
-      // Speed ramp: warp the linear frame time through the same rampTime the live
-      // previews use, so the exported motion matches them exactly. rampTime maps
-      // [0, PERIOD] onto itself monotonically with equal velocity at both
-      // ends, so the export still covers exactly one seamless loop. The floor is
-      // per-mode (3D nearly stops at the seam, 2D keeps a cruise) and MUST match what
-      // the corresponding preview passes -- Animation3DPreview for 3D, AnimationPreview's
-      // ticker driver (which uses the default) for 2D.
-      const linear = f / FPS;
-      const elapsed =
-        OFFSET + (speedRamp ? rampTime(linear, PERIOD, is3D ? RAMP_FLOOR_3D : RAMP_FLOOR_2D) : linear);
-      // rush only means anything to the 3D drawAt (FOV/warp speed enhancement); the 2D
-      // compositor ignores it.
-      //
-      // 2D's logo mark takes the LINEAR clock, not `elapsed`: logoIntro applies the warp
-      // itself. Note the mark is NOT offset by OFFSET -- OFFSET exists to start the frame
-      // crossfades one period in, and the mark's whole job is to sit exactly on the seam,
-      // which `linear` already puts it on at f = 0 and f = TOTAL_FRAMES. 3D's mark is an
-      // object in the flight, positioned from the camera's own travel, so it is only told
-      // whether to show (tunnelScene, "Logo mark").
-      const logo = is3D ? !!logoCfg : logoCfg ? logoState(linear, PERIOD, speedRamp) : null;
-      drawAt(elapsed, speedRamp ? rampRush(linear, PERIOD) : 0, logo);
-
-      const frame = new VideoFrame(canvas, { timestamp: f * FRAME_DURATION_US });
-      // Keyframe every 2s (was every 1s): forced keyframes are the most expensive frames
-      // in the stream, and at fast-motion moments the bitrate they consume comes straight
-      // out of the inter frames' budget — visibly blocky at the speed ramp's peak.
-      // Closed even when encode() throws: a VideoFrame holds a full-size frame buffer.
-      try {
-        encoder.encode(frame, { keyFrame: f % (FPS * 2) === 0 });
-      } finally {
-        frame.close();
-      }
-
-      // Drain the encoder queue before it grows too large
-      while (encoder.encodeQueueSize > 5) {
-        await new Promise(r => setTimeout(r, 0));
-      }
-
-      // Yield to browser every 10 frames — scale render phase to 0–90%
-      if (f % 10 === 0) {
-        this.setState({ exportProgress: Math.round((f / TOTAL_FRAMES) * 90) });
-        await new Promise(r => setTimeout(r, 0));
-      }
-    }
-
-    if (cleanup3D) {
-      cleanup3D();
-    } else {
-      canvas.width = 0;
-      canvas.height = 0;
-    }
-
-    // encoder.flush() has no progress callbacks — animate the bar while we wait.
-    const crawlTarget = 99;
-    let fakeProgress = 90;
-    const crawl = setInterval(() => {
-      fakeProgress += (crawlTarget - fakeProgress) * 0.15;
-      this.setState({ exportProgress: Math.round(fakeProgress) });
-    }, 200);
-    releases.push(() => clearInterval(crawl));
-
-    await encoder.flush();
     clearInterval(crawl);
-
-    // A failure here reaches exportAnimationVideo's catch, which reports it and resets.
-    muxer.finalize();
     this.setState({ exportProgress: 100 });
-    const blob = new Blob([target.buffer], { type: 'video/mp4' });
     saveAs(blob, filename);
   }
 
