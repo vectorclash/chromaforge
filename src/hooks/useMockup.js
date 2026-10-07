@@ -208,6 +208,14 @@ export function useMockup() {
   // writes the cache but only touches visible state if its key is still the one showing.
   const inFlightKeyRef = useRef(null);
   const currentKeyRef = useRef(null);
+  // (3) the same guard applies to a run's PROGRESS, not just its result. Switching mid-run
+  // dropped the UI to idle, and then the old run's next phase ('creating' after its render, or
+  // 'queued' while it waited out a rate limit) wrote itself over the new selection -- whose
+  // status then said busy forever, since the old run's completion is (rightly) not allowed to
+  // touch it. Generate stayed disabled until the selection changed again. Every phase write now
+  // goes through setPhase, which records the run's phase and shows it only while that run's
+  // selection is the one showing; switching back to an in-flight run restores its phase.
+  const inFlightPhaseRef = useRef(null);
 
   // Wall-clock seconds since the current busy run started, so the UI can reassure users
   // who hit a slow Printful round trip instead of just spinning silently. Ticks across the
@@ -291,7 +299,12 @@ export function useMockup() {
       }
 
       inFlightKeyRef.current = key;
-      setStatus('rendering');
+      const showing = () => currentKeyRef.current === key;
+      const setPhase = phase => {
+        if (inFlightKeyRef.current === key) inFlightPhaseRef.current = phase;
+        if (showing()) setStatus(phase);
+      };
+      setPhase('rendering');
       setError(null);
       setImages([]);
       setRetryWaitSeconds(null);
@@ -299,13 +312,13 @@ export function useMockup() {
       // Ticks a visible countdown down to 0, then flips back to 'creating' so the actual
       // retry happens under the same status the very first attempt used.
       const onWait = async waitSeconds => {
-        setStatus('queued');
+        setPhase('queued');
         for (let s = waitSeconds; s > 0; s--) {
-          setRetryWaitSeconds(s);
+          if (showing()) setRetryWaitSeconds(s);
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        setRetryWaitSeconds(null);
-        setStatus('creating');
+        if (showing()) setRetryWaitSeconds(null);
+        setPhase('creating');
       };
 
       try {
@@ -352,7 +365,7 @@ export function useMockup() {
         let task2 = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           task2 = null;
-          setStatus('creating');
+          setPhase('creating');
           const task = await createMockupTaskWithBackoff(
             {
               productId: product.id,
@@ -366,7 +379,7 @@ export function useMockup() {
             onWait
           );
 
-          setStatus('polling');
+          setPhase('polling');
           for (let i = 0; i < POLL_MAX_TRIES; i++) {
             await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
             const polled = await getMockupTask(task.id, product.id);
@@ -481,7 +494,10 @@ export function useMockup() {
         // The generation already running IS this selection's (e.g. the user switched to
         // another size of the same color, which shares the same printfiles -- see
         // cacheKey) -- keep the busy UI (narration, elapsed timer) running instead of
-        // "cancelling" a run that was never actually cancelled.
+        // "cancelling" a run that was never actually cancelled. Restored rather than left: a
+        // switch away and back has already put the UI on idle (see (3) above).
+        setStatus(inFlightPhaseRef.current);
+        setImages([]);
       } else {
         setStatus('idle');
         setImages([]);
