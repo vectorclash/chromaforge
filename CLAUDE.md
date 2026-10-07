@@ -2078,7 +2078,10 @@ keyed separately in `useMockup` so the shop's JPG keys are byte-identical). A cu
 own alpha: anything running off the image's BOTTOM edge is an on-model shot (Printful frames people at
 mid-thigh) and rises out of the frame's bottom edge; anything else floats in the safe zone with a
 shadow. Card (the photo on a panel) and Full frame (a cover crop, which loses 44% of a square's width)
-remain per product. `printful-mockup` forwards `width` (deployed 2026-10-06; checked by diffing the
+remain per product. **Full frame is not "opaque"**: a cutout PNG cover-cropped is still a person on a
+clear background, so whether a photo hides what is behind it is measured (`covers`), never read off
+the fit -- assuming it left the outgoing photo standing through every cut, then popping out, and froze
+the flight behind it (Aaron, 2026-10-06). `printful-mockup` forwards `width` (deployed 2026-10-06; checked by diffing the
 live function against the repo, not yet by a real 2000px task). The shop never sends it, so its
 previews stay at Printful's default 1000px.
 (6b) **What makes it feel alive:** the flight keeps drifting behind the products at `BG_DRIFT` of
@@ -2100,11 +2103,16 @@ it.** The speed ramp nearly stops the camera at the seam (0.03x), and its last 1
 of full speed, so ending the flight on the seam left a dead stretch before the first product (Aaron:
 "a pretty long gap of the scene slow"). The product now lands at ~0.35x, with the flight still slowing
 behind it. The flight is still the same number of bars -- it shows an earlier, faster stretch.
+**It never STARTS before `SEAM_LEAD` after the seam either**, so a flight is one arc (~0.35x, the
+peak, ~0.35x) that never passes the near-stop; a flight longer than that 7s window plays it slower
+instead (2026-10-06). Before, 3 bars at 70bpm stalled 1.8s in and 4 bars at 110bpm opened at 0.03x.
 (6d) **A product slot holds several photos, each its own beat** -- one mockup returns a full set,
 so one product can carry a whole ad. A photo takes its place in the order when CLICKED (a placeholder
 filled when its file lands), because downloads finish in any order. The view strip is the product
 page's `ScrollStrip` with `dragToScroll` (a mouse drag scrolls and selects nothing; the scrollbar is
-draggable). Ads saved with a single `photo` load as a one-photo list (`slotPhotos`).
+draggable). Ads saved with a single `photo` load as a one-photo list (`slotPhotos`). **Choosing a
+different design removes every mockup photo** (Aaron: they kept playing the old artwork); own photos
+(`source` `own:`) stay, and opening a saved ad keeps its photos, since they were made of its design.
 (6e) **Performance -- the Safari slowdown was the THUMBNAIL GRID, not the preview** (2026-10-06).
 Aaron saw ~20fps in Safari, 9fps with more of the saved-designs grid loaded, and 60 the moment the
 grid scrolled out of view (Firefox: 120 throughout). Safari was repainting the side panel every

@@ -5,6 +5,7 @@ import { useStudio } from '../context/StudioContext';
 import { listMyDesigns, getDesign, getThumbnailUrl } from '../lib/designs';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 import { toCompactDesign, withCurrentGeneratorVersion } from '../render/compactDesign';
+import { isSameDesign } from '../render/designSettings';
 import { encodeMp4, exportBitrate } from '../lib/videoEncode';
 import Button from '../components/ui/Button';
 import Toggle from '../components/ui/Toggle';
@@ -177,8 +178,9 @@ export default function AdBuilder() {
   drawState.current = { timeline, overlay };
   // Products are placed clear of the lockup, so where the text sits is part of their layout.
   const photoLayout = { position: overlay.position, showText: overlay.show };
-  const photosRef = useRef({ photos, photoLayout });
-  photosRef.current = { photos, photoLayout };
+  const photosKey = JSON.stringify([photos, photoLayout]);
+  const photosRef = useRef({ photos, photoLayout, key: photosKey });
+  photosRef.current = { photos, photoLayout, key: photosKey };
   const musicRef = useRef(musicBuffer);
   musicRef.current = musicBuffer;
   const play = useRef({
@@ -228,8 +230,14 @@ export default function AdBuilder() {
       .then(async c => {
         built = c;
         if (cancelled) return c.dispose();
-        await c.setPhotos(photosRef.current.photos, photosRef.current.photoLayout);
-        if (cancelled) return;
+        // Until composerRef is set, the photos effect below has no composer to tell, so a change
+        // that lands while these decode is picked up here instead of being lost.
+        let placed;
+        do {
+          placed = photosRef.current;
+          await c.setPhotos(placed.photos, placed.photoLayout);
+          if (cancelled) return;
+        } while (placed.key !== photosRef.current.key);
         flightHostRef.current?.appendChild(c.flightCanvas);
         composerRef.current = c;
         setPreviewState('ready');
@@ -248,7 +256,6 @@ export default function AdBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightKey]);
 
-  const photosKey = JSON.stringify([photos, photoLayout]);
   useEffect(() => {
     const c = composerRef.current;
     if (!c) return;
@@ -373,7 +380,21 @@ export default function AdBuilder() {
   );
 
   // ── Design ──────────────────────────────────────────────────────────────────
+  // A mockup photo is a photo OF the design it was made from, so a different design takes every
+  // one out of the ad -- left in, they kept playing the old artwork on the products. Your own
+  // photos belong to no design and stay. Compared by the whole design, not the seed: the Studio
+  // button can bring back the same seed in a new palette. Opening a saved ad sets its design
+  // directly and keeps its photos, which were made of it.
   const chooseDesign = d => {
+    if (!isSameDesign(design?.data, d.data)) {
+      setSlots(s =>
+        s.map(slot => ({
+          ...slot,
+          photo: undefined,
+          photos: slotPhotos(slot).filter(p => p.source.startsWith('own:'))
+        }))
+      );
+    }
     setDesign(d);
     setDesignError(null);
   };

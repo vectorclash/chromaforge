@@ -21,6 +21,9 @@ export const SAFE_BOTTOM = 0.35;
 // How fast the flight's own clock runs behind the products, against real time. It slows on into
 // the seam, nearly stopped there, and builds again after it -- this keeps it a drift, not a rush.
 const BG_DRIFT = 0.35;
+// The stretch of the loop the flight shows at full speed: SEAM_LEAD after the seam to SEAM_LEAD
+// before it (see drawFlight).
+const FLIGHT_WINDOW = SCENE_DURATION - 2 * SEAM_LEAD;
 // Slow push-in over a product's time on screen. There is deliberately no pulse on the beat: one
 // was tried and rejected on sight (Aaron, 2026-10-06: "weird and creepy") -- a garment, and worse a
 // person, throbbing to the music reads as breathing, not rhythm.
@@ -168,11 +171,39 @@ export async function createAdComposer({ design, width, height, exact, layered =
     });
   }
 
+  // Whether a full-frame layer hides everything behind it. A Full frame fit is only that for a
+  // photo with no transparency: a Printful PNG cutout cover-fitted to the frame is still a person
+  // on a clear background, and treating it as opaque left the outgoing product standing behind
+  // the incoming one for the whole cut, then popping out, and stopped drawing the flight once it
+  // landed. Sampled small, so a clear patch averages below 255 and still counts.
+  function coversFrame(canvas) {
+    const sw = Math.ceil(width / 8);
+    const sh = Math.ceil(height / 8);
+    const c = document.createElement('canvas');
+    c.width = sw;
+    c.height = sh;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, sw, sh);
+    const d = ctx.getImageData(0, 0, sw, sh).data;
+    for (let k = 3; k < d.length; k += 4) if (d[k] < 250) return false;
+    return true;
+  }
+
   // A product photo placed on a transparent full frame, once; every frame then draws it with
-  // that frame's motion. `origin` is the point it scales and rocks about.
+  // that frame's motion. `origin` is the point it scales and rocks about. `covers` says it hides
+  // everything under it once it has landed.
   function buildSprite(img, fit, bands) {
     if (fit === 'full') {
-      return { kind: 'full', canvas: coverCanvas(img, width, height), origin: [width / 2, height / 2], floats: false, visible: null };
+      const canvas = coverCanvas(img, width, height);
+      const covers = coversFrame(canvas);
+      return {
+        kind: 'full',
+        canvas,
+        origin: [width / 2, height / 2],
+        floats: false,
+        covers,
+        visible: covers ? null : coverage(canvas)
+      };
     }
     const c = document.createElement('canvas');
     c.width = width;
@@ -246,13 +277,17 @@ export async function createAdComposer({ design, width, height, exact, layered =
       }
       ctx.restore();
     }
-    return { kind: 'layer', canvas: c, origin, floats, visible: coverage(c) };
+    return { kind: 'layer', canvas: c, origin, floats, covers: false, visible: coverage(c) };
   }
 
   const images = new Map(); // url -> decoded Image, so a layout change re-places without reloading
   let sprites = [];
+  // Only the latest call lands: decodes finish in any order, and an older list arriving last
+  // would put photos the ad no longer has back on screen, in the new list's slots.
+  let photosToken = 0;
   /** @param {Array<{ url: string, fit?: string }>} photos */
   async function setPhotos(photos, { position = 'top', showText = true } = {}) {
+    const token = ++photosToken;
     const bands = frameBands(position, showText);
     const imgs = await Promise.all(
       photos.map(async ({ url }) => {
@@ -265,14 +300,27 @@ export async function createAdComposer({ design, width, height, exact, layered =
         return images.get(url);
       })
     );
+    if (token !== photosToken) return;
     sprites = photos.map(({ fit }, i) => buildSprite(imgs[i], fit || 'cutout', bands));
   }
 
   // The flight ends SEAM_LEAD before its loop seam, still slowing as the first product arrives,
   // and then carries on at a fraction of real time behind the products.
+  //
+  // It never reaches back further than SEAM_LEAD AFTER the seam, where the camera is moving at the
+  // same pace it lands at: one arc that builds, peaks and slows into the first product. A flight
+  // longer than that stretch (FLIGHT_WINDOW) plays it slower rather than start earlier, because
+  // starting earlier passes through the seam, where the ramp all but stops the camera -- a long
+  // flight at a slow tempo stalled on screen partway through, or opened nearly frozen (4 bars at
+  // 110bpm opened at 0.03x; 3 bars at 70bpm stopped 1.8s in). A flight that fits plays exactly as
+  // before.
   function drawFlight(ctx, t, timeline) {
     const cut = SCENE_DURATION - SEAM_LEAD;
-    const tau = t < timeline.flight ? cut - timeline.flight + t : cut + (t - timeline.flight) * BG_DRIFT;
+    const rate = Math.min(1, FLIGHT_WINDOW / timeline.flight);
+    const tau =
+      t < timeline.flight
+        ? cut - timeline.flight * rate + t * rate
+        : cut + (t - timeline.flight) * BG_DRIFT;
     world.setTime(rampTime(tau, SCENE_DURATION, RAMP_FLOOR_3D), rampRush(tau, SCENE_DURATION), false);
     world.render(renderer);
     // Same task as the render, so no preserveDrawingBuffer is needed.
@@ -331,12 +379,13 @@ export async function createAdComposer({ design, width, height, exact, layered =
       const local = t - seg.start;
       const cutting = local < seg.transition;
       const cur = sprites[i];
-      // A full-frame photo that has landed covers everything; nothing else needs drawing.
-      if (cur.kind !== 'full' || cutting) drawFlight(ctx, t, timeline);
+      // An opaque photo that has landed covers everything; nothing else needs drawing.
+      if (!cur.covers || cutting) drawFlight(ctx, t, timeline);
       if (cutting) {
         if (i > 0) {
-          if (cur.kind === 'full') {
-            // A full frame assembles over the outgoing product as it stands.
+          if (cur.covers) {
+            // An opaque frame assembles over the outgoing product as it stands -- by the end of
+            // the cut nothing of it shows, so it can simply stop being drawn.
             drawProduct(ctx, i - 1, t, timeline);
           } else {
             const out = clamp01(local / (BREAK_FRACTION * seg.transition));

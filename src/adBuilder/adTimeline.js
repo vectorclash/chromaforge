@@ -19,7 +19,9 @@ export const SCENE_DURATION = 10;
 // ramp nearly stops the camera at the seam -- its last 1.5s run under a third of full speed -- and
 // ending the flight right on it left a long, dead stretch before the first product (Aaron,
 // 2026-10-06). Arriving this far ahead, the product lands while the flight is still visibly
-// slowing (~0.35x), and the flight carries on slowing behind it. Raise it to cut in sooner.
+// slowing (~0.35x), and the flight carries on slowing behind it. Raise it to cut in sooner. It
+// also sets where a flight may START (the same distance after the seam -- see adComposer's
+// drawFlight), so raising it shortens the stretch a long flight can play at full speed.
 export const SEAM_LEAD = 1.5;
 
 // Used when an ad has no music to take a tempo from.
