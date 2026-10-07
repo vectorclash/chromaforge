@@ -1,7 +1,7 @@
 import { coverCanvas, layoutFacets, drawFacets } from '../components/ui/facetMosaic';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { resolveDesignPalette } from '../render/resolvedPalette';
-import { SCENE_DURATION, SEAM_LEAD } from './adTimeline';
+import { SCENE_DURATION, SEAM_LEAD, AD_WIDTH, AD_HEIGHT } from './adTimeline';
 import { createLockup, LOCKUP_BAND } from './lockup';
 
 // Draws any frame of an ad from its time alone -- the preview and the MP4 export both call
@@ -106,7 +106,28 @@ export async function createAdComposer({ design, width, height, exact, layered =
   // The star layout is ~500ms of one task the first time a loop length is seen; warming it in
   // slices keeps the page responsive while the preview builds (see tunnelScene).
   await warmTunnelStars(SCENE_DURATION);
-  const lockup = await createLockup({ width, height, palette: resolveDesignPalette(design) });
+  // The preview draws at half size, and its frame is shown stretched to fit the window -- which
+  // made the lockup's text and hairline soft. So in the preview the lockup gets a layer of its
+  // own at the export's full size, covering only its band of the frame.
+  const lockupScale = layered ? AD_WIDTH / width : 1;
+  const lockup = await createLockup({
+    width: width * lockupScale,
+    height: height * lockupScale,
+    palette: resolveDesignPalette(design)
+  });
+  let lockupCanvas = null;
+  if (layered) {
+    lockupCanvas = document.createElement('canvas');
+    lockupCanvas.width = AD_WIDTH;
+    lockupCanvas.height = lockup.bandHeight;
+    Object.assign(lockupCanvas.style, {
+      position: 'absolute',
+      left: '0',
+      width: '100%',
+      height: `${(lockup.bandHeight / AD_HEIGHT) * 100}%`,
+      pointerEvents: 'none'
+    });
+  }
 
   const renderer = new WebGLRenderer({ antialias: true });
   let world = null;
@@ -121,6 +142,7 @@ export async function createAdComposer({ design, width, height, exact, layered =
     // dispose() alone leaves the context alive until GC -- see Animation3DPreview
     renderer.forceContextLoss();
     renderer.domElement.remove();
+    lockupCanvas?.remove();
   };
   try {
     renderer.setPixelRatio(1);
@@ -144,6 +166,11 @@ export async function createAdComposer({ design, width, height, exact, layered =
   // video were shown 390px wide (a phone).
   const layout = layoutFacets(width, height, width / 2, height / 2);
   const glint = (1.5 * width) / 390;
+  // The glints outline whole triangles. Over a photo that fills the frame they read as light
+  // catching the facets, as on the product page; around a cutout or a card most of each
+  // triangle is empty sky, so they drew loose white outlines around the product. Only a photo
+  // that covers the frame gets them.
+  const glintOf = sprite => (sprite.covers ? glint : 0);
   const scratch = [0, 1].map(() => {
     const c = document.createElement('canvas');
     c.width = width;
@@ -389,23 +416,41 @@ export async function createAdComposer({ design, width, height, exact, layered =
             drawProduct(ctx, i - 1, t, timeline);
           } else {
             const out = clamp01(local / (BREAK_FRACTION * seg.transition));
-            drawFacets(ctx, layout, layerAt(0, i - 1, t, timeline), 1 - out, glint, sprites[i - 1].visible);
+            drawFacets(ctx, layout, layerAt(0, i - 1, t, timeline), 1 - out, glintOf(sprites[i - 1]), sprites[i - 1].visible);
           }
         }
-        drawFacets(ctx, layout, layerAt(1, i, t, timeline), local / seg.transition, glint, cur.visible);
+        drawFacets(ctx, layout, layerAt(1, i, t, timeline), local / seg.transition, glintOf(cur), cur.visible);
       } else {
         drawProduct(ctx, i, t, timeline);
       }
     }
 
-    if (overlay.show) {
-      // One beat after the first product's downbeat, so the brand arrives on the next beat;
-      // with no products, near the end. CHROMA's hue wave runs as it lands and on every later cut.
-      const appearAt = products.length ? products[0].start + timeline.beat : timeline.total - 1.5;
-      const ripples = [appearAt + 0.15, ...products.slice(1).map(p => p.start)];
-      const top = frameBands(overlay.position, true).lockupTop * height;
-      lockup.draw(ctx, t, { top, appearAt, ripples, url: overlay.text });
+    drawLockup(ctx, t, timeline, overlay);
+  }
+
+  let lockupTop = null;
+  function drawLockup(ctx, t, timeline, overlay) {
+    const lc = lockupCanvas?.getContext('2d');
+    if (lc) lc.clearRect(0, 0, lockupCanvas.width, lockupCanvas.height);
+    if (!overlay.show) return;
+    const products = timeline.products.slice(0, sprites.length);
+    // One beat after the first product's downbeat, so the brand arrives on the next beat;
+    // with no products, near the end. CHROMA's hue wave runs on every later cut.
+    const o = {
+      appearAt: products.length ? products[0].start + timeline.beat : timeline.total - 1.5,
+      beat: timeline.beat,
+      cuts: products.slice(1).map(p => p.start),
+      url: overlay.text,
+      top: frameBands(overlay.position, true).lockupTop * height * lockupScale
+    };
+    if (!lc) return lockup.draw(ctx, t, o);
+    // The layer covers the band, from a margin above the lockup's top.
+    const at = Math.round(o.top) - lockup.margin;
+    if (at !== lockupTop) {
+      lockupTop = at;
+      lockupCanvas.style.top = `${(at / AD_HEIGHT) * 100}%`;
     }
+    lockup.draw(lc, t, { ...o, top: o.top - at });
   }
 
   if (layered) {
@@ -415,5 +460,13 @@ export async function createAdComposer({ design, width, height, exact, layered =
     c.style.width = '100%';
     c.style.height = '100%';
   }
-  return { width, height, draw, setPhotos, dispose: release, flightCanvas: layered ? renderer.domElement : null };
+  return {
+    width,
+    height,
+    draw,
+    setPhotos,
+    dispose: release,
+    flightCanvas: layered ? renderer.domElement : null,
+    lockupCanvas
+  };
 }

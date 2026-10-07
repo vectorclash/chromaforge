@@ -171,6 +171,7 @@ export default function AdBuilder() {
   // ── Preview ─────────────────────────────────────────────────────────────────
   const canvasRef = useRef(null);
   const flightHostRef = useRef(null);
+  const lockupHostRef = useRef(null);
   const composerRef = useRef(null);
   const scrubRef = useRef(null);
   const timeRef = useRef(null);
@@ -239,6 +240,7 @@ export default function AdBuilder() {
           if (cancelled) return;
         } while (placed.key !== photosRef.current.key);
         flightHostRef.current?.appendChild(c.flightCanvas);
+        lockupHostRef.current?.appendChild(c.lockupCanvas);
         composerRef.current = c;
         setPreviewState('ready');
         drawAt(play.current.t);
@@ -892,7 +894,8 @@ export default function AdBuilder() {
           </div>
           <p className="mt-2 text-xs text-neutral-500">
             The Chromaforge wordmark, with this line under it, arrives a beat after the first
-            product. CHROMA&rsquo;s color wave runs on every cut. Products are placed clear of it.
+            product. CHROMA&rsquo;s color wave marks new products, at most once every 2 bars.
+            Products are placed clear of it.
           </p>
         </Section>
 
@@ -959,6 +962,7 @@ export default function AdBuilder() {
             height={PREVIEW_H}
             className="absolute inset-0 h-full w-full"
           />
+          <div ref={lockupHostRef} className="pointer-events-none absolute inset-0" />
           {showIg && <InstagramOverlay />}
           {!flightDesign && (
             <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">

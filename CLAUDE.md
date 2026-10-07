@@ -2087,17 +2087,41 @@ previews stay at Printful's default 1000px.
 (6b) **What makes it feel alive:** the flight keeps drifting behind the products at `BG_DRIFT` of
 real time (its ramp is nearly stopped at the seam, so it stays a drift); floating products push in,
 bob and rock over two bars; a cut breaks the outgoing product apart toward the centre
-(`drawFacets` run backwards) while the next assembles, with glints only on facets that hold product
-(`drawFacets`'s optional `visible` list -- FacetSwap passes none and is pixel-identical, re-verified).
+(`drawFacets` run backwards) while the next assembles. **Glints (the white triangle outlines) only
+on a photo that covers the frame** (`glintOf`; `drawFacets` skips them at width 0, so FacetSwap,
+which always passes a positive width, is unchanged): around a cutout or a card most of each triangle
+is empty sky, and the outlines floated in the air around the product (Aaron, 2026-10-07: "feel odd
+with the new cut out product images"). The product page keeps them -- its mockups are full JPGs, so
+every triangle is filled, and the glints were part of the FacetSwap look he picked.
 **A pulse on every beat was built and rejected on sight** (Aaron: "so very weird and creepy") -- a
 garment, and an on-model shot most of all, throbbing to the music reads as breathing. Don't re-add it;
 the music already sets every cut.
 (6c) **The text is the site's wordmark lockup, not a caption** (`lockup.js`; Aaron: the plain URL
 "feels odd"). Logo + CHROMA (Exo 400) + FORGE (Exo 900, accent-soft), a hairline in the DESIGN's
-palette, the URL under it. It arrives one beat after the first product with `--animate-resolve-in`'s
-own curve, travel and blur (scaled to a phone-sized video), and CHROMA runs the wordmark's hover
-hue-wave on every cut. Products are laid out clear of its band (bottom by default, Aaron's call),
-inside Meta's Reels safe zone (top 14%, bottom 35%).
+palette, the URL under it. Products are laid out clear of its band (bottom by default, Aaron's
+call), inside Meta's Reels safe zone (top 14%, bottom 35%).
+**It arrives one beat after the first product with ONE entrance, "Line"** (2026-10-07): a light draws
+the hairline left to right across one beat and each piece rises up out of the line as the light
+passes it, then the URL drops down out of it. Three were built and compared in the builder (Line,
+the old resolve-in fade, and a hammer "Strike"); Aaron liked Line and Fade, found Strike's spinning
+logo odd, and agreed to keep only one -- **the same entrance on every ad is what makes the brand
+recognisable**, since design, products and music already change each time. Don't re-add a picker.
+Three things worth not re-deriving:
+- **Every piece is pre-rendered into sprites** (glyph, dark shadow, and a white mask and glow tinted
+  per frame), so letters move independently and no canvas shadow is drawn per frame (slow in Safari).
+  It also fixed the CHROMA hue-wave's shadow: drawn live, one canvas shadow per letter had to switch
+  from the dark drop shadow to the colour glow, so it dropped out and snapped back letter by letter
+  (Aaron: "the drop shadow animates a bit awkward"). Now the dark shadow is constant and the glow
+  fades in over it -- measured with the lockup alone over grey, the largest frame-to-frame change in
+  the shadow under each letter went from 1.1-2.0 grey levels to 0.1-0.2.
+- **The hue-wave runs at most once every 2 bars** (`WAVE_MIN_BARS`, counted from the first product's
+  downbeat): on every cut it ran back to back at a fast tempo (Aaron: "pulsing the logo color wave
+  back to back felt odd"). 1 bar per product = every other cut, 2 bars = every cut, at any tempo.
+  A glint runs along the hairline with each wave.
+- **In the preview the lockup is its own layer at the EXPORT's size** (`lockupCanvas`, covering only
+  its band). The preview draws at 540x960 and is shown ~1.5x larger on a retina screen, which made the
+  text and hairline soft -- the "crunchy" Aaron saw. The export was always sharp. The flight and
+  products stay at preview size.
 (6c2) **The first product arrives `SEAM_LEAD` (1.5s of flight time) BEFORE the loop seam, not on
 it.** The speed ramp nearly stops the camera at the seam (0.03x), and its last 1.5s run under a third
 of full speed, so ending the flight on the seam left a dead stretch before the first product (Aaron:
@@ -2131,10 +2155,9 @@ Things worth not re-deriving:
   draw on a transparent 2D canvas above (`createAdComposer`'s `layered`), so no frame copies out of
   WebGL -- a read-back, and in Safari a cross-process one. The export still composites into one
   canvas. Not the cause here, but it halved draw cost and stays.
-- **The settled lockup is cached** (its ~10 shadowed draws are slow in Safari's 2D canvas): drawn
-  at the same sub-pixel offset and blitted on whole pixels, identical to live in Chromium (28/28
-  cases); in WebKit 6 pixels at the hairline's faded end differ, from small and large canvases
-  getting different backends.
+- **The settled lockup is cached** and blitted on whole pixels once its entrance and any hue-wave
+  are done; every piece sits on whole pixels vertically, so it matches the live drawing (largest
+  difference at the hand-off 3/255, the tail of the wave).
 - **A music render still runs on the page's main thread** (same-origin iframe): progress updates
   are 5% steps, which removed every long task at 1x; a renderer on another origin, e.g. `[::1]`,
   would get its own process if that ever matters. safaridriver would not create a session from an

@@ -95,7 +95,7 @@ export function layoutFacets(W, H, ox, oy) {
 
 // Draws the triangles of `to` (a canvas the size of the frame, from coverCanvas) that have
 // started landing by run progress `t` (0..1), over whatever is already on `ctx`. `glintWidth` is
-// the edge highlight's line width in canvas pixels. `visible`, if given, is one flag per
+// the edge highlight's line width in canvas pixels (0 for none). `visible`, if given, is one flag per
 // triangle of the layout: a triangle flagged false is skipped, glint and all -- for a `to` that
 // is mostly transparent, so empty triangles do not draw a lattice of glints over everything.
 // Run `t` backwards (1 -> 0) and the mosaic breaks apart toward the origin instead.
@@ -124,7 +124,7 @@ export function drawFacets(ctx, layout, to, t, glintWidth, visible = null) {
     ctx.drawImage(to, tr.bx, tr.by, tr.bw, tr.bh, tr.bx, tr.by, tr.bw, tr.bh);
     ctx.restore();
     // A glint along the facet's edges while it lands.
-    if (p < 1) {
+    if (p < 1 && glintWidth > 0) {
       ctx.globalAlpha = (1 - p) * 0.9;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = glintWidth / Math.max(0.2, s);
