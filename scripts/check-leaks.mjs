@@ -265,6 +265,11 @@ async function studio(browser, base) {
   const before = await page.evaluate(() => ({ made: window.__leak.made, uploads: window.__leak.floatUploads }));
   for (let i = 0; i < STUDIO_GENERATES; i++) {
     await page.locator('button.button-large', { hasText: 'Generate' }).first().click();
+    // A click that lands while the last scene is still fading in is held and runs when the fade
+    // ends (DisplayCanvas.releaseLoader), so wait for THIS click's build to begin before waiting
+    // for the button to come back -- otherwise the last click's build is still to start when the
+    // count is taken
+    await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => b.textContent.trim() === 'Generating'), null, { timeout: 15000 });
     // A 3D Generate holds the new scene for one hexagon-loader cycle (2s); wait for the button to
     // come back rather than a fixed delay, so every click starts a real build
     await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => b.textContent.trim() === 'Generate'), null, { timeout: 15000 });

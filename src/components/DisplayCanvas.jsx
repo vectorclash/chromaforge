@@ -1046,7 +1046,13 @@ export default class DisplayCanvas extends React.Component {
   }
 
   releaseLoader(kind) {
-    if (this.state.loaderHeld === kind) this.setState({ loaderHeld: null });
+    if (this.state.loaderHeld !== kind) return;
+    // A Generate clicked while this artwork was fading in runs now, under a fresh loader
+    this.setState({ loaderHeld: null }, () => {
+      if (!this.pendingGenerate) return;
+      this.pendingGenerate = false;
+      this.onGenerateButtonClick();
+    });
   }
 
   // The loader is up only to sit under artwork that is already fading in over it.
@@ -1057,12 +1063,15 @@ export default class DisplayCanvas extends React.Component {
   }
 
   // A new build that starts while the loader is still up for the LAST one -- Generate comes back
-  // as the previous artwork begins to fade in -- never sees the loader appear, so loaderDrawnAt
-  // still held the previous build's moment, already past, and the new artwork was shown the
-  // instant it rendered: no beat, it just popped in (Aaron, 2026-10-10, generating quickly).
-  // It waits for the loader's NEXT fully drawn moment instead. The loader loops on
+  // as the previous artwork begins to fade in, in step with it -- never sees the loader appear, so
+  // loaderDrawnAt still held the previous build's moment, already past, and the new artwork was
+  // shown the instant it rendered: no beat, it just popped in (Aaron, 2026-10-10, generating
+  // quickly). It waits for the loader's NEXT fully drawn moment instead. The loader loops on
   // HEXAGON_CYCLE from when it mounted, so that is a real moment in its animation: the strokes
   // finish retracting, draw back in, and the artwork arrives on them like any other Generate.
+  //
+  // Generate itself takes no click during that fade-in (onGenerateButtonClick), so this is the net
+  // for anything else that starts a build then.
   restartLoaderBeat() {
     if (this.props.compact || !this.loaderRevealing()) return;
     const now = gsap.ticker.time;
@@ -2695,10 +2704,17 @@ export default class DisplayCanvas extends React.Component {
   onGenerateButtonClick(e) {
     const { generateDisabled, animationMode, animationFrames } = this.state;
 
-    // Held until the last artwork has finished fading in over the loader, so every Generate gets
-    // a fresh loader and its full beat. Clickable as the fade-in BEGAN, a quick click started the
-    // next build under a loader that was already drawn, and it popped in (Aaron, 2026-10-10).
-    if (!generateDisabled && !this.isBuilding3D() && !this.loaderRevealing()) {
+    // Held until the last artwork has finished fading in over the loader, so every Generate gets a
+    // fresh loader and its full beat. The button LOOKS ready from the moment that artwork starts to
+    // appear -- it changes with the image, as it always has -- and a click in that half second is
+    // remembered and runs the moment the fade is over (releaseLoader), so none is lost (Aaron,
+    // 2026-10-10). Held on "Generating" instead, the button came back after the image it belonged
+    // to and read as out of sync; ignoring the click instead swallowed half of a quick run of them.
+    if (!generateDisabled && !this.isBuilding3D() && this.loaderRevealing()) {
+      this.pendingGenerate = true;
+      return;
+    }
+    if (!generateDisabled && !this.isBuilding3D()) {
       // Before anything below shows the loader -- see restartLoaderBeat
       this.restartLoaderBeat();
       // Clear URL when generating new image
@@ -2796,6 +2812,8 @@ export default class DisplayCanvas extends React.Component {
 
   onModeToggle(mode) {
     const { animationMode, animationFrames, animationStarFrames, isSaved } = this.state;
+    // A Generate remembered from the fade-in belonged to the mode being left
+    this.pendingGenerate = false;
 
     if (mode === animationMode) return;
 
@@ -4116,14 +4134,10 @@ export default class DisplayCanvas extends React.Component {
               <div className="row">
                 <button
                   onClick={this.onGenerateButtonClick.bind(this)}
-                  className={'button-large' + (generateDisabled || this.isBuilding3D() || this.loaderRevealing() ? ' disabled' : ' enabled')}
+                  className={'button-large' + (generateDisabled || this.isBuilding3D() ? ' disabled' : ' enabled')}
                 >
                   {this.isBuilding3D()
                     ? 'Generating'
-                    : this.loaderRevealing() && !generateDisabled
-                      ? animationMode && !threeDMode
-                        ? `Generating ${frameCount} / ${frameCount}`
-                        : 'Generating'
                     : generateDisabled
                       ? animationMode
                         ? `Generating ${animationProgress} / ${frameCount}`

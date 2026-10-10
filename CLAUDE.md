@@ -1936,17 +1936,21 @@ Animation within the still's 0.5s fade-in left the fade-in running past the fade
 still-behind-3D symptom by a second route.
 (5) `check-hero-build-race.mjs` fails its widget-click step intermittently on a cold server, on the
 pre-change commit too (1 of 3 cold runs) -- a harness flake, not this.
-(6) **Generate stays "Generating" until the artwork has FINISHED fading in** (`loaderRevealing`,
-2026-10-10, Aaron: generating quickly "you can bypass the fixed beat with hex loader and it just
-pops in"). It used to come back as the fade-in began, with the loader still up underneath, so a
-quick click started the next build under a loader that never re-appeared -- and `loaderDrawnAt`,
-set only when the loader appears, still held the last build's moment. Measured on rapid stills
-before: 1958, 945, 840, 750, 344, 243ms from click to artwork; after: 1128-1155ms every time, each
-click finding a fresh loader, in stills, 2D and 3D alike. Tile picks and slider releases wait the
-same way. `restartLoaderBeat` stays as the net for anything else that starts a build then: it
-waits for the loader's NEXT drawn moment (it loops on `HEXAGON_CYCLE` from mount).
-**Not simply the beat reset alone, which was built first:** a click at the instant Generate came
-back then waited a whole 2s cycle, and its predecessor was faded back out before it ever showed.
+(6) **Generate LOOKS ready as the artwork starts to appear, but a click during its fade-in is
+HELD and runs when the fade ends** (`loaderRevealing`, `pendingGenerate`, run from
+`releaseLoader`; 2026-10-10, Aaron: generating quickly "you can bypass the fixed beat with hex
+loader and it just pops in"). Clickable as the fade-in began, with the loader still up
+underneath, a quick click started the next build under a loader that never re-appeared -- and
+`loaderDrawnAt`, set only when the loader appears, still held the last build's moment. Rapid
+stills went 1958, 945, 840, 750, 344, 243ms from click to artwork. Now, mashing the button every
+60ms gives one loader appearance per Generate in stills, 2D and 3D, and the button still changes
+33ms before the artwork first moves -- identical to before (measured against `6fff883`).
+Three versions were built and rejected first, worth not repeating: holding the button on
+"Generating" until the fade FINISHED (shipped, then reverted: the button came back half a second
+after its image, "out of sync"); letting the click through and waiting for the loader's next drawn
+moment (a quick Generate took up to ~2s); and simply ignoring the click, which swallowed half of a
+quick run -- caught by `check-leaks.mjs` counting 4 scene builds for 8 clicks. Tile picks and slider releases wait the same way;
+`restartLoaderBeat` stays as the net for anything else that starts a build during the fade.
 `check-leaks.mjs` waits for the button to return between Generates rather than a fixed 1.2s.
 Every path that puts a 3D build in front of the visitor goes through `threeDBuildState()` --
 Generate, entering the Animation tab with 3D on, and turning 3D on -- because the first press of
