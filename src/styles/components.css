@@ -2398,8 +2398,9 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  /* Room for the current tile's ring, which sits outside its box */
-  padding: 3px;
+  /* Room for the ring, which sits outside the tile: a 2px outline 2px off its edge. Any less and
+     .settings-scroll, which clips, shaves it on the outer tiles. */
+  padding: 4px;
 }
 .display-canvas .controls-inner .recent-tile {
   position: relative;
@@ -2412,10 +2413,13 @@
   background: rgba(0, 0, 0, 0.25);
   outline: 2px solid transparent;
   outline-offset: 2px;
-  transition: outline-color 0.2s ease, transform 0.2s ease-out, opacity 0.2s ease;
+  transition: outline-color 0.2s ease, opacity 0.2s ease;
 }
-.display-canvas .controls-inner .recent-tile:hover {
-  transform: translateY(-2px);
+/* Hover lights a faint ring rather than lifting the tile: the grid sits inside a clipping
+   scroller, so a lift carried the top row's ring out of view (Aaron, 2026-10-10) -- the same reason
+   the palette chips recolour instead of lifting. */
+.display-canvas .controls-inner .recent-tile:hover:not(.is-current) {
+  outline-color: rgba(250, 250, 250, 0.4);
 }
 .display-canvas .controls-inner .recent-tile:focus-visible {
   outline-color: var(--color-interactive);
@@ -2426,7 +2430,6 @@
 .display-canvas .controls-inner .recent-tile:disabled {
   cursor: default;
   opacity: 0.5;
-  transform: none;
 }
 .display-canvas .controls-inner .recent-tile img {
   display: block;
