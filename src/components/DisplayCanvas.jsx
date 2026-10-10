@@ -149,6 +149,17 @@ const PREVIEW_KEYS = ['downloadVisible', 'imageRatio', 'customWidth', 'customHei
 // The Video-tab settings a saved animation records (see lib/savedAnimation's compactVideo)
 const SAVED_PLAYBACK_KEYS = ['cycleDuration', 'speedRamp', 'logoMark'];
 
+// The Recent panel's thumbnails, by design (recentDesignKey), for the visit: shared by every
+// canvas, so a design generated in the homepage hero already has one when the studio opens.
+// Released only when its design drops off the list.
+const RECENT_THUMBS = new Map();
+// Thumbnail renders for a restored list wait for a quiet moment rather than taking a frame.
+// Safari has no requestIdleCallback.
+const idleMoment = () =>
+  new Promise(resolve =>
+    typeof requestIdleCallback === 'function' ? requestIdleCallback(() => resolve(), { timeout: 1000 }) : setTimeout(resolve, 60)
+  );
+
 // Mobile 2D frames are RASTERIZED at this long edge instead of the studio's 2160. This is
 // the fix that actually buys the headroom — capping counts alone would have meant a mobile
 // ceiling BELOW today's default, making the setting decorative. The frame is still
@@ -243,7 +254,7 @@ export default class DisplayCanvas extends React.Component {
       saveVisible: false,
       // The Recent panel (renderRecentPanel) and its thumbnails, by design (recentDesignKey)
       recentVisible: false,
-      recentThumbs: {},
+      recentThumbs: Object.fromEntries(RECENT_THUMBS),
       colors: (designPrefs?.colors ?? []).map((value, id) => ({ id, value })),
       linkCopied: false,
       linkCopyFailed: false,
@@ -353,8 +364,6 @@ export default class DisplayCanvas extends React.Component {
     // reported live 2026-08-16 (hero disagreeing with the shirt, About blob, mini generator,
     // footer and mobile nav, all of which agreed with each other).
     this.buildToken = 0;
-    // Recent panel thumbnails rendered so far, by design; released on unmount
-    this.recentThumbUrls = new Map();
     this.recentThumbJob = 0;
     // The 2D animation build's own token (see startAnimationBuild)
     this.animationBuildToken = 0;
@@ -390,6 +399,8 @@ export default class DisplayCanvas extends React.Component {
     // depends on settled layout -- it queries an already-mounted element, reads the URL, and
     // kicks off a build, and buildImage is token-guarded against overlap either way.
     this.init();
+    // A list restored from an earlier visit has no thumbnails yet
+    this.scheduleRecentThumbs();
 
     // The reveal normally fires from the first artwork paint (see startHeroReveal). This is
     // the bound for when that never comes -- a pathologically slow render, or a build that
@@ -577,8 +588,6 @@ export default class DisplayCanvas extends React.Component {
     clearTimeout(this.downloadPreviewTimer);
     clearTimeout(this.recentThumbTimer);
     this.recentThumbJob++;
-    this.recentThumbUrls.forEach(url => URL.revokeObjectURL(url));
-    this.recentThumbUrls.clear();
     clearTimeout(this.downloadDoneTimer);
     if (this.downloadPreviewUrl) URL.revokeObjectURL(this.downloadPreviewUrl);
     this.heroRevealFallback?.kill();
@@ -605,6 +614,7 @@ export default class DisplayCanvas extends React.Component {
   }
 
   componentDidUpdate(prevProps, prevState) {
+    if (this.props.recentDesigns !== prevProps.recentDesigns) this.scheduleRecentThumbs();
     // The loader's cycle starts the moment it mounts (HexagonLoader's componentDidMount runs in
     // this same commit, on the same GSAP tick), so its strokes are full HEXAGON_DRAWN from now.
     if (this.loaderShown() && !this.loaderShown(prevState)) {
@@ -1635,8 +1645,10 @@ export default class DisplayCanvas extends React.Component {
         this.blobConfig = config;
         this.imageBlobUrl = url;
         this.showImageUrl(imageContainer, url);
-        // Every still that reaches the screen joins the Recent list (lib/recentDesigns.js)
+        // Every still that reaches the screen joins the Recent list (lib/recentDesigns.js), and
+        // gives it its thumbnail once the reveal is over
         this.props.onStillShown?.(config);
+        setTimeout(() => this.thumbFromBlob(blob, config), (DURATION_SLOW + 0.1) * 1000);
 
         // Everything below runs in the setState CALLBACK, which is the whole point: this
         // code executes inside GSAP's ticker (a rAF callback), and dropping the panel's
@@ -3145,9 +3157,22 @@ export default class DisplayCanvas extends React.Component {
   // ── Recent panel ────────────────────────────────────────────────────────────────────────
   // The studio's recent generations (lib/recentDesigns.js, kept by StudioContext), opened from
   // the clock beside the settings icon. Same entrance as the Download panel: the main controls
-  // step back, this pops forward, its tiles fly up on the settings tabs' stagger.
+  // step back, this pops forward, and its three blocks (the grid, the note, the buttons) fly up
+  // the way Download's preview, fields and buttons do.
+  //
+  // Two things here were built wrong first (Aaron, 2026-10-10: "they animate in and out"). The
+  // grid moves as ONE block: flown in tile by tile, twenty pictures arriving separately read as
+  // noise. And its blocks are hidden BEFORE the panel is shown: hidden in the setState callback,
+  // the grid painted for a frame at full strength from the last time it was open, then dropped
+  // and flew in again.
   onRecentButtonClick() {
     if (this.state.isExporting) return;
+    const els = gsap.utils.toArray('#controls-recent .recent-grid, #controls-recent .recent-note, #controls-recent .row');
+    gsap.set(els, { alpha: 0, y: 20 });
+    // Rows start 20px low, which would flash a scrollbar on the scroller for the length of the
+    // entrance (see animateSettingsTab)
+    const scroller = this.mount?.querySelector('#controls-recent .settings-scroll');
+    if (scroller) scroller.style.overflowY = 'hidden';
     gsap.to('#controls-main', {
       duration: DURATION_FAST,
       alpha: 0.5,
@@ -3157,56 +3182,70 @@ export default class DisplayCanvas extends React.Component {
     });
     gsap.from('#controls-recent', { duration: DURATION_FAST, alpha: 0, scale: 1.2, ease: 'back.out(1.7)' });
     this.setState({ recentVisible: true }, () => {
-      const els = gsap.utils.toArray('#controls-recent .recent-tile, #controls-recent .recent-note, #controls-recent .row');
-      // Rows start 20px low, which would flash a scrollbar on the scroller for the length of the
-      // entrance (see animateSettingsTab)
-      const scroller = this.mount?.querySelector('#controls-recent .settings-scroll');
-      if (scroller) scroller.style.overflowY = 'hidden';
-      gsap.set(els, { alpha: 0, y: 20 });
       gsap.to(els, {
         duration: DURATION_BASE,
         alpha: 1,
         y: 0,
-        // Twenty tiles at the settings tabs' 0.05s would take a second to land; this keeps the
-        // whole cascade under ~0.6s however long the list is.
-        stagger: Math.min(0.05, 0.6 / Math.max(1, els.length)),
+        stagger: 0.05,
         ease: 'back.out(1.7)',
         onComplete: () => {
           if (scroller) scroller.style.overflowY = '';
         }
       });
-      clearTimeout(this.recentThumbTimer);
-      this.recentThumbTimer = setTimeout(() => this.fillRecentThumbs(), DURATION_BASE * 1000);
+      // Normally every thumbnail is ready by now; this only fills any still missing
+      this.fillRecentThumbs();
     });
   }
 
-  // Thumbnails are rendered when the panel opens rather than kept with the list, so the list
-  // stays a few hundred bytes a design. One per frame, newest first, so the tiles you see first
-  // fill first; cached by design for the life of the canvas.
+  recentThumbSize() {
+    const width = 256;
+    return { width, height: Math.round((width * this.props.height) / this.props.width) };
+  }
+
+  // Thumbnails are made BEFORE the panel opens, so a tile never arrives empty and fills in after.
+  // A still the canvas just showed gives its own: the full image, scaled down (decoded off the
+  // main thread where the browser can), so it is exactly the picture that was on screen and costs
+  // no render. Kept for the visit across canvases, so the hero's Generates reach the studio ready.
+  async thumbFromBlob(blob, config) {
+    if (!blob || !config?.seed) return;
+    const key = recentDesignKey(config);
+    if (RECENT_THUMBS.has(key)) return;
+    const { width, height } = this.recentThumbSize();
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(blob, { resizeWidth: width, resizeHeight: height, resizeQuality: 'high' });
+    } catch {
+      try {
+        bitmap = await createImageBitmap(blob);
+      } catch {
+        return;
+      }
+    }
+    const url = await this.encodeRecentThumb(bitmap, width, height);
+    bitmap.close?.();
+    this.storeRecentThumb(key, url);
+  }
+
+  // Designs with no image this visit (the list as restored after a reload) are rendered small,
+  // one per idle moment, newest first -- or one per frame if the panel is already open.
   async fillRecentThumbs() {
     const job = ++this.recentThumbJob;
     const entries = [...(this.props.recentDesigns || [])].reverse();
     const live = new Set(entries.map(e => recentDesignKey(e.design)));
     // Release thumbnails of designs that have dropped off the end of the list
-    this.recentThumbUrls.forEach((url, key) => {
+    RECENT_THUMBS.forEach((url, key) => {
       if (!live.has(key)) {
         URL.revokeObjectURL(url);
-        this.recentThumbUrls.delete(key);
+        RECENT_THUMBS.delete(key);
       }
     });
     for (const entry of entries) {
       const key = recentDesignKey(entry.design);
-      if (this.recentThumbUrls.has(key)) continue;
-      await yieldToPaint();
-      if (job !== this.recentThumbJob || !this.state.recentVisible) return;
-      const url = await this.renderRecentThumb(entry.design);
-      if (!url) continue;
-      if (this.unmounted) {
-        URL.revokeObjectURL(url);
-        return;
-      }
-      this.recentThumbUrls.set(key, url);
-      this.setState(s => ({ recentThumbs: { ...s.recentThumbs, [key]: url } }));
+      if (RECENT_THUMBS.has(key)) continue;
+      await (this.state.recentVisible ? yieldToPaint() : idleMoment());
+      if (job !== this.recentThumbJob || this.unmounted) return;
+      if (RECENT_THUMBS.has(key)) continue;
+      this.storeRecentThumb(key, await this.renderRecentThumb(entry.design));
     }
   }
 
@@ -3214,22 +3253,42 @@ export default class DisplayCanvas extends React.Component {
   // down, since a direct render this small aliases its finest specks (the same reason
   // renderDesignBlob has a density floor). Counts are size-independent, so it is the same
   // composition the studio shows, only smaller.
-  async renderRecentThumb(design) {
-    const width = 256;
-    const height = Math.round((width * this.props.height) / this.props.width);
+  renderRecentThumb(design) {
+    const { width, height } = this.recentThumbSize();
     const scale = isMobileDevice() ? 2 : 3;
     const config = generateArtwork(design.seed, width * scale, height * scale, design.colors, design.settings ?? null);
     const source = renderArtwork(config);
+    return this.encodeRecentThumb(source, width, height).finally(() => this.clearElement(source));
+  }
+
+  async encodeRecentThumb(source, width, height) {
     const out = document.createElement('canvas');
     out.width = width;
     out.height = height;
     const ctx = out.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(source, 0, 0, width, height);
-    this.clearElement(source);
     const blob = await new Promise(resolve => out.toBlob(resolve, 'image/jpeg', 0.85));
     this.clearElement(out);
     return blob ? URL.createObjectURL(blob) : null;
+  }
+
+  storeRecentThumb(key, url) {
+    if (!url) return;
+    if (RECENT_THUMBS.has(key)) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    RECENT_THUMBS.set(key, url);
+    if (!this.unmounted) this.setState(s => ({ recentThumbs: { ...s.recentThumbs, [key]: url } }));
+  }
+
+  // The list changed (or the studio just opened on a restored one): fill in anything with no
+  // thumbnail once things settle. A fresh Generate's own image has usually supplied it by then.
+  scheduleRecentThumbs() {
+    if (this.props.compact) return;
+    clearTimeout(this.recentThumbTimer);
+    this.recentThumbTimer = setTimeout(() => this.fillRecentThumbs(), 1500);
   }
 
   onRecentPick(entry) {

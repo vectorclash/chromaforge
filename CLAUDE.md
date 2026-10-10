@@ -1598,7 +1598,14 @@ it, built from the Download panel's parts; layout C of three mocked up and compa
 (https://claude.ai/artifact/92RBnzRVjVUUnp1MijquPm). Six things worth not re-deriving:
 (1) **The list is design identity only** (`lib/recentDesigns.js`, `cf-studio:recent`): seed,
 colours, settings, a few hundred bytes, never pixels. StudioContext owns it and is the only
-writer; thumbnails are rendered when the panel opens, at 2-3x and scaled down.
+writer. **Thumbnails are ready BEFORE the panel opens** (`RECENT_THUMBS`, shared by every canvas
+for the visit): a still that just landed is scaled down from its own image, and a list restored
+after a reload is rendered small in idle moments. Rendering them on open was built first and
+looked wrong (Aaron: "they animate in and out"): the tiles flew in empty and the pictures faded
+in after. The grid also enters as ONE block, like Download's preview, and is hidden before the
+panel is shown -- hidden in the setState callback it painted for a frame at full strength on a
+reopen, then dropped and flew in again. Verified frame by frame from screen recordings of a first
+open, a reopen and an open after reload.
 (2) **Every still that REACHES THE SCREEN is recorded** (`onStillShown`, from setImage's reveal
 and the Image-tab restore), hero and studio alike. An existing design becomes current without
 moving; the current entry reshaped by a slider or palette edit is updated in place, unless it is
