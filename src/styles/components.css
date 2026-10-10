@@ -2418,14 +2418,15 @@
 /* Hover lights a faint ring rather than lifting the tile: the grid sits inside a clipping
    scroller, so a lift carried the top row's ring out of view (Aaron, 2026-10-10) -- the same reason
    the palette chips recolour instead of lifting. */
-.display-canvas .controls-inner .recent-tile:hover:not(.is-current) {
+.display-canvas .controls-inner .recent-tile:hover:not(.is-current):not(:focus-visible) {
   outline-color: rgba(250, 250, 250, 0.4);
-}
-.display-canvas .controls-inner .recent-tile:focus-visible {
-  outline-color: var(--color-interactive);
 }
 .display-canvas .controls-inner .recent-tile.is-current {
   outline-color: var(--color-text);
+}
+/* After .is-current, so keyboard focus shows on the tile on screen too */
+.display-canvas .controls-inner .recent-tile:focus-visible {
+  outline-color: var(--color-interactive);
 }
 .display-canvas .controls-inner .recent-tile:disabled {
   cursor: default;

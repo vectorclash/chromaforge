@@ -18,7 +18,8 @@ import {
   writeRecentDesigns,
   recordRecentDesign as recordInList,
   markRecentSaved,
-  markRecentDeleted
+  markRecentDeleted,
+  RECENT_STORAGE_KEY
 } from '../lib/recentDesigns';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
@@ -203,6 +204,20 @@ export function StudioProvider({ children }) {
     lastRecentRef.current = recent.entries;
     writeRecentDesigns(recent.entries);
   }, [recent.entries]);
+
+  // Another tab changed the list: take its version, or the next write from this tab -- holding a
+  // copy from before -- would put back what it had and drop the other tab's designs (measured: two
+  // tabs generating in turn kept 4 of 7).
+  useEffect(() => {
+    const onStorage = e => {
+      if (e.key !== RECENT_STORAGE_KEY) return;
+      const entries = readRecentDesigns();
+      lastRecentRef.current = entries;
+      setRecent(prev => ({ entries, currentId: entries.some(x => x.id === prev.currentId) ? prev.currentId : null }));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   // A still reached the screen (DisplayCanvas reports every one, hero and studio alike).
   const recordRecentDesign = useCallback(design => {

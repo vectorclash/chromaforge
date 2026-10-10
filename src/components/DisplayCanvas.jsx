@@ -11,7 +11,7 @@ import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
-import { recentDesignKey } from '../lib/recentDesigns';
+import { recentDesignKey, RECENT_MAX } from '../lib/recentDesigns';
 import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
   getGeometrySettings,
@@ -3312,6 +3312,18 @@ export default class DisplayCanvas extends React.Component {
       return;
     }
     RECENT_THUMBS.set(key, url);
+    // The homepage hero makes one per Generate and never runs fillRecentThumbs (the only other
+    // place they are released), so a long session there would keep every one. Nothing outside
+    // the list is ever shown, so it never holds more than the list does.
+    if (RECENT_THUMBS.size > RECENT_MAX) {
+      const live = new Set((this.props.recentDesigns || []).map(e => recentDesignKey(e.design)));
+      RECENT_THUMBS.forEach((stale, k) => {
+        if (k !== key && !live.has(k)) {
+          URL.revokeObjectURL(stale);
+          RECENT_THUMBS.delete(k);
+        }
+      });
+    }
     if (!this.unmounted) this.setState(s => ({ recentThumbs: { ...s.recentThumbs, [key]: url } }));
   }
 

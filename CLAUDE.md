@@ -1615,7 +1615,14 @@ The mockup's "instant" recall was not built: it would be the one artwork change 
 following the shared loader rule. A saved entry comes back saved (`markDesignSaved`), so Save
 cannot make a second row.
 (4) **Saved markers ride every save path**: `saveCurrentDesign`, `markDesignSaved` and
-`markDesignDeleted` (for ANY deleted id, not only the active one) all update the list.
+`markDesignDeleted` (for ANY deleted id, not only the active one) all update the list. Verified
+end to end against a mocked Supabase (save from the panel, recall reads Saved with its share link
+and makes no second row, a share-link load arrives saved, a My designs delete unmarks it).
+(4b) **Every tab takes another tab's writes** (a `storage` listener in StudioContext). Each tab
+writes the whole list, so without it a tab holding an older copy put that back over the other's
+designs: two tabs generating in turn kept 4 of 7. The thumbnail cache (`RECENT_THUMBS`) is also
+held to the list's size, since the homepage hero makes one per Generate and never otherwise
+releases them.
 (5) **The Image tab no longer loses its still to a 3D flight.** Entering Animation mirrors the
 flight's design to StudioContext, the canvas adopted it as a still, and that still replaced the
 stashed one. An ADOPTED still landing in Animation is now dropped; only a still someone asked for

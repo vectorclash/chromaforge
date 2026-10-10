@@ -11,7 +11,8 @@
 // Deliberately no import of render/compactDesign (it pulls in the whole generator).
 import { compactSettings, isSameDesign } from '../render/designSettings';
 
-const KEY = 'cf-studio:recent';
+export const RECENT_STORAGE_KEY = 'cf-studio:recent';
+const KEY = RECENT_STORAGE_KEY;
 const VERSION = 1;
 // Nine: a full 3x3 grid in the panel. It was 20, which read as overwhelming (Aaron, 2026-10-10).
 export const RECENT_MAX = 9;
