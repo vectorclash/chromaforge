@@ -1592,7 +1592,7 @@ files would otherwise alias). 8K renders in ~0.3s on desktop.
 scaled down uniformly so the shape survives -- the render-print-file lesson. Typed text is only
 committed on blur/Enter; an emptied box reverts to the last valid value.
 (4) `check-leaks.mjs` exports through the panel now; its preview's WebGL context is covered too.
-**The Recent panel keeps the studio's last 20 stills (2026-10-10, Aaron: "I hit generate and a
+**The Recent panel keeps the studio's last 9 stills -- a full 3x3 grid; 20 felt overwhelming (2026-10-10, Aaron: "I hit generate and a
 moment later realized that the artwork was amazing").** A clock icon beside the settings icon opens
 it, built from the Download panel's parts; layout C of three mocked up and compared
 (https://claude.ai/artifact/92RBnzRVjVUUnp1MijquPm). Six things worth not re-deriving:
@@ -1924,6 +1924,17 @@ Animation within the still's 0.5s fade-in left the fade-in running past the fade
 still-behind-3D symptom by a second route.
 (5) `check-hero-build-race.mjs` fails its widget-click step intermittently on a cold server, on the
 pre-change commit too (1 of 3 cold runs) -- a harness flake, not this.
+(6) **Generate stays "Generating" until the artwork has FINISHED fading in** (`loaderRevealing`,
+2026-10-10, Aaron: generating quickly "you can bypass the fixed beat with hex loader and it just
+pops in"). It used to come back as the fade-in began, with the loader still up underneath, so a
+quick click started the next build under a loader that never re-appeared -- and `loaderDrawnAt`,
+set only when the loader appears, still held the last build's moment. Measured on rapid stills
+before: 1958, 945, 840, 750, 344, 243ms from click to artwork; after: 1128-1155ms every time, each
+click finding a fresh loader, in stills, 2D and 3D alike. Tile picks and slider releases wait the
+same way. `restartLoaderBeat` stays as the net for anything else that starts a build then: it
+waits for the loader's NEXT drawn moment (it loops on `HEXAGON_CYCLE` from mount).
+**Not simply the beat reset alone, which was built first:** a click at the instant Generate came
+back then waited a whole 2s cycle, and its predecessor was faded back out before it ever showed.
 `check-leaks.mjs` waits for the button to return between Generates rather than a fixed 1.2s.
 Every path that puts a 3D build in front of the visitor goes through `threeDBuildState()` --
 Generate, entering the Animation tab with 3D on, and turning 3D on -- because the first press of

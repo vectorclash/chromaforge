@@ -13,7 +13,8 @@ import { compactSettings, isSameDesign } from '../render/designSettings';
 
 const KEY = 'cf-studio:recent';
 const VERSION = 1;
-export const RECENT_MAX = 20;
+// Nine: a full 3x3 grid in the panel. It was 20, which read as overwhelming (Aaron, 2026-10-10).
+export const RECENT_MAX = 9;
 
 const HEX = /^#[0-9a-f]{3,8}$/i;
 

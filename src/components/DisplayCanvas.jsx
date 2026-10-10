@@ -57,7 +57,7 @@ import DotRipple, { RIPPLE_BEAT } from './DotRipple';
 
 // Rings the hero's ripple plays before its artwork may arrive (see queueHeroReveal)
 const HERO_MIN_RINGS = 2;
-import HexagonLoader, { HEXAGON_DRAWN } from './HexagonLoader';
+import HexagonLoader, { HEXAGON_DRAWN, HEXAGON_CYCLE } from './HexagonLoader';
 import AnimationPreview from './AnimationPreview';
 import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
@@ -385,6 +385,7 @@ export default class DisplayCanvas extends React.Component {
     // When the studio loader's strokes are (or were) fully drawn, on GSAP's clock -- the earliest
     // any artwork may replace it (see loaderShown). Set when the loader appears.
     this.loaderDrawnAt = 0;
+    this.loaderMountedAt = 0;
   }
 
   componentDidMount() {
@@ -618,7 +619,8 @@ export default class DisplayCanvas extends React.Component {
     // The loader's cycle starts the moment it mounts (HexagonLoader's componentDidMount runs in
     // this same commit, on the same GSAP tick), so its strokes are full HEXAGON_DRAWN from now.
     if (this.loaderShown() && !this.loaderShown(prevState)) {
-      this.loaderDrawnAt = gsap.ticker.time + HEXAGON_DRAWN;
+      this.loaderMountedAt = gsap.ticker.time;
+      this.loaderDrawnAt = this.loaderMountedAt + HEXAGON_DRAWN;
     }
     // Remember the Video tab's own settings across visits. Unlike the palette and geometry
     // sliders -- which ride the design itself and are persisted once, centrally, in
@@ -1047,6 +1049,27 @@ export default class DisplayCanvas extends React.Component {
     if (this.state.loaderHeld === kind) this.setState({ loaderHeld: null });
   }
 
+  // The loader is up only to sit under artwork that is already fading in over it.
+  loaderRevealing(state = this.state) {
+    if (!this.loaderShown(state) || state.isLoading) return false;
+    if (state.loaderHeld === '3d') return !state.threeDBuilding;
+    return state.loaderHeld === 'image' || state.loaderHeld === 'frames';
+  }
+
+  // A new build that starts while the loader is still up for the LAST one -- Generate comes back
+  // as the previous artwork begins to fade in -- never sees the loader appear, so loaderDrawnAt
+  // still held the previous build's moment, already past, and the new artwork was shown the
+  // instant it rendered: no beat, it just popped in (Aaron, 2026-10-10, generating quickly).
+  // It waits for the loader's NEXT fully drawn moment instead. The loader loops on
+  // HEXAGON_CYCLE from when it mounted, so that is a real moment in its animation: the strokes
+  // finish retracting, draw back in, and the artwork arrives on them like any other Generate.
+  restartLoaderBeat() {
+    if (this.props.compact || !this.loaderRevealing()) return;
+    const now = gsap.ticker.time;
+    const first = this.loaderMountedAt + HEXAGON_DRAWN;
+    this.loaderDrawnAt = now <= first ? first : first + Math.ceil((now - first) / HEXAGON_CYCLE) * HEXAGON_CYCLE;
+  }
+
   // Resolves once the loader's strokes have been fully drawn -- straight away if they already
   // have. On GSAP's clock, the one the loader animates on: GSAP pauses through a long stall rather
   // than jumping ahead, so a wall-clock wait could let a stall eat into the stroke.
@@ -1172,6 +1195,9 @@ export default class DisplayCanvas extends React.Component {
   }
 
   buildImage(config) {
+    // Any still started while the last one is still fading in (a recall, a slider release) keeps
+    // the loader's beat too
+    this.restartLoaderBeat();
     this.setState({
       generateDisabled: true,
       linkCopied: false
@@ -2644,8 +2670,9 @@ export default class DisplayCanvas extends React.Component {
 
   regenerateCurrentSeed() {
     if (!this.mainConfig || this.state.animationMode || this.state.isExporting) return;
-    if (this.state.generateDisabled) {
-      // A build is already in flight (e.g. the previous slider tick's regen) -- try again
+    if (this.state.generateDisabled || this.loaderRevealing()) {
+      // A build is already in flight (e.g. the previous slider tick's regen), or the last one is
+      // still fading in over the loader -- try again
       // shortly instead of dropping the newest slider position on the floor.
       this.geometryRegenTimer = setTimeout(() => this.regenerateCurrentSeed(), 350);
       return;
@@ -2668,7 +2695,12 @@ export default class DisplayCanvas extends React.Component {
   onGenerateButtonClick(e) {
     const { generateDisabled, animationMode, animationFrames } = this.state;
 
-    if (!generateDisabled && !this.isBuilding3D()) {
+    // Held until the last artwork has finished fading in over the loader, so every Generate gets
+    // a fresh loader and its full beat. Clickable as the fade-in BEGAN, a quick click started the
+    // next build under a loader that was already drawn, and it popped in (Aaron, 2026-10-10).
+    if (!generateDisabled && !this.isBuilding3D() && !this.loaderRevealing()) {
+      // Before anything below shows the loader -- see restartLoaderBeat
+      this.restartLoaderBeat();
       // Clear URL when generating new image
       window.history.pushState({}, '', window.location.pathname);
       // isSaved (React state, below) isn't enough on its own -- this.shareUrl/shareDesignId
@@ -3294,7 +3326,7 @@ export default class DisplayCanvas extends React.Component {
   onRecentPick(entry) {
     const { generateDisabled, isExporting, animationMode } = this.state;
     // A pick while a still is still building waits for the next tap, like Generate
-    if (generateDisabled || isExporting || this.isBuilding3D()) return;
+    if (generateDisabled || isExporting || this.isBuilding3D() || this.loaderRevealing()) return;
     if (!animationMode && entry.id === this.props.recentDesignId) return;
     if (animationMode) {
       // Recent holds stills, so a pick from the Animation tab goes back to Image and shows it
@@ -3761,7 +3793,7 @@ export default class DisplayCanvas extends React.Component {
           )}
           <p className="recent-note">
             {entries.length > 0
-              ? 'Kept on this device: the newest 20. Save one to keep it in your gallery.'
+              ? 'Kept on this device: the newest 9. Save one to keep it in your gallery.'
               : 'Designs you generate will show up here.'}
           </p>
         </div>
@@ -4070,10 +4102,14 @@ export default class DisplayCanvas extends React.Component {
               <div className="row">
                 <button
                   onClick={this.onGenerateButtonClick.bind(this)}
-                  className={'button-large' + (generateDisabled || this.isBuilding3D() ? ' disabled' : ' enabled')}
+                  className={'button-large' + (generateDisabled || this.isBuilding3D() || this.loaderRevealing() ? ' disabled' : ' enabled')}
                 >
                   {this.isBuilding3D()
                     ? 'Generating'
+                    : this.loaderRevealing() && !generateDisabled
+                      ? animationMode && !threeDMode
+                        ? `Generating ${frameCount} / ${frameCount}`
+                        : 'Generating'
                     : generateDisabled
                       ? animationMode
                         ? `Generating ${animationProgress} / ${frameCount}`
