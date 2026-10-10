@@ -12,6 +12,8 @@ import Toggle from '../components/ui/Toggle';
 import ProductSlot, { slotPhotos } from './ProductSlot';
 import InstagramOverlay from './InstagramOverlay';
 import DesignThumb from './DesignThumb';
+import PostCopy from './PostCopy';
+import { DEFAULT_POST } from './postText';
 import { createAdComposer } from './adComposer';
 import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
@@ -32,7 +34,7 @@ const fmt = t => `${t.toFixed(2)}s`;
 
 // Product slots carry a stable id so each keeps its own mockup state when one is removed.
 let nextSlotId = 1;
-const newSlot = productId => ({ uid: nextSlotId++, productId, photos: [], fit: 'cutout' });
+const newSlot = productId => ({ uid: nextSlotId++, productId, photos: [], fit: 'full' });
 
 // The design a saved row prints: the row's own design for an image, a 3D animation's one design,
 // or a 2D animation's first frame.
@@ -84,9 +86,10 @@ export default function AdBuilder() {
   const [slots, setSlots] = useState(() => [newSlot(STARTER_PRODUCT_IDS[0])]);
   const [music, setMusic] = useState({ link: '', plan: null, audioUrl: null, duration: null });
   const [musicBuffer, setMusicBuffer] = useState(null);
-  const [timing, setTiming] = useState({ flightBars: 2, productBars: 1 });
+  const [timing, setTiming] = useState({ flightBars: 1, productBars: 1 });
   const [overlay, setOverlay] = useState({ show: true, text: 'chromaforge.app', position: 'bottom' });
   const [name, setName] = useState('');
+  const [post, setPost] = useState(DEFAULT_POST);
 
   // ── Supporting data and UI state ────────────────────────────────────────────
   const [catalog, setCatalog] = useState(
@@ -339,6 +342,12 @@ export default function AdBuilder() {
     p.playing = true;
     perf.current.last = 0;
     if (p.t >= drawState.current.timeline.total - 0.02) p.t = 0;
+    // The audio context is made and unlocked HERE, inside the click, even with no take yet.
+    // A take that lands mid-play starts its source from an effect; a context first created
+    // there is outside any user gesture, and Safari keeps it suspended -- a silent preview
+    // until the next pause and play.
+    p.audio = p.audio || new AudioContext();
+    p.audio.resume();
     startClock(p.t);
     const tick = now => {
       if (!p.playing) return;
@@ -497,7 +506,8 @@ export default function AdBuilder() {
         slots,
         music,
         timing,
-        overlay
+        overlay,
+        post
       });
       setName(name || slug);
       setSavedAds(await listSavedAds());
@@ -529,6 +539,7 @@ export default function AdBuilder() {
       renderToken.current++;
       setTiming(ad.timing);
       setOverlay(ad.overlay);
+      setPost(ad.post ?? DEFAULT_POST);
       setMusic(ad.music);
       setMusicBuffer(savedTake);
       play.current.t = 0;
@@ -947,6 +958,17 @@ export default function AdBuilder() {
             <p className="mt-2 text-xs text-neutral-500">No music: the file will be silent.</p>
           )}
           {notice && <p className="mt-2 text-xs text-neutral-300">{notice}</p>}
+        </Section>
+
+        <Section title="7 · Post">
+          <PostCopy
+            design={design}
+            productNames={photos.map(p =>
+              catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
+            )}
+            post={post}
+            onChange={setPost}
+          />
         </Section>
       </aside>
 

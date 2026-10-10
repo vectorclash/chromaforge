@@ -2132,7 +2132,11 @@ URLs expire in days, and an image from another origin taints the canvas the expo
 (`mockupDefaults.js`, mirrored from ProductPage's initial state -- change both together). Matching
 exactly also means a mockup made on a product page in the last 12h comes out of `cf-mockup-cache`
 here for free. A mockup is only ever made on a click: each one is a permanent Printful library file.
-(6) **Products are CUTOUTS by default, from Printful itself** (2026-10-06). A mockup task with
+(6) **A new product slot defaults to Full frame, and a new ad to a 1-bar flight** (2026-10-10, Aaron:
+Card and Cutout "don't work universally on all mockup shots"; a 2-bar flight left ~4.4s before
+anything said what the ad was). Saved ads keep the fit and timing they were saved with, and a saved
+slot with no `fit` still falls back to `cutout`, so nothing already made changes.
+**The photos are still Printful CUTOUTS** (2026-10-06). A mockup task with
 `format: 'png'` comes back with the background already removed -- flat lays AND on-model shots,
 measured on one approved task (257: 50-74% of each 2000px view clear, a 0.3-0.5% antialiased edge, no
 halo, no baked shadow). The builder asks for 2000px PNG (`createMockupTask`'s `format`/`width`,
@@ -2234,7 +2238,24 @@ FacetSwap's original in 21 of 21 cases (3 origins x 7 moments).
 export composer runs the flight `exact`. Verified end to end: a real export is 1080x1920 H.264, 277
 frames, 9.23s, with a 48kHz stereo AAC track at -17.9dB mean; the signed-in pass lists saved designs
 and reopens a saved ad with its music. **Not exercised:** generating a mockup from the builder itself (the cutout
-pass used the PNGs from the one approved task, uploaded as own photos) and an actual Instagram upload.
+pass used the PNGs from the one approved task, uploaded as own photos). **Instagram upload, 2026-10-10:**
+the raw export (30 Mbps, level 5.2, the builder's own AAC header, audio 0.05s past the video) posted
+fine from the iPhone APP. The instagram.com web uploader failed every attempt with "Something went
+wrong", in Safari and Chrome, on that file and on a clean re-encode alike -- an account-side web
+limit (the account was a day old), not the file. So the export was NOT changed; post from the phone.
+The web uploader also defaults to a 1:1 crop -- pick Original for 9:16.
+
+(9) **Section 7 · Post is the caption helper** (`PostCopy.jsx`, `postText.js`, 2026-10-10): a caption
+written from the ad (design name and products, then the bio's "Hit Generate. Get art. Wear
+it." and `✦ chromaforge.app`; no seed talk, no emoji) until typed into, four curated hashtag sets, Copy caption
+(caption + one set) and Copy link (the design's `chromaforge.app/studio?id=` page, for a Story sticker
+or bio -- Reel caption links aren't clickable). **Each set is exactly 5 tags** because Instagram caps
+a post at 5 (Dec 2025), caption and first comment together; every set leads with #chromaforge. Saved
+with the ad as `post`. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
+filesystem resolved `./PostCopy` to the lowercase file.
+Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
+exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
+kept it suspended -- a silent preview until the next pause and play. Export was never affected.
 
 ### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)
 Aaron: "it just adds the light logo". Same decision and threshold as the printed label_outside
