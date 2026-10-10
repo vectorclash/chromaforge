@@ -1606,8 +1606,13 @@ in after. The grid also enters as ONE block, like Download's preview, and is hid
 panel is shown -- hidden in the setState callback it painted for a frame at full strength on a
 reopen, then dropped and flew in again. Verified frame by frame from screen recordings of a first
 open, a reopen and an open after reload.
-(2) **Every still that REACHES THE SCREEN is recorded** (`onStillShown`, from setImage's reveal
-and the Image-tab restore), hero and studio alike. An existing design becomes current without
+(2) **Every still that REACHES THE SCREEN is recorded, from every generator** (Aaron: "all
+instances of the generator need to be in sync"): the studio and hero through `onStillShown`
+(setImage's reveal and the Image-tab restore), the mini generators through StudioContext once
+their preview renders (`recordOnPreviewRef`, set by `generateRandom` and for the session's opening
+design). Recording a design twice changes nothing, so a design shown by several at once is one
+entry. Mini-generator designs have no full-size image in the studio, so their thumbnails are drawn
+in idle moments from 300ms after the studio opens. An existing design becomes current without
 moving; the current entry reshaped by a slider or palette edit is updated in place, unless it is
 saved; anything else is appended. Going back never reorders or deletes.
 (3) **A pick rebuilds through the normal handoff** (loader, reveal), the same as a gallery load.

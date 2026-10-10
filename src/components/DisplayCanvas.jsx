@@ -400,8 +400,8 @@ export default class DisplayCanvas extends React.Component {
     // depends on settled layout -- it queries an already-mounted element, reads the URL, and
     // kicks off a build, and buildImage is token-guarded against overlap either way.
     this.init();
-    // A list restored from an earlier visit has no thumbnails yet
-    this.scheduleRecentThumbs();
+    // A list restored from an earlier visit, or filled by the mini generators, has no thumbnails yet
+    this.scheduleRecentThumbs(300);
 
     // The reveal normally fires from the first artwork paint (see startHeroReveal). This is
     // the bound for when that never comes -- a pathologically slow render, or a build that
@@ -3329,10 +3329,12 @@ export default class DisplayCanvas extends React.Component {
 
   // The list changed (or the studio just opened on a restored one): fill in anything with no
   // thumbnail once things settle. A fresh Generate's own image has usually supplied it by then.
-  scheduleRecentThumbs() {
+  // Designs from the mini generators never had a full-size image here, so they are always drawn
+  // this way -- which is why it starts soon after the studio opens rather than waiting.
+  scheduleRecentThumbs(delay = 1500) {
     if (this.props.compact) return;
     clearTimeout(this.recentThumbTimer);
-    this.recentThumbTimer = setTimeout(() => this.fillRecentThumbs(), 1500);
+    this.recentThumbTimer = setTimeout(() => this.fillRecentThumbs(), delay);
   }
 
   onRecentPick(entry) {

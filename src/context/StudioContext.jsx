@@ -95,6 +95,12 @@ export function StudioProvider({ children }) {
       geometry: getStudioGeometrySettings(prefs?.settings)
     });
   });
+  // A design the mini generators show, to record in the Recent list once its preview has rendered
+  // (that is when it reaches their screens). The session's opening design and every mini generator
+  // Generate; the studio and the homepage hero record their own stills as they land
+  // (DisplayCanvas's onStillShown), and recording the same design twice changes nothing.
+  // Aaron, 2026-10-10: "all instances of the generator need to be in sync".
+  const recordOnPreviewRef = useRef(currentDesign);
   const [previewUrl, setPreviewUrl] = useState(null);
   // The palette the CURRENT PREVIEW is painted with -- deliberately updated alongside
   // previewUrl rather than derived from currentDesign by consumers. currentDesign changes the
@@ -268,6 +274,10 @@ export function StudioProvider({ children }) {
         // `currentDesign` here is the closure's -- the design this blob was rendered FROM,
         // not whatever happens to be current by the time it resolves.
         setPreviewPalette(resolvedPalette(currentDesign));
+        if (recordOnPreviewRef.current === currentDesign) {
+          recordOnPreviewRef.current = null;
+          recordRecentDesign(currentDesign);
+        }
         // The old url is revoked on a DELAY, not immediately. Every consumer of previewUrl
         // reveals it through useCrossfadeImage, which spends ~1.7s fading the old image out,
         // holding, and fading the new one in -- and it preloads mid-reveal. Revoking on the
@@ -292,9 +302,13 @@ export function StudioProvider({ children }) {
   // an auto-palette only for the provider's very first (pre-Studio-visit) design, same as
   // before.
   const generateRandom = useCallback(() => {
-    setCurrentDesign(prev =>
-      generateArtwork(randomSeed(), 1080, 1080, prev.colors ?? [], getGenerationSettings(prev))
-    );
+    setCurrentDesign(prev => {
+      const next = generateArtwork(randomSeed(), 1080, 1080, prev.colors ?? [], getGenerationSettings(prev));
+      // Set from the updater so it names the design actually committed (StrictMode runs an
+      // updater twice and keeps the second result)
+      recordOnPreviewRef.current = next;
+      return next;
+    });
   }, []);
 
   // Persist a design to the signed-in user's gallery. Throws (rather than silently no-op'ing)
