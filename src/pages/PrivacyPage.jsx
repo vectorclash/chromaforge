@@ -86,9 +86,11 @@ export default function PrivacyPage() {
           <p>
             Our site doesn't set cookies. It uses your browser's local storage to keep you signed
             in, to remember your studio settings (palette, generator sliders, video and download
-            preferences), and to cache product details and recent product previews so pages load
-            faster. You can clear these at any time in your browser settings, or with the studio's
-            Reset button for its settings. Stripe's checkout page and Cloudflare Turnstile run on
+            preferences), to keep your 20 most recent designs so you can bring one back from the
+            studio's Recent panel, and to cache product details and recent product previews so
+            pages load faster. Your recent designs stay on your device and aren't sent to us. You
+            can clear any of this in your browser settings, or with the studio's Reset button for
+            its settings. Stripe's checkout page and Cloudflare Turnstile run on
             those providers' own services and may set their own cookies.
           </p>
         </LegalSection>

@@ -1088,6 +1088,27 @@
   transition: transform 0.4s ease-out;
   transform: translateX(0);
 }
+/* The Recent icon beside it (buttons/RecentButton.jsx) moves on the same hover, timing and
+   easing as the knobs: the arrow winds back and the hands spin back a full turn. Rotations
+   about the clock's own centre, in the icon's 512 grid. */
+.display-canvas .controls-inner .row .panel-icons {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.display-canvas .controls-inner .row .button-icon .recent-arc,
+.display-canvas .controls-inner .row .button-icon .recent-hands {
+  transform-box: view-box;
+  transform-origin: 256px 256px;
+  transition: transform 0.4s ease-out;
+  transform: rotate(0deg);
+}
+.display-canvas .controls-inner .row .button-icon:hover .recent-arc {
+  transform: rotate(-40deg);
+}
+.display-canvas .controls-inner .row .button-icon:hover .recent-hands {
+  transform: rotate(-360deg);
+}
 .display-canvas .controls-inner .row .button-small {
   width: 48.5%;
 }
@@ -1441,7 +1462,8 @@
    dvh, not vh: iOS resolves vh against the EXPANDED viewport it only gives a scrolling
    page, so a vh cap here would still overflow by the height of the toolbars. */
 .display-canvas .controls-container #controls-settings,
-.display-canvas .controls-container #controls-download {
+.display-canvas .controls-container #controls-download,
+.display-canvas .controls-container #controls-recent {
   max-height: calc(100dvh - 32px);
 }
 .display-canvas .controls-inner .settings-tabs,
@@ -1512,7 +1534,9 @@
   .display-canvas:has(#controls-settings.controls-visible) .controls-open,
   .display-canvas:has(#controls-settings.controls-visible) .animation-pause,
   .display-canvas:has(#controls-download.controls-visible) .controls-open,
-  .display-canvas:has(#controls-download.controls-visible) .animation-pause {
+  .display-canvas:has(#controls-download.controls-visible) .animation-pause,
+  .display-canvas:has(#controls-recent.controls-visible) .controls-open,
+  .display-canvas:has(#controls-recent.controls-visible) .animation-pause {
     opacity: 0 !important;
     transform: scale(0.8);
     pointer-events: none;
@@ -2367,6 +2391,77 @@
   border-radius: 4px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
   transition: opacity 0.2s ease;
+}
+/* The Recent panel: the studio's recent generations, newest first. Tiles take the studio
+   canvas's own shape (16:9 on desktop, square on a phone), set inline. */
+.display-canvas .controls-inner .recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  /* Room for the current tile's ring, which sits outside its box */
+  padding: 3px;
+}
+.display-canvas .controls-inner .recent-tile {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.25);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.2s ease, transform 0.2s ease-out, opacity 0.2s ease;
+}
+.display-canvas .controls-inner .recent-tile:hover {
+  transform: translateY(-2px);
+}
+.display-canvas .controls-inner .recent-tile:focus-visible {
+  outline-color: var(--color-interactive);
+}
+.display-canvas .controls-inner .recent-tile.is-current {
+  outline-color: var(--color-text);
+}
+.display-canvas .controls-inner .recent-tile:disabled {
+  cursor: default;
+  opacity: 0.5;
+  transform: none;
+}
+.display-canvas .controls-inner .recent-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.display-canvas .controls-inner .recent-tile img.is-loaded {
+  opacity: 1;
+}
+.display-canvas .controls-inner .recent-chip {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: rgba(14, 11, 20, 0.75);
+  color: var(--color-text);
+  font: 700 8px/1 Quicksand, sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.display-canvas .controls-inner .recent-chip.is-saved {
+  left: auto;
+  bottom: auto;
+  top: 4px;
+  right: 4px;
+  color: var(--color-accent-soft);
+}
+.display-canvas .controls-inner .recent-note {
+  margin: 12px 0 0;
+  color: var(--color-text-secondary);
+  font: 500 11px/1.4 Quicksand, sans-serif;
 }
 @keyframes download-preview-in {
   from {

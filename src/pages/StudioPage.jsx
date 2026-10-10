@@ -54,7 +54,10 @@ export default function StudioPage({ compact = true }) {
     isCurrentDesignSaved,
     savedDesignId,
     savedDesignTitle,
-    markDesignSaved
+    markDesignSaved,
+    recentDesigns,
+    recentDesignId,
+    recordRecentDesign
   } = useStudio();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -83,6 +86,9 @@ export default function StudioPage({ compact = true }) {
       onNavigate={navigate}
       saveCurrentDesign={saveCurrentDesign}
       markDesignSaved={markDesignSaved}
+      recentDesigns={recentDesigns}
+      recentDesignId={recentDesignId}
+      onStillShown={recordRecentDesign}
     />
   );
 }

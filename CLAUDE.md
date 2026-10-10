@@ -1592,6 +1592,34 @@ files would otherwise alias). 8K renders in ~0.3s on desktop.
 scaled down uniformly so the shape survives -- the render-print-file lesson. Typed text is only
 committed on blur/Enter; an emptied box reverts to the last valid value.
 (4) `check-leaks.mjs` exports through the panel now; its preview's WebGL context is covered too.
+**The Recent panel keeps the studio's last 20 stills (2026-10-10, Aaron: "I hit generate and a
+moment later realized that the artwork was amazing").** A clock icon beside the settings icon opens
+it, built from the Download panel's parts; layout C of three mocked up and compared
+(https://claude.ai/artifact/92RBnzRVjVUUnp1MijquPm). Six things worth not re-deriving:
+(1) **The list is design identity only** (`lib/recentDesigns.js`, `cf-studio:recent`): seed,
+colours, settings, a few hundred bytes, never pixels. StudioContext owns it and is the only
+writer; thumbnails are rendered when the panel opens, at 2-3x and scaled down.
+(2) **Every still that REACHES THE SCREEN is recorded** (`onStillShown`, from setImage's reveal
+and the Image-tab restore), hero and studio alike. An existing design becomes current without
+moving; the current entry reshaped by a slider or palette edit is updated in place, unless it is
+saved; anything else is appended. Going back never reorders or deletes.
+(3) **A pick rebuilds through the normal handoff** (loader, reveal), the same as a gallery load.
+The mockup's "instant" recall was not built: it would be the one artwork change in the studio not
+following the shared loader rule. A saved entry comes back saved (`markDesignSaved`), so Save
+cannot make a second row.
+(4) **Saved markers ride every save path**: `saveCurrentDesign`, `markDesignSaved` and
+`markDesignDeleted` (for ANY deleted id, not only the active one) all update the list.
+(5) **The Image tab no longer loses its still to a 3D flight.** Entering Animation mirrors the
+flight's design to StudioContext, the canvas adopted it as a still, and that still replaced the
+stashed one. An ADOPTED still landing in Animation is now dropped; only a still someone asked for
+replaces the stash. A tile picked from the Animation tab goes back to Image via
+`onModeToggle`'s `pendingRecall`.
+(6) **The icon's hover is the settings knobs' exactly**: 0.4s ease-out, sampled on the same frames
+(arc 0/13/24/32/38/40 deg against knob 0/13/24/32/38/40 px). Stills only; 3D flights could join
+later, 2D animations cost a frame rebuild to bring back.
+**A 3D Generate shows no progress bar**: it builds in milliseconds and is then held for the
+loader's beat, so there is nothing to measure. 2D builds and exports in both modes keep it.
+
 **Export filenames follow the piece (2026-09-30, Aaron: "the animation export gives a different
 file name every time").** A piece keeps ONE name: its gallery title if it is a saved or loaded
 row, otherwise one minted the first time Download or Save asks, and Save passes that name as the

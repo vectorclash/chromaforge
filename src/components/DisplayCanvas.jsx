@@ -11,6 +11,7 @@ import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
+import { recentDesignKey } from '../lib/recentDesigns';
 import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
   getGeometrySettings,
@@ -21,7 +22,7 @@ import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speed
 import { logoState, LOGO_SCREEN_FRACTION } from '../utils/logoIntro';
 import { generateLogoMark } from '../render/generateLogoMark';
 import { logoBackdrop2D, logoBackdrop3D, darkInkFor } from '../render/logoInk';
-import { renderFrames, renderStarFrames as renderStarFramesShared, animTiming, AnimationBuildCancelled } from '../render/animationFrames';
+import { renderFrames, renderStarFrames as renderStarFramesShared, animTiming, AnimationBuildCancelled, yieldToPaint } from '../render/animationFrames';
 import { build3DAnimationData, build2DAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { drawLogoMark } from '../render/renderLogoMark';
 import { isMobileDevice } from '../utils/device';
@@ -66,6 +67,7 @@ import PalettePicker from './ui/PalettePicker';
 import ConfirmDialog from './ui/ConfirmDialog';
 import FileName from './FileNameGenerator';
 import SettingsButton from './buttons/SettingsButton';
+import RecentButton from './buttons/RecentButton';
 import PlayPauseButton from './buttons/PlayPauseButton';
 import AddColorButton from './buttons/AddColorButton';
 import ShirtIcon from './buttons/ShirtIcon';
@@ -239,6 +241,9 @@ export default class DisplayCanvas extends React.Component {
       controlsAreOpen: true,
       controlsBlurred: false,
       saveVisible: false,
+      // The Recent panel (renderRecentPanel) and its thumbnails, by design (recentDesignKey)
+      recentVisible: false,
+      recentThumbs: {},
       colors: (designPrefs?.colors ?? []).map((value, id) => ({ id, value })),
       linkCopied: false,
       linkCopyFailed: false,
@@ -348,6 +353,9 @@ export default class DisplayCanvas extends React.Component {
     // reported live 2026-08-16 (hero disagreeing with the shirt, About blob, mini generator,
     // footer and mobile nav, all of which agreed with each other).
     this.buildToken = 0;
+    // Recent panel thumbnails rendered so far, by design; released on unmount
+    this.recentThumbUrls = new Map();
+    this.recentThumbJob = 0;
     // The 2D animation build's own token (see startAnimationBuild)
     this.animationBuildToken = 0;
     // The StudioContext design mainConfig was built from, when the canvas adopted it rather than
@@ -567,6 +575,10 @@ export default class DisplayCanvas extends React.Component {
   componentWillUnmount() {
     this.unmounted = true;
     clearTimeout(this.downloadPreviewTimer);
+    clearTimeout(this.recentThumbTimer);
+    this.recentThumbJob++;
+    this.recentThumbUrls.forEach(url => URL.revokeObjectURL(url));
+    this.recentThumbUrls.clear();
     clearTimeout(this.downloadDoneTimer);
     if (this.downloadPreviewUrl) URL.revokeObjectURL(this.downloadPreviewUrl);
     this.heroRevealFallback?.kill();
@@ -680,7 +692,11 @@ export default class DisplayCanvas extends React.Component {
       'dirtyNotice',
       animationMode && !threeDMode && settingsDirty && animationFrames.length > 0 && !generateDisabled
     );
-    this.syncCollapse('animationProgress', animationMode && (generateDisabled || isExporting));
+    // A Generate only shows the bar for a 2D build, the one kind with real progress to report
+    // (frame n of N). A 3D scene builds in milliseconds and is then held for the loader's beat,
+    // so there is nothing to measure -- it opened empty and closed again (Aaron, 2026-10-10).
+    // Exports report real progress in both modes.
+    this.syncCollapse('animationProgress', animationMode && ((generateDisabled && !threeDMode) || isExporting));
   }
 
   syncCollapse(name, shouldShow) {
@@ -1599,8 +1615,14 @@ export default class DisplayCanvas extends React.Component {
         // comes back to, so it replaces the one onModeToggle stashed -- revealed here instead, it
         // faded in BEHIND the animation and showed through every 3D Generate's fade-out. (That
         // stashed url is still the container's background; returning to Image releases it.)
+        //
+        // Except a still the canvas only ADOPTED: entering Animation hands the 3D flight's design
+        // to StudioContext, the canvas follows it with a still of the flight, and that used to
+        // replace the still the visitor had left -- so the Image tab came back on a different
+        // design (Aaron, 2026-10-10). Only a still somebody asked for takes the Image tab's place.
         if (this.state.animationMode) {
-          if (this.imageModeState) Object.assign(this.imageModeState, { blob, blobUrl: url, config });
+          const adopted = !!this.adoptedDesign && this.mainConfig === config;
+          if (this.imageModeState && !adopted) Object.assign(this.imageModeState, { blob, blobUrl: url, config });
           else URL.revokeObjectURL(url);
           // 3D never took these over, so they are this build's to hand back; a 2D frame build
           // owns them and will.
@@ -1613,6 +1635,8 @@ export default class DisplayCanvas extends React.Component {
         this.blobConfig = config;
         this.imageBlobUrl = url;
         this.showImageUrl(imageContainer, url);
+        // Every still that reaches the screen joins the Recent list (lib/recentDesigns.js)
+        this.props.onStillShown?.(config);
 
         // Everything below runs in the setState CALLBACK, which is the whole point: this
         // code executes inside GSAP's ticker (a rAF callback), and dropping the panel's
@@ -2672,9 +2696,12 @@ export default class DisplayCanvas extends React.Component {
         // it like a still or a 3D flight does -- it used to be cleared on the spot, cutting
         // straight from the old animation to the loader. The build waits for the fade, as 3D's
         // does, so its main-thread time can't hitch it.
+        // The count resets HERE, with the bar opening: left for start() it opened showing the
+        // previous build's full count and dropped to empty after the fade.
         this.setState({
           generateDisabled: true,
           isLoading: true,
+          animationProgress: 0,
           isSaved: false,
           showBranchNotice: false
         });
@@ -2807,6 +2834,28 @@ export default class DisplayCanvas extends React.Component {
       }
       this.animationConfigs = null;
 
+      // A Recent tile picked from the Animation tab (onRecentPick): show THAT design rather than
+      // the still the Image tab was holding. The stash is dropped unshown -- its url is still the
+      // container's background, and showImageUrl releases it once the recalled still replaces it.
+      const recall = this.pendingRecall;
+      this.pendingRecall = null;
+      if (recall) {
+        this.imageModeState = null;
+        this.setState(
+          {
+            animationMode: false,
+            animationFrames: [],
+            animationStarFrames: [],
+            animationProgress: 0,
+            isSaved: false,
+            generateDisabled: false,
+            isLoading: false
+          },
+          () => this.recallRecent(recall)
+        );
+        return;
+      }
+
       // Restore previous image state if available
       if (this.imageModeState && this.imageModeState.blobUrl) {
         const { blob, blobUrl, config, isSaved: wasSaved, shareUrl, shareDesignId } =
@@ -2831,6 +2880,7 @@ export default class DisplayCanvas extends React.Component {
         // before the mode switch must not paint over it.
         this.buildToken++;
         this.props.onDesignChange?.(config);
+        this.props.onStillShown?.(config);
 
         const imageContainer = document.querySelector('.image-container');
         if (imageContainer) {
@@ -3084,11 +3134,144 @@ export default class DisplayCanvas extends React.Component {
       controlsBlurred: false,
       saveVisible: false,
       downloadVisible: false,
+      recentVisible: false,
       linkCopied: false,
       linkCopyFailed: false,
       galleryStatus: null,
       galleryError: null
     });
+  }
+
+  // ── Recent panel ────────────────────────────────────────────────────────────────────────
+  // The studio's recent generations (lib/recentDesigns.js, kept by StudioContext), opened from
+  // the clock beside the settings icon. Same entrance as the Download panel: the main controls
+  // step back, this pops forward, its tiles fly up on the settings tabs' stagger.
+  onRecentButtonClick() {
+    if (this.state.isExporting) return;
+    gsap.to('#controls-main', {
+      duration: DURATION_FAST,
+      alpha: 0.5,
+      scale: 0.9,
+      filter: 'blur(3px)',
+      ease: 'back.out(1.7)'
+    });
+    gsap.from('#controls-recent', { duration: DURATION_FAST, alpha: 0, scale: 1.2, ease: 'back.out(1.7)' });
+    this.setState({ recentVisible: true }, () => {
+      const els = gsap.utils.toArray('#controls-recent .recent-tile, #controls-recent .recent-note, #controls-recent .row');
+      // Rows start 20px low, which would flash a scrollbar on the scroller for the length of the
+      // entrance (see animateSettingsTab)
+      const scroller = this.mount?.querySelector('#controls-recent .settings-scroll');
+      if (scroller) scroller.style.overflowY = 'hidden';
+      gsap.set(els, { alpha: 0, y: 20 });
+      gsap.to(els, {
+        duration: DURATION_BASE,
+        alpha: 1,
+        y: 0,
+        // Twenty tiles at the settings tabs' 0.05s would take a second to land; this keeps the
+        // whole cascade under ~0.6s however long the list is.
+        stagger: Math.min(0.05, 0.6 / Math.max(1, els.length)),
+        ease: 'back.out(1.7)',
+        onComplete: () => {
+          if (scroller) scroller.style.overflowY = '';
+        }
+      });
+      clearTimeout(this.recentThumbTimer);
+      this.recentThumbTimer = setTimeout(() => this.fillRecentThumbs(), DURATION_BASE * 1000);
+    });
+  }
+
+  // Thumbnails are rendered when the panel opens rather than kept with the list, so the list
+  // stays a few hundred bytes a design. One per frame, newest first, so the tiles you see first
+  // fill first; cached by design for the life of the canvas.
+  async fillRecentThumbs() {
+    const job = ++this.recentThumbJob;
+    const entries = [...(this.props.recentDesigns || [])].reverse();
+    const live = new Set(entries.map(e => recentDesignKey(e.design)));
+    // Release thumbnails of designs that have dropped off the end of the list
+    this.recentThumbUrls.forEach((url, key) => {
+      if (!live.has(key)) {
+        URL.revokeObjectURL(url);
+        this.recentThumbUrls.delete(key);
+      }
+    });
+    for (const entry of entries) {
+      const key = recentDesignKey(entry.design);
+      if (this.recentThumbUrls.has(key)) continue;
+      await yieldToPaint();
+      if (job !== this.recentThumbJob || !this.state.recentVisible) return;
+      const url = await this.renderRecentThumb(entry.design);
+      if (!url) continue;
+      if (this.unmounted) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      this.recentThumbUrls.set(key, url);
+      this.setState(s => ({ recentThumbs: { ...s.recentThumbs, [key]: url } }));
+    }
+  }
+
+  // The canvas's own shape, rendered small. Generated 2-3x the size it is drawn at and scaled
+  // down, since a direct render this small aliases its finest specks (the same reason
+  // renderDesignBlob has a density floor). Counts are size-independent, so it is the same
+  // composition the studio shows, only smaller.
+  async renderRecentThumb(design) {
+    const width = 256;
+    const height = Math.round((width * this.props.height) / this.props.width);
+    const scale = isMobileDevice() ? 2 : 3;
+    const config = generateArtwork(design.seed, width * scale, height * scale, design.colors, design.settings ?? null);
+    const source = renderArtwork(config);
+    const out = document.createElement('canvas');
+    out.width = width;
+    out.height = height;
+    const ctx = out.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, width, height);
+    this.clearElement(source);
+    const blob = await new Promise(resolve => out.toBlob(resolve, 'image/jpeg', 0.85));
+    this.clearElement(out);
+    return blob ? URL.createObjectURL(blob) : null;
+  }
+
+  onRecentPick(entry) {
+    const { generateDisabled, isExporting, animationMode } = this.state;
+    // A pick while a still is still building waits for the next tap, like Generate
+    if (generateDisabled || isExporting || this.isBuilding3D()) return;
+    if (!animationMode && entry.id === this.props.recentDesignId) return;
+    if (animationMode) {
+      // Recent holds stills, so a pick from the Animation tab goes back to Image and shows it
+      // there (onModeToggle builds it in place of the still that tab was holding)
+      this.pendingRecall = entry;
+      this.onModeToggle(false);
+      return;
+    }
+    this.recallRecent(entry);
+  }
+
+  // Bring a recent design back: the same rebuild a gallery load does (loadImageFromUrl), with the
+  // same loader handoff as every other new artwork. A saved one comes back saved, share link and
+  // gallery name included, so Save can't make a second row of it.
+  recallRecent(entry) {
+    const { design, savedId, savedTitle } = entry;
+    this.shareUrl = savedId ? buildShareUrl(savedId) : null;
+    this.shareDesignId = savedId || null;
+    this.setState({ isLoading: true, isSaved: !!savedId, showBranchNotice: false });
+    this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+    this.adoptDesignSettings(design.settings);
+    this.adoptDesignColors(design.colors);
+    const built = this.buildConfig(design.seed, this.props.width, this.props.height, design.colors, design.settings ?? null);
+    if (savedId) {
+      this.namePiece(built, savedTitle);
+      this.props.markDesignSaved?.(built, savedId, savedTitle);
+    }
+    this.buildImage(built);
+  }
+
+  // Save from the panel saves what is on screen, through the main Save button's own path (which
+  // opens the Save panel in this one's place)
+  onRecentSave() {
+    if (this.state.animationMode) return;
+    this.setState({ recentVisible: false });
+    this.onSaveButtonClick();
   }
 
   onClearColors() {
@@ -3474,6 +3657,72 @@ export default class DisplayCanvas extends React.Component {
     );
   }
 
+  // The Recent panel, built from the Download panel's parts: newest first, the design on screen
+  // ringed, saved ones marked. Tiles take the canvas's own shape.
+  renderRecentPanel() {
+    const { recentVisible, recentThumbs, animationMode, isSaving, isSaved } = this.state;
+    const entries = this.props.recentDesigns || [];
+    const currentId = animationMode ? null : this.props.recentDesignId;
+    const aspect = `${this.props.width} / ${this.props.height}`;
+    return (
+      <div
+        id="controls-recent"
+        className={
+          'controls-inner controls-settings absolute z-[1] flex min-w-[400px] flex-col justify-center rounded-2xl bg-black/15 p-8 opacity-90 shadow-[0_4px_40px_rgba(0,0,0,0.4)]' +
+          (recentVisible ? ' controls-visible' : '')
+        }
+        role="dialog"
+        aria-label="Recent designs"
+      >
+        <h6 className="m-0 mb-4 font-display text-xl font-bold text-neutral-50">Recent</h6>
+        <div className="settings-scroll">
+          {entries.length > 0 && (
+            <div className="recent-grid">
+              {[...entries].reverse().map(entry => {
+                const key = recentDesignKey(entry.design);
+                const thumb = recentThumbs[key];
+                const isCurrent = entry.id === currentId;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className={'recent-tile' + (isCurrent ? ' is-current' : '')}
+                    style={{ aspectRatio: aspect }}
+                    onClick={() => this.onRecentPick(entry)}
+                    aria-current={isCurrent || undefined}
+                    aria-label={(isCurrent ? 'On screen' : 'Bring back this design') + (entry.savedId ? ', saved' : '')}
+                  >
+                    {thumb && <img src={thumb} alt="" onLoad={e => e.currentTarget.classList.add('is-loaded')} />}
+                    {isCurrent && <span className="recent-chip">On screen</span>}
+                    {entry.savedId && <span className="recent-chip is-saved">Saved</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <p className="recent-note">
+            {entries.length > 0
+              ? 'Kept on this device: the newest 20. Save one to keep it in your gallery.'
+              : 'Designs you generate will show up here.'}
+          </p>
+        </div>
+        <div className="row">
+          <button onClick={this.onSettingsCloseButtonClick.bind(this)} className="button-small">
+            BACK
+          </button>
+          <button
+            onClick={this.onRecentSave.bind(this)}
+            className="button-small"
+            disabled={animationMode || isSaving}
+            style={animationMode ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+          >
+            {isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   render() {
     const {
       isLoading,
@@ -3840,9 +4089,18 @@ export default class DisplayCanvas extends React.Component {
                     own hover treatment (uppercase, fixed height, glow shadow, lift) meant for
                     Generate/Save/Settings, which looked wrong applied to the wordmark. */}
                 <StudioWordmark onNavigate={this.props.onNavigate} />
-                <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
-                  <SettingsButton />
-                </button>
+                <div className="panel-icons">
+                  <button
+                    onClick={this.onRecentButtonClick.bind(this)}
+                    className="button-icon"
+                    aria-label="Recent designs"
+                  >
+                    <RecentButton />
+                  </button>
+                  <button onClick={this.onSettingsButtonClick.bind(this)} className="button-icon">
+                    <SettingsButton />
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -4525,6 +4783,7 @@ export default class DisplayCanvas extends React.Component {
           </div>
 
           {!compact && this.renderDownloadPanel()}
+          {!compact && this.renderRecentPanel()}
         </div>
         {/* Homepage hero (compact) gets its copyright notice from the site's SiteFooter
             instead -- this tiny in-canvas notice is only needed on the standalone /studio

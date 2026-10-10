@@ -13,6 +13,13 @@ import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
+import {
+  readRecentDesigns,
+  writeRecentDesigns,
+  recordRecentDesign as recordInList,
+  markRecentSaved,
+  markRecentDeleted
+} from '../lib/recentDesigns';
 import { useAuth } from './AuthContext';
 import FileName from '../components/FileNameGenerator';
 
@@ -123,6 +130,13 @@ export function StudioProvider({ children }) {
   // currentDesign -- printing an old saved design shouldn't change what the ambient
   // mini-generator/footer show elsewhere, since those represent the studio's live work.
   const [printQueueDesign, setPrintQueueDesign] = useState(null);
+  // The studio's recent generations (lib/recentDesigns.js), restored from this device. `currentId`
+  // is the entry on screen in the studio; it is never stored, since a visit opens on new artwork.
+  const [recent, setRecent] = useState(() => ({ entries: readRecentDesigns(), currentId: null }));
+  // The saved fact as of the last render, so recording a design can tell whether it is a gallery
+  // row without recordRecentDesign changing identity on every save.
+  const savedRef = useRef({ design: null, id: null, title: null });
+  savedRef.current = { design: savedDesign, id: savedDesignId, title: savedDesignTitle };
 
   // Render any design config to a JPEG blob at the given size, off-canvas. Generalized from
   // DisplayCanvas.renderArtworkBlobAt -- recompose per ratio (regenerate from seed/colors),
@@ -180,6 +194,23 @@ export function StudioProvider({ children }) {
     },
     []
   );
+
+  // The list is written whenever it changes; a design re-recorded as current leaves the entries
+  // array untouched, so most stills that land cost no write at all.
+  const lastRecentRef = useRef(recent.entries);
+  useEffect(() => {
+    if (recent.entries === lastRecentRef.current) return;
+    lastRecentRef.current = recent.entries;
+    writeRecentDesigns(recent.entries);
+  }, [recent.entries]);
+
+  // A still reached the screen (DisplayCanvas reports every one, hero and studio alike).
+  const recordRecentDesign = useCallback(design => {
+    if (!design?.seed) return;
+    const saved = savedRef.current;
+    const asSaved = saved.id && isSameDesign(saved.design, design) ? { id: saved.id, title: saved.title } : null;
+    setRecent(prev => recordInList(prev.entries, prev.currentId, design, asSaved));
+  }, []);
 
   // Mirror the active design's palette + settings back to localStorage. This is the single
   // write point on purpose: every path that can change either of them -- the studio's own
@@ -275,6 +306,7 @@ export function StudioProvider({ children }) {
         setSavedDesign(data);
         setSavedDesignId(row.id);
         setSavedDesignTitle(row.title);
+        setRecent(prev => ({ ...prev, entries: markRecentSaved(prev.entries, data, row.id, row.title) }));
       }
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
       // A 3D flight's thumbnail is a real frame of the flight (its seam frame), not the 2D
@@ -317,6 +349,7 @@ export function StudioProvider({ children }) {
     setSavedDesign(design);
     setSavedDesignId(id);
     setSavedDesignTitle(title);
+    setRecent(prev => ({ ...prev, entries: markRecentSaved(prev.entries, design, id, title) }));
   }, []);
 
   // The inverse of markDesignSaved, for the Gallery's delete action: the row backing the
@@ -331,6 +364,8 @@ export function StudioProvider({ children }) {
   // the gallery leaves the active one's saved state alone.
   const markDesignDeleted = useCallback(
     id => {
+      // Any deleted row, not only the active one: an older entry in the Recent list may be it.
+      if (id) setRecent(prev => ({ ...prev, entries: markRecentDeleted(prev.entries, id) }));
       if (!id || id !== savedDesignId) return;
       setSavedDesign(null);
       setSavedDesignId(null);
@@ -361,7 +396,10 @@ export function StudioProvider({ children }) {
     savedDesignId,
     savedDesignTitle,
     printQueueDesign,
-    setPrintQueueDesign
+    setPrintQueueDesign,
+    recentDesigns: recent.entries,
+    recentDesignId: recent.currentId,
+    recordRecentDesign
   };
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
 }
