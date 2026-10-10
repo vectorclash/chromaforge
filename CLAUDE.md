@@ -2774,6 +2774,16 @@ confirmed]` -- found by grepping the legal pages for bracketed text. Now the Sta
 California, USA (Aaron, 2026-09-09, his location). If the business is ever operated from
 somewhere else this needs revisiting, and it is worth a lawyer's eye rather than an edit here.
 
+**The legal pages describe the app's real data flows and must move with them (re-audited
+2026-10-10).** The June versions had gone stale in ways that mattered: they promised private
+saves (every save is public -- `saveDesign` is always called with `isPublic: true`), said a
+Google sign-up's avatar is used (0015 stopped that; their Google NAME is still the default public
+byline), and omitted Fly.io, Hostinger, Cloudflare Turnstile and Google Fonts. Anything that
+changes what is public, adds a third party or an outbound request, stores something new, or
+changes ordering/refund behaviour needs a matching edit to `TermsPage`/`PrivacyPage` and a new
+"Last updated" date. Sign-in and the product page's fine print now carry an agreement line
+linking them; the /account skeleton height (`'/account'` in RouteSkeleton) was re-measured for it.
+
 Conventions the audit settled, worth holding:
 - **American spelling in user-facing copy** -- `colors`, `catalog`, `favorites`. The codebase's
   own comments use British freely; the copy does not.

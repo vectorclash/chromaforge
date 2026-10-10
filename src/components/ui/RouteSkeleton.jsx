@@ -260,15 +260,17 @@ function GridRouteSkeleton({ pathname, header, gridClass, count, extra = null, a
 // off, which is the whole complaint; over-reserving makes the footer RISE into view once the
 // real content lands, which is the same jolt in reverse. So the rule is: reserve past the fold
 // wherever the real page is reliably taller than a viewport, and reserve little where it
-// isn't. Measured mains at 1280x800: terms 2197, privacy 1884, account 704 signed out (more
+// isn't. Measured mains at 1280x800: terms 3075, privacy 2977, account 846 signed out (more
 // signed in), checkout success and 404 both exactly 403.
 const GENERIC_BODY_MIN = {
   // Walls of text. Anything up to a screenful is a safe under-estimate here.
   '/terms': 1000,
   '/privacy': 1000,
   // Lands the footer exactly where the signed-OUT page puts it, which is this route's floor --
-  // signed in only ever grows past it.
-  '/account': 408
+  // signed in only ever grows past it. Re-measured 2026-10-10 after the Terms/Privacy agreement
+  // line went under the sign-in buttons (the page had already drifted ~24px past the old 408):
+  // footer identical skeleton -> page at 1280, 390 and 320.
+  '/account': 542
 };
 
 function GenericRouteSkeleton({ bodyMin = 0, bodyClass = '' }) {

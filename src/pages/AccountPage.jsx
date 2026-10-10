@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import GoogleIcon from '../components/buttons/GoogleIcon';
@@ -835,6 +836,17 @@ export default function AccountPage() {
             <GoogleIcon size={18} />
             Continue with Google
           </Button>
+          <p className="text-xs leading-relaxed text-text-muted">
+            By continuing, you agree to our{' '}
+            <Link className="text-interactive hover:underline" to="/terms">
+              Terms
+            </Link>{' '}
+            and{' '}
+            <Link className="text-interactive hover:underline" to="/privacy">
+              Privacy Policy
+            </Link>
+            . Designs you save are public.
+          </p>
         </form>
       )}
 

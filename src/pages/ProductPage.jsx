@@ -2206,7 +2206,12 @@ export default function ProductPage() {
               )}
               <p className="text-xs leading-tight text-text-muted">
                 Printed on demand and shipped by Printful. Custom prints aren&rsquo;t
-                returnable for change of mind; we replace or refund defects.
+                returnable for change of mind; we replace or refund defects. By ordering, you
+                agree to our{' '}
+                <Link className="text-interactive hover:underline" to="/terms">
+                  Terms
+                </Link>
+                .
               </p>
             </div>
           </div>
