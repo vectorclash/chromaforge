@@ -63,6 +63,14 @@ export const MOCKUP_STYLE_GROUPS = {
     "8645": "Standing",
     "8646": "Product details"
   },
+  "276": {
+    "1100": "Flat",
+    "1103": "Flat",
+    "8179": "Men's 2",
+    "8180": "Men's 2",
+    "8181": "Men's 2",
+    "8182": "Men's 2"
+  },
   "320": {
     "2291": "Men's",
     "2292": "Men's",
@@ -235,6 +243,7 @@ export const MODEL_GROUPS_BY_PRODUCT = {
   "257": "Men's 5",
   "261": "Women's 3",
   "274": "Standing",
+  "276": "Men's 2",
   "320": "Men's 3",
   "388": "Men's",
   "390": "Men's",
@@ -291,6 +300,14 @@ export const MOCKUP_STYLE_VIEWS = {
     "1109": "Inside Pocket",
     "8645": "Front",
     "8646": "Product Details"
+  },
+  "276": {
+    "1100": "Front",
+    "1103": "Back",
+    "8179": "Front",
+    "8180": "Back",
+    "8181": "Left Front",
+    "8182": "Right Front"
   },
   "320": {
     "2291": "Front",
@@ -462,5 +479,6 @@ export const MOCKUP_STYLE_VIEWS = {
 
 export const PER_VARIANT_MOCKUP_PRODUCTS = [
   "83",
-  "630"
+  "630",
+  "798"
 ];

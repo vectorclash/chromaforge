@@ -22,7 +22,13 @@ export default class GenerateGeometricShape {
     rng = Math.random,
     settings = null,
     geometryLayout = null,
-    sizeFrame = null
+    sizeFrame = null,
+    // Per-order render context, like sizeFrame -- never part of a design. A plain multiplier on
+    // the finished shape size, so it scales THIS layer only (the stars and radial blobs keep
+    // their own size) and consumes no rng(). 1 is exact in IEEE754, so the default is
+    // byte-identical. Used by products small enough that the full studio scale buries the
+    // geometry -- see PRODUCT_MOCKUP_CONFIG's geometryScaleOptions.
+    geometryScale = 1
   ) {
     const geometry = getGeometrySettings(settings);
 
@@ -162,7 +168,7 @@ export default class GenerateGeometricShape {
         ? 0.15 + geometry.size * 0.45
         : 0.375 + (geometry.size - 0.5) * 2.85;
     const coherentSize = (getFrameSizeScale(width, height, sizeFrame) * sizeFactor) / this.shapeDepth;
-    this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
+    this.shapeSize = (chaoticSize + (coherentSize - chaoticSize) * geometry.coherence) * geometryScale;
 
     this.points = this.pointsArray(this.shapeSize);
 

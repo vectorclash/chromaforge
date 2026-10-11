@@ -62,7 +62,9 @@ export async function renderDesign({
   sourceWidth = null,
   sourceHeight = null,
   hatWrap = null,
-  legWrap = null
+  legWrap = null,
+  // Geometry-only size multiplier -- see src/components/Canvas/GenerateGeometricShape.js.
+  geometryScale = 1
 }) {
   // Lays one composition across the assembled front of a two-leg garment instead of flat across
   // the sheet, so the artwork continues over the centre-front seam -- see src/render/legWrap.js.
@@ -75,7 +77,8 @@ export async function renderDesign({
       generateArtwork(seed, src.width, src.height, colors, settings, {
         includeGeometry,
         geometryLayout,
-        legSymmetry
+        legSymmetry,
+        geometryScale
       })
     );
     const output = createCanvas(width, height);
@@ -100,7 +103,8 @@ export async function renderDesign({
         includeGeometry,
         geometryLayout,
         sizeFrame,
-        legSymmetry
+        legSymmetry,
+        geometryScale
       })
     );
     const discCanvas = renderArtwork(
@@ -108,7 +112,8 @@ export async function renderDesign({
         includeGeometry,
         geometryLayout,
         sizeFrame,
-        legSymmetry
+        legSymmetry,
+        geometryScale
       })
     );
     const output = createCanvas(width, height);
@@ -123,7 +128,8 @@ export async function renderDesign({
       geometryLayout,
       mirrorX,
       sizeFrame,
-      legSymmetry
+      legSymmetry,
+      geometryScale
     });
     const canvas = renderArtwork(config);
     return canvas.toBuffer('image/png');
@@ -136,7 +142,8 @@ export async function renderDesign({
     geometryLayout,
     mirrorX,
     sizeFrame,
-    legSymmetry
+    legSymmetry,
+    geometryScale
   });
   const sourceCanvas = renderArtwork(sourceConfig);
   const output = createCanvas(width, height);

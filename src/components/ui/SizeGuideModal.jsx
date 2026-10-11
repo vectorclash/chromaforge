@@ -20,11 +20,13 @@ import { humanError } from '../../lib/errorMessage';
 //                          10-of-15 to 11-of-18 rather than 12: the windbreaker (615) has since
 //                          DROPPED its body table upstream and now returns product_measure only.
 //                          Nothing to fix -- the modal renders whatever tables come back -- but
-//                          it is live proof this set drifts.
+//                          it is live proof this set drifts. 12 of 20 since 2026-10-11: the
+//                          men's tank top (276) has one, the MagSafe case (798) has no guide.
 //   'product_measure'   -- the garment laid flat, with measurements labelled A, B, C...
 //                          Those labels are keyed to letters on Printful's diagram, so the
 //                          numbers are MEANINGLESS without the image beside them. Present on
-//                          all 18. Hence the diagram is rendered as part of the table rather
+//                          every product that has a guide (19 of 20 -- the MagSafe case, 798,
+//                          has none, so ProductPage doesn't offer the link there). Hence the diagram is rendered as part of the table rather
 //                          than as decoration, and a table with no usable image still shows
 //                          its letters alongside imageDescription, which explains them.
 //

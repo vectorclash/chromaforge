@@ -300,7 +300,14 @@ export function generateArtwork(
   height,
   colorValues = [],
   settings = null,
-  { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null, legSymmetry = false } = {}
+  {
+    includeGeometry = true,
+    geometryLayout = null,
+    mirrorX = false,
+    sizeFrame = null,
+    legSymmetry = false,
+    geometryScale = 1
+  } = {}
 ) {
   const rng = makeRng(seed);
 
@@ -431,7 +438,8 @@ export function generateArtwork(
       rng,
       settings,
       geometryLayout,
-      sizeFrame
+      sizeFrame,
+      geometryScale
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;

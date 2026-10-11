@@ -5009,6 +5009,57 @@ by the shared design as the odds the panel last published.
     Nothing else needs deploying — no `GENERATOR_VERSION` bump, no new render field, so
     render-service is untouched, and `printful-catalog`/`printful-mockup` read the config from
     the browser bundle rather than holding a copy.
+  - **Men's tank top (276) and MagSafe Tough Case (798) added 2026-10-11 — 20 products, which
+    leaves the desktop shop grid six full rows plus two.** Both verified the usual way: catalog
+    drift clean (baseline only gained the two entries), real mockups, and draft orders with every
+    placement `ok`. Six things worth not re-deriving:
+    (1) **The tank's print areas are NOT centred in their templates** (front 400..2782, back
+    375..2757 of 3000), unlike every other product's, so the `mirrorPlacements` premise had to be
+    re-measured rather than inherited. What mirroring needs is the PANEL centred in the printfile,
+    and it is: flood-measured fabric midlines 1591.5 / 1565.5 against print-area centres 1591 /
+    1566, own-flip IoU 0.997 / 0.996.
+    (2) **The case is the first product with no `stitch_color` option at all** and the first
+    sublimation product. Neither needed plumbing: `technique` is not sent anywhere (v1 uses the
+    product's default), and a null stitch option already meant "send no product options".
+    (3) **Its variants are phone models x Glossy/Matte.** `colorLabel: 'Finish'` puts the finish
+    in Print options (same price, same stock — the windbreaker precedent), and new config keys
+    `sizeLabel`/`sizePrefix`/`sizeGuide` make the step read "iPhone model", drop the repeated
+    "iPhone " from the chips, and hide the Size guide link (Printful returns `result: null` for
+    798's sizes). `sizeRank` orders phone models newest first, then base/Air/Plus/Pro/Pro Max.
+    (4) **The case photographs PER VARIANT** (every style is `restricted_to_variants` to one
+    model's glossy+matte pair), so `--regenerate` put it in `PER_VARIANT_MOCKUP_PRODUCTS` and each
+    model gets its own preview. It is deliberately NOT in the style table: it only ever asks for
+    Flat (the iPhone 18 Pro models have no other style, so nothing else is requestable), so there
+    is nothing to mis-sort, and learning its ids would cost 36 permanent library files.
+    (5) **Neither clothing shipping class fits the case**, hence a third, `phone_case`. Measured:
+    US $5.19, CA $9.29, GB $2.59, EU $7.29, AU/NZ $8.39 — "light" loses $0.80 on every Canadian
+    and EU order. The tank's rates equal the beanie's, so it is plain "light".
+    (6) **The tank's on-model group is Aaron's pick, `Men's 2`** (`MODEL_GROUP_OVERRIDES`), chosen
+    from a roster of every group as real photos: https://claude.ai/artifact/57spB3LmF41RArFjhfsKKz
+    Its groups are all numbered, so without the override it would show flats only. Strip: Front,
+    Back, then Front / Back / Left Front / Right Front on model.
+    (7) **The case has a per-order "Geometry size" (Large x1 / Medium x0.65, the default / Small
+    x0.4), new render context `geometryScale`** (Aaron, after the first case mockup came back "very
+    zoomed in and a lot cut off"). Cause: the case file is 1392x2220, 1.6:1, close to 16:9 on its
+    side, so `getElementSizeScale` gives it 80% of studio scale (t-shirt front 52%, square tile
+    32%), and its file also wraps the side walls, so only ~70% of the width shows on the back. A
+    product-wide `sizeFrame` was compared first and rejected: it also resizes the stars, and it
+    cannot shrink a full-coherence lattice (that is sized by the canvas width). `geometryScale`
+    multiplies `GenerateGeometricShape`'s finished `shapeSize` only -- no rng(), exactly 1 by
+    default -- verified: `check-render-regression.mjs` 0 changed on every stored design, density
+    check 420/420, and at 0.4 every non-geometry layer and the shape count are identical. Rides
+    the same path as `sizeFrame` (ProductPage -> useMockup cacheKey -> renderAndUploadPrintFiles
+    cache key -> both strategies -> render-print-file -> render-service, which validates 0.1..1),
+    and is only appended to keys and requests when not 1, so every other product is byte-identical.
+    Previews: https://claude.ai/artifact/J4QQGV3ji9vgvys5VJwQAW
+    **Deploy render-service (Fly) and `render-print-file` BEFORE the frontend**: both ignore an
+    unknown field, so an old one prints the case at Large while the mockup showed Medium -- the
+    `density`/`legWrap` hazard. No `GENERATOR_VERSION` bump, no thumbnail backfill.
+    **Deploy: `create-checkout-session` and `printful-mockup` BEFORE the frontend.** The first
+    holds `isSellableProduct`, so until it ships both products appear in the shop and fail at
+    Buy Now; the second carries the style table (the tank's model ids, the case's per-variant
+    flag). Same hazard as the 2026-09-07 note: a new frontend against an old `printful-mockup`
+    asks for model shots it cannot classify.
   - **Seam mirroring, 2026-07-25** (`mirrorPlacements` in `PRODUCT_MOCKUP_CONFIG`, bucket
     hat only so far). Each of that product's faces carries TWO cut pieces — half the crown
     side-wall and half the brim — so front and back meet at the two seams Printful's own

@@ -121,7 +121,7 @@ function describeFailure(error) {
 // IS submitted to Printful's create-task endpoint and does change the returned photo (the
 // garment's stitching is visibly white or black in the mockup) -- omitting it from the key
 // would silently serve a mockup rendered under a previously-selected stitch color.
-function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, image) {
+function cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, image, geometryScale = 1) {
   const signature = entries
     .map(([placement, printfileId]) => `${placement}:${printfileId}`)
     .sort()
@@ -181,7 +181,11 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   // The image FORMAT and size: a transparent 2000px PNG is not the same photo as the shop's JPG.
   // Appended only when not the default, so every key the shop has ever stored is unchanged.
   const imageSignature = image.format !== 'jpg' || image.width ? `:${image.format}@${image.width || 'default'}` : '';
-  return `v${VIEW_POLICY_VERSION}:${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}${imageSignature}`;
+  // The geometry-only scale changes the composition the customer approves, so it is part of the
+  // key -- appended only when not 1, so every key a product without the option ever stored is
+  // unchanged.
+  const geometryScaleSignature = geometryScale !== 1 ? `:geo${geometryScale}` : '';
+  return `v${VIEW_POLICY_VERSION}:${product.id}:${colorSignature}:${secondarySignature}:${signature}:${geometrySignature}:${geometryLayout || 'center'}:${mirrorSignature}:${optionsSignature}:${frameSignature}:${symmetrySignature}:${legWrapSignature}:${JSON.stringify(design)}${imageSignature}${geometryScaleSignature}`;
 }
 
 
@@ -249,6 +253,8 @@ export function useMockup() {
       sizeFrame = null,
       legSymmetry = false,
       legWrap = null,
+      // Geometry-only size multiplier from the product's geometryScaleOptions. Part of the key.
+      geometryScale = 1,
       // A fixed property of the product, so deliberately NOT in cacheKey below -- the ink it
       // produces varies with the DESIGN, and the design is already part of the key.
       labelOutsideRegion = null,
@@ -288,7 +294,7 @@ export function useMockup() {
       // cached is just as likely to buy.
       warmRenderService();
 
-      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width });
+      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width }, geometryScale);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -336,6 +342,7 @@ export function useMockup() {
           sizeFrame,
           legSymmetry,
           legWrap,
+          geometryScale,
           labelOutsideRegion,
           labelInsideRegion,
           secondaryDesign,
@@ -467,6 +474,8 @@ export function useMockup() {
       sizeFrame = null,
       legSymmetry = false,
       legWrap = null,
+      // Geometry-only size multiplier from the product's geometryScaleOptions. Part of the key.
+      geometryScale = 1,
       // A fixed property of the product, so deliberately NOT in cacheKey below -- the ink it
       // produces varies with the DESIGN, and the design is already part of the key.
       labelOutsideRegion = null,
@@ -483,7 +492,7 @@ export function useMockup() {
       const entries = cfg && mockupPlacementEntries(printfileSpecs, variant, cfg);
       const key =
         entries
-          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width })
+          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width }, geometryScale)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

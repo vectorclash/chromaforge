@@ -15,7 +15,7 @@
 // known, accepted gap of this approach (not a bug), same spirit as the flat rate's
 // documented "this averages out" tradeoff before it.
 
-type WeightClass = "light" | "heavy";
+type WeightClass = "light" | "heavy" | "phone_case";
 
 // Verified against Printful's AOP ("all-over print" -- the only print type this store uses,
 // see printful.js's header comment) shipping-rate tables, 2026-07-02: T-shirts/shorts/
@@ -52,6 +52,16 @@ const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   // other accessories above are ever moved off their approximation.
   458: "light", // All-Over Print Beanie -- measured, see comment above
   420: "light", // All-Over Print Neck Gaiter -- measured, see comment above
+  // Measured 2026-10-11 the same way, and identical to the beanie's to the cent in all five
+  // regions -- unsurprising, it is a sleeveless shirt -- so "light" holds with the same margin.
+  276: "light", // All-Over Print Men's Tank Top -- measured, see comment above
+  // The one product NEITHER clothing class fits, which is why it has a class of its own. Measured
+  // 2026-10-11 (POST /shipping/rates, 8 countries): US $5.19, CA $9.29, GB $2.59, EU $7.29
+  // (identical in DE/FR/IE/SE), AU $8.39, NZ $8.39. "light" would LOSE $0.80 on every Canadian
+  // and European order; "heavy" would overcharge a US buyer about $4. A small rigid case ships
+  // from a different network than the garments do, so its price shape is simply different -- it is
+  // the cheapest thing in the store to send to the UK and among the dearest to send to Canada.
+  798: "phone_case", // MagSafe Tough Case for iPhone -- measured, see comment above
   274: "light", // All-Over Print Large Tote Bag w/ Pocket -- approximated, see comment above
   744: "light", // All-Over Print Utility Crossbody Bag -- approximated, see comment above
   83: "light", // All-Over Print Basic Pillow -- approximated, see comment above
@@ -79,6 +89,8 @@ const REGION_LABEL: Record<Region, string> = {
 const RATE_CENTS: Record<WeightClass, Record<Region, number>> = {
   light: { US: 599, CA: 849, GB: 599, EU: 649, AU_NZ: 949 },
   heavy: { US: 949, CA: 1099, GB: 849, EU: 849, AU_NZ: 1349 },
+  // Real cost + $1.10-1.40, rounded the same way -- see the 798 entry above for the costs.
+  phone_case: { US: 649, CA: 1049, GB: 399, EU: 849, AU_NZ: 949 },
 };
 
 const DEFAULT_REGION: Region = "US";

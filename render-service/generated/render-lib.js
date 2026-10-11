@@ -488,7 +488,7 @@ function compactSettings(settings) {
 // ../src/components/Canvas/GenerateGeometricShape.js
 var SPREAD_MAX_GAIN = 3;
 var GenerateGeometricShape = class {
-  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null, sizeFrame = null) {
+  constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null, sizeFrame = null, geometryScale = 1) {
     const geometry = getGeometrySettings(settings);
     let config = {
       width,
@@ -512,7 +512,7 @@ var GenerateGeometricShape = class {
     const chaoticSize = Math.round(chaoticSizeScale * CHAOTIC_MIN_FRACTION) + Math.round(chaoticSizeDraw * chaoticSizeScale * spreadAmplitude / 3);
     const sizeFactor = geometry.size <= 0.5 ? 0.15 + geometry.size * 0.45 : 0.375 + (geometry.size - 0.5) * 2.85;
     const coherentSize = getFrameSizeScale(width, height, sizeFrame) * sizeFactor / this.shapeDepth;
-    this.shapeSize = chaoticSize + (coherentSize - chaoticSize) * geometry.coherence;
+    this.shapeSize = (chaoticSize + (coherentSize - chaoticSize) * geometry.coherence) * geometryScale;
     this.points = this.pointsArray(this.shapeSize);
     for (let i = 0; i < shapeNum; i++) {
       config.shapes.push(this.buildShape());
@@ -704,7 +704,14 @@ function starBlendMode(rng, backgroundLuminance) {
   const t = roll / STAR_BLEND_BIAS;
   return set[Math.min(set.length - 1, Math.floor(t * set.length))];
 }
-function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, { includeGeometry = true, geometryLayout = null, mirrorX = false, sizeFrame = null, legSymmetry = false } = {}) {
+function generateArtwork(seed = randomSeed(), width, height, colorValues = [], settings = null, {
+  includeGeometry = true,
+  geometryLayout = null,
+  mirrorX = false,
+  sizeFrame = null,
+  legSymmetry = false,
+  geometryScale = 1
+} = {}) {
   const rng = makeRng(seed);
   const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
   const geometry = getGeometrySettings(settings);
@@ -772,7 +779,8 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       rng,
       settings,
       geometryLayout,
-      sizeFrame
+      sizeFrame,
+      geometryScale
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;

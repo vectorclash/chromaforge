@@ -53,11 +53,19 @@ export function relativeLuminance(r, g, b) {
 
 // Renders the front sheet small, with whatever wrap the product uses, and returns its canvas.
 function renderFrontSample(design, spec, opts) {
-  const { includeGeometry = true, geometryLayout = null, sizeFrame = null, legSymmetry = false, legWrap = null, hatWrap = null } = opts;
+  const {
+    includeGeometry = true,
+    geometryLayout = null,
+    sizeFrame = null,
+    legSymmetry = false,
+    legWrap = null,
+    hatWrap = null,
+    geometryScale = 1
+  } = opts;
   const scale = SAMPLE_LONG_EDGE / Math.max(spec.width, spec.height);
   const width = Math.max(2, Math.round(spec.width * scale));
   const height = Math.max(2, Math.round(spec.height * scale));
-  const ctx = { includeGeometry, geometryLayout, sizeFrame, legSymmetry };
+  const ctx = { includeGeometry, geometryLayout, sizeFrame, legSymmetry, geometryScale };
   // mirrorX is deliberately never applied: the front placement is the unmirrored one, and it is the
   // front the label is printed over.
   if (legWrap) {

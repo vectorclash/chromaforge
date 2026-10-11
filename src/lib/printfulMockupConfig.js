@@ -40,9 +40,15 @@
 // placement filled in regardless of what's visible in a preview photo -- that's a separate,
 // not-yet-built concern (no checkout exists yet) from generating a mockup.
 // `colorLabel` / `colorHint` -- override for products where Printful's variant "color" does
-// not mean the colour of the garment. Only the windbreaker (615) needs it so far; the tote's
+// not mean the colour of the garment. The windbreaker (615) was the first to need it; the tote's
 // Black/Red/Yellow really are three differently coloured bags, so it keeps the default
-// "Color" and no hint.
+// "Color" and no hint. The MagSafe case (798) uses it too, for its Glossy/Matte finish.
+// `sizeLabel` / `sizePrefix` / `sizeGuide` -- the same kind of override for the size step, for a
+// product whose variants are not garment sizes. Only the MagSafe case (798) sets them: its
+// "sizes" are phone models, and Printful has no size guide for it.
+// `geometryScaleOptions` / `defaultGeometryScale` -- a per-order "Geometry size" choice in Print
+// options, for a product where the studio scale buries the geometry. Each option's `value`
+// multiplies only the geometry layer's shape size. Only the MagSafe case (798) sets it.
 // `mirrorPlacements` -- placements rendered horizontally flipped so the pattern continues
 // across a garment's visible side seams instead of restarting at each. Set on every product
 // with a distinct back panel; see the bucket hat (654) below for the geometry of WHY
@@ -641,6 +647,61 @@ export const PRODUCT_MOCKUP_CONFIG = {
     placements: ['default'],
     // Same seam situation as the beanie (458) above, and the same reason nothing can be done about
     // it from a single sheet.
-  } // neck gaiter
+  }, // neck gaiter
+  276: {
+    technique: 'cut-sew',
+    productOptions: [{ name: 'stitch_color', value: 'white' }],
+    // The men's tee (257) without sleeves: a front and a back panel, both on printfile 119
+    // (4050x5100), and nothing else -- no sleeves, and no label placement of any kind.
+    placements: ['front', 'back'],
+    // Mirrored for the same side-seam reason as every other product with a back panel. Checked
+    // rather than assumed, because unlike the rest of the catalogue this product's print areas are
+    // NOT centred in their templates (front 400..2782, back 375..2757 of 3000, i.e. centres at 1591
+    // and 1566). What the mirror needs is the PANEL centred in the printfile, and it is: flood-
+    // measuring the fabric piece in each template puts its midline at 1591.5 and 1565.5, inside
+    // half a pixel of the print area's centre, with an own-flip IoU of 0.997 (front) and 0.996
+    // (back) about that centre. So a full-canvas flip maps each panel onto itself here too.
+    mirrorPlacements: ['back']
+  }, // men's tank top
+  798: {
+    // A rigid phone case, not a garment: SUBLIMATION is its only technique (nothing reads this
+    // field today -- v1 uses each product's default -- but it is recorded truthfully). It carries
+    // no stitch_color option at all, which no product before it lacked: getStitchColorOption
+    // returns null, ProductPage shows no stitching row, and every mockup and order is sent with no
+    // product options, which is what Printful expects for it.
+    technique: 'sublimation',
+    // ONE printfile (331, 1392x2220 at 300 DPI) for every phone model -- Printful fits it to each
+    // model's back and camera cut-out itself, so the artwork is one composition whatever is ordered.
+    placements: ['default'],
+    // The variant "color" is the case's surface finish: Glossy or Matte, same case, same price on
+    // every model, both in stock everywhere this product ships. That is exactly the windbreaker's
+    // situation (a variant dimension that is a finish, not a colour), so it takes the same override
+    // and the picker lives in Print options.
+    colorLabel: 'Finish',
+    colorHint: 'Same case either way — glossy has a shiny surface, matte a smooth low-glare one.',
+    // The "sizes" are phone models, so the step is named for what is being chosen, and the chips
+    // drop the 'iPhone ' every one of them would otherwise repeat. The order line, Stripe and
+    // Printful still carry the full name.
+    sizeLabel: 'iPhone model',
+    sizePrefix: 'iPhone ',
+    // Printful publishes no size guide for it (GET /products/798/sizes returns result: null), so
+    // the link is not offered at all rather than opening an empty modal.
+    sizeGuide: false,
+    // How big the GEOMETRY is, as a per-order choice (Aaron, 2026-10-11, after the first case
+    // mockup came back "very zoomed in and a lot cut off"). The case's file is 1392x2220 -- a 1.6:1
+    // portrait, close to the studio's 16:9 on its side -- so getElementSizeScale gives it 80% of
+    // studio scale, against 52% for a t-shirt front and 32% for a square gallery tile, and with
+    // the studio's Spread default a typical chaotic shape comes out wider than the phone. Only
+    // the geometry is scaled (GenerateGeometricShape's shapeSize), never the stars or colour
+    // blobs, and it consumes no rng(), so every option is the same design at a different size.
+    // `value` multiplies the shape size; 1 is the studio scale. Labels say what changes, not
+    // what it will look like, since that depends on the design.
+    geometryScaleOptions: [
+      { key: 'large', label: 'Large', hint: 'Studio size', value: 1 },
+      { key: 'medium', label: 'Medium', hint: 'Two-thirds size', value: 0.65 },
+      { key: 'small', label: 'Small', hint: 'Under half size', value: 0.4 }
+    ],
+    defaultGeometryScale: 'medium'
+  } // MagSafe tough case
 };
 

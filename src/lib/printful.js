@@ -42,6 +42,7 @@ import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
 export const STARTER_PRODUCT_IDS = [
   257, // All-Over Print Men's Crew Neck T-Shirt
   261, // All-Over Print Women's Crew Neck T-Shirt
+  276, // All-Over Print Men's Tank Top
   320, // All-Over Print Recycled Unisex Sweatshirt
   388, // All-Over Print Recycled Unisex Hoodie
   717, // All-Over Print Recycled Unisex Zip Hoodie
@@ -58,6 +59,7 @@ export const STARTER_PRODUCT_IDS = [
   274, // All-Over Print Large Tote Bag w/ Pocket
   744, // All-Over Print Utility Crossbody Bag
   83, // All-Over Print Basic Pillow
+  798, // MagSafe Tough Case for iPhone
 ];
 
 // All three catalog fetchers below cache through lib/catalogCache.js (localStorage + TTL +
@@ -125,6 +127,16 @@ function sizeRank(size) {
   const parts = name.split('/').map(p => SIZE_ORDER.indexOf(p.trim()));
   if (parts.length > 1 && parts.every(i => i !== -1)) {
     return parts.reduce((sum, i) => sum + i, 0) / parts.length;
+  }
+  // Phone models -- the MagSafe case (798) lists its "sizes" as 'iPhone 17 Pro Max' and so on,
+  // in no useful order upstream. Newest generation first (the phones most buyers carry), and
+  // within one generation base -> Air -> Plus -> Pro -> Pro Max, the order Apple lists them in.
+  // Ranked past every other kind of size; only their order relative to each other matters, since
+  // a phone case never shares a size picker with a garment.
+  const phone = /^IPHONE\s+(\d+)\s*(.*)$/.exec(name);
+  if (phone) {
+    const tier = ['', 'AIR', 'PLUS', 'PRO', 'PRO MAX'].indexOf(phone[2].trim());
+    return 10000 - Number(phone[1]) * 10 + (tier === -1 ? 9 : tier);
   }
   // Non-letter sizes (e.g. pillow dimensions like '18"×18"', waist measurements) -- sort by
   // their leading number, after all named sizes.
@@ -475,6 +487,9 @@ export async function renderAndUploadPrintFiles(
     // ProductPage's Artwork scale control. Fractions, never pixels, so the capped mockup
     // render and the true-resolution print file compose identically.
     sizeFrame = null,
+    // A multiplier on the geometry layer's shape size only (see GenerateGeometricShape), from the
+    // product's geometryScaleOptions. 1, the default for every product, is byte-identical.
+    geometryScale = 1,
     // Reflects each render's left half onto its right so the two leg panels mirror and the
     // pattern meets itself at the centre-front seam -- see renderArtwork.js. Opt-in.
     legSymmetry = false,
@@ -579,6 +594,7 @@ export async function renderAndUploadPrintFiles(
                     geometryLayout,
                     sizeFrame,
                     legSymmetry,
+                    geometryScale,
                     legWrap: legWrap?.placements?.includes(choice.backdropKey) ? legWrap : null,
                     hatWrap: hatWrap?.placements?.includes(choice.backdropKey) ? hatWrap : null
                   })
@@ -629,7 +645,10 @@ export async function renderAndUploadPrintFiles(
       // these products front and back share one -- so without this the flat mode would be
       // served the wrapped render (or the reverse) and the Artwork choice would silently do
       // nothing. Only ever appended when the customer is actually in the wrapped mode.
-      `${legs ? ':legwrap' : ''}`;
+      `${legs ? ':legwrap' : ''}` +
+      // Same as sizeFrame: only appended when the geometry is actually rescaled, so every other
+      // product's keys stay byte-identical.
+      `${geometryScale !== 1 ? `:geo${geometryScale}` : ''}`;
     if (!rendered[cacheKey]) {
       const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
       rendered[cacheKey] = spec
@@ -644,7 +663,8 @@ export async function renderAndUploadPrintFiles(
             sizeFrame,
             legSymmetry,
             wrap,
-            legs
+            legs,
+            geometryScale
           )
         : Promise.resolve(null);
     }
@@ -861,7 +881,8 @@ export function capRenderStrategy(renderDesignBlob) {
     sizeFrame = null,
     legSymmetry = false,
     hatWrap = null,
-    legWrap = null
+    legWrap = null,
+    geometryScale = 1
   ) => {
     const { width, height } = capMockupRenderSize(spec.width, spec.height);
     // Lays one composition across the assembled front (see src/render/legWrap.js). Same two
@@ -880,7 +901,8 @@ export function capRenderStrategy(renderDesignBlob) {
       const sourceBlob = await renderDesignBlob(design, src.width, src.height, {
         includeGeometry,
         geometryLayout,
-        legSymmetry
+        legSymmetry,
+        geometryScale
       });
       const blob = await compositeLegWrapBlob(sourceBlob, legWrap, width, height, mirrorX);
       return uploadMockupSourceImage(blob, `${printfileId}-legwrap${mirrorX ? '-mirror' : ''}`);
@@ -898,7 +920,7 @@ export function capRenderStrategy(renderDesignBlob) {
     if (hatWrap) {
       const src = hatWrapSourceSize(hatWrap, width);
       const disc = hatWrapDiscSourceSize(hatWrap, width);
-      const opts = { includeGeometry, geometryLayout, sizeFrame, legSymmetry };
+      const opts = { includeGeometry, geometryLayout, sizeFrame, legSymmetry, geometryScale };
       const [unrolledBlob, discBlob] = await Promise.all([
         renderDesignBlob(design, src.width, src.height, opts),
         renderDesignBlob(design, disc.width, disc.height, opts)
@@ -912,7 +934,8 @@ export function capRenderStrategy(renderDesignBlob) {
         geometryLayout,
         mirrorX,
         sizeFrame,
-        legSymmetry
+        legSymmetry,
+        geometryScale
       });
       return uploadMockupSourceImage(blob, printfileId);
     }
@@ -939,7 +962,8 @@ export function capRenderStrategy(renderDesignBlob) {
       geometryLayout,
       mirrorX,
       sizeFrame,
-      legSymmetry
+      legSymmetry,
+      geometryScale
     });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
     return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
@@ -963,7 +987,8 @@ export async function renderPrintFileStrategy(
   sizeFrame = null,
   legSymmetry = false,
   hatWrap = null,
-  legWrap = null
+  legWrap = null,
+  geometryScale = 1
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
@@ -989,6 +1014,8 @@ export async function renderPrintFileStrategy(
     sizeFrame,
     legSymmetry
   };
+  // Omitted at the default so a request for every other product is byte-identical to before.
+  if (geometryScale !== 1) body.geometryScale = geometryScale;
   if (hatWrap) {
     // render-service derives both source sizes from this geometry, so there is nothing else to
     // send -- and no sourceWidth/sourceHeight, which belong to the regions path only.

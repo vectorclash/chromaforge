@@ -404,6 +404,27 @@ export default function ProductPage() {
     setLegArtwork('front');
   }, [detail?.product?.id]);
 
+  // Geometry size, for products that offer it (PRODUCT_MOCKUP_CONFIG's geometryScaleOptions --
+  // only the MagSafe case today). A per-order choice like the two above, never saved with the
+  // design. Resolved to a number ONCE (effectiveGeometryScale) for the same leak reason the
+  // values below are: a product without the option must always render at exactly 1.
+  const geometryScaleOptions = detail?.product
+    ? getMockupConfigForProduct(detail.product.id).geometryScaleOptions || null
+    : null;
+  const [geometryScaleKey, setGeometryScaleKey] = useState(null);
+  useEffect(() => {
+    setGeometryScaleKey(
+      detail?.product ? getMockupConfigForProduct(detail.product.id).defaultGeometryScale || null : null
+    );
+  }, [detail?.product?.id]);
+  // Falls back to the product's default while the key is unset (the first render on a product,
+  // before the effect above has run), so the page never briefly renders or keys a mockup at 1.
+  const geometryScaleChoice =
+    geometryScaleOptions?.find(
+      o => o.key === (geometryScaleKey ?? getMockupConfigForProduct(detail.product.id).defaultGeometryScale)
+    ) || null;
+  const effectiveGeometryScale = geometryScaleChoice?.value ?? 1;
+
   // Each of the three "effective" values below is resolved ONCE here and used everywhere,
   // rather than reading the raw state at each call site. That discipline exists because of a
   // real bug (2026-07-06): geometryLayout was sent unconditionally, and since
@@ -995,6 +1016,7 @@ export default function ProductPage() {
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
+      geometryScale: effectiveGeometryScale,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
@@ -1016,7 +1038,7 @@ export default function ProductPage() {
     // effectiveMirrorPlacements, not the raw mirrorSeams: while leg symmetry is on the flip is
     // a no-op, and depending on the raw flag there would throw away a still-accurate mockup and
     // charge the customer another 30-90s Printful round trip for an identical photo.
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor, secondaryDesign]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveGeometryScale, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor, secondaryDesign]);
 
   // The hero deliberately has NO animation class of its own. It used to carry
   // --animate-reveal-quick on a fresh generation and --animate-pop-in otherwise, chosen by a
@@ -1095,6 +1117,13 @@ export default function ProductPage() {
   // so that product overrides the label and adds a hint (see PRODUCT_MOCKUP_CONFIG).
   const colorLabel = getMockupConfigForProduct(product.id).colorLabel || 'Color';
   const colorHint = getMockupConfigForProduct(product.id).colorHint || null;
+  // The same idea for the size step: the MagSafe case's "sizes" are phone models, and it has no
+  // size guide at all (see PRODUCT_MOCKUP_CONFIG's sizeLabel/sizePrefix/sizeGuide).
+  const sizeLabel = getMockupConfigForProduct(product.id).sizeLabel || 'Size';
+  const sizePrefix = getMockupConfigForProduct(product.id).sizePrefix || '';
+  const hasSizeGuide = getMockupConfigForProduct(product.id).sizeGuide !== false;
+  const sizeChipText = size =>
+    sizePrefix && String(size).startsWith(sizePrefix) ? String(size).slice(sizePrefix.length) : size;
   const colorOptions = [...new Set(variants.map(v => v.color).filter(Boolean))];
   const hasMultipleColors = colorOptions.length > 1;
   // Sizes offered for the colour currently selected. Falls back to every variant when the
@@ -1171,7 +1200,8 @@ export default function ProductPage() {
     showsTwoLegLayout ||
     showsMirrorSeamsChoice ||
     !!stitchColorOption ||
-    colorIsFinish;
+    colorIsFinish ||
+    !!geometryScaleOptions;
 
   // The collapsed state's summary. Reads as a sentence of current choices so nothing set
   // here is invisible while the panel is shut -- see the disclosure's own comment for why
@@ -1181,6 +1211,7 @@ export default function ProductPage() {
       (secondaryChoice && !secondaryIsDuplicate
         ? `Inside: ${secondaryChoice.title || 'Untitled'}`
         : 'Same design both faces'),
+    geometryScaleChoice && `${geometryScaleChoice.label} geometry`,
     showsGeometryPlacements &&
       (geometryPlacements.size === 0
         ? 'No geometry'
@@ -1267,6 +1298,7 @@ export default function ProductPage() {
       geometryPlacements,
       geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
+      geometryScale: effectiveGeometryScale,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
@@ -1309,6 +1341,7 @@ export default function ProductPage() {
         geometryPlacements,
         geometryLayout: effectiveGeometryLayout,
       sizeFrame: effectiveSizeFrame,
+      geometryScale: effectiveGeometryScale,
       legSymmetry: effectiveLegSymmetry,
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
@@ -1739,6 +1772,42 @@ export default function ProductPage() {
             two are the flat scales this product shipped with before it. No label here uses the
             word "mirrored" on purpose -- see legArtwork's comment for the two false pairs this
             went through first and why the word belongs to the Front & back row alone. */}
+        {/* Geometry size -- only on products whose config offers it (the MagSafe case). Same
+            card shape as the Artwork row below. Changes the composition, so it invalidates the
+            mockup (it is in useMockup's cacheKey) and rides through to the print file. */}
+        {geometryScaleOptions && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Geometry size
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              How big the geometric shapes are. The background and stars stay the same.
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {geometryScaleOptions.map(({ key, label, hint }) => {
+                const checked = geometryScaleChoice?.key === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setGeometryScaleKey(key)}
+                    aria-pressed={checked}
+                    className={
+                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-ink-950'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    <span className="text-sm font-bold">{label}</span>
+                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {showsTwoLegLayout && (
           <div>
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
@@ -2097,24 +2166,26 @@ export default function ProductPage() {
         <div>
           <div className="flex items-baseline justify-between">
             <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
-              2. Size{showColorWithSize ? ` & ${colorLabel.toLowerCase()}` : ''}
+              2. {sizeLabel}{showColorWithSize ? ` & ${colorLabel.toLowerCase()}` : ''}
             </h2>
             <span className="font-quicksand text-sm font-bold text-text">${variant.price}</span>
           </div>
           {/* Sits with the size picker rather than in Print options: this answers "which
               size am I", which is a required decision, not a refinement. Its data is fetched
               only when opened (see getSizeGuide) so the link costs nothing until used. */}
-          <button
-            type="button"
-            onClick={() => setSizeGuideOpen(true)}
-            className="mt-1 cursor-pointer font-quicksand text-xs font-bold text-interactive underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
-          >
-            Size guide
-          </button>
+          {hasSizeGuide && (
+            <button
+              type="button"
+              onClick={() => setSizeGuideOpen(true)}
+              className="mt-1 cursor-pointer font-quicksand text-xs font-bold text-interactive underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive"
+            >
+              Size guide
+            </button>
+          )}
           {showColorWithSize && colorPicker}
           {showColorWithSize && (
             <p className="mt-4 font-quicksand text-xs font-bold uppercase tracking-wide text-text-muted">
-              Size
+              {sizeLabel}
             </p>
           )}
           <div className={(showColorWithSize ? 'mt-2' : 'mt-3') + ' flex flex-wrap gap-2'}>
@@ -2133,7 +2204,7 @@ export default function ProductPage() {
                       : 'border-hairline text-text-secondary hover:border-text')
                   }
                 >
-                  {v.size}
+                  {sizeChipText(v.size)}
                 </button>
               );
             })}

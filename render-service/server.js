@@ -67,7 +67,8 @@ const server = http.createServer(async (req, res) => {
     sourceWidth,
     sourceHeight,
     hatWrap,
-    legWrap
+    legWrap,
+    geometryScale
   } = payload;
   if (!seed || !width || !height) {
     send(res, 400, { error: 'Missing required fields: seed, width, height' });
@@ -177,6 +178,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
   }
+  // Optional geometry-only size multiplier (see GenerateGeometricShape). Bounded because it is
+  // paid compute and a size the generator was never tuned for; it changes no canvas size, so it
+  // is not a memory question the way hatWrap/legWrap are.
+  if (
+    geometryScale != null &&
+    !(typeof geometryScale === 'number' && Number.isFinite(geometryScale) && geometryScale >= 0.1 && geometryScale <= 1)
+  ) {
+    send(res, 400, { error: 'Invalid geometryScale: expected a number between 0.1 and 1' });
+    return;
+  }
   if (generatorVersion !== GENERATOR_VERSION) {
     send(res, 422, {
       error: `generatorVersion mismatch: design is v${generatorVersion}, this service renders v${GENERATOR_VERSION}`
@@ -200,7 +211,8 @@ const server = http.createServer(async (req, res) => {
       sourceWidth: sourceWidth || null,
       sourceHeight: sourceHeight || null,
       hatWrap: hatWrap || null,
-      legWrap: legWrap || null
+      legWrap: legWrap || null,
+      geometryScale: geometryScale ?? 1
     });
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length });
     res.end(png);

@@ -23,6 +23,8 @@ export function defaultMockupOptions(productId) {
     geometryPlacements: new Set(getGeometryPlacementOptions(cfg).map(o => o.key)),
     geometryLayout: twoLeg && !legWrap ? 'mirror' : null,
     sizeFrame: null,
+    // The product's default Geometry size (only the MagSafe case offers one); 1 everywhere else.
+    geometryScale: cfg.geometryScaleOptions?.find(o => o.key === cfg.defaultGeometryScale)?.value ?? 1,
     legSymmetry: false,
     legWrap,
     labelOutsideRegion: getLabelOutsideRegion(cfg),

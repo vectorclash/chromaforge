@@ -170,7 +170,15 @@ export function StudioProvider({ children }) {
       config,
       width,
       height,
-      { includeGeometry = true, geometryLayout = null, mirrorX = false, highDensity = false, sizeFrame = null, legSymmetry = false } = {}
+      {
+        includeGeometry = true,
+        geometryLayout = null,
+        mirrorX = false,
+        highDensity = false,
+        sizeFrame = null,
+        legSymmetry = false,
+        geometryScale = 1
+      } = {}
     ) => {
       const { width: genWidth, height: genHeight } = highDensity
         ? densityFloorSize(width, height)
@@ -180,7 +188,8 @@ export function StudioProvider({ children }) {
         geometryLayout,
         mirrorX,
         sizeFrame,
-        legSymmetry
+        legSymmetry,
+        geometryScale
       });
       const canvas = renderArtwork(built);
       let outputCanvas = canvas;

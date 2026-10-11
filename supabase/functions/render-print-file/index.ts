@@ -83,7 +83,7 @@ Deno.serve(async req => {
   }
 
   const body = await req.json();
-  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight, hatWrap, legWrap } =
+  const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight, hatWrap, legWrap, geometryScale } =
     body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {
     return Response.json(
@@ -153,6 +153,10 @@ Deno.serve(async req => {
         // through; render-service is the only thing that resolves it against real dims.
         sizeFrame: sizeFrame ?? null,
         legSymmetry: legSymmetry === true,
+        // Geometry-only size multiplier (PRODUCT_MOCKUP_CONFIG's geometryScaleOptions). Forwarded
+        // only when set, so every other product's request to render-service is unchanged;
+        // render-service validates the range.
+        ...(geometryScale !== undefined && geometryScale !== null ? { geometryScale } : {}),
         // Optional region composite for placements that continue a larger panel's artwork
         // (hoodie/zip-hoodie pocket) -- validated by render-service itself, just
         // forwarded here. When set, sourceWidth/sourceHeight are the FRONT placement's own

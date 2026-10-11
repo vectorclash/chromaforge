@@ -76,6 +76,7 @@ const MODEL_GROUPS = [/^men's$/i, /^women's$/i, /^person$/i, /^standing$/i, /^in
 export const MODEL_GROUP_OVERRIDES = {
   257: "Men's 5",
   261: "Women's 3",
+  276: "Men's 2",
   320: "Men's 3",
   420: "Men's 2",
   458: "Men's 2",
