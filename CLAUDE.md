@@ -2777,6 +2777,26 @@ with the "Go to studio" link directly beneath them (`.controls-compact .go-to-st
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
 
+### The shop has a product-type filter (`components/ui/ShopFilter.jsx`, 2026-10-11)
+All · Tees & tanks · Hoodies & jackets · Bottoms · Accessories -- grouping "B" of three Aaron
+compared in an interactive mockup (https://claude.ai/artifact/5Kzj4jztfJW2WmYiX3i1ZZ), chosen so
+no chip is a long scroll on a phone, where the shop is ONE column (20 cards ~ 7800px). Four things
+worth not re-deriving:
+(1) **The filter is in the URL (`/shop?type=bottoms`)** so an ad or story can land on one group;
+chip clicks use `replace`, so Back leaves the shop instead of replaying chips. An unknown `type`
+reads as All.
+(2) **RouteSkeleton renders the SAME chip row, in the URL's state, with exactly that filter's tile
+count** -- the "render the real header" approach extended to the shop's one control. Measured: the
+footer holds one position for the whole load on `/shop`, a filtered link and a bad `type`, at 1280
+and 390, with the route chunk delayed so the skeleton really paints. `check-route-intro-once.mjs`
+passes, so the chips enter once.
+(3) **`SHOP_CATEGORIES` lists ids by hand and must move with `STARTER_PRODUCT_IDS`** -- it lives in
+the eagerly-loaded skeleton's import graph, so it cannot import lib/printful. ShopPage warns in dev
+if a product is uncategorised, unsold, or in two categories. A new product needs a category.
+(4) **The grid is keyed on the filter**, so a change remounts the cards and replays the shop's own
+card cascade (GRID_SECTION is now 2: header, chips, grid). Chips wrap rather than scroll at phone
+width (two rows), so Accessories -- the only route to the phone case -- is never hidden.
+
 ### Tailwind v4 scans the docs too (2026-09-09)
 `@source not "../**/*.md";` sits under the `@import 'tailwindcss'` in `src/tailwind.css`.
 Tailwind v4 scans every non-gitignored file in the project, markdown included, so a utility

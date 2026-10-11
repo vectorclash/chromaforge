@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
 import FadeImage from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import { SHOP_GRID_CLASS, SHOP_HEADER, SHOP_TILE_COUNT } from '../components/ui/RouteSkeleton';
+import ShopFilter, { SHOP_CATEGORIES, shopCategoryFromSearch } from '../components/ui/ShopFilter';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../lib/printful';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { preloadImages } from '../utils/preloadImages';
@@ -22,7 +23,7 @@ const GRID_CLASS = SHOP_GRID_CLASS;
 // the rhythm exactly where the section they are in would have started rather than restarting
 // at zero. Children here are [header, grid] -- the skeleton and the grid never both animate,
 // since the skeleton hands over via its own crossfade.
-const GRID_SECTION = 1;
+const GRID_SECTION = 2;
 
 // The route-level fallback can't import STARTER_PRODUCT_IDS -- that would drag lib/printful
 // and the whole render pipeline into the main bundle -- so it mirrors the count as a literal.
@@ -37,6 +38,22 @@ if (import.meta.env.DEV && SHOP_TILE_COUNT !== STARTER_PRODUCT_IDS.length) {
 
 // Three columns at lg, so six tiles is roughly the first screenful; the rest stream in
 // under their own per-card placeholders, off-screen.
+// Every product in exactly one filter category, and nothing in a category that the shop doesn't
+// sell -- the two lists live apart (see ShopFilter for why), so a product added to one and not
+// the other would vanish from every filter or appear under one with no card.
+if (import.meta.env.DEV) {
+  const categorised = SHOP_CATEGORIES.flatMap(c => c.ids);
+  const missing = STARTER_PRODUCT_IDS.filter(id => !categorised.includes(id));
+  const extra = categorised.filter(id => !STARTER_PRODUCT_IDS.includes(id));
+  const dupes = categorised.filter((id, i) => categorised.indexOf(id) !== i);
+  if (missing.length || extra.length || dupes.length) {
+    console.warn(
+      `SHOP_CATEGORIES (components/ui/ShopFilter.jsx) is out of step with STARTER_PRODUCT_IDS -- ` +
+        `uncategorised: [${missing}], not sold: [${extra}], in two categories: [${dupes}].`
+    );
+  }
+}
+
 const PRELOAD_COUNT = 6;
 
 // The storefront: the curated, spec-verified starter products (see STARTER_PRODUCT_IDS in
@@ -61,6 +78,13 @@ export default function ShopPage() {
   // painted -- the real cards start at opacity 0, `animate-fade-slide-up` being `backwards`.
   const [skeletonMounted, setSkeletonMounted] = useState(true);
   const [error, setError] = useState(null);
+  // The filter lives in the URL (`?type=bottoms`) so a link -- an ad, a story -- can land on one
+  // group. replace, not push: picking a chip is browsing within the page, and Back should leave the
+  // shop rather than step through every chip tapped.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const active = shopCategoryFromSearch(searchParams.toString());
+  const shown = active ? products.filter(p => active.ids.includes(p.id)) : products;
+  const selectCategory = key => setSearchParams(key ? { type: key } : {}, { replace: true });
 
   useEffect(() => {
     let cancelled = false;
@@ -73,7 +97,9 @@ export default function ShopPage() {
         setProducts(starter);
         // Hold the placeholder across the image fetch too, so the grid arrives complete.
         // Bounded and never rejecting, so a slow CDN cannot keep the shop from appearing.
-        await preloadImages(starter.slice(0, PRELOAD_COUNT).map(p => p.image).filter(Boolean));
+        // The first cards of what will actually be SHOWN, so a filtered link preloads its own.
+        const first = active ? starter.filter(p => active.ids.includes(p.id)) : starter;
+        await preloadImages(first.slice(0, PRELOAD_COUNT).map(p => p.image).filter(Boolean));
       } catch (err) {
         if (!cancelled) setError(humanError(err, "We couldn't load the shop right now."));
       } finally {
@@ -83,6 +109,9 @@ export default function ShopPage() {
     return () => {
       cancelled = true;
     };
+    // Once per visit: `active` only picks which images to preload first, and a later chip change
+    // must not refetch the catalogue.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Drop the faded-out placeholder once its transition has run. A timer rather than
@@ -100,6 +129,9 @@ export default function ShopPage() {
     // subtitle borrows the two phrases the rest of the site already uses, "computed from a
     // single seed" (About) and "printed to order" (the homepage shop carousel).
     <PageContainer title={SHOP_HEADER.title} subtitle={SHOP_HEADER.subtitle}>
+      {/* A cascade section of its own (the grid is section 2 after it). RouteSkeleton renders the
+          same row in the same state, so it is already on screen when this mounts. */}
+      <ShopFilter active={active} onSelect={selectCategory} />
       {/* Placeholder and real grid share one relative box and overlap for the crossfade.
           While waiting the placeholder is in normal flow and gives the page its height; on
           reveal it flips to absolute so the real grid takes over layout without the page
@@ -110,7 +142,7 @@ export default function ShopPage() {
       {skeletonMounted && !error && (
         <div className="relative">
           <SkeletonGrid
-            count={SHOP_TILE_COUNT}
+            count={active ? active.ids.length : SHOP_TILE_COUNT}
             className={`${GRID_CLASS} transition-opacity duration-500 ease-out ${
               revealed ? 'pointer-events-none absolute inset-x-0 top-0 opacity-0' : 'opacity-100'
             }`}
@@ -122,8 +154,10 @@ export default function ShopPage() {
           per-card cascade below. */}
       {error && <p className="intro-skip animate-pop-in text-accent">{error}</p>}
       {revealed && !error && (
-        <div className={`intro-skip ${GRID_CLASS}`}>
-          {products.map((product, i) => (
+        // Keyed on the filter so a change remounts the cards and they cascade in again, the same
+        // entrance as the page's own, instead of the grid snapping to its new contents.
+        <div key={active?.key ?? 'all'} className={`intro-skip ${GRID_CLASS}`}>
+          {shown.map((product, i) => (
             <Card
               key={product.id}
               as={Link}

@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import PageContainer from './PageContainer';
 import { claimRouteIntro, releaseRouteIntro } from '../../utils/routeIntro';
 import SkeletonGrid from './SkeletonGrid';
+import ShopFilter, { shopCategoryFromSearch } from './ShopFilter';
 import { hasStoredSession } from '../../lib/sessionHint';
 
 // Placeholders for the SiteLayout routes, shown by the Suspense boundary while a lazy page's
@@ -301,21 +302,30 @@ function GenericRouteSkeleton({ bodyMin = 0, bodyClass = '' }) {
   );
 }
 
+// The shop's placeholder carries the REAL filter row, in the state the URL asks for, and exactly
+// as many tiles as that filter will show -- the same "render the real header" approach as above,
+// extended to the one control the shop has, so a filtered link (an ad's `/shop?type=bottoms`)
+// lands without the grid moving. Inert: it is a picture of the chips, not a second set of them.
+function ShopRouteSkeleton({ pathname }) {
+  const { search } = useLocation();
+  const active = shopCategoryFromSearch(search);
+  return (
+    <GridRouteSkeleton
+      pathname={pathname}
+      header={SHOP_HEADER}
+      gridClass={SHOP_GRID_CLASS}
+      count={active ? active.ids.length : SHOP_TILE_COUNT}
+      extra={<ShopFilter active={active} inert />}
+    />
+  );
+}
+
 export default function RouteSkeleton({ pathname }) {
   // Matched on the path rather than passed down per route, because the Suspense boundary sits
   // above the router's route matching -- by the time a <Route> element could choose its own
   // fallback, its chunk has already loaded and there is nothing left to show.
   if (/^\/shop\/[^/]+/.test(pathname)) return <ProductPageSkeleton />;
-  if (pathname === '/shop') {
-    return (
-      <GridRouteSkeleton
-        pathname={pathname}
-        header={SHOP_HEADER}
-        gridClass={SHOP_GRID_CLASS}
-        count={SHOP_TILE_COUNT}
-      />
-    );
-  }
+  if (pathname === '/shop') return <ShopRouteSkeleton pathname={pathname} />;
   if (pathname === '/gallery') {
     return (
       <GridRouteSkeleton
