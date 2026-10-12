@@ -30,7 +30,7 @@ const PRODUCT_BARS = [0.5, 1, 2];
 const MAX_PRODUCTS = 5;
 const ROOT_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const AD_FILE_VERSION = 1;
-const INSTAGRAM_VIDEO_BITRATE = 10_000_000;
+const INSTAGRAM_VIDEO_BITRATE = 18_000_000;
 
 const fmt = t => `${t.toFixed(2)}s`;
 
@@ -657,8 +657,10 @@ export default function AdBuilder() {
     }
   };
 
-  // What Instagram gets: its API refuses video over 25 Mbps and audio over 128 kbps, and it
-  // re-encodes everything lower anyway, so 10 Mbps keeps the upload small at no visible cost.
+  // What Instagram gets: its API refuses video over 25 Mbps and audio over 128 kbps. 18 Mbps (the
+  // file measures ~17.5) is the cleanest source with headroom under that cap -- Instagram
+  // re-encodes it, and a re-encode loses less from a cleaner input. Measured on a real ad against a
+  // near-lossless export: 10 Mbps was 47.2 dB mean / 42.0 worst PSNR, 18 Mbps 50.3 / 44.9.
   const buildInstagramFiles = async () => ({
     video: await buildMp4({ bitrate: INSTAGRAM_VIDEO_BITRATE, audioMaxBitrate: 128_000 }),
     cover: await buildCover()

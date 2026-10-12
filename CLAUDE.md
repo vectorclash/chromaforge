@@ -2254,7 +2254,7 @@ a post at 5 (Dec 2025), caption and first comment together; every set leads with
 with the ad as `post`. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
 filesystem resolved `./PostCopy` to the lowercase file.
 (10) **Post Reel posts straight to @chromaforge.app** (`InstagramPost.jsx`,
-`scripts/ad-builder-instagram.mjs`, 2026-10-12; NOT yet run against the real account). Instagram
+`scripts/ad-builder-instagram.mjs`, 2026-10-12; first real post published the same day). Instagram
 Login flavour of the API (no Facebook Page), v25.0. The API only takes a public `video_url`, so the
 dev server `scp`s the MP4 and cover JPEG to `public_html/_ig/` on Hostinger under random names,
 HEAD-checks the URL, creates the container, polls `status_code` every 15s (10 min cap), publishes,
@@ -2267,15 +2267,20 @@ involved. Five things worth not re-deriving:
 - **The token never reaches the browser.** `INSTAGRAM_ACCESS_TOKEN` in `.env.local` (re-read every
   call via vite's `loadEnv`, so no restart); renewed copies (weekly, 60-day tokens) live in
   `.ads/instagram-token.json`, used only while `.env.local` still holds the token they came from.
-- **Instagram gets its own encode**: 10 Mbps video, audio capped at 128 kbps (`encodeMp4`'s
-  `audioMaxBitrate`) -- the API refuses over 25 Mbps / 128 kbps. Measured ~11.5-11.9 Mbps on short
-  clips (keyframes). Export MP4 is unchanged. Cover = the frame under the playhead.
+- **Instagram gets its own encode**: 18 Mbps video (measures ~17.5), audio capped at 128 kbps
+  (`encodeMp4`'s `audioMaxBitrate`) -- the API refuses over 25 Mbps / 128 kbps. Export MP4 is
+  unchanged. Cover = the frame under the playhead.
+- **The first real post (2026-10-12) looked pixelated in the app, and our file was NOT the cause.**
+  The 10 Mbps upload measured 47 dB mean / 42 dB worst PSNR against a near-lossless export, i.e.
+  visually clean. The API's `media_url` is a fixed 720p ~2 Mbps rendition for EVERY post, phone
+  uploads included, so it cannot show what the app plays. Suspected cause: Instagram's HD rendition
+  arrives later than the first playback. Unconfirmed as of this note.
 - **Posts are recorded on the ad** (`post.posted`, auto-saved when the ad has a name), and the
   confirm warns on a repeat. Under 3s (Instagram's minimum) Post is blocked. The API cannot delete a
   post in this flavour -- that is done in the app.
 Verified in Chromium with the four routes stubbed (render -> upload -> post -> poll -> record, 0
-console errors) and the real routes' refusals and failure cleanup on a dev server. The SSH copy, the
-public URL and Meta's side have not run yet.
+console errors) and the real routes' refusals and failure cleanup on a dev server. A real post then ran end to end on
+2026-10-12 (https://www.instagram.com/reel/DeZt9TfiVyW/).
 
 Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
 exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
