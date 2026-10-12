@@ -2281,6 +2281,10 @@ involved. Five things worth not re-deriving:
   phone upload. Most likely explanation, per Meta's engineering blog and Mosseri: new uploads get a
   cheap basic encode, and the full high-quality encodes are spent on videos with enough watch time,
   however they were uploaded. Don't re-propose a higher upload bitrate as a fix.
+- **A phone upload is NOT better for viewers.** It looked perfect instantly only on the phone that
+  posted it, which plays its own local copy; viewed on instagram.com, the phone post and the API
+  posts look the same (Aaron, 2026-10-12). So Post Reel loses nothing against posting from the app.
+  Frame-rate stutter seen in Safari on instagram.com is Instagram's web player, not the file.
 - **Posts are recorded on the ad** (`post.posted`, auto-saved when the ad has a name), and the
   confirm warns on a repeat. Under 3s (Instagram's minimum) Post is blocked. The API cannot delete a
   post in this flavour -- that is done in the app.
