@@ -73,7 +73,6 @@ export default function InstagramPost({
   const [setup, setSetup] = useState(null); // the dev server's status answer
   const [shareToFeed, setShareToFeed] = useState(true);
   const [trial, setTrial] = useState(false);
-  const [fullQuality, setFullQuality] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [stage, setStage] = useState(null); // null | text while a post is under way
   const [result, setResult] = useState(null); // { error } | { permalink, note? }
@@ -101,7 +100,7 @@ export default function InstagramPost({
     setResult(null);
     try {
       setStage('Rendering for Instagram');
-      const files = await buildFiles({ full: fullQuality });
+      const files = await buildFiles();
       setStage('Handing the files to the dev server');
       const [video, cover] = [await sendFile(files.video), await sendFile(files.cover)];
       const { job } = await api('/__ads/instagram/post', {
@@ -120,8 +119,7 @@ export default function InstagramPost({
           at: new Date().toISOString(),
           permalink: j.permalink,
           mediaId: j.mediaId,
-          trial,
-          fullQuality
+          trial
         });
         setResult({ permalink: j.permalink, note: j.cleanupError });
         check();
@@ -174,13 +172,6 @@ export default function InstagramPost({
           hint="Shown to non-followers first, then shared to followers if it does well."
           on={trial}
           onToggle={() => setTrial(v => !v)}
-          disabled={!!stage}
-        />
-        <Row
-          label="Full quality (experiment)"
-          hint="Uploads the Export MP4 file as-is, about 3x over Meta's stated 25 Mbps limit. Instagram may refuse it."
-          on={fullQuality}
-          onToggle={() => setFullQuality(v => !v)}
           disabled={!!stage}
         />
       </div>
@@ -266,7 +257,6 @@ export default function InstagramPost({
                 <span className="text-neutral-300">
                   {when(p.at)}
                   {p.trial && <span className="text-neutral-500"> · trial</span>}
-                  {p.fullQuality && <span className="text-neutral-500"> · full quality</span>}
                 </span>
                 {p.permalink && (
                   <a

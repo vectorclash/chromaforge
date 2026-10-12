@@ -2274,7 +2274,13 @@ involved. Five things worth not re-deriving:
   The 10 Mbps upload measured 47 dB mean / 42 dB worst PSNR against a near-lossless export, i.e.
   visually clean. The API's `media_url` is a fixed 720p ~2 Mbps rendition for EVERY post, phone
   uploads included, so it cannot show what the app plays. Suspected cause: Instagram's HD rendition
-  arrives later than the first playback. Unconfirmed as of this note.
+  arrives later than the first playback.
+- **Uploading at full Export quality changes nothing -- tried and removed (2026-10-12).** The
+  Export MP4 file as-is (~68 Mbps / 194 kbps, over both stated limits) was ACCEPTED, and Instagram
+  served it at exactly the tier of every other post: 720x1280 at 2.8 Mbps, against 2.2 Mbps for the
+  phone upload. Most likely explanation, per Meta's engineering blog and Mosseri: new uploads get a
+  cheap basic encode, and the full high-quality encodes are spent on videos with enough watch time,
+  however they were uploaded. Don't re-propose a higher upload bitrate as a fix.
 - **Posts are recorded on the ad** (`post.posted`, auto-saved when the ad has a name), and the
   confirm warns on a repeat. Under 3s (Instagram's minimum) Post is blocked. The API cannot delete a
   post in this flavour -- that is done in the app.

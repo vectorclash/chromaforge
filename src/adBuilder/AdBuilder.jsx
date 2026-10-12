@@ -661,21 +661,8 @@ export default function AdBuilder() {
   // file measures ~17.5) is the cleanest source with headroom under that cap -- Instagram
   // re-encodes it, and a re-encode loses less from a cleaner input. Measured on a real ad against a
   // near-lossless export: 10 Mbps was 47.2 dB mean / 42.0 worst PSNR, 18 Mbps 50.3 / 44.9.
-  // `full` (an experiment, 2026-10-12): the exact file Export MP4 makes, over both stated limits, to
-  // see whether Instagram rejects it or keeps more of its quality.
-  const buildInstagramFiles = async ({ full = false } = {}) => ({
-    video: await buildMp4(
-      full
-        ? {
-            bitrate: exportBitrate({
-              width: AD_WIDTH,
-              height: AD_HEIGHT,
-              fps: AD_FPS,
-              durationSec: timeline.total
-            })
-          }
-        : { bitrate: INSTAGRAM_VIDEO_BITRATE, audioMaxBitrate: 128_000 }
-    ),
+  const buildInstagramFiles = async () => ({
+    video: await buildMp4({ bitrate: INSTAGRAM_VIDEO_BITRATE, audioMaxBitrate: 128_000 }),
     cover: await buildCover()
   });
 
