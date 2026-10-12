@@ -31,6 +31,18 @@ const when = iso =>
     minute: '2-digit'
   });
 
+const TONES = {
+  neutral: 'border-white/15 bg-white/5',
+  success: 'border-[#d1ff1a]/50 bg-[#d1ff1a]/10',
+  error: 'border-red-400/40 bg-red-500/10 text-red-200'
+};
+
+function Card({ tone = 'neutral', children }) {
+  return (
+    <div className={`mt-4 animate-fade-in rounded-lg border p-3 ${TONES[tone]}`}>{children}</div>
+  );
+}
+
 function Row({ label, hint, on, onToggle, disabled }) {
   return (
     <div className="flex items-start justify-between gap-3">
@@ -158,70 +170,102 @@ export default function InstagramPost({
         />
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-4">
         <Button
+          className="w-full"
           disabled={!ready || !canPost || !!stage || tooLong || tooShort}
           onClick={() => setConfirming(true)}
         >
           {stage ? 'Posting…' : 'Post Reel'}
         </Button>
-        <span className="text-xs text-neutral-500">Cover: the frame under the playhead.</span>
+        <p className="mt-2 text-center text-xs text-neutral-500">
+          The cover is the frame under the playhead.
+        </p>
       </div>
       {tooShort && (
-        <p className="mt-2 text-xs text-red-300">
+        <Card tone="error">
           Instagram needs a Reel of at least 3 seconds; this one is {durationSec.toFixed(1)}s.
-        </p>
+        </Card>
       )}
       {tooLong && (
-        <p className="mt-2 text-xs text-red-300">Over Instagram&rsquo;s 2,200-character limit.</p>
+        <Card tone="error">The caption is over Instagram&rsquo;s 2,200-character limit.</Card>
       )}
+
       {stage && (
-        <p className="mt-2 text-xs text-neutral-300">
-          {progress
-            ? `${progress.label} ${progress.progress > 0 ? `${Math.round(progress.progress * 100)}%` : ''}`
-            : `${stage}…`}
-        </p>
+        <Card>
+          <p className="text-sm text-white">{progress ? progress.label : stage}</p>
+          <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+            {progress && progress.progress > 0 ? (
+              <div
+                className="h-full rounded-full bg-[#d1ff1a] transition-[width] duration-300"
+                style={{ width: `${Math.round(progress.progress * 100)}%` }}
+              />
+            ) : (
+              <div className="h-full w-full animate-pulse rounded-full bg-[#d1ff1a]/50" />
+            )}
+          </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            Usually 1&ndash;3 minutes. Keep this tab open.
+          </p>
+        </Card>
       )}
-      {result?.error && <p className="mt-2 text-xs text-red-300">Not posted: {result.error}</p>}
+      {result?.error && (
+        <Card tone="error">
+          <p className="text-sm font-semibold">Not posted</p>
+          <p className="mt-1 text-xs">{result.error}</p>
+        </Card>
+      )}
       {result && !result.error && (
-        <p className="mt-2 text-xs text-neutral-300">
-          Published.{' '}
+        <Card tone="success">
+          <p className="flex items-center gap-2 text-sm font-semibold text-white">
+            <span
+              aria-hidden="true"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d1ff1a] text-xs text-black"
+            >
+              ✓
+            </span>
+            Published to @{setup?.account || 'chromaforge.app'}
+          </p>
           {result.permalink && (
             <a
               href={result.permalink}
               target="_blank"
               rel="noreferrer"
-              className="text-[#d1ff1a] underline"
+              className="mt-3 inline-block rounded-md bg-[#d1ff1a] px-3 py-1.5 text-sm font-semibold text-black hover:bg-white"
             >
-              Open it on Instagram
+              Open on Instagram ↗
             </a>
           )}
-          {result.note && <span className="block text-amber-300/90">{result.note}</span>}
-        </p>
+          {result.note && <p className="mt-2 text-xs text-amber-300/90">{result.note}</p>}
+        </Card>
       )}
 
       {posted.length > 0 && (
-        <ul className="mt-3 text-xs text-neutral-500">
-          {posted.map(p => (
-            <li key={p.at}>
-              Posted {when(p.at)}
-              {p.trial && ' as a trial'}
-              {p.permalink && (
-                <>
-                  {' · '}
+        <div className="mt-5">
+          <p className="text-xs font-semibold tracking-wide text-neutral-400 uppercase">
+            Posted from this ad
+          </p>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {[...posted].reverse().map(p => (
+              <li key={p.at} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-neutral-300">
+                  {when(p.at)}
+                  {p.trial && <span className="text-neutral-500"> · trial</span>}
+                </span>
+                {p.permalink && (
                   <a
                     href={p.permalink}
                     target="_blank"
                     rel="noreferrer"
-                    className="underline hover:text-white"
+                    className="text-xs text-neutral-400 underline hover:text-white"
                   >
-                    link
+                    View ↗
                   </a>
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <ConfirmDialog
