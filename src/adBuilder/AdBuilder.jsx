@@ -14,6 +14,9 @@ import InstagramOverlay from './InstagramOverlay';
 import DesignThumb from './DesignThumb';
 import PostCopy from './PostCopy';
 import InstagramPost from './InstagramPost';
+import FeedPreview from './FeedPreview';
+import FeedSlides from './FeedSlides';
+import { FEED_W, FEED_H, everyAngleSlides, renderSlideFiles, loadImage } from './feedPost';
 import { DEFAULT_POST, fullCaption } from './postText';
 import { createAdComposer } from './adComposer';
 import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
@@ -21,7 +24,8 @@ import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
 import { keepFile, listSavedAds, loadAd, saveAd, adSlug } from './devApi';
 
 // The local ad builder: an Instagram Reel of a design flying through 3D and landing on the
-// products, cut to music from Orrery. See ad-builder.html for how to open it.
+// products, cut to music from Orrery -- or a feed post of the same design and photos, as one image
+// or a carousel (see feedPost.js). See ad-builder.html for how to open it.
 
 const PREVIEW_W = AD_WIDTH / 2;
 const PREVIEW_H = AD_HEIGHT / 2;
@@ -89,9 +93,16 @@ export default function AdBuilder() {
   const [music, setMusic] = useState({ link: '', plan: null, audioUrl: null, duration: null });
   const [musicBuffer, setMusicBuffer] = useState(null);
   const [timing, setTiming] = useState({ flightBars: 1, productBars: 1 });
-  const [overlay, setOverlay] = useState({ show: true, text: 'chromaforge.app', position: 'bottom' });
+  const [overlay, setOverlay] = useState({
+    show: true,
+    text: 'chromaforge.app',
+    position: 'bottom'
+  });
   const [name, setName] = useState('');
   const [post, setPost] = useState(DEFAULT_POST);
+  // 'reel', or 'feed': a single image or a carousel, made of the slides in `feed`.
+  const [format, setFormat] = useState('reel');
+  const [feed, setFeed] = useState({ slides: [] });
 
   // ── Supporting data and UI state ────────────────────────────────────────────
   const [catalog, setCatalog] = useState(
@@ -109,6 +120,8 @@ export default function AdBuilder() {
   const [previewError, setPreviewError] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [exportState, setExportState] = useState(null); // null | { label, progress }
+  const [slideIndex, setSlideIndex] = useState(0);
+  const [feedImages, setFeedImages] = useState(() => new Map()); // photo url -> decoded image
 
   const flightDesign = useMemo(
     () =>
@@ -135,6 +148,18 @@ export default function AdBuilder() {
       ),
     [slots]
   );
+  // The Reel's flight only runs while the Reel is what is being made.
+  const reelDesign = format === 'reel' ? flightDesign : null;
+
+  // A feed post's slides, less any photo no longer in the products (a new design takes its
+  // mockup photos away).
+  const photoByUrl = useMemo(() => new Map(photos.map(p => [p.url, p])), [photos]);
+  const feedSlides = useMemo(
+    () => feed.slides.filter(s => s.type !== 'photo' || photoByUrl.has(s.url)),
+    [feed.slides, photoByUrl]
+  );
+  const feedIndex = Math.min(slideIndex, Math.max(0, feedSlides.length - 1));
+
   const tempo = music.plan?.state?.tempo || DEFAULT_TEMPO;
   const timeline = useMemo(
     () =>
@@ -218,16 +243,16 @@ export default function AdBuilder() {
     if (readout) showTime(t);
   };
 
-  const flightKey = flightDesign ? JSON.stringify(flightDesign) : '';
+  const flightKey = reelDesign ? JSON.stringify(reelDesign) : '';
   useEffect(() => {
-    if (!flightDesign) return;
+    if (!reelDesign) return;
     let cancelled = false;
     let built = null;
     setPreviewState('building');
     setPreviewError(null);
     // Layered: the flight shows on its own canvas under the frame canvas -- see createAdComposer.
     createAdComposer({
-      design: flightDesign,
+      design: reelDesign,
       width: PREVIEW_W,
       height: PREVIEW_H,
       exact: false,
@@ -392,6 +417,41 @@ export default function AdBuilder() {
     []
   );
 
+  // ── Feed post ───────────────────────────────────────────────────────────────
+  // The photos the slides use, decoded once each. A new Map on every change, so the preview
+  // re-renders the slide whose photo just arrived.
+  const slidePhotoKey = feedSlides
+    .filter(s => s.type === 'photo')
+    .map(s => s.url)
+    .join('|');
+  useEffect(() => {
+    if (format !== 'feed') return;
+    let cancelled = false;
+    const wanted = [...new Set(slidePhotoKey.split('|').filter(Boolean))];
+    Promise.all(wanted.map(async url => [url, feedImages.get(url) ?? (await loadImage(url))]))
+      .then(pairs => {
+        if (cancelled) return;
+        if (pairs.every(([url]) => feedImages.has(url)) && pairs.length === feedImages.size) return;
+        setFeedImages(new Map(pairs));
+      })
+      .catch(e => !cancelled && setNotice(`A photo failed to load: ${e.message}`));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [format, slidePhotoKey]);
+
+  // Switching to a feed post with no slides yet starts from every angle of what is chosen.
+  const switchFormat = f => {
+    if (f === format) return;
+    pause();
+    if (f === 'feed' && !feed.slides.length) {
+      setFeed({ slides: everyAngleSlides(photos.map(p => p.url)) });
+      setSlideIndex(0);
+    }
+    setFormat(f);
+  };
+
   // ── Design ──────────────────────────────────────────────────────────────────
   // A mockup photo is a photo OF the design it was made from, so a different design takes every
   // one out of the ad -- left in, they kept playing the old artwork on the products. Your own
@@ -498,19 +558,23 @@ export default function AdBuilder() {
   // ── Save, load, export ──────────────────────────────────────────────────────
   const fileBase = () => adSlug(name || design?.title || design?.data?.seed);
 
+  const adFile = (adName, adPost = post) => ({
+    version: AD_FILE_VERSION,
+    name: adName,
+    format,
+    design,
+    slots,
+    music,
+    timing,
+    overlay,
+    feed: { slides: feedSlides },
+    post: adPost
+  });
+
   const saveCurrent = async () => {
     const slug = fileBase();
     try {
-      await saveAd(slug, {
-        version: AD_FILE_VERSION,
-        name: name || slug,
-        design,
-        slots,
-        music,
-        timing,
-        overlay,
-        post
-      });
+      await saveAd(slug, adFile(name || slug));
       setName(name || slug);
       setSavedAds(await listSavedAds());
       setNotice(`Saved as ${slug}.`);
@@ -542,6 +606,9 @@ export default function AdBuilder() {
       setTiming(ad.timing);
       setOverlay(ad.overlay);
       setPost(ad.post ?? DEFAULT_POST);
+      setFormat(ad.format ?? 'reel');
+      setFeed(ad.feed ?? { slides: [] });
+      setSlideIndex(0);
       setMusic(ad.music);
       setMusicBuffer(savedTake);
       play.current.t = 0;
@@ -673,9 +740,36 @@ export default function AdBuilder() {
     setPost(next);
     if (!name) return setNotice('Posted. Save the ad to remember that it was.');
     try {
-      await saveAd(adSlug(name), { version: AD_FILE_VERSION, name, design, slots, music, timing, overlay, post: next });
+      await saveAd(adSlug(name), adFile(name, next));
     } catch (e) {
       setNotice(`Posted, but saving the ad failed: ${e.message}`);
+    }
+  };
+
+  // Every slide as a file, with progress, for both Download and Post.
+  const buildSlideFiles = async () => {
+    pause();
+    setExportState({ label: 'Rendering slides', progress: 0 });
+    try {
+      return await renderSlideFiles(feedSlides, flightDesign, feedImages, setExportState);
+    } finally {
+      setExportState(null);
+    }
+  };
+
+  const downloadSlides = async () => {
+    try {
+      const files = await buildSlideFiles();
+      files.forEach((f, i) => {
+        const ext = f.type === 'video' ? 'mp4' : 'jpg';
+        saveAs(
+          f.blob,
+          `${fileBase()}-${String(i + 1).padStart(2, '0')}-${FEED_W}x${FEED_H}.${ext}`
+        );
+      });
+    } catch (e) {
+      console.error('[ad builder] slides failed', e);
+      setNotice(`Download failed: ${e.message}`);
     }
   };
 
@@ -687,7 +781,30 @@ export default function AdBuilder() {
   const productNames = photos.map(p =>
     catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
   );
-  const caption = fullCaption(post, design, productNames);
+  const isFeed = format === 'feed';
+  const photoLabel = url => {
+    const p = photoByUrl.get(url);
+    return (
+      catalog.find(c => c.id === p?.productId)?.title?.replace(/^All-Over Print\s*/, '') ?? 'Photo'
+    );
+  };
+  // A slide's name: its product, and which of that product's photos it is when there are several.
+  const slideLabel = url => {
+    const p = photoByUrl.get(url);
+    const same = photos.filter(q => q.productId === p?.productId);
+    return same.length > 1
+      ? `${photoLabel(url)} · photo ${same.findIndex(q => q.url === url) + 1}`
+      : photoLabel(url);
+  };
+  const feedProductNames = feedSlides.filter(s => s.type === 'photo').map(s => photoLabel(s.url));
+  const feedPhotosReady = feedSlides.every(s => s.type !== 'photo' || feedImages.has(s.url));
+  const canExportFeed = !!flightDesign && feedSlides.length > 0 && feedPhotosReady && !busy;
+  const feedKind = feedSlides.length === 1 ? 'image' : 'carousel';
+  const feedBlocked =
+    feedSlides.length === 1 && feedSlides[0].type === 'flight'
+      ? 'A post with only the flight clip goes out as a Reel. Add a still slide, or switch to Reel.'
+      : null;
+  const caption = fullCaption(post, design, isFeed ? feedProductNames : productNames);
 
   // ── Layout ──────────────────────────────────────────────────────────────────
   return (
@@ -700,10 +817,23 @@ export default function AdBuilder() {
         style={{ maxHeight: '100dvh' }}
       >
         <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <h1 className="font-[Exo] text-lg font-bold tracking-wide text-white">Ad builder</h1>
-          <span className="text-xs text-neutral-500">
-            Instagram Reels · 1080×1920 · {AD_FPS}fps
-          </span>
+          <div>
+            <h1 className="font-[Exo] text-lg font-bold tracking-wide text-white">Ad builder</h1>
+            <span className="text-xs text-neutral-500">
+              {isFeed
+                ? `Feed post · ${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
+                : `Instagram Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
+            </span>
+          </div>
+          <Segmented
+            label="What to make"
+            value={format}
+            options={[
+              ['reel', 'Reel'],
+              ['feed', 'Feed post']
+            ]}
+            onChange={switchFormat}
+          />
         </header>
 
         <Section title="1 · Design">
@@ -822,140 +952,166 @@ export default function AdBuilder() {
               Choose a design first: mockups are made of it.
             </p>
           )}
+          {isFeed && design && (
+            <p className="mt-2 text-xs text-neutral-500">
+              Photos chosen here can be added as slides below. Framing applies to the Reel only; a
+              slide sets each photo into its artwork on its own.
+            </p>
+          )}
         </Section>
 
-        <Section
-          title="3 · Music"
-          aside={
-            music.plan && (
-              <button
-                type="button"
-                className="text-xs text-neutral-500 hover:text-white"
-                onClick={clearMusic}
-              >
-                Remove
-              </button>
-            )
-          }
-        >
-          <div className="flex gap-2">
-            <input
-              value={music.link}
-              onChange={e => setMusic(m => ({ ...m, link: e.target.value }))}
-              placeholder="Orrery share link (SHARE in Manual mode)"
-              className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+        {isFeed && (
+          <Section
+            title="3 · Slides"
+            aside={<span className="text-xs text-neutral-500">{feedSlides.length} of 10</span>}
+          >
+            <FeedSlides
+              slides={feedSlides}
+              onChange={slides => setFeed({ slides })}
+              photos={photos}
+              labelOf={slideLabel}
+              index={feedIndex}
+              onSelect={setSlideIndex}
             />
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!music.link || musicBusy !== null}
-              onClick={loadMusicLink}
+          </Section>
+        )}
+
+        {!isFeed && (
+          <>
+            <Section
+              title="3 · Music"
+              aside={
+                music.plan && (
+                  <button
+                    type="button"
+                    className="text-xs text-neutral-500 hover:text-white"
+                    onClick={clearMusic}
+                  >
+                    Remove
+                  </button>
+                )
+              }
             >
-              Load
-            </Button>
-          </div>
-          {music.plan && (
-            <div className="mt-3 text-sm">
-              <p>
-                {Math.round(music.plan.state.tempo)} bpm ·{' '}
-                {ROOT_NAMES[music.plan.state.rootMidi % 12]} ·{' '}
-                <span className="text-neutral-400">
-                  {music.plan.voices.join(', ') || 'no voices'}
-                </span>
-                {music.plan.bassStyle && (
-                  <span className="text-neutral-400">, bass ({music.plan.bassStyle})</span>
-                )}
-              </p>
-              <div className="mt-2 flex items-center gap-3">
+              <div className="flex gap-2">
+                <input
+                  value={music.link}
+                  onChange={e => setMusic(m => ({ ...m, link: e.target.value }))}
+                  placeholder="Orrery share link (SHARE in Manual mode)"
+                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+                />
                 <Button
                   size="sm"
-                  disabled={musicBusy !== null}
-                  onClick={() => renderTake(music.plan, timeline.total)}
-                  title="Orrery plays it differently every time"
+                  variant="ghost"
+                  disabled={!music.link || musicBusy !== null}
+                  onClick={loadMusicLink}
                 >
-                  Re-roll
+                  Load
                 </Button>
-                <span className="text-xs text-neutral-400">
-                  {typeof musicBusy === 'number'
-                    ? `Rendering ${Math.round(musicBusy * 100)}%`
-                    : musicBuffer && !musicStale
-                      ? `${fmt(music.duration)} take, playing with the preview.`
-                      : 'Rendering…'}
-                </span>
               </div>
-            </div>
-          )}
-          {musicBusy === 'loading' && (
-            <p className="mt-2 text-xs text-neutral-400">Reading the link…</p>
-          )}
-          {musicError && <p className="mt-2 text-xs text-red-300">{musicError}</p>}
-        </Section>
+              {music.plan && (
+                <div className="mt-3 text-sm">
+                  <p>
+                    {Math.round(music.plan.state.tempo)} bpm ·{' '}
+                    {ROOT_NAMES[music.plan.state.rootMidi % 12]} ·{' '}
+                    <span className="text-neutral-400">
+                      {music.plan.voices.join(', ') || 'no voices'}
+                    </span>
+                    {music.plan.bassStyle && (
+                      <span className="text-neutral-400">, bass ({music.plan.bassStyle})</span>
+                    )}
+                  </p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <Button
+                      size="sm"
+                      disabled={musicBusy !== null}
+                      onClick={() => renderTake(music.plan, timeline.total)}
+                      title="Orrery plays it differently every time"
+                    >
+                      Re-roll
+                    </Button>
+                    <span className="text-xs text-neutral-400">
+                      {typeof musicBusy === 'number'
+                        ? `Rendering ${Math.round(musicBusy * 100)}%`
+                        : musicBuffer && !musicStale
+                          ? `${fmt(music.duration)} take, playing with the preview.`
+                          : 'Rendering…'}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {musicBusy === 'loading' && (
+                <p className="mt-2 text-xs text-neutral-400">Reading the link…</p>
+              )}
+              {musicError && <p className="mt-2 text-xs text-red-300">{musicError}</p>}
+            </Section>
 
-        <Section
-          title="4 · Timing"
-          aside={
-            <span className="text-xs text-neutral-500">
-              {fmt(timeline.total)} · {Math.round(tempo)} bpm
-            </span>
-          }
-        >
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-neutral-400">Flight</span>
-            <Segmented
-              label="Flight length"
-              value={timing.flightBars}
-              options={FLIGHT_BARS.map(b => [b, `${b} bar${b > 1 ? 's' : ''}`])}
-              onChange={v => setTiming(t => ({ ...t, flightBars: v }))}
-            />
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-sm">
-            <span className="text-neutral-400">Each product</span>
-            <Segmented
-              label="Bars per product"
-              value={timing.productBars}
-              options={PRODUCT_BARS.map(b => [
-                b,
-                b === 0.5 ? '½ bar' : `${b} bar${b > 1 ? 's' : ''}`
-              ])}
-              onChange={v => setTiming(t => ({ ...t, productBars: v }))}
-            />
-          </div>
-        </Section>
+            <Section
+              title="4 · Timing"
+              aside={
+                <span className="text-xs text-neutral-500">
+                  {fmt(timeline.total)} · {Math.round(tempo)} bpm
+                </span>
+              }
+            >
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-neutral-400">Flight</span>
+                <Segmented
+                  label="Flight length"
+                  value={timing.flightBars}
+                  options={FLIGHT_BARS.map(b => [b, `${b} bar${b > 1 ? 's' : ''}`])}
+                  onChange={v => setTiming(t => ({ ...t, flightBars: v }))}
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-neutral-400">Each product</span>
+                <Segmented
+                  label="Bars per product"
+                  value={timing.productBars}
+                  options={PRODUCT_BARS.map(b => [
+                    b,
+                    b === 0.5 ? '½ bar' : `${b} bar${b > 1 ? 's' : ''}`
+                  ])}
+                  onChange={v => setTiming(t => ({ ...t, productBars: v }))}
+                />
+              </div>
+            </Section>
 
-        <Section
-          title="5 · Brand"
-          aside={
-            <Toggle
-              on={overlay.show}
-              onClick={() => setOverlay(o => ({ ...o, show: !o.show }))}
-              aria-label="Show the brand lockup"
-            />
-          }
-        >
-          <div className="flex items-center gap-3">
-            <input
-              value={overlay.text}
-              onChange={e => setOverlay(o => ({ ...o, text: e.target.value }))}
-              className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
-            />
-            <Segmented
-              label="Text position"
-              value={overlay.position}
-              options={[
-                ['top', 'Top'],
-                ['bottom', 'Bottom']
-              ]}
-              onChange={v => setOverlay(o => ({ ...o, position: v }))}
-            />
-          </div>
-          <p className="mt-2 text-xs text-neutral-500">
-            The Chromaforge wordmark, with this line under it, arrives a beat after the first
-            product. CHROMA&rsquo;s color wave marks new products, at most once every 2 bars.
-            Products are placed clear of it.
-          </p>
-        </Section>
+            <Section
+              title="5 · Brand"
+              aside={
+                <Toggle
+                  on={overlay.show}
+                  onClick={() => setOverlay(o => ({ ...o, show: !o.show }))}
+                  aria-label="Show the brand lockup"
+                />
+              }
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  value={overlay.text}
+                  onChange={e => setOverlay(o => ({ ...o, text: e.target.value }))}
+                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+                />
+                <Segmented
+                  label="Text position"
+                  value={overlay.position}
+                  options={[
+                    ['top', 'Top'],
+                    ['bottom', 'Bottom']
+                  ]}
+                  onChange={v => setOverlay(o => ({ ...o, position: v }))}
+                />
+              </div>
+              <p className="mt-2 text-xs text-neutral-500">
+                The Chromaforge wordmark, with this line under it, arrives a beat after the first
+                product. CHROMA&rsquo;s color wave marks new products, at most once every 2 bars.
+                Products are placed clear of it.
+              </p>
+            </Section>
+          </>
+        )}
 
-        <Section title="6 · Save and export">
+        <Section title={isFeed ? '4 · Save and export' : '6 · Save and export'}>
           <div className="flex gap-2">
             <input
               value={name}
@@ -980,43 +1136,58 @@ export default function AdBuilder() {
               ))}
             </select>
           </div>
-          <div className="mt-3 flex items-center gap-2">
-            <Button disabled={!canExport} onClick={exportVideo}>
-              Export MP4
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!canExport}
-              onClick={exportCover}
-              title="The frame under the playhead, as a 1080×1920 JPG"
-            >
-              Cover
-            </Button>
-          </div>
+          {isFeed ? (
+            <div className="mt-3 flex items-center gap-2">
+              <Button disabled={!canExportFeed} onClick={downloadSlides}>
+                Download {feedSlides.length === 1 ? 'image' : 'slides'}
+              </Button>
+              <span className="text-xs text-neutral-500">
+                JPGs{feedSlides.some(s => s.type === 'flight') ? ' and a silent MP4' : ''}, in order
+              </span>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center gap-2">
+              <Button disabled={!canExport} onClick={exportVideo}>
+                Export MP4
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={!canExport}
+                onClick={exportCover}
+                title="The frame under the playhead, as a 1080×1920 JPG"
+              >
+                Cover
+              </Button>
+            </div>
+          )}
           {exportState && (
             <p className="mt-2 text-xs text-neutral-400">
               {exportState.label}{' '}
               {exportState.progress > 0 && `${Math.round(exportState.progress * 100)}%`}
             </p>
           )}
-          {!music.plan && design && (
+          {!isFeed && !music.plan && design && (
             <p className="mt-2 text-xs text-neutral-500">No music: the file will be silent.</p>
           )}
           {notice && <p className="mt-2 text-xs text-neutral-300">{notice}</p>}
         </Section>
 
-        <Section title="7 · Post">
+        <Section title={isFeed ? '5 · Post' : '7 · Post'}>
           <PostCopy
             design={design}
-            productNames={productNames}
+            productNames={isFeed ? feedProductNames : productNames}
             post={post}
             onChange={setPost}
           />
           <InstagramPost
-            canPost={canExport}
+            kind={isFeed ? feedKind : 'reel'}
+            blocked={isFeed ? feedBlocked : null}
+            canPost={isFeed ? canExportFeed : canExport}
             caption={caption}
             posted={post.posted || []}
-            buildFiles={buildInstagramFiles}
+            buildFiles={
+              isFeed ? async () => ({ items: await buildSlideFiles() }) : buildInstagramFiles
+            }
             onPosted={recordPost}
             progress={exportState}
             durationSec={timeline.total}
@@ -1024,86 +1195,15 @@ export default function AdBuilder() {
         </Section>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
-        <div
-          className="relative isolate overflow-hidden rounded-xl bg-black shadow-2xl will-change-transform"
-          style={{ height: 'min(80dvh, 960px)', aspectRatio: '9 / 16' }}
-        >
-          <div ref={flightHostRef} className="absolute inset-0" />
-          <canvas
-            ref={canvasRef}
-            width={PREVIEW_W}
-            height={PREVIEW_H}
-            className="absolute inset-0 h-full w-full"
-          />
-          <div ref={lockupHostRef} className="pointer-events-none absolute inset-0" />
-          {showIg && <InstagramOverlay />}
-          {!flightDesign && (
-            <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">
-              Choose a design to start.
-            </p>
-          )}
-          {previewState === 'building' && (
-            <p className="absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-xs text-neutral-300">
-              Building the flight…
-            </p>
-          )}
-          {previewState === 'error' && (
-            <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-red-300">
-              {previewError}
-            </p>
-          )}
-        </div>
-
-        <div className="flex w-full max-w-[540px] items-center gap-3">
-          <Button
-            size="sm"
-            disabled={previewState !== 'ready' || busy}
-            onClick={playing ? pause : start}
-          >
-            {playing ? 'Pause' : 'Play'}
-          </Button>
-          <div className="relative flex-1">
-            <div className="pointer-events-none absolute inset-x-0 -top-5 flex text-[10px] text-neutral-500">
-              <span
-                style={{ width: `${(timeline.flight / timeline.total) * 100}%` }}
-                className="truncate"
-              >
-                Flight
-              </span>
-              {timeline.products.map((p, i) => (
-                <span
-                  key={i}
-                  style={{ width: `${((p.end - p.start) / timeline.total) * 100}%` }}
-                  className={`truncate border-l border-white/20 pl-1 ${seg === i ? 'text-white' : ''}`}
-                >
-                  {catalog
-                    .find(c => c.id === photos[i]?.productId)
-                    ?.title?.replace(/^All-Over Print\s*/, '') ?? i + 1}
-                </span>
-              ))}
-            </div>
-            <input
-              ref={scrubRef}
-              type="range"
-              min="0"
-              max={timeline.total}
-              step="0.01"
-              defaultValue="0"
-              className="w-full"
-              aria-label="Playhead"
-              onChange={e => {
-                pause();
-                play.current.t = Number(e.target.value);
-                drawAt(play.current.t);
-              }}
-            />
-          </div>
-          <span ref={timeRef} className="w-28 text-right text-xs tabular-nums text-neutral-400" />
-          <span
-            ref={fpsRef}
-            className="w-24 text-right text-xs tabular-nums text-neutral-500"
-            title="Preview frame rate, and what drawing a frame costs"
+      {isFeed ? (
+        <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
+          <FeedPreview
+            slides={feedSlides}
+            design={flightDesign}
+            images={feedImages}
+            index={feedIndex}
+            onIndex={setSlideIndex}
+            showIg={showIg}
           />
           <label className="flex items-center gap-2 text-xs text-neutral-400">
             <Toggle
@@ -1113,8 +1213,100 @@ export default function AdBuilder() {
             />
             IG UI
           </label>
-        </div>
-      </main>
+        </main>
+      ) : (
+        <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
+          <div
+            className="relative isolate overflow-hidden rounded-xl bg-black shadow-2xl will-change-transform"
+            style={{ height: 'min(80dvh, 960px)', aspectRatio: '9 / 16' }}
+          >
+            <div ref={flightHostRef} className="absolute inset-0" />
+            <canvas
+              ref={canvasRef}
+              width={PREVIEW_W}
+              height={PREVIEW_H}
+              className="absolute inset-0 h-full w-full"
+            />
+            <div ref={lockupHostRef} className="pointer-events-none absolute inset-0" />
+            {showIg && <InstagramOverlay />}
+            {!flightDesign && (
+              <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">
+                Choose a design to start.
+              </p>
+            )}
+            {previewState === 'building' && (
+              <p className="absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-xs text-neutral-300">
+                Building the flight…
+              </p>
+            )}
+            {previewState === 'error' && (
+              <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-red-300">
+                {previewError}
+              </p>
+            )}
+          </div>
+
+          <div className="flex w-full max-w-[540px] items-center gap-3">
+            <Button
+              size="sm"
+              disabled={previewState !== 'ready' || busy}
+              onClick={playing ? pause : start}
+            >
+              {playing ? 'Pause' : 'Play'}
+            </Button>
+            <div className="relative flex-1">
+              <div className="pointer-events-none absolute inset-x-0 -top-5 flex text-[10px] text-neutral-500">
+                <span
+                  style={{ width: `${(timeline.flight / timeline.total) * 100}%` }}
+                  className="truncate"
+                >
+                  Flight
+                </span>
+                {timeline.products.map((p, i) => (
+                  <span
+                    key={i}
+                    style={{ width: `${((p.end - p.start) / timeline.total) * 100}%` }}
+                    className={`truncate border-l border-white/20 pl-1 ${seg === i ? 'text-white' : ''}`}
+                  >
+                    {catalog
+                      .find(c => c.id === photos[i]?.productId)
+                      ?.title?.replace(/^All-Over Print\s*/, '') ?? i + 1}
+                  </span>
+                ))}
+              </div>
+              <input
+                ref={scrubRef}
+                type="range"
+                min="0"
+                max={timeline.total}
+                step="0.01"
+                defaultValue="0"
+                className="w-full"
+                aria-label="Playhead"
+                onChange={e => {
+                  pause();
+                  play.current.t = Number(e.target.value);
+                  drawAt(play.current.t);
+                }}
+              />
+            </div>
+            <span ref={timeRef} className="w-28 text-right text-xs tabular-nums text-neutral-400" />
+            <span
+              ref={fpsRef}
+              className="w-24 text-right text-xs tabular-nums text-neutral-500"
+              title="Preview frame rate, and what drawing a frame costs"
+            />
+            <label className="flex items-center gap-2 text-xs text-neutral-400">
+              <Toggle
+                on={showIg}
+                onClick={() => setShowIg(v => !v)}
+                aria-label="Show Instagram's UI"
+              />
+              IG UI
+            </label>
+          </div>
+        </main>
+      )}
     </div>
   );
 }

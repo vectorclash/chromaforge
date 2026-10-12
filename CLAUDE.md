@@ -2292,6 +2292,30 @@ Verified in Chromium with the four routes stubbed (render -> upload -> post -> p
 console errors) and the real routes' refusals and failure cleanup on a dev server. A real post then ran end to end on
 2026-10-12 (https://www.instagram.com/reel/DeZt9TfiVyW/).
 
+(11) **Feed posts: a single image or a carousel** (`feedPost.js`, `FeedSlides.jsx`,
+`FeedPreview.jsx`, 2026-10-12). Aaron picked two formats from a mockup round
+(https://claude.ai/artifact/L8Dh8v3zL3DcS2woDHAuZn): "one design, every angle" (a carousel) and
+"standing in its own artwork" (one product photo set into its design, a single image). They are ONE
+mode: a Reel / Feed post switch in the header, then the design and product photos as before, and a
+list of slides -- Artwork, a product Photo (set into its dimmed artwork by its alpha: on-model shots
+rise from the bottom edge, flat cutouts float; a close-up whose subject runs off the photo's top or
+sides fills the slide, gaps showing the artwork -- placed as a cutout it left a hard edge mid-slide), Close-up (the artwork at 3x,
+cropped to its busiest window), Flight clip (one whole loop of a 6s scene, silent MP4) and Seed card.
+"Every angle" and "One photo" are presets. 1080x1350, at most 10 slides (the API's carousel limit;
+the app allows 20). Things worth not re-deriving:
+- **Posting reuses the Reel route.** `startPost` also takes `{ items: [{ type, id }], caption }`:
+  one image posts as a photo; 2-10 items make a child container each (`is_carousel_item`), then one
+  `CAROUSEL` container. A lone video is refused (it would be a Reel). **Verified with a real carousel
+  post (Aaron, 2026-10-12: "it looks great")**; a single-image post has not been made yet.
+- **Every still slide is rendered by one function for preview and file** (`renderStillSlide`); the
+  preview's flight clip plays the cached scene live and is encoded `exact` only on export or post.
+- **A finished slide render is always kept** (keyed by design): throwing away a render cancelled by a
+  photo decoding mid-render left slide 1 on "Rendering..." forever, caught in testing.
+- Saved ads gain `format` and `feed.slides`; an ad without them opens as a Reel. The Reel's 3D
+  composer only runs in Reel mode.
+- The seed card mentions seeds, which Reel captions avoid; it stays in the preset because it was in
+  the approved mockup. Remove the slide per post if that rule should apply.
+
 Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
 exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
 kept it suspended -- a silent preview until the next pause and play. Export was never affected.

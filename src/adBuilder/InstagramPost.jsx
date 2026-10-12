@@ -3,9 +3,11 @@ import Button from '../components/ui/Button';
 import Toggle from '../components/ui/Toggle';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
-// Posts the ad as a Reel to @chromaforge.app through the dev server (scripts/ad-builder-
-// instagram.mjs), which holds the token and does the uploading. The cover is the frame under the
-// playhead, as with the Cover button.
+// Posts to @chromaforge.app through the dev server (scripts/ad-builder-instagram.mjs), which holds
+// the token and does the uploading: a Reel (whose cover is the frame under the playhead, as with
+// the Cover button), or a feed post -- one image, or a carousel of images and videos.
+//
+// `buildFiles` returns { video, cover } for a Reel, or { items: [{ type, blob }] } for a feed post.
 
 async function api(path, init) {
   const res = await fetch(path, init);
@@ -31,6 +33,8 @@ const when = iso =>
     minute: '2-digit'
   });
 
+const NOUN = { reel: 'Reel', image: 'image', carousel: 'carousel' };
+
 const TONES = {
   neutral: 'border-white/15 bg-white/5',
   success: 'border-[#d1ff1a]/50 bg-[#d1ff1a]/10',
@@ -39,7 +43,9 @@ const TONES = {
 
 function Card({ tone = 'neutral', children }) {
   return (
-    <div className={`mt-4 animate-fade-in rounded-lg border p-3 text-sm ${TONES[tone]}`}>{children}</div>
+    <div className={`mt-4 animate-fade-in rounded-lg border p-3 text-sm ${TONES[tone]}`}>
+      {children}
+    </div>
   );
 }
 
@@ -62,6 +68,8 @@ function Row({ label, hint, on, onToggle, disabled }) {
 }
 
 export default function InstagramPost({
+  kind = 'reel',
+  blocked = null,
   canPost,
   caption,
   posted,
@@ -93,7 +101,7 @@ export default function InstagramPost({
 
   const ready = setup?.account && setup.sshKey;
   const tooLong = caption.length > 2200;
-  const tooShort = durationSec < 3; // Instagram's Reel minimum
+  const tooShort = kind === 'reel' && durationSec < 3; // Instagram's Reel minimum
 
   const post = async () => {
     setConfirming(false);
@@ -102,11 +110,19 @@ export default function InstagramPost({
       setStage('Rendering for Instagram');
       const files = await buildFiles();
       setStage('Handing the files to the dev server');
-      const [video, cover] = [await sendFile(files.video), await sendFile(files.cover)];
+      let body;
+      if (files.items) {
+        const items = [];
+        for (const it of files.items) items.push({ type: it.type, id: await sendFile(it.blob) });
+        body = { items, caption };
+      } else {
+        const [video, cover] = [await sendFile(files.video), await sendFile(files.cover)];
+        body = { video, cover, caption, shareToFeed, trial };
+      }
       const { job } = await api('/__ads/instagram/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ video, cover, caption, shareToFeed, trial })
+        body: JSON.stringify(body)
       });
       for (;;) {
         await new Promise(r => setTimeout(r, 2000));
@@ -119,7 +135,8 @@ export default function InstagramPost({
           at: new Date().toISOString(),
           permalink: j.permalink,
           mediaId: j.mediaId,
-          trial
+          kind,
+          trial: kind === 'reel' && trial
         });
         setResult({ permalink: j.permalink, note: j.cleanupError });
         check();
@@ -159,35 +176,40 @@ export default function InstagramPost({
         </p>
       )}
 
-      <div className="mt-3 flex flex-col gap-3">
-        <Row
-          label="Also show in the grid"
-          hint="Off keeps it in the Reels tab only."
-          on={shareToFeed}
-          onToggle={() => setShareToFeed(v => !v)}
-          disabled={!!stage}
-        />
-        <Row
-          label="Trial reel"
-          hint="Shown to non-followers first, then shared to followers if it does well."
-          on={trial}
-          onToggle={() => setTrial(v => !v)}
-          disabled={!!stage}
-        />
-      </div>
+      {kind === 'reel' && (
+        <div className="mt-3 flex flex-col gap-3">
+          <Row
+            label="Also show in the grid"
+            hint="Off keeps it in the Reels tab only."
+            on={shareToFeed}
+            onToggle={() => setShareToFeed(v => !v)}
+            disabled={!!stage}
+          />
+          <Row
+            label="Trial reel"
+            hint="Shown to non-followers first, then shared to followers if it does well."
+            on={trial}
+            onToggle={() => setTrial(v => !v)}
+            disabled={!!stage}
+          />
+        </div>
+      )}
 
       <div className="mt-4">
         <Button
           className="w-full"
-          disabled={!ready || !canPost || !!stage || tooLong || tooShort}
+          disabled={!ready || !canPost || !!stage || tooLong || tooShort || !!blocked}
           onClick={() => setConfirming(true)}
         >
-          {stage ? 'Posting…' : 'Post Reel'}
+          {stage ? 'Posting…' : `Post ${NOUN[kind]}`}
         </Button>
-        <p className="mt-2 text-center text-xs text-neutral-500">
-          The cover is the frame under the playhead.
-        </p>
+        {kind === 'reel' && (
+          <p className="mt-2 text-center text-xs text-neutral-500">
+            The cover is the frame under the playhead.
+          </p>
+        )}
       </div>
+      {blocked && <Card tone="error">{blocked}</Card>}
       {tooShort && (
         <Card tone="error">
           Instagram needs a Reel of at least 3 seconds; this one is {durationSec.toFixed(1)}s.
@@ -256,6 +278,9 @@ export default function InstagramPost({
               <li key={p.at} className="flex items-center justify-between gap-3 text-sm">
                 <span className="text-neutral-300">
                   {when(p.at)}
+                  {p.kind && p.kind !== 'reel' && (
+                    <span className="text-neutral-500"> · {p.kind}</span>
+                  )}
                   {p.trial && <span className="text-neutral-500"> · trial</span>}
                 </span>
                 {p.permalink && (
@@ -276,10 +301,10 @@ export default function InstagramPost({
 
       <ConfirmDialog
         open={confirming}
-        title="Post this Reel?"
+        title={`Post this ${NOUN[kind]}?`}
         message={
           posted.length
-            ? 'This ad has been posted before. It goes out publicly to @chromaforge.app again, and can only be deleted from the app.'
+            ? 'This has been posted before. It goes out publicly to @chromaforge.app again, and can only be deleted from the app.'
             : 'It goes out publicly to @chromaforge.app, and can only be deleted from the app.'
         }
         confirmLabel="Post"

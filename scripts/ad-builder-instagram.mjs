@@ -1,15 +1,18 @@
-// Posting a Reel from the local ad builder to @chromaforge.app, for scripts/ad-builder-dev.mjs.
+// Posting from the local ad builder to @chromaforge.app -- a Reel, a photo or a carousel -- for
+// scripts/ad-builder-dev.mjs.
 //
-// Instagram's API (the Instagram Login flavour: no Facebook Page involved) cannot take a video
-// upload directly -- it FETCHES the file from a public URL. So the dev server copies the MP4 and
-// its cover to a temporary folder on chromaforge.app over SSH (the same Hostinger account the
-// site deploys to), asks Instagram to fetch them, and deletes them once the post is live. Nothing
+// Instagram's API (the Instagram Login flavour: no Facebook Page involved) cannot take a file
+// upload directly -- it FETCHES each file from a public URL. So the dev server copies the files to
+// a temporary folder on chromaforge.app over SSH (the same Hostinger account the site deploys
+// to), asks Instagram to fetch them, and deletes them once the post is live. Nothing
 // goes through GitHub or the site's deploy; the folder is excluded from the deploy's
 // `rsync --delete-after`, which would otherwise wipe a file mid-post.
 //
 //   GET  /__ads/instagram/status        what is set up, and the account it posts to
 //   POST /__ads/instagram/file          raw video/mp4 or image/jpeg -> { id } (kept in .ads/outbox)
-//   POST /__ads/instagram/post          { video, cover?, caption, shareToFeed, trial } -> { job }
+//   POST /__ads/instagram/post          { video, cover?, caption, shareToFeed, trial } -> { job }  (a Reel)
+//                                       { items: [{ type: 'image'|'video', id }], caption } -> { job }
+//                                       (one image: a photo post; 2-10 items: a carousel)
 //   GET  /__ads/instagram/jobs/<id>     { stage, error?, permalink? }
 //
 // The token never reaches the browser. It comes from INSTAGRAM_ACCESS_TOKEN in .env.local; a
@@ -194,8 +197,47 @@ export function createInstagramPoster({ root, mode }) {
     return f;
   };
 
-  function startPost({ video, cover, caption, shareToFeed = true, trial = false }) {
-    const files = [outboxFile(video), ...(cover ? [outboxFile(cover)] : [])];
+  // Polls a container until Instagram has the media ready. `firstWait` is short for an image,
+  // which is usually ready at once, and the full interval for a video.
+  async function waitFinished(id, what, firstWait = POLL_MS) {
+    const started = Date.now();
+    await sleep(firstWait);
+    for (;;) {
+      const s = await graph('GET', id, { fields: 'status_code,status' });
+      if (s.status_code === 'FINISHED') return;
+      if (s.status_code === 'ERROR' || s.status_code === 'EXPIRED') {
+        throw new Error(`Instagram could not process the ${what}: ${s.status || s.status_code}`);
+      }
+      if (Date.now() - started > POLL_LIMIT_MS)
+        throw new Error(`Instagram took over 10 minutes on the ${what}; nothing was posted.`);
+      await sleep(POLL_MS);
+    }
+  }
+
+  // Instagram's own fetch fails with an unhelpful error, so prove each URL works first.
+  async function checkPublic(url, type) {
+    const head = await fetch(url, { method: 'HEAD' });
+    if (!head.ok || !(head.headers.get('content-type') || '').includes(type)) {
+      throw new Error(`${url} answered ${head.status} ${head.headers.get('content-type') || ''}`);
+    }
+  }
+
+  function startPost({ video, cover, items, caption, shareToFeed = true, trial = false }) {
+    const feed = Array.isArray(items);
+    if (feed) {
+      if (items.length < 1 || items.length > 10)
+        throw new Error('A post takes 1 to 10 images or videos.');
+      if (items.length === 1 && items[0].type !== 'image')
+        throw new Error('A single video goes out as a Reel; add a still or use Reel mode.');
+      for (const it of items) {
+        if ((it.type !== 'image' && it.type !== 'video') || typeof it.id !== 'string')
+          throw new Error('Bad item');
+        if (!it.id.endsWith(it.type === 'image' ? '.jpg' : '.mp4'))
+          throw new Error('Item type does not match its file');
+      }
+    }
+    const names = feed ? items.map(it => it.id) : [video, ...(cover ? [cover] : [])];
+    const files = names.map(outboxFile);
     if (typeof caption !== 'string' || caption.length > 2200)
       throw new Error('Caption must be at most 2,200 characters.');
     const id = randomBytes(8).toString('hex');
@@ -217,42 +259,77 @@ export function createInstagramPoster({ root, mode }) {
         await scp(files, REMOTE_DIR);
         uploaded = true;
 
-        // Instagram's own fetch fails with an unhelpful error, so prove the URL works first.
-        const videoUrl = `${PUBLIC_BASE}/${video}`;
-        const head = await fetch(videoUrl, { method: 'HEAD' });
-        if (!head.ok || !/video\/mp4/.test(head.headers.get('content-type') || '')) {
-          throw new Error(
-            `${videoUrl} answered ${head.status} ${head.headers.get('content-type') || ''}`
-          );
-        }
-
-        job.stage = 'Instagram is fetching the video';
-        const params = {
-          media_type: 'REELS',
-          video_url: videoUrl,
-          caption,
-          share_to_feed: String(!!shareToFeed)
-        };
-        if (cover) params.cover_url = `${PUBLIC_BASE}/${cover}`;
-        if (trial) params.trial_params = JSON.stringify({ graduation_strategy: 'SS_PERFORMANCE' });
-        const container = await graph('POST', `${a.id}/media`, params);
-
-        job.stage = 'Instagram is processing';
-        const started = Date.now();
-        for (;;) {
-          await sleep(POLL_MS);
-          const s = await graph('GET', container.id, { fields: 'status_code,status' });
-          if (s.status_code === 'FINISHED') break;
-          if (s.status_code === 'ERROR' || s.status_code === 'EXPIRED') {
-            throw new Error(`Instagram could not process the video: ${s.status || s.status_code}`);
+        let containerId;
+        if (!feed) {
+          const videoUrl = `${PUBLIC_BASE}/${video}`;
+          await checkPublic(videoUrl, 'video/mp4');
+          job.stage = 'Instagram is fetching the video';
+          const params = {
+            media_type: 'REELS',
+            video_url: videoUrl,
+            caption,
+            share_to_feed: String(!!shareToFeed)
+          };
+          if (cover) params.cover_url = `${PUBLIC_BASE}/${cover}`;
+          if (trial)
+            params.trial_params = JSON.stringify({ graduation_strategy: 'SS_PERFORMANCE' });
+          containerId = (await graph('POST', `${a.id}/media`, params)).id;
+          job.stage = 'Instagram is processing';
+          await waitFinished(containerId, 'video');
+        } else {
+          for (const it of items)
+            await checkPublic(
+              `${PUBLIC_BASE}/${it.id}`,
+              it.type === 'image' ? 'image/jpeg' : 'video/mp4'
+            );
+          if (items.length === 1) {
+            job.stage = 'Instagram is fetching the image';
+            containerId = (
+              await graph('POST', `${a.id}/media`, {
+                image_url: `${PUBLIC_BASE}/${items[0].id}`,
+                caption
+              })
+            ).id;
+            await waitFinished(containerId, 'image', 2000);
+          } else {
+            // Every slide is its own container first, then one carousel container holds them.
+            const children = [];
+            for (let i = 0; i < items.length; i++) {
+              const it = items[i];
+              job.stage = `Instagram is fetching slide ${i + 1} of ${items.length}`;
+              const url = `${PUBLIC_BASE}/${it.id}`;
+              const params =
+                it.type === 'image'
+                  ? { image_url: url, is_carousel_item: 'true' }
+                  : { media_type: 'VIDEO', video_url: url, is_carousel_item: 'true' };
+              children.push({
+                id: (await graph('POST', `${a.id}/media`, params)).id,
+                type: it.type
+              });
+            }
+            for (let i = 0; i < children.length; i++) {
+              job.stage = `Instagram is processing slide ${i + 1} of ${children.length}`;
+              await waitFinished(
+                children[i].id,
+                `slide ${i + 1}`,
+                children[i].type === 'image' ? 1000 : POLL_MS
+              );
+            }
+            job.stage = 'Instagram is assembling the carousel';
+            containerId = (
+              await graph('POST', `${a.id}/media`, {
+                media_type: 'CAROUSEL',
+                children: children.map(c => c.id).join(','),
+                caption
+              })
+            ).id;
+            await waitFinished(containerId, 'carousel', 2000);
           }
-          if (Date.now() - started > POLL_LIMIT_MS)
-            throw new Error('Instagram took over 10 minutes; nothing was posted.');
         }
 
         job.stage = 'Publishing';
         const published = await graph('POST', `${a.id}/media_publish`, {
-          creation_id: container.id
+          creation_id: containerId
         });
         const media = await graph('GET', published.id, { fields: 'permalink' }).catch(() => ({}));
         job.permalink = media.permalink || null;
@@ -263,11 +340,8 @@ export function createInstagramPoster({ root, mode }) {
         job.stage = 'Failed';
       } finally {
         if (uploaded) {
-          const names = [video, cover]
-            .filter(Boolean)
-            .map(n => `${REMOTE_DIR}/${n}`)
-            .join(' ');
-          await ssh(`rm -f ${names}`).catch(e => {
+          const remote = names.map(n => `${REMOTE_DIR}/${n}`).join(' ');
+          await ssh(`rm -f ${remote}`).catch(e => {
             job.cleanupError = `Couldn't delete the temporary files on the server (${e.message}); the next post sweeps them.`;
           });
         }

@@ -52,7 +52,7 @@ function frameBands(position, showText) {
 
 // The opaque bounds of an image with transparency, and whether it runs off the image's bottom
 // edge -- Printful frames its on-model shots at mid-thigh, so a person ends in a hard edge there.
-function analyseAlpha(img) {
+export function analyseAlpha(img) {
   const s = Math.min(1, 512 / Math.max(img.naturalWidth, img.naturalHeight));
   const w = Math.max(1, Math.round(img.naturalWidth * s));
   const h = Math.max(1, Math.round(img.naturalHeight * s));
