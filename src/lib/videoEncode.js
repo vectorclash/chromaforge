@@ -94,9 +94,10 @@ function aacAudioSpecificConfig(sampleRate, numberOfChannels) {
 const AAC_CODEC = 'mp4a.40.2';
 const AUDIO_BITRATES = [192_000, 128_000];
 
-async function pickAudioBitrate(sampleRate) {
+// `max` caps the choice: Instagram's API refuses Reel audio above 128 kbps.
+async function pickAudioBitrate(sampleRate, max = Infinity) {
   if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') return null;
-  for (const bitrate of AUDIO_BITRATES) {
+  for (const bitrate of AUDIO_BITRATES.filter(b => b <= max)) {
     const ok = await AudioEncoder.isConfigSupported({ codec: AAC_CODEC, numberOfChannels: 2, sampleRate, bitrate })
       .then(r => r.supported)
       .catch(() => false);
@@ -176,17 +177,30 @@ async function encodeAudioTrack(audioBuffer, muxer, bitrate) {
  *   renderFrame: (f: number) => HTMLCanvasElement | OffscreenCanvas,
  *   releases: Array<() => void>,
  *   audio?: AudioBuffer | null,
+ *   audioMaxBitrate?: number,
  *   onFrame?: (f: number) => void,
  *   beforeFlush?: () => void
  * }} opts
  * @returns {Promise<Blob>}
  */
-export async function encodeMp4({ width, height, fps, totalFrames, bitrate, renderFrame, releases, audio = null, onFrame, beforeFlush }) {
+export async function encodeMp4({
+  width,
+  height,
+  fps,
+  totalFrames,
+  bitrate,
+  renderFrame,
+  releases,
+  audio = null,
+  audioMaxBitrate = Infinity,
+  onFrame,
+  beforeFlush
+}) {
   const FRAME_DURATION_US = Math.round(1_000_000 / fps);
 
   // Probed BEFORE the muxer exists: an audio track declared in the muxer and then left empty
   // makes the MP4 unplayable.
-  const audioBitrate = audio ? await pickAudioBitrate(audio.sampleRate) : null;
+  const audioBitrate = audio ? await pickAudioBitrate(audio.sampleRate, audioMaxBitrate) : null;
   if (audio && !audioBitrate) throw new EncoderUnsupportedError('AAC audio encoding is not supported in this browser.');
 
   const target = new ArrayBufferTarget();

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '../components/ui/Button';
 import { copyText } from '../utils/clipboard';
-import { HASHTAG_SETS, captionFor, designLink, tagLine } from './postText';
+import { HASHTAG_SETS, captionFor, designLink, fullCaption, tagLine } from './postText';
 
 // The caption follows the ad (design name, products) until it is typed into; from then on it is
 // the typed text, saved with the ad, until Reset hands it back to the ad.
@@ -61,7 +61,7 @@ export default function PostCopy({ design, productNames, post, onChange }) {
       </div>
 
       <div className="mt-3 flex items-center gap-2">
-        <Button size="sm" onClick={() => copy('caption', `${caption.trim()}\n\n${tagLine(set)}`)}>
+        <Button size="sm" onClick={() => copy('caption', fullCaption(post, design, productNames))}>
           {copied === 'caption' ? 'Copied' : 'Copy caption'}
         </Button>
         <Button

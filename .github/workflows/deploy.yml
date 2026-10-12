@@ -115,6 +115,10 @@ jobs:
       # tail is Actions minutes on a run that is already failing. A failed deploy is clean --
       # the build has already succeeded and rsync never starts, so the site keeps serving the
       # previous build intact.
+      # --exclude=/_ig/ protects the ad builder's temporary Instagram uploads
+      # (scripts/ad-builder-instagram.mjs): Instagram fetches a Reel from a public URL for a few
+      # minutes while it posts, and --delete-after would remove the file if a deploy landed then.
+      # Excluded paths are never deleted on the receiver (no --delete-excluded).
       - name: Deploy to Hostinger via rsync over SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -126,7 +130,7 @@ jobs:
           attempt=0
           for delay in 60 120 180 240 ""; do
             attempt=$((attempt + 1))
-            if rsync -az --delete-after --timeout=60 \
+            if rsync -az --delete-after --exclude=/_ig/ --timeout=60 \
               -e "ssh -i ~/.ssh/deploy_key -p 65002 -o ConnectTimeout=15 -o BatchMode=yes" \
               ./dist/ u141529136@45.137.159.160:domains/chromaforge.app/public_html/; then
               echo "Deployed on attempt $attempt"

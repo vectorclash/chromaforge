@@ -13,7 +13,8 @@ import ProductSlot, { slotPhotos } from './ProductSlot';
 import InstagramOverlay from './InstagramOverlay';
 import DesignThumb from './DesignThumb';
 import PostCopy from './PostCopy';
-import { DEFAULT_POST } from './postText';
+import InstagramPost from './InstagramPost';
+import { DEFAULT_POST, fullCaption } from './postText';
 import { createAdComposer } from './adComposer';
 import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
@@ -29,6 +30,7 @@ const PRODUCT_BARS = [0.5, 1, 2];
 const MAX_PRODUCTS = 5;
 const ROOT_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const AD_FILE_VERSION = 1;
+const INSTAGRAM_VIDEO_BITRATE = 10_000_000;
 
 const fmt = t => `${t.toFixed(2)}s`;
 
@@ -549,7 +551,8 @@ export default function AdBuilder() {
     }
   };
 
-  const exportVideo = async () => {
+  // One render for both the downloaded file and an Instagram post, which differ only in bitrate.
+  const buildMp4 = async ({ bitrate, audioMaxBitrate }) => {
     pause();
     const releases = [];
     setExportState({ label: 'Building the scene', progress: 0 });
@@ -572,17 +575,13 @@ export default function AdBuilder() {
       const ctx = canvas.getContext('2d');
       const state = { timeline, overlay };
       const totalFrames = Math.round(timeline.total * AD_FPS);
-      const blob = await encodeMp4({
+      return await encodeMp4({
         width: AD_WIDTH,
         height: AD_HEIGHT,
         fps: AD_FPS,
         totalFrames,
-        bitrate: exportBitrate({
-          width: AD_WIDTH,
-          height: AD_HEIGHT,
-          fps: AD_FPS,
-          durationSec: timeline.total
-        }),
+        bitrate,
+        audioMaxBitrate,
         releases,
         audio: musicBuffer,
         renderFrame: f => {
@@ -595,10 +594,6 @@ export default function AdBuilder() {
           setExportState({ label: 'Finishing the file', progress: 1 });
         }
       });
-      saveAs(blob, `${fileBase()}-${AD_WIDTH}x${AD_HEIGHT}.mp4`);
-    } catch (e) {
-      console.error('[ad builder] export failed', e);
-      setNotice(`Export failed: ${e.message}`);
     } finally {
       for (const release of releases.reverse()) {
         try {
@@ -611,7 +606,25 @@ export default function AdBuilder() {
     }
   };
 
-  const exportCover = async () => {
+  const exportVideo = async () => {
+    try {
+      const blob = await buildMp4({
+        bitrate: exportBitrate({
+          width: AD_WIDTH,
+          height: AD_HEIGHT,
+          fps: AD_FPS,
+          durationSec: timeline.total
+        })
+      });
+      saveAs(blob, `${fileBase()}-${AD_WIDTH}x${AD_HEIGHT}.mp4`);
+    } catch (e) {
+      console.error('[ad builder] export failed', e);
+      setNotice(`Export failed: ${e.message}`);
+    }
+  };
+
+  // The frame under the playhead as a 1080x1920 JPEG.
+  const buildCover = async () => {
     pause();
     setExportState({ label: 'Rendering the cover', progress: 0 });
     let comp = null;
@@ -629,12 +642,38 @@ export default function AdBuilder() {
       comp.draw(canvas.getContext('2d'), play.current.t, { timeline, overlay });
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
       if (!blob) throw new Error('The frame could not be encoded.');
-      saveAs(blob, `${fileBase()}-cover.jpg`);
-    } catch (e) {
-      setNotice(`Cover failed: ${e.message}`);
+      return blob;
     } finally {
       comp?.dispose();
       setExportState(null);
+    }
+  };
+
+  const exportCover = async () => {
+    try {
+      saveAs(await buildCover(), `${fileBase()}-cover.jpg`);
+    } catch (e) {
+      setNotice(`Cover failed: ${e.message}`);
+    }
+  };
+
+  // What Instagram gets: its API refuses video over 25 Mbps and audio over 128 kbps, and it
+  // re-encodes everything lower anyway, so 10 Mbps keeps the upload small at no visible cost.
+  const buildInstagramFiles = async () => ({
+    video: await buildMp4({ bitrate: INSTAGRAM_VIDEO_BITRATE, audioMaxBitrate: 128_000 }),
+    cover: await buildCover()
+  });
+
+  // A post is recorded on the ad, and saved straight away when the ad has been saved before, so
+  // reopening it later says it already went out.
+  const recordPost = async record => {
+    const next = { ...post, posted: [...(post.posted || []), record] };
+    setPost(next);
+    if (!name) return setNotice('Posted. Save the ad to remember that it was.');
+    try {
+      await saveAd(adSlug(name), { version: AD_FILE_VERSION, name, design, slots, music, timing, overlay, post: next });
+    } catch (e) {
+      setNotice(`Posted, but saving the ad failed: ${e.message}`);
     }
   };
 
@@ -643,6 +682,10 @@ export default function AdBuilder() {
     // Never while a take is missing or the wrong length: that would export the old take, or none.
     !!flightDesign && previewState === 'ready' && !busy && !needsTake && musicBusy === null;
   const seg = segmentAt(timeline, play.current.t);
+  const productNames = photos.map(p =>
+    catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
+  );
+  const caption = fullCaption(post, design, productNames);
 
   // ── Layout ──────────────────────────────────────────────────────────────────
   return (
@@ -963,11 +1006,18 @@ export default function AdBuilder() {
         <Section title="7 · Post">
           <PostCopy
             design={design}
-            productNames={photos.map(p =>
-              catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
-            )}
+            productNames={productNames}
             post={post}
             onChange={setPost}
+          />
+          <InstagramPost
+            canPost={canExport}
+            caption={caption}
+            posted={post.posted || []}
+            buildFiles={buildInstagramFiles}
+            onPosted={recordPost}
+            progress={exportState}
+            durationSec={timeline.total}
           />
         </Section>
       </aside>

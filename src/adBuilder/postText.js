@@ -59,3 +59,10 @@ export function captionFor(design, productNames) {
 }
 
 export const tagLine = set => set.tags.map(t => `#${t}`).join(' ');
+
+// Exactly what goes out: the caption (the ad's own until typed into) and the chosen hashtag set.
+// Shared by Copy caption and Post, so the two can never send different words.
+export function fullCaption(post, design, productNames) {
+  const set = HASHTAG_SETS.find(s => s.id === post.tagSet) ?? HASHTAG_SETS[0];
+  return `${(post.caption ?? captionFor(design, productNames)).trim()}\n\n${tagLine(set)}`;
+}

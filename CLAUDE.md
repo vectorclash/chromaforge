@@ -2253,6 +2253,30 @@ or bio -- Reel caption links aren't clickable). **Each set is exactly 5 tags** b
 a post at 5 (Dec 2025), caption and first comment together; every set leads with #chromaforge. Saved
 with the ad as `post`. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
 filesystem resolved `./PostCopy` to the lowercase file.
+(10) **Post Reel posts straight to @chromaforge.app** (`InstagramPost.jsx`,
+`scripts/ad-builder-instagram.mjs`, 2026-10-12; NOT yet run against the real account). Instagram
+Login flavour of the API (no Facebook Page), v25.0. The API only takes a public `video_url`, so the
+dev server `scp`s the MP4 and cover JPEG to `public_html/_ig/` on Hostinger under random names,
+HEAD-checks the URL, creates the container, polls `status_code` every 15s (10 min cap), publishes,
+then `rm`s both files (and sweeps anything there over 2h old on the next post). No GitHub deploy is
+involved. Five things worth not re-deriving:
+- **`deploy.yml`'s rsync has `--exclude=/_ig/`**, or a site deploy landing mid-post would delete
+  the file Instagram is fetching (`--delete-after`). Excluded paths are never deleted remotely.
+- **The SSH host key is pinned** (same line as the workflow, written to `.ads/known_hosts`). The key
+  is `~/.ssh/chromaforge_hostinger` unless `CF_SSH_KEY` says otherwise.
+- **The token never reaches the browser.** `INSTAGRAM_ACCESS_TOKEN` in `.env.local` (re-read every
+  call via vite's `loadEnv`, so no restart); renewed copies (weekly, 60-day tokens) live in
+  `.ads/instagram-token.json`, used only while `.env.local` still holds the token they came from.
+- **Instagram gets its own encode**: 10 Mbps video, audio capped at 128 kbps (`encodeMp4`'s
+  `audioMaxBitrate`) -- the API refuses over 25 Mbps / 128 kbps. Measured ~11.5-11.9 Mbps on short
+  clips (keyframes). Export MP4 is unchanged. Cover = the frame under the playhead.
+- **Posts are recorded on the ad** (`post.posted`, auto-saved when the ad has a name), and the
+  confirm warns on a repeat. Under 3s (Instagram's minimum) Post is blocked. The API cannot delete a
+  post in this flavour -- that is done in the app.
+Verified in Chromium with the four routes stubbed (render -> upload -> post -> poll -> record, 0
+console errors) and the real routes' refusals and failure cleanup on a dev server. The SSH copy, the
+public URL and Meta's side have not run yet.
+
 Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
 exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
 kept it suspended -- a silent preview until the next pause and play. Export was never affected.

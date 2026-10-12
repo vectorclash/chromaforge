@@ -11,6 +11,7 @@
 //   POST /__ads/upload   raw image or audio bytes -> .ads/media (your own photos, rendered music)
 //   GET  /__ads/media/*  those files
 //   GET  /__ads/ads      saved ads; GET/POST /__ads/ads/<name> load or save one
+//   /__ads/instagram/*   posting a Reel to @chromaforge.app (scripts/ad-builder-instagram.mjs)
 //
 // Every POST must carry a non-simple Content-Type (JSON, image/*, audio/*), which makes a
 // cross-site request preflight -- and nothing here answers a preflight -- so another website
@@ -18,6 +19,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
+import { createInstagramPoster, MAX_POST_FILE_BYTES } from './ad-builder-instagram.mjs';
 
 const MIME = {
   '.js': 'text/javascript',
@@ -42,12 +44,12 @@ function send(res, status, body, type = 'application/json') {
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 
-async function readBody(req) {
+async function readBody(req, limit = MAX_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BYTES) throw new Error('Too large');
+    if (size > limit) throw new Error('Too large');
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -88,6 +90,7 @@ export default function adBuilderDev({ root = process.cwd() } = {}) {
     name: 'chromaforge-ad-builder-dev',
     apply: 'serve',
     configureServer(server) {
+      const instagram = createInstagramPoster({ root, mode: server.config.mode });
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, 'http://localhost');
         const p = decodeURIComponent(url.pathname);
@@ -123,6 +126,24 @@ export default function adBuilderDev({ root = process.cwd() } = {}) {
             const type = (req.headers['content-type'] || '').split(';')[0].trim();
             if (!EXT_FOR_TYPE[type]) return send(res, 415, { error: `Unsupported type ${type}` });
             return send(res, 200, { url: await storeMedia(mediaDir, await readBody(req), type) });
+          }
+
+          if (p === '/__ads/instagram/status' && req.method === 'GET') {
+            return send(res, 200, await instagram.status());
+          }
+          if (p === '/__ads/instagram/file' && req.method === 'POST') {
+            const type = (req.headers['content-type'] || '').split(';')[0].trim();
+            if (type !== 'video/mp4' && type !== 'image/jpeg') return send(res, 415, { error: `Unsupported type ${type}` });
+            return send(res, 200, { id: await instagram.keepFile(await readBody(req, MAX_POST_FILE_BYTES), type) });
+          }
+          if (p === '/__ads/instagram/post' && req.method === 'POST') {
+            if (req.headers['content-type'] !== 'application/json') return send(res, 415, { error: 'JSON only' });
+            return send(res, 200, { job: instagram.startPost(JSON.parse((await readBody(req)).toString('utf8'))) });
+          }
+          const job = /^\/__ads\/instagram\/jobs\/([0-9a-f]{16})$/.exec(p);
+          if (job && req.method === 'GET') {
+            const j = instagram.job(job[1]);
+            return j ? send(res, 200, j) : send(res, 404, { error: 'No such job (the dev server may have restarted)' });
           }
 
           if (p === '/__ads/ads' && req.method === 'GET') {
