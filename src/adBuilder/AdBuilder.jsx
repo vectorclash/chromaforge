@@ -198,6 +198,13 @@ export default function AdBuilder() {
       .catch(e => setDesignError(e.message));
   }, [userId]);
 
+  // Messages sit in the sticky header, so they clear themselves rather than staying for good.
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(id);
+  }, [notice]);
+
   // ── Preview ─────────────────────────────────────────────────────────────────
   const canvasRef = useRef(null);
   const flightHostRef = useRef(null);
@@ -816,24 +823,54 @@ export default function AdBuilder() {
         className="ad-scroll w-[440px] shrink-0 overflow-y-auto border-r border-white/10 will-change-transform"
         style={{ maxHeight: '100dvh' }}
       >
-        <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <div>
-            <h1 className="font-[Exo] text-lg font-bold tracking-wide text-white">Ad builder</h1>
-            <span className="text-xs text-neutral-500">
-              {isFeed
-                ? `Feed post · ${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
-                : `Instagram Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
-            </span>
+        {/* Sticky: what is being made, which saved ad it is, and any message stay in view however
+            far down the panel you are. */}
+        <header className="sticky top-0 z-10 border-b border-white/10 bg-[#0c0b12] px-5 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="font-[Exo] text-lg font-bold tracking-wide text-white">Ad builder</h1>
+              <span className="text-xs text-neutral-500">
+                {isFeed
+                  ? `Feed post · ${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
+                  : `Instagram Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
+              </span>
+            </div>
+            <Segmented
+              label="What to make"
+              value={format}
+              options={[
+                ['reel', 'Reel'],
+                ['feed', 'Feed post']
+              ]}
+              onChange={switchFormat}
+            />
           </div>
-          <Segmented
-            label="What to make"
-            value={format}
-            options={[
-              ['reel', 'Reel'],
-              ['feed', 'Feed post']
-            ]}
-            onChange={switchFormat}
-          />
+          <div className="mt-3 flex gap-2">
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Name this ad"
+              aria-label="Ad name"
+              className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+            />
+            <Button size="sm" variant="ghost" disabled={!design} onClick={saveCurrent}>
+              Save
+            </Button>
+            <select
+              className="w-28 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+              value=""
+              onChange={e => openSaved(e.target.value)}
+              aria-label="Open a saved ad"
+            >
+              <option value="">Open…</option>
+              {savedAds.map(a => (
+                <option key={a.name} value={a.name}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {notice && <p className="mt-2 text-xs text-neutral-300">{notice}</p>}
         </header>
 
         <Section title="1 · Design">
@@ -944,18 +981,13 @@ export default function AdBuilder() {
                 signedIn={!!user}
                 onChange={update => setSlots(s => s.map(x => (x.uid === slot.uid ? update(x) : x)))}
                 onRemove={() => setSlots(s => s.filter(x => x.uid !== slot.uid))}
+                reel={!isFeed}
               />
             ))}
           </div>
           {!design && (
             <p className="mt-2 text-xs text-neutral-500">
               Choose a design first: mockups are made of it.
-            </p>
-          )}
-          {isFeed && design && (
-            <p className="mt-2 text-xs text-neutral-500">
-              Photos chosen here can be added as slides below. Framing applies to the Reel only; a
-              slide sets each photo into its artwork on its own.
             </p>
           )}
         </Section>
@@ -1023,6 +1055,7 @@ export default function AdBuilder() {
                   <div className="mt-2 flex items-center gap-3">
                     <Button
                       size="sm"
+                      variant="ghost"
                       disabled={musicBusy !== null}
                       onClick={() => renderTake(music.plan, timeline.total)}
                       title="Orrery plays it differently every time"
@@ -1111,33 +1144,9 @@ export default function AdBuilder() {
           </>
         )}
 
-        <Section title={isFeed ? '4 · Save and export' : '6 · Save and export'}>
-          <div className="flex gap-2">
-            <input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Name"
-              className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
-            />
-            <Button size="sm" variant="ghost" disabled={!design} onClick={saveCurrent}>
-              Save
-            </Button>
-            <select
-              className="w-28 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
-              value=""
-              onChange={e => openSaved(e.target.value)}
-              aria-label="Open a saved ad"
-            >
-              <option value="">Open…</option>
-              {savedAds.map(a => (
-                <option key={a.name} value={a.name}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <Section title={isFeed ? '4 · Export' : '6 · Export'}>
           {isFeed ? (
-            <div className="mt-3 flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <Button disabled={!canExportFeed} onClick={downloadSlides}>
                 Download {feedSlides.length === 1 ? 'image' : 'slides'}
               </Button>
@@ -1146,7 +1155,7 @@ export default function AdBuilder() {
               </span>
             </div>
           ) : (
-            <div className="mt-3 flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <Button disabled={!canExport} onClick={exportVideo}>
                 Export MP4
               </Button>
@@ -1169,7 +1178,6 @@ export default function AdBuilder() {
           {!isFeed && !music.plan && design && (
             <p className="mt-2 text-xs text-neutral-500">No music: the file will be silent.</p>
           )}
-          {notice && <p className="mt-2 text-xs text-neutral-300">{notice}</p>}
         </Section>
 
         <Section title={isFeed ? '5 · Post' : '7 · Post'}>
@@ -1246,16 +1254,14 @@ export default function AdBuilder() {
             )}
           </div>
 
-          <div className="flex w-full max-w-[540px] items-center gap-3">
-            <Button
-              size="sm"
-              disabled={previewState !== 'ready' || busy}
-              onClick={playing ? pause : start}
-            >
-              {playing ? 'Pause' : 'Play'}
-            </Button>
-            <div className="relative flex-1">
-              <div className="pointer-events-none absolute inset-x-0 -top-5 flex text-[10px] text-neutral-500">
+          {/* As wide as the preview: the scrubber on its own row, so it is never squeezed by the
+              readouts, and the segments numbered like the photos in the products list. */}
+          <div
+            className="flex flex-col gap-2"
+            style={{ width: 'max(360px, calc(min(80dvh, 960px) * 9 / 16))' }}
+          >
+            <div className="relative pt-4">
+              <div className="pointer-events-none absolute inset-x-0 top-0 flex text-[10px] text-neutral-500">
                 <span
                   style={{ width: `${(timeline.flight / timeline.total) * 100}%` }}
                   className="truncate"
@@ -1268,9 +1274,7 @@ export default function AdBuilder() {
                     style={{ width: `${((p.end - p.start) / timeline.total) * 100}%` }}
                     className={`truncate border-l border-white/20 pl-1 ${seg === i ? 'text-white' : ''}`}
                   >
-                    {catalog
-                      .find(c => c.id === photos[i]?.productId)
-                      ?.title?.replace(/^All-Over Print\s*/, '') ?? i + 1}
+                    {i + 1}
                   </span>
                 ))}
               </div>
@@ -1290,20 +1294,29 @@ export default function AdBuilder() {
                 }}
               />
             </div>
-            <span ref={timeRef} className="w-28 text-right text-xs tabular-nums text-neutral-400" />
-            <span
-              ref={fpsRef}
-              className="w-24 text-right text-xs tabular-nums text-neutral-500"
-              title="Preview frame rate, and what drawing a frame costs"
-            />
-            <label className="flex items-center gap-2 text-xs text-neutral-400">
-              <Toggle
-                on={showIg}
-                onClick={() => setShowIg(v => !v)}
-                aria-label="Show Instagram's UI"
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                disabled={previewState !== 'ready' || busy}
+                onClick={playing ? pause : start}
+              >
+                {playing ? 'Pause' : 'Play'}
+              </Button>
+              <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
+              <span
+                ref={fpsRef}
+                className="ml-auto text-xs tabular-nums text-neutral-500"
+                title="Preview frame rate, and what drawing a frame costs"
               />
-              IG UI
-            </label>
+              <label className="flex items-center gap-2 text-xs text-neutral-400">
+                <Toggle
+                  on={showIg}
+                  onClick={() => setShowIg(v => !v)}
+                  aria-label="Show Instagram's UI"
+                />
+                IG UI
+              </label>
+            </div>
           </div>
         </main>
       )}

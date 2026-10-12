@@ -30,7 +30,8 @@ export function slotPhotos(slot) {
 // Every mockup task adds a file to the Printful library for good and counts against the
 // store-wide 10-a-minute limit customers share, so a mockup is only ever made on a click. One
 // made in this browser in the last 12 hours comes straight back from useMockup's cache.
-export default function ProductSlot({ index, slot, design, catalog, signedIn, onChange, onRemove }) {
+// `reel` is false for a feed post, which places each photo on its own and has no use for framing.
+export default function ProductSlot({ index, slot, design, catalog, signedIn, onChange, onRemove, reel = true }) {
   const { status, error, images, elapsedSeconds, retryWaitSeconds, generate, sync } = useMockup();
   const [detail, setDetail] = useState(null); // { product, variants } + printfileSpecs
   const [loadError, setLoadError] = useState(null);
@@ -154,24 +155,30 @@ export default function ProductSlot({ index, slot, design, catalog, signedIn, on
             files.forEach((file, n) => keep(`own:${Date.now()}:${n}:${file.name}`, () => keepFile(file)));
           }}
         />
-        <div className="ml-auto flex gap-1" role="group" aria-label="Framing">
-          {[
-            ['cutout', 'Cutout'],
-            ['card', 'Card'],
-            ['full', 'Full frame']
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={fit === value}
-              onClick={() => onChange(s => ({ ...s, fit: value }))}
-              className={`rounded px-2 py-0.5 ${fit === value ? 'bg-white/15 text-white' : 'text-neutral-400 hover:text-white'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
+
+      {reel && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+          <span className="text-neutral-500">Framing in the Reel</span>
+          <div className="flex gap-1" role="group" aria-label="Framing">
+            {[
+              ['cutout', 'Cutout'],
+              ['card', 'Card'],
+              ['full', 'Full frame']
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={fit === value}
+                onClick={() => onChange(s => ({ ...s, fit: value }))}
+                className={`rounded px-2 py-0.5 ${fit === value ? 'bg-white/15 text-white' : 'text-neutral-400 hover:text-white'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {busy && (
         <p className="mt-2 text-xs text-neutral-400">
@@ -226,7 +233,8 @@ export default function ProductSlot({ index, slot, design, catalog, signedIn, on
         {photos.length ? (
           <>
             <p className="mb-1.5 text-xs text-neutral-500">
-              In the ad, in order{staleSeed && <span className="text-amber-300"> · some show a different design</span>}
+              {reel ? 'In the ad, in order' : 'Chosen photos, ready to add as slides'}
+              {staleSeed && <span className="text-amber-300"> · some show a different design</span>}
             </p>
             <div className="flex flex-wrap gap-2">
               {photos.map((p, i) => (

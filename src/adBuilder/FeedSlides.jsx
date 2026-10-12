@@ -31,6 +31,7 @@ export default function FeedSlides({ slides, onChange, photos, labelOf, index, o
 
   return (
     <>
+      <p className="mb-1.5 text-xs text-neutral-500">Start from</p>
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
@@ -100,20 +101,20 @@ export default function FeedSlides({ slides, onChange, photos, labelOf, index, o
       {!slides.length && <p className="text-xs text-neutral-500">No slides yet.</p>}
 
       <p className="mb-1.5 mt-4 text-xs text-neutral-500">
-        Add{' '}
+        Add a slide{' '}
         {full && <span className="text-amber-300/90">· Instagram takes at most {MAX_SLIDES}</span>}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {['art', 'macro', 'flight', 'seed'].map(type => (
-          <Button
+          <button
             key={type}
-            size="sm"
-            variant="ghost"
+            type="button"
             disabled={full}
             onClick={() => add(makeSlide(type))}
+            className="rounded-md bg-white/5 px-2.5 py-1 text-sm text-neutral-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
           >
-            {SLIDE_LABELS[type]}
-          </Button>
+            + {SLIDE_LABELS[type]}
+          </button>
         ))}
       </div>
       {photos.length > 0 && (

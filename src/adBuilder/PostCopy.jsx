@@ -27,7 +27,7 @@ export default function PostCopy({ design, productNames, post, onChange }) {
       <textarea
         value={caption}
         onChange={e => onChange({ ...post, caption: e.target.value })}
-        rows={4}
+        rows={5}
         aria-label="Caption"
         className="w-full resize-y rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
       />
@@ -41,7 +41,11 @@ export default function PostCopy({ design, productNames, post, onChange }) {
         </button>
       )}
 
-      <div className="mt-3 flex flex-col gap-1" role="radiogroup" aria-label="Hashtags">
+      {/* The sets by name; only the chosen one's tags are spelled out, once, underneath. */}
+      <p className="mb-1.5 mt-4 text-xs text-neutral-500">
+        Hashtags · one set, since Instagram allows 5 per post (caption and first comment together)
+      </p>
+      <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="Hashtags">
         {HASHTAG_SETS.map(s => (
           <button
             key={s.id}
@@ -50,18 +54,19 @@ export default function PostCopy({ design, productNames, post, onChange }) {
             aria-checked={s.id === set.id}
             onClick={() => onChange({ ...post, tagSet: s.id })}
             title={s.hint}
-            className={`rounded-md px-2.5 py-1.5 text-left ${
+            className={`rounded-md px-2.5 py-1.5 text-left text-sm ${
               s.id === set.id ? 'bg-white/15 text-white' : 'text-neutral-400 hover:bg-white/5 hover:text-white'
             }`}
           >
-            <span className="block text-sm">{s.label}</span>
-            <span className="block text-xs text-neutral-500">{tagLine(s)}</span>
+            {s.label}
           </button>
         ))}
       </div>
+      <p className="mt-2 text-xs text-neutral-400">{tagLine(set)}</p>
+      <p className="mt-1 text-xs text-neutral-500">{set.hint}</p>
 
       <div className="mt-3 flex items-center gap-2">
-        <Button size="sm" onClick={() => copy('caption', fullCaption(post, design, productNames))}>
+        <Button size="sm" variant="ghost" onClick={() => copy('caption', fullCaption(post, design, productNames))}>
           {copied === 'caption' ? 'Copied' : 'Copy caption'}
         </Button>
         <Button
@@ -74,9 +79,6 @@ export default function PostCopy({ design, productNames, post, onChange }) {
         </Button>
       </div>
       <p className="mt-2 truncate text-xs text-neutral-500">{link}</p>
-      <p className="mt-1 text-xs text-neutral-500">
-        Instagram allows 5 hashtags per post, caption and first comment together, so pick one set.
-      </p>
     </>
   );
 }
