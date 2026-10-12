@@ -39,7 +39,7 @@ const TONES = {
 
 function Card({ tone = 'neutral', children }) {
   return (
-    <div className={`mt-4 animate-fade-in rounded-lg border p-3 ${TONES[tone]}`}>{children}</div>
+    <div className={`mt-4 animate-fade-in rounded-lg border p-3 text-sm ${TONES[tone]}`}>{children}</div>
   );
 }
 
@@ -50,7 +50,13 @@ function Row({ label, hint, on, onToggle, disabled }) {
         <p className="text-sm">{label}</p>
         <p className="text-xs text-neutral-500">{hint}</p>
       </div>
-      <Toggle on={on} onClick={onToggle} disabled={disabled} aria-label={label} />
+      <Toggle
+        className="shrink-0"
+        on={on}
+        onClick={onToggle}
+        disabled={disabled}
+        aria-label={label}
+      />
     </div>
   );
 }
