@@ -2285,6 +2285,9 @@ involved. Five things worth not re-deriving:
   posted it, which plays its own local copy; viewed on instagram.com, the phone post and the API
   posts look the same (Aaron, 2026-10-12). So Post Reel loses nothing against posting from the app.
   Frame-rate stutter seen in Safari on instagram.com is Instagram's web player, not the file.
+- **A token or access error links to developers.facebook.com/apps/** (codes 10, 102, 190, 2xx or
+  HTTP 401 -- not every OAuthException, which Instagram also uses for bad parameters and rate
+  limits). The 2026-10-13 "API access blocked" (code 200) was cleared from that dashboard.
 - **Posts are recorded on the ad** (`post.posted`, auto-saved when the ad has a name), and the
   confirm warns on a repeat. Under 3s (Instagram's minimum) Post is blocked. The API cannot delete a
   post in this flavour -- that is done in the app.

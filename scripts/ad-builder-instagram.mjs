@@ -112,7 +112,14 @@ export function createInstagramPoster({ root, mode }) {
     const body = await r.json().catch(() => ({}));
     if (!r.ok || body.error) {
       const e = body.error || {};
-      throw new Error(e.error_user_msg || e.message || `Instagram answered ${r.status}`);
+      const err = new Error(e.error_user_msg || e.message || `Instagram answered ${r.status}`);
+      // A problem with the token or the app's access, rather than the post: the page links to the
+      // Meta developer dashboard for these. Not every OAuthException -- Instagram labels bad
+      // parameters and rate limits that way too -- only the token (190, 102) and permission
+      // (10, 2xx) codes.
+      err.authError =
+        r.status === 401 || [10, 102, 190].includes(e.code) || (e.code >= 200 && e.code < 300);
+      throw err;
     }
     return body;
   }
@@ -175,6 +182,7 @@ export function createInstagramPoster({ root, mode }) {
       }
     } catch (e) {
       out.error = e.message;
+      out.authError = !!e.authError;
     }
     return out;
   }
@@ -337,6 +345,7 @@ export function createInstagramPoster({ root, mode }) {
         job.stage = 'Published';
       } catch (e) {
         job.error = e.stderr?.toString().trim() || e.message;
+        job.authError = !!e.authError;
         job.stage = 'Failed';
       } finally {
         if (uploaded) {

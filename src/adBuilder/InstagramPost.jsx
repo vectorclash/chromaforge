@@ -25,6 +25,21 @@ const sendFile = async blob =>
     })
   ).id;
 
+// Where a new token is made: the Chromaforge Poster app's Instagram API setup page. Linked whenever
+// Instagram says the problem is the token or the app's access rather than the post.
+const DEVELOPER_DASHBOARD = 'https://developers.facebook.com/apps/';
+
+const DashboardLink = () => (
+  <a
+    href={DEVELOPER_DASHBOARD}
+    target="_blank"
+    rel="noreferrer"
+    className="underline underline-offset-2 hover:text-white"
+  >
+    Open the Meta developer dashboard
+  </a>
+);
+
 const when = iso =>
   new Date(iso).toLocaleString(undefined, {
     month: 'short',
@@ -83,7 +98,7 @@ export default function InstagramPost({
   const [trial, setTrial] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [stage, setStage] = useState(null); // null | text while a post is under way
-  const [result, setResult] = useState(null); // { error } | { permalink, note? }
+  const [result, setResult] = useState(null); // { error, authError? } | { permalink, note? }
   const alive = useRef(true);
   // Set on mount as well as cleared on unmount: StrictMode unmounts and remounts once in dev.
   useEffect(() => {
@@ -130,7 +145,7 @@ export default function InstagramPost({
         if (!alive.current) return;
         setStage(j.stage);
         if (!j.done) continue;
-        if (j.error) throw new Error(j.error);
+        if (j.error) throw Object.assign(new Error(j.error), { authError: j.authError });
         await onPosted({
           at: new Date().toISOString(),
           permalink: j.permalink,
@@ -143,7 +158,7 @@ export default function InstagramPost({
         break;
       }
     } catch (e) {
-      if (alive.current) setResult({ error: e.message });
+      if (alive.current) setResult({ error: e.message, authError: !!e.authError });
     } finally {
       if (alive.current) setStage(null);
     }
@@ -162,7 +177,9 @@ export default function InstagramPost({
         <ul className="mt-2 list-disc pl-4 text-xs text-amber-300/90">
           {!setup.token && <li>Add INSTAGRAM_ACCESS_TOKEN to .env.local, then Check again.</li>}
           {setup.token && !setup.account && (
-            <li>Instagram refused the token: {setup.error || 'unknown error'}</li>
+            <li>
+              Instagram refused the token: {setup.error || 'unknown error'} <DashboardLink />
+            </li>
           )}
           {!setup.sshKey && <li>No SSH key at {setup.sshKeyPath}.</li>}
           {!setup.token && setup.error && <li>{setup.error}</li>}
@@ -241,6 +258,11 @@ export default function InstagramPost({
         <Card tone="error">
           <p className="text-sm font-semibold">Not posted</p>
           <p className="mt-1 text-xs">{result.error}</p>
+          {result.authError && (
+            <p className="mt-1 text-xs">
+              <DashboardLink />
+            </p>
+          )}
         </Card>
       )}
       {result && !result.error && (
