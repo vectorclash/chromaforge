@@ -238,11 +238,14 @@ Deno.serve(async req => {
   // custom_order_id round-trips our own order uuid onto the slip/Printful dashboard, useful
   // for correlating a support inquiry back to this order without asking the customer for
   // their Printful order number. logo_url must be a publicly reachable image (not the SVG
-  // wordmark -- Printful's slip renderer wants a raster image). packing-slip-logo.png is the
-  // mark redrawn as black lines on white at 720px, made for the slip (2026-10-14, Aaron's pick
-  // of three): Printful prints slips in black and white, and the phone icon this used to point
-  // at printed as a soft grey mark on a solid dark block. Printful copies the image when an
-  // order is created, so replacing this file only changes slips for orders placed afterwards.
+  // wordmark -- Printful's slip renderer wants a raster image). packing-slip-mark.png is the
+  // mark redrawn as black lines on white, made for the slip (2026-10-14, Aaron's pick of
+  // three): Printful prints slips in black and white, and the phone icon this used to point at
+  // printed as a soft grey mark on a solid dark block. It is cropped tight to the mark because
+  // Printful fits every slip logo into a 175x117 box -- measured on a draft -- and any white
+  // margin in the file comes out of the mark's size. Printful copies the image when an order is
+  // created and may reuse a copy it already fetched from the same URL, so a changed logo gets a
+  // NEW filename, and only orders placed afterwards get it.
   //
   // Real bug caught live (2026-07-17): a full order uuid (36 chars, dashes included) blew
   // past Printful's 20-char cap on custom_order_id and made POST /orders 400 outright --
@@ -253,7 +256,7 @@ Deno.serve(async req => {
   const packingSlip = {
     email: "support@chromaforge.app",
     store_name: "Chromaforge",
-    logo_url: "https://chromaforge.app/packing-slip-logo.png",
+    logo_url: "https://chromaforge.app/packing-slip-mark.png",
     message: "Thanks for supporting Chromaforge! chromaforge.app",
     custom_order_id: orderId.replace(/-/g, "").slice(0, 20)
   };

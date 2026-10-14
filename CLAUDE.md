@@ -5843,11 +5843,14 @@ by the shared design as the odds the panel last published.
     paperwork use its wholesale costs. `retail_costs` is ignored unless EVERY item has a
     `retail_price`. Verified on an unconfirmed UK draft (180944787, deleted): accepted and
     stored. Not seen: an actual international slip, which only exists once an order ships.
-    (3) **The slip logo is `public/packing-slip-logo.png`**, the mark as black lines on white,
-    720px — Aaron's pick of three (https://claude.ai/artifact/9tLd5U8BUed2n5VLxEVQGj). Slips
-    print in black and white; the phone icon it replaced printed as a grey mark on a solid
-    dark block. Printful copies the logo at order creation, so the file must be live on the
-    site BEFORE `stripe-webhook` points at a new one.
+    (3) **The slip logo is `public/packing-slip-mark.png`**, the mark as black lines on white —
+    Aaron's pick of three (https://claude.ai/artifact/9tLd5U8BUed2n5VLxEVQGj). Slips print in
+    black and white; the phone icon it replaced printed as a grey mark on a solid dark block.
+    Printful fits every slip logo into a **175x117** box (read off its stored copy on a draft
+    order), so the file is cropped tight: white margin in the file comes straight out of the
+    mark's printed size. Printful copies the logo at order creation and may reuse what it
+    fetched from a URL before, so a changed logo needs a NEW filename, live on the site BEFORE
+    `stripe-webhook` points at it.
   - **UK/EU shipping carries a share of the item price; the pillow has its own rate
     (2026-10-14).** A sweep of all 20 products x 11 countries through Printful's free
     `POST /orders/estimate-costs` (no order created) found UK/EU orders losing money on most
