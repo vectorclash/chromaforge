@@ -203,7 +203,9 @@ Deno.serve(async req => {
   // the customer picks whichever matches their own address. SHIPPING_FLAT_CENTS still works
   // as an emergency override back to a single flat rate (or 0 to disable shipping
   // entirely), no redeploy needed -- same escape hatch as before.
-  const shippingOptions = buildShippingOptions(productId, guessedRegion);
+  // totalCents rides along because UK/EU shipping carries a share of the item price -- see
+  // REGION_ITEM_SHARE in _shared/shipping.ts.
+  const shippingOptions = buildShippingOptions(productId, guessedRegion, totalCents);
   const estimatedShippingCents = estimateShippingCents(productId);
 
   // Stripe Tax (automatic_tax) -- requires one-time activation in the Stripe dashboard

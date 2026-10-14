@@ -15,7 +15,7 @@
 // known, accepted gap of this approach (not a bug), same spirit as the flat rate's
 // documented "this averages out" tradeoff before it.
 
-type WeightClass = "light" | "heavy" | "phone_case";
+type WeightClass = "light" | "heavy" | "phone_case" | "pillow";
 
 // Verified against Printful's AOP ("all-over print" -- the only print type this store uses,
 // see printful.js's header comment) shipping-rate tables, 2026-07-02: T-shirts/shorts/
@@ -24,9 +24,9 @@ type WeightClass = "light" | "heavy" | "phone_case";
 // 2026-08-28 -- the beanie and neck gaiter) aren't covered by either clothing table --
 // Printful prices bags/home-goods/accessories on a separate table that hasn't been looked up
 // yet. Defaulted to "light" as the closer approximation (smaller and lighter than a garment)
-// -- revisit if the real rates turn out to differ meaningfully. The beanie and gaiter are the
-// only two of the seven whose real rates HAVE been looked up, and they confirm the
-// approximation holds; see their entries below.
+// -- revisit if the real rates turn out to differ meaningfully. The beanie and gaiter were
+// looked up and confirm the approximation holds; the pillow was looked up and did NOT (it has
+// its own class now). See their entries below.
 const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   257: "light", // All-Over Print Men's Crew Neck T-Shirt
   261: "light", // All-Over Print Women's Crew Neck T-Shirt
@@ -64,7 +64,11 @@ const WEIGHT_CLASS_BY_PRODUCT_ID: Record<number, WeightClass> = {
   798: "phone_case", // MagSafe Tough Case for iPhone -- measured, see comment above
   274: "light", // All-Over Print Large Tote Bag w/ Pocket -- approximated, see comment above
   744: "light", // All-Over Print Utility Crossbody Bag -- approximated, see comment above
-  83: "light", // All-Over Print Basic Pillow -- approximated, see comment above
+  // Measured 2026-10-14 (POST /orders/estimate-costs, 11 countries) after "light" turned out to
+  // be losing money on the pillow in EVERY region, the US included: US $10.89, CA $12.69,
+  // GB $11.49, EU $13.79 (identical in DE/FR/IE/NL/SE/PL), AU/NZ $37.59. A soft cube ships at
+  // well over twice a t-shirt's rate, so it gets a class of its own, priced like the others.
+  83: "pillow", // All-Over Print Basic Pillow -- measured, see comment above
 };
 
 type Region = "US" | "CA" | "GB" | "EU" | "AU_NZ";
@@ -91,7 +95,28 @@ const RATE_CENTS: Record<WeightClass, Record<Region, number>> = {
   heavy: { US: 949, CA: 1099, GB: 849, EU: 849, AU_NZ: 1349 },
   // Real cost + $1.10-1.40, rounded the same way -- see the 798 entry above for the costs.
   phone_case: { US: 649, CA: 1049, GB: 399, EU: 849, AU_NZ: 949 },
+  // Real cost + $1.10-1.40, same rounding -- see the 83 entry above. AU/NZ is not a typo:
+  // Printful charges $37.59 to send the pillow there, and Aaron chose to keep selling it there
+  // at the real rate rather than leave those countries out for this one product.
+  pillow: { US: 1199, CA: 1399, GB: 1299, EU: 1499, AU_NZ: 3899 },
 };
+
+// UK and EU orders carry a share of the ITEM price on top of the shipping rate (2026-10-14,
+// Aaron's call). Printful charges us that country's VAT (19-25%) on every UK/EU order and
+// prices items made in its European facilities about 11% higher, while the customer pays the
+// same US-dollar price as everyone else with no tax line -- so before this, 12 of 20 products
+// LOST money in the UK and 11-16 of 20 across the EU. Hosted Checkout fixes the item price
+// before the customer has picked a country; the shipping option is the one thing that varies
+// by region, so the extra rides there.
+//
+// Sized to give UK/EU orders the SAME margin as a US order, from a sweep of all 20 products x
+// 11 countries through Printful's own cost estimate: the share each product would need, and
+// its median per region (UK 23.2%, EU 25.2% across DE/FR/IE/NL/SE/PL). At these values every
+// product lands within ~$2.50 of its US margin in every country, and none loses money. The EU
+// is one region with one share, so 25%-VAT Sweden sits slightly under and 19% Germany slightly
+// over -- re-run the sweep if Printful's prices or the markup move, rather than nudging these.
+// It scales with the subtotal (price x quantity), since VAT does.
+const REGION_ITEM_SHARE: Partial<Record<Region, number>> = { GB: 0.23, EU: 0.25 };
 
 const DEFAULT_REGION: Region = "US";
 
@@ -126,7 +151,11 @@ function isRegion(value: unknown): value is Region {
 }
 
 // deno-lint-ignore no-explicit-any
-export function buildShippingOptions(productId: number, preferredRegion?: unknown): any[] {
+export function buildShippingOptions(
+  productId: number,
+  preferredRegion?: unknown,
+  itemsSubtotalCents = 0
+): any[] {
   const override = flatOverrideCents();
   if (override !== null) {
     if (override === 0) return [];
@@ -155,7 +184,10 @@ export function buildShippingOptions(productId: number, preferredRegion?: unknow
     shipping_rate_data: {
       display_name: `Shipping – ${REGION_LABEL[region]}`,
       type: "fixed_amount",
-      fixed_amount: { amount: rates[region], currency: "usd" },
+      fixed_amount: {
+        amount: rates[region] + Math.round((REGION_ITEM_SHARE[region] ?? 0) * itemsSubtotalCents),
+        currency: "usd"
+      },
       tax_behavior: "exclusive"
     }
   }));

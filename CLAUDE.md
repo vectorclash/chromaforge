@@ -5848,6 +5848,20 @@ by the shared design as the odds the panel last published.
     print in black and white; the phone icon it replaced printed as a grey mark on a solid
     dark block. Printful copies the logo at order creation, so the file must be live on the
     site BEFORE `stripe-webhook` points at a new one.
+  - **UK/EU shipping carries a share of the item price; the pillow has its own rate
+    (2026-10-14).** A sweep of all 20 products x 11 countries through Printful's free
+    `POST /orders/estimate-costs` (no order created) found UK/EU orders losing money on most
+    products: Printful charges us the destination's VAT (19-25%) and ~11% more for items made in
+    its European facilities, while the customer paid the plain US price. Hosted Checkout fixes
+    the item price before a country is chosen, so the extra rides on the region's shipping
+    option: `REGION_ITEM_SHARE` (UK 23%, EU 25% of price x quantity), sized so UK/EU margins match
+    US margins (Aaron's choice over break-even, ~6%/11%). The pillow was on the guessed "light"
+    rate and lost money everywhere, including the US; it is now measured (`pillow` class, AU/NZ
+    $38.99 at Printful's real $37.59 -- Aaron kept selling it there rather than restrict it).
+    Terms says UK/EU shipping covers VAT. **Re-run the sweep if Printful's prices or
+    `PRICE_MARKUP_PERCENT` (42%) change**, rather than nudging the shares. Not addressed: NZ
+    (15% GST, ~$1 average margin, shares a region with AU) and Printful's ~7% US sales tax on our
+    orders, which a resale certificate in Printful's billing settings would most likely remove.
   - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
     failure could be a fixable data issue (bad address, stale variant) that's
     resubmittable, not necessarily a "give the money back" situation, so this is a

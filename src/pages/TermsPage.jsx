@@ -19,7 +19,7 @@ export default function TermsPage() {
   });
   return (
     <PageContainer title="Terms of Service">
-      <p className="text-xs text-text-muted">Last updated: October 10, 2026</p>
+      <p className="text-xs text-text-muted">Last updated: October 14, 2026</p>
 
       {/* intro-skip AND intro-stagger: the cascade nests. This block opts out of being a
           single item in the page's own cascade (a dozen sections arriving as one slab was
@@ -116,7 +116,9 @@ export default function TermsPage() {
           <p>
             We ship to the countries listed at checkout. Please choose the shipping option that
             matches your delivery country; if it doesn't, we may contact you before your order is
-            produced. Orders shipped across a border may be subject to import duties or taxes
+            produced. For UK and European orders, the shipping charge also covers the VAT our
+            print partner charges us on your order, so it is higher than in other regions. Orders
+            shipped across a border may be subject to import duties or taxes
             charged by your country's customs authority. Delivery times are estimates, not
             guarantees.
           </p>
