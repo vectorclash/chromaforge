@@ -257,7 +257,11 @@ Deno.serve(async req => {
     email: "support@chromaforge.app",
     store_name: "Chromaforge",
     logo_url: "https://chromaforge.app/packing-slip-mark.png",
-    message: "Thanks for supporting Chromaforge! chromaforge.app",
+    // Same text as the store's default slip message in the Printful dashboard (which only
+    // applies to orders created there by hand) -- keep the two matching.
+    message:
+      "Thanks for supporting Chromaforge! Your piece was printed just for you. Show it off and " +
+      "tag @chromaforge.app \u2014 and make your next one at chromaforge.app",
     custom_order_id: orderId.replace(/-/g, "").slice(0, 20)
   };
 
