@@ -263,8 +263,10 @@ const BLEND_FUNCS = /* glsl */ `
 const MAX_STOPS = 6;
 const GRADIENT_VERT = /* glsl */ `
   varying vec2 vUv;
+  uniform float uSkyShift; // stereo: where infinity sits for this eye, in uv (0 = mono)
   void main() {
     vUv = position.xy * 0.5 + 0.5;
+    vUv.x -= uSkyShift;
     gl_Position = vec4(position.xy, 0.0, 1.0);
   }
 `;
@@ -307,7 +309,8 @@ function gradientUniforms(cfg, alpha) {
     uP2: { value: new THREE.Vector2(dir.x2, dir.y2) },
     uView: { value: new THREE.Vector2(REF_W, REF_H) },
     uAngle: { value: 0 },
-    uAlpha: { value: alpha }
+    uAlpha: { value: alpha },
+    uSkyShift: { value: 0 }
   };
 }
 
@@ -506,6 +509,7 @@ const PLATE_FRAG = /* glsl */ `
   uniform int uMaxList;
   uniform float uHoleQ;     // aperture radius around the flight axis, reference px (0 = closed)
   uniform float uHoleSoftQ; // how far ahead of the aperture a shape starts to fade
+  uniform vec2 uShift;      // stereo: this eye's parallax at the plate's depth, tan units (0 = mono)
   float segDist(vec2 p, vec2 a, vec2 b) {
     vec2 pa = p - a, ba = b - a;
     float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
@@ -525,6 +529,9 @@ const PLATE_FRAG = /* glsl */ `
   }
   void main() {
     vec2 world = (vUv * 2.0 - 1.0) * uTanHalf * uDepth;
+    // Behind a branch so the mono scene computes exactly what it always has: written into the
+    // expression, the compiler re-associated it and one subpixel in millions rounded differently
+    if (uShift.x != 0.0) world -= uShift * uDepth;
     vec2 d = world - uOffset;
     vec2 q = vec2(uRot.x * d.x + uRot.y * d.y, -uRot.y * d.x + uRot.x * d.y) / uPx;
     // One screen pixel in plate units, for the antialiased edges
@@ -595,7 +602,7 @@ const PLATE_COMP_FRAG = /* glsl */ `
 // Placements along the flight: which plate content, and where it sits. Layout comes from the
 // scene stream and shapes from each content's own stream, so a slider change re-shapes plates
 // without moving where they sit, and vice versa.
-function buildPlates(seed, designGeometry, paletteColors, settings, geometry, L) {
+function buildPlates(seed, designGeometry, paletteColors, settings, geometry, L, density = 1) {
   const coh = geometry.coherence;
   const frameHalf = FRAME_D * Math.tan((REF_FOV * Math.PI) / 360);
 
@@ -615,7 +622,7 @@ function buildPlates(seed, designGeometry, paletteColors, settings, geometry, L)
   }
   const data = packPlateData(contents);
 
-  const count = plateCount(L);
+  const count = plateCount(L, density);
   const plates = [];
   for (let k = 0; k < count; k++) {
     // Each placement on its own stream, keyed by its index, so plate k is the same plate at any
@@ -724,7 +731,7 @@ function applyDepthFade(mat, uViewHalfH = null) {
 // index mapping (which also bridges rings of different side counts at zone boundaries),
 // and all motion/profiles use integer cycle frequencies — so exports still loop
 // seamlessly.
-function buildCage(rng, geometry, L, uViewHalfH) {
+function buildCage(rng, geometry, L, uViewHalfH, density = 1) {
   const clampNum = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   // Length scaling: counts stretch linearly with content length so structure density
   // per unit distance stays what it was tuned at (REFERENCE_LENGTH); integer spatial
@@ -744,7 +751,9 @@ function buildCage(rng, geometry, L, uViewHalfH) {
   // design is ever built, this falls back to the legacy value for it; feed it
   // getGenerationSettings(design) if the user's own odds are wanted instead.
   const sizeScale = 0.55 + geometry.size * 0.9;
-  const densityScale = 0.35 + geometry.chance * 1.625;
+  // A dense scene (stereo) fills the cage further, past its usual caps
+  const denser = Math.sqrt(density);
+  const densityScale = (0.35 + geometry.chance * 1.625) * denser;
   const radiusBase = (15 + rng() * 9) * sizeScale; // camera flies inside
 
   // Long-wavelength breathing + complexity waves (integer frequencies → loop-safe)
@@ -978,10 +987,10 @@ function buildCage(rng, geometry, L, uViewHalfH) {
         (0.15 + rng() * 0.85 + coh * 0.4) *
           complexityAt(zFrac) * densityMul * zoneWireMul * (A.gate ? 2.2 : 1) * wireScale,
         0,
-        CAGE_MAX_WIRE
+        CAGE_MAX_WIRE * denser
       );
       const panelChance = Math.min(
-        CAGE_MAX_PANEL,
+        CAGE_MAX_PANEL * denser,
         (0.28 + geometry.coherence * 0.3) *
           complexityAt(zFrac) *
           densityMul *
@@ -1604,8 +1613,8 @@ function cachedStarField(kind, count, L, rMin, rMax) {
 
 // A flight's layout for a Duration: the content length L the camera laps, how many laps a cycle
 // takes, and how many plates sit along L.
-function plateCount(L) {
-  return Math.max(3, Math.round(L / PLATE_SPACING));
+function plateCount(L, density = 1) {
+  return Math.max(3, Math.round((L * density) / PLATE_SPACING));
 }
 function flightLayout(duration) {
   const travel = FLIGHT_SPEED * duration;
@@ -1615,19 +1624,19 @@ function flightLayout(duration) {
 }
 
 // The two star fields a scene of this duration uses -- the same derivation as createTunnelScene
-function starFieldSpecs(duration) {
+function starFieldSpecs(duration, density = 1) {
   const { L } = flightLayout(duration);
   const lenScale = L / REFERENCE_LENGTH;
   return [
-    ['near', Math.round(SMALL_STAR_COUNT * lenScale), L, TUNNEL_CORE, TUNNEL_RADIUS],
-    ['far', Math.round(FAR_STAR_COUNT * lenScale), L, TUNNEL_RADIUS, FAR_STAR_RADIUS]
+    ['near', Math.round(SMALL_STAR_COUNT * lenScale * density), L, TUNNEL_CORE, TUNNEL_RADIUS],
+    ['far', Math.round(FAR_STAR_COUNT * lenScale * density), L, TUNNEL_RADIUS, FAR_STAR_RADIUS]
   ];
 }
 
 // Places the star layout for a duration without holding the main thread for more than ~budgetMs
 // at a time, so a createTunnelScene straight after it finds the cache warm.
-export async function warmTunnelStars(duration, budgetMs = 8) {
-  for (const [kind, count, L, rMin, rMax] of starFieldSpecs(duration)) {
+export async function warmTunnelStars(duration, budgetMs = 8, density = 1) {
+  for (const [kind, count, L, rMin, rMax] of starFieldSpecs(duration, density)) {
     const key = starFieldKey(kind, count, L);
     while (!STAR_FIELD_CACHE.has(key)) {
       const gen = starFieldGenerator(kind, count, L, rMin, rMax);
@@ -1704,7 +1713,12 @@ export function sceneBasePalette(seed, colors = [], settings = null) {
 }
 
 // ─── Scene factory ────────────────────────────────────────────────────────────────────
-export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true }) {
+// `density` multiplies how much the flight passes -- plates, stars, large stars, the cage -- for the
+// ad builder's stereo Reel, where depth only reads with many things at many depths. `pull` draws
+// the stars and plates toward the flight path (their distance from it times `pull`), so they stay
+// in a narrow frame longer and drift outward instead of whipping off its edges. 1 and 1 are the
+// studio's scene, untouched.
+export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true, density = 1, pull = 1 }) {
   const rng = makeRng(`${seed}-3d`);
   // The 2D artwork for this seed, on the studio canvas. Everything in the flight derives
   // from it or from the generators that built it.
@@ -1820,9 +1834,9 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       starScene.add(pts);
     }
   };
-  const field = cachedStarField('near', Math.round(SMALL_STAR_COUNT * lenScale), L, TUNNEL_CORE, TUNNEL_RADIUS);
+  const field = cachedStarField('near', Math.round(SMALL_STAR_COUNT * lenScale * density), L, TUNNEL_CORE, TUNNEL_RADIUS);
   pointLayer(field, 0.7, 0.95);
-  const farField = cachedStarField('far', Math.round(FAR_STAR_COUNT * lenScale), L, TUNNEL_RADIUS, FAR_STAR_RADIUS);
+  const farField = cachedStarField('far', Math.round(FAR_STAR_COUNT * lenScale * density), L, TUNNEL_RADIUS, FAR_STAR_RADIUS);
   pointLayer(farField, 1.0, 0.85);
   // Each design turns the shared layout about the flight axis and slides it along the loop,
   // so no two designs' fields line up. Applied to the objects, so it costs nothing per frame.
@@ -1849,9 +1863,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       if (obj.userData.zOff === undefined) continue;
       obj.rotation.z = starTurn;
       obj.position.z = obj.userData.zOff + starSlide;
+      if (pull !== 1) obj.scale.set(pull, pull, 1);
     }
   }
-  const largeField = makeStarField(rng, Math.round(LARGE_STAR_COUNT * spriteScale), L);
+  const largeField = makeStarField(rng, Math.round(LARGE_STAR_COUNT * spriteScale * density), L);
   const largeSprites = [];
   for (let i = 0; i < largeField.count; i++) {
     const mat = starBlend(new THREE.SpriteMaterial({ fog: false }));
@@ -1863,13 +1878,19 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       sprite.scale.setScalar(baseScale);
       sprite.position.set(largeField.pos[i * 3], largeField.pos[i * 3 + 1], largeField.pos[i * 3 + 2] + zOff);
       starScene.add(sprite);
-      largeSprites.push({ sprite, index: i, baseScale, x: sprite.position.x, y: sprite.position.y });
+      largeSprites.push({ sprite, index: i, baseScale, x: sprite.position.x * pull, y: sprite.position.y * pull });
     }
   }
 
   // ── Geometry plates, drawn as vectors (see "The geometry layer")
-  const { plates, data: plateData } = buildPlates(seed, art.geometryConfig || null, paletteColors, settings, geometry, L);
+  const { plates, data: plateData } = buildPlates(seed, art.geometryConfig || null, paletteColors, settings, geometry, L, density);
   disposables.push(plateData.triTex, plateData.cellTex);
+  if (pull !== 1) {
+    for (const plate of plates) {
+      plate.ox *= pull;
+      plate.oy *= pull;
+    }
+  }
   const plateUniformsState = {
     uTris: { value: plateData.triTex },
     uCells: { value: plateData.cellTex },
@@ -1883,6 +1904,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     uCellBase: { value: 0 },
     uHoleQ: { value: 0 },
     uHoleSoftQ: { value: 1 },
+    uShift: { value: new THREE.Vector2() },
     uMaxList: { value: plateData.maxList }
   };
   const plateScene = new THREE.Scene();
@@ -1909,7 +1931,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // carries hues the sky does not already have.
   const cagePaletteHsl = [...art.gradientBackgroundConfig.colors, ...art.starFieldConfig.gradientConfig.colors].map(toHsl);
   if (cageOn) {
-    cage = buildCage(makeRng(`${seed}-3d-cage`), geometry, L, uViewHalfH);
+    cage = buildCage(makeRng(`${seed}-3d-cage`), geometry, L, uViewHalfH, density);
     cage.group.traverse(obj => {
       if (obj.geometry) disposables.push(obj.geometry);
       if (obj.material) disposables.push(obj.material);
@@ -2012,6 +2034,36 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   };
   let streaksOn = false;
 
+  // ── Stereo: one eye of a side-by-side pair (the ad builder's Stereo Reel, adBuilder/stereoFlight)
+  // setEye(x, converge) offsets the camera x world units sideways with an off-axis frustum, so
+  // things at depth `converge` sit at zero parallax. The offset goes into the PROJECTION matrix,
+  // after the view transform, so every shader's warp (which scales view-space xy) stays centred
+  // on the flight axis for both eyes -- moving the camera itself would warp each eye about its
+  // own axis and the two pictures would disagree. Plates draw their own rays, so they take the
+  // same parallax as a uniform (uShift); the sky and overlay are placed at infinity. x = 0 is
+  // the ordinary mono scene, untouched.
+  const eye = { x: 0, converge: 80 };
+  function applyEye() {
+    const sky = [skyUniforms, overlayUniforms].filter(Boolean);
+    if (eye.x === 0) {
+      for (const u of sky) u.uSkyShift.value = 0;
+      return;
+    }
+    const e = camera.projectionMatrix.elements;
+    const tanX = Math.tan((camera.fov * Math.PI) / 360) * camera.aspect;
+    const shift = eye.x / (eye.converge * tanX); // NDC, where infinity lands for this eye
+    e[12] = -e[0] * eye.x;
+    e[8] = -shift;
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    for (const u of sky) u.uSkyShift.value = shift / 2;
+  }
+  function setEye(x = 0, converge = 80) {
+    eye.x = x;
+    eye.converge = converge;
+    camera.updateProjectionMatrix();
+    applyEye();
+  }
+
   // showLogo: whether the mark is drawn at all (the scene must also have been built with one);
   // where it is and how it looks come from the flight -- see "Logo mark".
   function setTime(seconds, rush = 0, showLogo = false) {
@@ -2020,6 +2072,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const surge = surgeOf(rush);
     camera.fov = LENS_FOV + RUSH_FOV_BOOST * surge;
     camera.updateProjectionMatrix();
+    applyEye();
     const streaking = rush > RUSH_STREAK_EPS;
     streaksOn = streaking;
     uStreak.value = STREAK_LENGTH * rush;
@@ -2073,7 +2126,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       const ht = Math.min(1, Math.max(0, (PLATE_HOLE[0] - seen) / (PLATE_HOLE[0] - PLATE_HOLE[1])));
       const hole = ht * ht * (Math.hypot(camera.aspect, 1) + PLATE_HOLE_SOFT);
       if (ht >= 1) continue;
-      visiblePlates.push({ plate, dz: effD, alpha, hole });
+      visiblePlates.push({ plate, dz: effD, realDz: dz, alpha, hole });
     }
     visiblePlates.sort((p, q) => q.dz - p.dz);
 
@@ -2119,7 +2172,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   const _size = new THREE.Vector2();
   const _clear = new THREE.Color();
   function render(renderer) {
-    renderer.getDrawingBufferSize(_size);
+    // Into a render target when one is set (a stereo eye, see setEye), otherwise the canvas
+    const into = renderer.getRenderTarget();
+    if (into) _size.set(into.width, into.height);
+    else renderer.getDrawingBufferSize(_size);
     uViewHalfH.value = _size.y / 2;
     for (const t of [layerTarget, layerTargetAA, accum, spare]) {
       if (t.width !== _size.x || t.height !== _size.y) t.setSize(_size.x, _size.y);
@@ -2182,8 +2238,14 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const cacheRes = exact ? 1 : Math.min(1, PLATE_CACHE_MAX_DPR / renderer.getPixelRatio());
     const cw = Math.max(1, Math.round(_size.x * cacheRes));
     const ch = Math.max(1, Math.round(_size.y * cacheRes));
-    for (const { plate, dz, alpha, hole } of visiblePlates) {
+    const stereo = eye.x !== 0;
+    for (const { plate, dz, realDz, alpha, hole } of visiblePlates) {
       const depth = dz;
+      // A plate sits at one REAL depth, so its parallax is one shift (see setEye)
+      plateUniformsState.uShift.value.set(
+        stereo ? eye.x * (1 / eye.converge - 1 / Math.max(0.5, realDz)) : 0,
+        0
+      );
       let c = cacheOf.get(plate);
       if (!c) {
         const rt = cachePool.pop() || new THREE.WebGLRenderTarget(cw, ch);
@@ -2201,8 +2263,8 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       // the loop ends, where the camera is slow, a plate held for several frames and then its
       // fading shapes jumped.
       const holeMoved = hole !== (c.hole ?? 0);
-      if (exact || !c.fresh || holeMoved || plateCover(plate, depth, tanY) < PLATE_CACHE_MIN_COVER || scale > 1 || scale < 1 / PLATE_CACHE_FORCE_ZOOM || plate === budgetPlate) {
-        const tanC = exact ? tanY : tanY * PLATE_CACHE_MARGIN;
+      if (exact || stereo || !c.fresh || holeMoved || plateCover(plate, depth, tanY) < PLATE_CACHE_MIN_COVER || scale > 1 || scale < 1 / PLATE_CACHE_FORCE_ZOOM || plate === budgetPlate) {
+        const tanC = exact || stereo ? tanY : tanY * PLATE_CACHE_MARGIN;
         plateUniforms(plate, plateUniformsState);
         // Aperture in the plate's own units, fixed in the world: screen half-heights at this depth
         plateUniformsState.uHoleQ.value = (hole * tanY * depth) / PX;
@@ -2245,6 +2307,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   function setSize(w, h) {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    applyEye();
     view.set(w, h);
   }
 
@@ -2259,7 +2322,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   }
 
   setTime(0);
-  return { scene: skyScene, camera, render, setSize, setTime, dispose, ready, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
+  return { scene: skyScene, camera, render, setSize, setTime, setEye, dispose, ready, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
 }
 
 export default createTunnelScene;

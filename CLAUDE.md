@@ -2319,6 +2319,37 @@ the app allows 20). Things worth not re-deriving:
 - The seed card mentions seeds, which Reel captions avoid; it stays in the preset because it was in
   the approved mockup. Remove the slide per post if that rule should apply.
 
+(12) **Stereo: a cross-eye Reel of the flight alone** (`stereoFlight.js`, 2026-10-13, Aaron, after
+seeing one on Instagram; test renders: https://claude.ai/artifact/VFPYm5529N67QvS1gGzVvD).
+**SHELVED the same day, and this lives on the `stereo-flight` branch only, never master**: "a
+really fun experiment but I don't think it's going to be worth using... if we ever make this
+compatible with VR helmets this could be fun". Even denser, the narrow half-frames lose things fast.
+Tried last: `pull` (tunnelScene), drawing stars and plates toward the flight path (0.5 and 0.3 tested,
+not wired into the builder). Untried: a slower camera in stereo, a weaker depth warp. The
+1080x1920 frame split down the middle, each 540x1920 half one eye's view; the LEFT half is the RIGHT
+eye's, since crossing sends each eye to the opposite half. Length (5-30s) and Speed ramp are the only
+settings; one loop is the whole Reel, so it loops seamlessly. Music works as in a Reel. No lockup, no
+lining-up dots (Aaron: viewing instructions go in the post copy). Four things worth not re-deriving:
+- **The eye offset lives in the PROJECTION matrix (`tunnelScene`'s `setEye`), not the camera's
+  position.** Every layer warps view-space xy around the camera axis (`warpW`); moving the camera
+  would warp each eye about its own axis and the two pictures would disagree. Off-axis frustum, so
+  depth `STEREO_CONVERGE` (80) sits at the screen. Plates draw their own rays and take the same
+  parallax as `uShift`, from their REAL depth (the warp scales xy only); the sky and overlay sit at
+  infinity. Stereo always draws plates exactly: the preview's plate cache assumes one centred eye.
+- **Density ×2 (`STEREO_DENSITY`, tunnelScene's `density`).** Aaron: the studio's scene "doesn't
+  really have enough elements... it would need to be way way more dense". It multiplies plates
+  (spacing 150 -> 75), near/far/large stars, and fills the cage past its caps (by sqrt(density)).
+  ×6 stacked plates into one wall; ×3 was then "a bit much now in most designs". density 1 is the
+  studio scene, byte-identical.
+- **Depth: `STEREO_SEPARATION` 3.** Aaron picked "Strong" (6) on half-height 9:16 panels; full-height
+  halves are half as wide in tan units, so the same world separation doubled the on-screen offset.
+- **The mono scene is byte-identical** (9 frames, 3 designs, against HEAD). The plate shift sits behind
+  a branch: written into the ray expression, the shader compiler re-associated it and one subpixel in
+  2.9M changed by 1.
+- `world.render` sizes its layers from the current render target when one is set, which is how each
+  eye renders into its own target; one pass lays the two side by side, so the preview reads nothing
+  back out of WebGL. 60fps in the builder's preview (Chromium); not tried in Safari.
+
 Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
 exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
 kept it suspended -- a silent preview until the next pause and play. Export was never affected.

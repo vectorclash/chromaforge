@@ -22,10 +22,12 @@ import { createAdComposer } from './adComposer';
 import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
 import { keepFile, listSavedAds, loadAd, saveAd, adSlug } from './devApi';
+import { createStereoComposer, STEREO_LENGTHS, DEFAULT_STEREO } from './stereoFlight';
 
 // The local ad builder: an Instagram Reel of a design flying through 3D and landing on the
 // products, cut to music from Orrery -- or a feed post of the same design and photos, as one image
-// or a carousel (see feedPost.js). See ad-builder.html for how to open it.
+// or a carousel (see feedPost.js) -- or a stereo Reel of the flight alone, for cross-eye viewing
+// (see stereoFlight.js). See ad-builder.html for how to open it.
 
 const PREVIEW_W = AD_WIDTH / 2;
 const PREVIEW_H = AD_HEIGHT / 2;
@@ -63,14 +65,14 @@ function Section({ title, children, aside = null }) {
 
 function Segmented({ value, options, onChange, label }) {
   return (
-    <div className="flex gap-1" role="group" aria-label={label}>
+    <div className="flex shrink-0 gap-1" role="group" aria-label={label}>
       {options.map(([v, text]) => (
         <button
           key={String(v)}
           type="button"
           aria-pressed={value === v}
           onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 text-sm ${
+          className={`whitespace-nowrap rounded-md px-2.5 py-1 text-sm ${
             value === v
               ? 'bg-white/15 text-white'
               : 'text-neutral-400 hover:bg-white/5 hover:text-white'
@@ -100,8 +102,10 @@ export default function AdBuilder() {
   });
   const [name, setName] = useState('');
   const [post, setPost] = useState(DEFAULT_POST);
-  // 'reel', or 'feed': a single image or a carousel, made of the slides in `feed`.
+  // 'reel', 'feed' (a single image or a carousel, made of the slides in `feed`), or 'stereo'
+  // (the flight alone, side by side for cross-eye viewing, shaped by `stereo`).
   const [format, setFormat] = useState('reel');
+  const [stereo, setStereo] = useState(DEFAULT_STEREO);
   const [feed, setFeed] = useState({ slides: [] });
 
   // ── Supporting data and UI state ────────────────────────────────────────────
@@ -148,8 +152,10 @@ export default function AdBuilder() {
       ),
     [slots]
   );
-  // The Reel's flight only runs while the Reel is what is being made.
+  // The Reel's flight only runs while the Reel is what is being made; the stereo flight likewise.
   const reelDesign = format === 'reel' ? flightDesign : null;
+  const stereoDesign = format === 'stereo' ? flightDesign : null;
+  const isStereo = format === 'stereo';
 
   // A feed post's slides, less any photo no longer in the products (a new design takes its
   // mockup photos away).
@@ -161,15 +167,18 @@ export default function AdBuilder() {
   const feedIndex = Math.min(slideIndex, Math.max(0, feedSlides.length - 1));
 
   const tempo = music.plan?.state?.tempo || DEFAULT_TEMPO;
+  // A stereo Reel is one loop of the flight and nothing else, so its length is the loop's.
   const timeline = useMemo(
     () =>
-      adTimeline({
-        tempo,
-        flightBars: timing.flightBars,
-        productBars: timing.productBars,
-        productCount: photos.length
-      }),
-    [tempo, timing, photos.length]
+      isStereo
+        ? { flight: stereo.length, products: [], total: stereo.length }
+        : adTimeline({
+            tempo,
+            flightBars: timing.flightBars,
+            productBars: timing.productBars,
+            productCount: photos.length
+          }),
+    [isStereo, stereo.length, tempo, timing, photos.length]
   );
   const musicStale = !!musicBuffer && Math.abs((music.duration ?? 0) - timeline.total) > 0.001;
 
@@ -212,8 +221,9 @@ export default function AdBuilder() {
   const composerRef = useRef(null);
   const scrubRef = useRef(null);
   const timeRef = useRef(null);
-  const drawState = useRef({ timeline, overlay });
-  drawState.current = { timeline, overlay };
+  const drawState = useRef({ timeline, overlay, ramp: stereo.ramp });
+  drawState.current = { timeline, overlay, ramp: stereo.ramp };
+  const stereoRef = useRef(null);
   // Products are placed clear of the lockup, so where the text sits is part of their layout.
   const photoLayout = { position: overlay.position, showText: overlay.show };
   const photosKey = JSON.stringify([photos, photoLayout]);
@@ -239,6 +249,11 @@ export default function AdBuilder() {
 
   // `readout: false` is for playback, which updates the time and scrubber on its own schedule.
   const drawAt = (t, { readout = true } = {}) => {
+    if (stereoRef.current) {
+      stereoRef.current.render(t, drawState.current.ramp);
+      if (readout) showTime(t);
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -295,6 +310,47 @@ export default function AdBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightKey]);
 
+  // The stereo flight. A new length is a new scene; the ramp is only how its clock runs.
+  const stereoKey = stereoDesign ? JSON.stringify([stereoDesign, stereo.length]) : '';
+  useEffect(() => {
+    if (!stereoDesign) return;
+    let cancelled = false;
+    let built = null;
+    setPreviewState('building');
+    setPreviewError(null);
+    createStereoComposer({
+      design: stereoDesign,
+      width: PREVIEW_W,
+      height: PREVIEW_H,
+      length: stereo.length
+    })
+      .then(c => {
+        built = c;
+        if (cancelled) return c.dispose();
+        Object.assign(c.canvas.style, {
+          position: 'absolute',
+          inset: '0',
+          width: '100%',
+          height: '100%'
+        });
+        flightHostRef.current?.appendChild(c.canvas);
+        stereoRef.current = c;
+        setPreviewState('ready');
+        drawAt(play.current.t);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        setPreviewState('error');
+        setPreviewError(e.message);
+      });
+    return () => {
+      cancelled = true;
+      if (stereoRef.current === built) stereoRef.current = null;
+      built?.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stereoKey]);
+
   useEffect(() => {
     const c = composerRef.current;
     if (!c) return;
@@ -305,7 +361,7 @@ export default function AdBuilder() {
   }, [photosKey]);
 
   // Timing, text or tempo changed while paused: redraw where the playhead is.
-  const drawKey = JSON.stringify([timeline.total, timing, overlay]);
+  const drawKey = JSON.stringify([timeline.total, timing, overlay, stereo.ramp]);
   useEffect(() => {
     if (play.current.t > timeline.total) play.current.t = 0;
     if (!play.current.playing) drawAt(play.current.t);
@@ -569,6 +625,7 @@ export default function AdBuilder() {
     version: AD_FILE_VERSION,
     name: adName,
     format,
+    stereo,
     design,
     slots,
     music,
@@ -614,6 +671,7 @@ export default function AdBuilder() {
       setOverlay(ad.overlay);
       setPost(ad.post ?? DEFAULT_POST);
       setFormat(ad.format ?? 'reel');
+      setStereo(ad.stereo ?? DEFAULT_STEREO);
       setFeed(ad.feed ?? { slides: [] });
       setSlideIndex(0);
       setMusic(ad.music);
@@ -631,6 +689,35 @@ export default function AdBuilder() {
     const releases = [];
     setExportState({ label: 'Building the scene', progress: 0 });
     try {
+      if (isStereo) {
+        const st = await createStereoComposer({
+          design: flightDesign,
+          width: AD_WIDTH,
+          height: AD_HEIGHT,
+          length: stereo.length
+        });
+        releases.push(() => st.dispose());
+        const totalFrames = Math.round(stereo.length * AD_FPS);
+        return await encodeMp4({
+          width: AD_WIDTH,
+          height: AD_HEIGHT,
+          fps: AD_FPS,
+          totalFrames,
+          bitrate,
+          audioMaxBitrate,
+          releases,
+          audio: musicBuffer,
+          renderFrame: f => {
+            st.render(f / AD_FPS, stereo.ramp);
+            return st.canvas;
+          },
+          onFrame: f => setExportState({ label: 'Rendering frames', progress: f / totalFrames }),
+          beforeFlush: () => {
+            st.dispose();
+            setExportState({ label: 'Finishing the file', progress: 1 });
+          }
+        });
+      }
       const comp = await createAdComposer({
         design: flightDesign,
         width: AD_WIDTH,
@@ -703,6 +790,23 @@ export default function AdBuilder() {
     setExportState({ label: 'Rendering the cover', progress: 0 });
     let comp = null;
     try {
+      if (isStereo) {
+        comp = await createStereoComposer({
+          design: flightDesign,
+          width: AD_WIDTH,
+          height: AD_HEIGHT,
+          length: stereo.length
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = AD_WIDTH;
+        canvas.height = AD_HEIGHT;
+        // Copied in the same task as the render: the WebGL canvas keeps no frame after it
+        comp.render(play.current.t, stereo.ramp);
+        canvas.getContext('2d').drawImage(comp.canvas, 0, 0);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+        if (!blob) throw new Error('The frame could not be encoded.');
+        return blob;
+      }
       comp = await createAdComposer({
         design: flightDesign,
         width: AD_WIDTH,
@@ -785,7 +889,7 @@ export default function AdBuilder() {
     // Never while a take is missing or the wrong length: that would export the old take, or none.
     !!flightDesign && previewState === 'ready' && !busy && !needsTake && musicBusy === null;
   const seg = segmentAt(timeline, play.current.t);
-  const productNames = photos.map(p =>
+  const productNames = (isStereo ? [] : photos).map(p =>
     catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
   );
   const isFeed = format === 'feed';
@@ -812,6 +916,9 @@ export default function AdBuilder() {
       ? 'A post with only the flight clip goes out as a Reel. Add a still slide, or switch to Reel.'
       : null;
   const caption = fullCaption(post, design, isFeed ? feedProductNames : productNames);
+  // Sections are numbered in the order they show, which depends on what is being made.
+  let sectionNo = 0;
+  const numbered = title => `${++sectionNo} · ${title}`;
 
   // ── Layout ──────────────────────────────────────────────────────────────────
   return (
@@ -832,7 +939,9 @@ export default function AdBuilder() {
               <span className="text-xs text-neutral-500">
                 {isFeed
                   ? `Feed post · ${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
-                  : `Instagram Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
+                  : isStereo
+                    ? `Stereo Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`
+                    : `Instagram Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
               </span>
             </div>
             <Segmented
@@ -840,7 +949,8 @@ export default function AdBuilder() {
               value={format}
               options={[
                 ['reel', 'Reel'],
-                ['feed', 'Feed post']
+                ['feed', 'Feed post'],
+                ['stereo', 'Stereo']
               ]}
               onChange={switchFormat}
             />
@@ -873,7 +983,7 @@ export default function AdBuilder() {
           {notice && <p className="mt-2 text-xs text-neutral-300">{notice}</p>}
         </header>
 
-        <Section title="1 · Design">
+        <Section title={numbered('Design')}>
           {authResolved && !user && (
             <p className="mb-3 text-sm text-neutral-400">
               <a
@@ -952,49 +1062,79 @@ export default function AdBuilder() {
           {designError && <p className="mt-2 text-xs text-red-300">{designError}</p>}
         </Section>
 
-        <Section
-          title="2 · Products"
-          aside={
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={slots.length >= MAX_PRODUCTS}
-              onClick={() =>
-                setSlots(s => [
-                  ...s,
-                  newSlot(STARTER_PRODUCT_IDS[(s.length * 3) % STARTER_PRODUCT_IDS.length])
-                ])
-              }
-            >
-              Add
-            </Button>
-          }
-        >
-          <div className="flex flex-col gap-2">
-            {slots.map((slot, i) => (
-              <ProductSlot
-                key={slot.uid}
-                index={i}
-                slot={slot}
-                design={mockupDesign}
-                catalog={catalog}
-                signedIn={!!user}
-                onChange={update => setSlots(s => s.map(x => (x.uid === slot.uid ? update(x) : x)))}
-                onRemove={() => setSlots(s => s.filter(x => x.uid !== slot.uid))}
-                reel={!isFeed}
+        {!isStereo && (
+          <Section
+            title={numbered('Products')}
+            aside={
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={slots.length >= MAX_PRODUCTS}
+                onClick={() =>
+                  setSlots(s => [
+                    ...s,
+                    newSlot(STARTER_PRODUCT_IDS[(s.length * 3) % STARTER_PRODUCT_IDS.length])
+                  ])
+                }
+              >
+                Add
+              </Button>
+            }
+          >
+            <div className="flex flex-col gap-2">
+              {slots.map((slot, i) => (
+                <ProductSlot
+                  key={slot.uid}
+                  index={i}
+                  slot={slot}
+                  design={mockupDesign}
+                  catalog={catalog}
+                  signedIn={!!user}
+                  onChange={update =>
+                    setSlots(s => s.map(x => (x.uid === slot.uid ? update(x) : x)))
+                  }
+                  onRemove={() => setSlots(s => s.filter(x => x.uid !== slot.uid))}
+                  reel={!isFeed}
+                />
+              ))}
+            </div>
+            {!design && (
+              <p className="mt-2 text-xs text-neutral-500">
+                Choose a design first: mockups are made of it.
+              </p>
+            )}
+          </Section>
+        )}
+
+        {isStereo && (
+          <Section title={numbered('Flight')}>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-400">Length</span>
+              <Segmented
+                label="Flight length"
+                value={stereo.length}
+                options={STEREO_LENGTHS.map(l => [l, `${l}s`])}
+                onChange={v => setStereo(st => ({ ...st, length: v }))}
               />
-            ))}
-          </div>
-          {!design && (
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-400">Speed ramp</span>
+              <Toggle
+                on={stereo.ramp}
+                onClick={() => setStereo(st => ({ ...st, ramp: !st.ramp }))}
+                aria-label="Speed ramp"
+              />
+            </div>
             <p className="mt-2 text-xs text-neutral-500">
-              Choose a design first: mockups are made of it.
+              One loop of the flight is the whole Reel, so it loops seamlessly. The left half is the
+              right eye&rsquo;s view, for viewing cross-eyed.
             </p>
-          )}
-        </Section>
+          </Section>
+        )}
 
         {isFeed && (
           <Section
-            title="3 · Slides"
+            title={numbered('Slides')}
             aside={<span className="text-xs text-neutral-500">{feedSlides.length} of 10</span>}
           >
             <FeedSlides
@@ -1011,7 +1151,7 @@ export default function AdBuilder() {
         {!isFeed && (
           <>
             <Section
-              title="3 · Music"
+              title={numbered('Music')}
               aside={
                 music.plan && (
                   <button
@@ -1078,73 +1218,77 @@ export default function AdBuilder() {
               {musicError && <p className="mt-2 text-xs text-red-300">{musicError}</p>}
             </Section>
 
-            <Section
-              title="4 · Timing"
-              aside={
-                <span className="text-xs text-neutral-500">
-                  {fmt(timeline.total)} · {Math.round(tempo)} bpm
-                </span>
-              }
-            >
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-neutral-400">Flight</span>
-                <Segmented
-                  label="Flight length"
-                  value={timing.flightBars}
-                  options={FLIGHT_BARS.map(b => [b, `${b} bar${b > 1 ? 's' : ''}`])}
-                  onChange={v => setTiming(t => ({ ...t, flightBars: v }))}
-                />
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-3 text-sm">
-                <span className="text-neutral-400">Each product</span>
-                <Segmented
-                  label="Bars per product"
-                  value={timing.productBars}
-                  options={PRODUCT_BARS.map(b => [
-                    b,
-                    b === 0.5 ? '½ bar' : `${b} bar${b > 1 ? 's' : ''}`
-                  ])}
-                  onChange={v => setTiming(t => ({ ...t, productBars: v }))}
-                />
-              </div>
-            </Section>
+            {!isStereo && (
+              <>
+                <Section
+                  title={numbered('Timing')}
+                  aside={
+                    <span className="text-xs text-neutral-500">
+                      {fmt(timeline.total)} · {Math.round(tempo)} bpm
+                    </span>
+                  }
+                >
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-neutral-400">Flight</span>
+                    <Segmented
+                      label="Flight length"
+                      value={timing.flightBars}
+                      options={FLIGHT_BARS.map(b => [b, `${b} bar${b > 1 ? 's' : ''}`])}
+                      onChange={v => setTiming(t => ({ ...t, flightBars: v }))}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="text-neutral-400">Each product</span>
+                    <Segmented
+                      label="Bars per product"
+                      value={timing.productBars}
+                      options={PRODUCT_BARS.map(b => [
+                        b,
+                        b === 0.5 ? '½ bar' : `${b} bar${b > 1 ? 's' : ''}`
+                      ])}
+                      onChange={v => setTiming(t => ({ ...t, productBars: v }))}
+                    />
+                  </div>
+                </Section>
 
-            <Section
-              title="5 · Brand"
-              aside={
-                <Toggle
-                  on={overlay.show}
-                  onClick={() => setOverlay(o => ({ ...o, show: !o.show }))}
-                  aria-label="Show the brand lockup"
-                />
-              }
-            >
-              <div className="flex items-center gap-3">
-                <input
-                  value={overlay.text}
-                  onChange={e => setOverlay(o => ({ ...o, text: e.target.value }))}
-                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
-                />
-                <Segmented
-                  label="Text position"
-                  value={overlay.position}
-                  options={[
-                    ['top', 'Top'],
-                    ['bottom', 'Bottom']
-                  ]}
-                  onChange={v => setOverlay(o => ({ ...o, position: v }))}
-                />
-              </div>
-              <p className="mt-2 text-xs text-neutral-500">
-                The Chromaforge wordmark, with this line under it, arrives a beat after the first
-                product. CHROMA&rsquo;s color wave marks new products, at most once every 2 bars.
-                Products are placed clear of it.
-              </p>
-            </Section>
+                <Section
+                  title={numbered('Brand')}
+                  aside={
+                    <Toggle
+                      on={overlay.show}
+                      onClick={() => setOverlay(o => ({ ...o, show: !o.show }))}
+                      aria-label="Show the brand lockup"
+                    />
+                  }
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      value={overlay.text}
+                      onChange={e => setOverlay(o => ({ ...o, text: e.target.value }))}
+                      className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+                    />
+                    <Segmented
+                      label="Text position"
+                      value={overlay.position}
+                      options={[
+                        ['top', 'Top'],
+                        ['bottom', 'Bottom']
+                      ]}
+                      onChange={v => setOverlay(o => ({ ...o, position: v }))}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-neutral-500">
+                    The Chromaforge wordmark, with this line under it, arrives a beat after the
+                    first product. CHROMA&rsquo;s color wave marks new products, at most once every
+                    2 bars. Products are placed clear of it.
+                  </p>
+                </Section>
+              </>
+            )}
           </>
         )}
 
-        <Section title={isFeed ? '4 · Export' : '6 · Export'}>
+        <Section title={numbered('Export')}>
           {isFeed ? (
             <div className="flex items-center gap-3">
               <Button disabled={!canExportFeed} onClick={downloadSlides}>
@@ -1180,7 +1324,7 @@ export default function AdBuilder() {
           )}
         </Section>
 
-        <Section title={isFeed ? '5 · Post' : '7 · Post'}>
+        <Section title={numbered('Post')}>
           <PostCopy
             design={design}
             productNames={isFeed ? feedProductNames : productNames}
@@ -1234,6 +1378,7 @@ export default function AdBuilder() {
               width={PREVIEW_W}
               height={PREVIEW_H}
               className="absolute inset-0 h-full w-full"
+              hidden={isStereo}
             />
             <div ref={lockupHostRef} className="pointer-events-none absolute inset-0" />
             {showIg && <InstagramOverlay />}
