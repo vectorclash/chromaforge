@@ -38,6 +38,21 @@ import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
 const PRINTFUL_API_BASE = "https://api.printful.com";
 const STORE_ID = "18363066"; // same store as printful-mockup.js -- not a secret, just an account id
 
+// Stripe minor units -> Printful's decimal strings.
+const money = (cents: number | null | undefined) => ((cents ?? 0) / 100).toFixed(2);
+
+function retailCosts(session: Stripe.Checkout.Session) {
+  const details = session.total_details;
+  return {
+    currency: (session.currency ?? "usd").toUpperCase(),
+    subtotal: money(session.amount_subtotal),
+    discount: money(details?.amount_discount),
+    shipping: money(details?.amount_shipping),
+    tax: money(details?.amount_tax),
+    total: money(session.amount_total)
+  };
+}
+
 Deno.serve(async req => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -223,8 +238,11 @@ Deno.serve(async req => {
   // custom_order_id round-trips our own order uuid onto the slip/Printful dashboard, useful
   // for correlating a support inquiry back to this order without asking the customer for
   // their Printful order number. logo_url must be a publicly reachable image (not the SVG
-  // wordmark -- Printful's slip renderer wants a raster image); apple-touch-icon.png is
-  // already a square PNG mark built for exactly this kind of small-icon use.
+  // wordmark -- Printful's slip renderer wants a raster image). packing-slip-logo.png is the
+  // mark redrawn as black lines on white at 720px, made for the slip (2026-10-14, Aaron's pick
+  // of three): Printful prints slips in black and white, and the phone icon this used to point
+  // at printed as a soft grey mark on a solid dark block. Printful copies the image when an
+  // order is created, so replacing this file only changes slips for orders placed afterwards.
   //
   // Real bug caught live (2026-07-17): a full order uuid (36 chars, dashes included) blew
   // past Printful's 20-char cap on custom_order_id and made POST /orders 400 outright --
@@ -235,7 +253,7 @@ Deno.serve(async req => {
   const packingSlip = {
     email: "support@chromaforge.app",
     store_name: "Chromaforge",
-    logo_url: "https://chromaforge.app/apple-touch-icon.png",
+    logo_url: "https://chromaforge.app/packing-slip-logo.png",
     message: "Thanks for supporting Chromaforge! chromaforge.app",
     custom_order_id: orderId.replace(/-/g, "").slice(0, 20)
   };
@@ -254,9 +272,18 @@ Deno.serve(async req => {
       zip: shippingDetails?.address?.postal_code ?? ""
     },
     packing_slip: packingSlip,
+    // What the customer actually paid, for Printful's international paperwork. Printful uses
+    // retail prices on packing slips and customs documents for orders leaving the country, and
+    // without them falls back to its own (wholesale) costs, which under-declares the parcel's
+    // value. Printful applies retail_costs only when EVERY item carries a retail_price.
+    // Amounts come from the Stripe session itself (the same figures written to orders above),
+    // so they match the charge exactly; unit_price_cents is our server-side price, not the
+    // client's.
+    retail_costs: retailCosts(session),
     items: items.map(item => ({
       quantity: item.quantity,
       variant_id: item.variant_id,
+      retail_price: (item.unit_price_cents / 100).toFixed(2),
       // order_items.product_options is stored in the v2/mockup shape ({ name, value },
       // from PRODUCT_MOCKUP_CONFIG's productOptions); v1 item options use { id, value }.
       // Unlike v2, v1 HARD-REJECTS some products without their required option (confirmed

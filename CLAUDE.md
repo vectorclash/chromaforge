@@ -4311,8 +4311,8 @@ by the shared design as the odds the panel last published.
   (4) `printful-order-preview` filters `status=in.(paid,submitted)`, mirroring the active list
   exactly, so it stopped fetching previews for fulfilled orders on its own — **keep those two
   filters in sync.** Labelled **"Shipped"**, not "Delivered": Printful's `fulfilled` means the
-  items left the facility, and no tracking/delivery signal exists anywhere in this app to back
-  the stronger claim.
+  items left the facility, and nothing in this app hears about delivery to back the stronger
+  claim (the row links carrier tracking since 2026-10-14, but arrival is not a signal we get).
   **The rest of the gap closed the same day (`0017`), so the enum now answers everything
   Printful can report:** `on_hold` and `refunded`. The status set is
   `pending | paid | submitted | on_hold | fulfilled | refunded | failed | canceled`, with
@@ -5820,6 +5820,34 @@ by the shared design as the odds the panel last published.
     force an unannounced redirect to Stripe from an unrelated page anymore; a silently
     abandoned `pending` order is harmless and auto-cancels after 24h (see
     `0010_cancel_stale_pending_orders_cron.sql`), and Buy Now is always re-clickable.
+  - **What a customer receives, and what Printful is told (audited 2026-10-14, after the first
+    order from someone other than Aaron — Printful 180407498, a beanie).** Stripe emails the
+    receipt (dashboard toggle, on since July). Printful emails shipping/tracking to
+    `recipient.email` only if the store's customer-notification setting is on — the API cannot
+    read that setting, so confirm it in the dashboard rather than assuming. The order emails
+    Aaron gets, showing Printful's own costs, are owner notifications and never reach customers.
+    Three things landed from the audit:
+    (1) **Tracking on the Account page.** `orders.shipments` (0019) holds
+    `[{ carrier, service, tracking_number, tracking_url, shipped_at }]`; the row shows
+    "Shipped · Track package". `printful-webhook` fills it when an event arrives with Printful
+    status `fulfilled`/`partial`, by reading the v1 order back — the v2 payload carries no
+    shipments, and subscribing to Printful's shipment events would mean re-registering the
+    webhook, which rotates `PRINTFUL_WEBHOOK_SECRET_KEY`. It is its OWN write, not part of the
+    status update, because that update is skipped once an order is already fulfilled; a failed
+    read returns 500 so Printful redelivers, and the status path is idempotent so a redelivery
+    sends no second alert. Only https URLs are stored, and the page checks again before
+    rendering an href. `scripts/backfill-order-shipments.mjs` (`--dry-run` first) fills rows
+    the webhook missed; run once on 2026-10-14 for the three orders that had shipped.
+    (2) **Retail prices go to Printful** (`retail_price` per item, `retail_costs` from the
+    Stripe session's own totals). Without them Printful's international slips and customs
+    paperwork use its wholesale costs. `retail_costs` is ignored unless EVERY item has a
+    `retail_price`. Verified on an unconfirmed UK draft (180944787, deleted): accepted and
+    stored. Not seen: an actual international slip, which only exists once an order ships.
+    (3) **The slip logo is `public/packing-slip-logo.png`**, the mark as black lines on white,
+    720px — Aaron's pick of three (https://claude.ai/artifact/9tLd5U8BUed2n5VLxEVQGj). Slips
+    print in black and white; the phone icon it replaced printed as a grey mark on a solid
+    dark block. Printful copies the logo at order creation, so the file must be live on the
+    site BEFORE `stripe-webhook` points at a new one.
   - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
     failure could be a fixable data issue (bad address, stale variant) that's
     resubmittable, not necessarily a "give the money back" situation, so this is a

@@ -38,9 +38,9 @@ const CARDS_SECTION = 1;
 // a completed order should not read as the faded-out end of the list.
 //
 // Labelled "Shipped", not "Delivered": Printful's `fulfilled` means every item has left the
-// facility, which is not the same claim as arrival, and there is no tracking/delivery signal
-// anywhere in this app to back the stronger word. Same discipline as the Stripe checkout copy,
-// which deliberately promises no shipping time.
+// facility, which is not the same claim as arrival. The row links the carrier's tracking page
+// (orders.shipments) for that, but nothing in this app hears about delivery itself. Same
+// discipline as the Stripe checkout copy, which deliberately promises no shipping time.
 //
 // 'on_hold' is the only ACTIVE status that isn't progressing, so it takes the accent treatment
 // to stand out from the two that are -- the whole point of showing it rather than leaving it
@@ -140,6 +140,7 @@ function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
   // treatment as the gallery's missing thumbnails, which is the established pattern here.
   const [failed, setFailed] = useState(false);
   const showSlot = (previewUrl || previewPending) && !failed;
+  const trackingUrl = latestTrackingUrl(order);
 
   return (
     <div
@@ -180,11 +181,38 @@ function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
             {new Date(order.created_at).toLocaleDateString()}
             {item ? ` · Qty ${item.quantity}` : ''}
           </span>
-          <span className={status.className}>{status.label}</span>
+          <span className={status.className}>
+            {status.label}
+            {trackingUrl && (
+              <>
+                {' · '}
+                <a
+                  href={trackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-interactive hover:underline"
+                >
+                  Track package
+                </a>
+              </>
+            )}
+          </span>
         </div>
       </div>
     </div>
   );
+}
+
+// The most recent shipment with a tracking link. printful-webhook stores shipments once
+// Printful reports the order shipped and only ever keeps https URLs; the check is repeated here
+// because this value lands in an href.
+function latestTrackingUrl(order) {
+  const shipments = Array.isArray(order.shipments) ? order.shipments : [];
+  for (let i = shipments.length - 1; i >= 0; i--) {
+    const url = shipments[i]?.tracking_url;
+    if (typeof url === 'string' && url.startsWith('https://')) return url;
+  }
+  return null;
 }
 
 export default function AccountPage() {

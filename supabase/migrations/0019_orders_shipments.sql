@@ -1,0 +1,12 @@
+-- Tracking for shipped orders. printful-webhook fills this when Printful reports an order
+-- fulfilled (or partially shipped), by reading the order's shipments back from Printful's v1
+-- API; the account page shows a "Track package" link from it.
+--
+-- Shape: [{ carrier, service, tracking_number, tracking_url, shipped_at }], newest last, as
+-- Printful lists them. NULL means "not shipped yet, or shipped before this column existed and
+-- not backfilled" -- scripts/backfill-order-shipments.mjs covers the second case.
+--
+-- No grant needed: orders keeps Supabase's default table-level SELECT for `authenticated`, and
+-- the existing row policy limits each customer to their own orders. Only the service role
+-- writes it, like every other orders column.
+alter table public.orders add column if not exists shipments jsonb;

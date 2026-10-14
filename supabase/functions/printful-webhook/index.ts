@@ -11,8 +11,12 @@
 // "Webhook v2" section), not guessed:
 //   - Event types this handles: order_canceled, order_failed, order_refunded, order_updated,
 //     order_put_hold, order_put_hold_approval, order_remove_hold. (order_created is ignored --
-//     we already create the order ourselves in stripe-webhook. Shipment/catalog events are a
-//     separate, not-yet-built feature -- there's no shipping/tracking UI yet.)
+//     we already create the order ourselves in stripe-webhook.)
+//   - Tracking rides on those same events rather than on Printful's shipment events: when an
+//     order arrives as shipped (status fulfilled/partial), this reads its shipments back from
+//     the v1 order and stores them in orders.shipments for the account page's "Track package"
+//     link. Subscribing to shipment events instead would mean re-registering the webhook,
+//     which rotates PRINTFUL_WEBHOOK_SECRET_KEY.
 //   - Payload shape: { type, occurred_at, retries, store_id, data: { order: { id, external_id,
 //     status, created, updated, dashboard_url } } }.
 //   - Auth headers: `x-pf-webhook-signature` (hex HMAC-SHA256 of the raw request body) and
@@ -119,6 +123,47 @@ const RECOGNIZED_EVENTS = new Set([
   "order_remove_hold"
 ]);
 
+// Printful statuses that mean at least one package has left the facility. "partial" is
+// deliberately unmapped in PRINTFUL_STATUS_STATUS (the order is still in production), but a
+// shipped part of it already has tracking worth showing.
+const SHIPPED_PRINTFUL_STATUSES = new Set(["fulfilled", "partial"]);
+
+const PRINTFUL_API_BASE = "https://api.printful.com";
+const STORE_ID = "18363066"; // same store as stripe-webhook -- an account id, not a secret
+
+type Shipment = {
+  carrier: string | null;
+  service: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  shipped_at: string | null;
+};
+
+// The v2 webhook payload carries no shipment data, so read the order back from v1 (the same
+// endpoint printful-order-preview uses). Throws on any failure so the caller can ask Printful
+// to retry the delivery.
+async function fetchShipments(printfulOrderId: string | number): Promise<Shipment[]> {
+  const apiKey = Deno.env.get("PRINTFUL_API_KEY");
+  if (!apiKey) throw new Error("PRINTFUL_API_KEY is not set");
+  const res = await fetch(`${PRINTFUL_API_BASE}/orders/${printfulOrderId}`, {
+    headers: { Authorization: `Bearer ${apiKey}`, "X-PF-Store-Id": STORE_ID }
+  });
+  if (!res.ok) throw new Error(`GET /orders/${printfulOrderId} -> ${res.status}`);
+  const body = await res.json();
+  return ((body.result?.shipments ?? []) as Array<Record<string, unknown>>).map(s => ({
+    carrier: (s.carrier as string) ?? null,
+    service: (s.service as string) ?? null,
+    tracking_number: s.tracking_number != null ? String(s.tracking_number) : null,
+    // Only an https link is ever stored: the account page renders it as an href.
+    tracking_url:
+      typeof s.tracking_url === "string" && s.tracking_url.startsWith("https://")
+        ? s.tracking_url
+        : null,
+    shipped_at:
+      typeof s.shipped_at === "number" ? new Date(s.shipped_at * 1000).toISOString() : null
+  }));
+}
+
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
@@ -223,6 +268,33 @@ Deno.serve(async req => {
   }
 
   const printfulStatus = event.data?.order?.status ?? null;
+
+  // Tracking gets its OWN write, separate from the status update below: that update is
+  // skipped for an order that is already fulfilled, and a retried delivery must still be able
+  // to save shipments a failed first attempt missed. A failure here never blocks the status
+  // update -- it only makes the response a 500 at the end so Printful redelivers, and the
+  // status update is idempotent, so a redelivery repeats nothing (no second alert email).
+  let shipmentsFailed = false;
+  if (printfulStatus && SHIPPED_PRINTFUL_STATUSES.has(printfulStatus)) {
+    try {
+      const shipments = await fetchShipments(printfulOrderId);
+      if (shipments.length > 0) {
+        const { error: shipmentsError } = await supabase
+          .from("orders")
+          .update({ shipments })
+          .eq("id", order.id);
+        if (shipmentsError) throw shipmentsError;
+      }
+    } catch (err) {
+      console.error(`printful-webhook: could not record shipments for ${printfulOrderId}`, err);
+      shipmentsFailed = true;
+    }
+  }
+  const done = () =>
+    shipmentsFailed
+      ? new Response("Shipments not recorded", { status: 500 })
+      : new Response("ok", { status: 200 });
+
   const mapped =
     EVENT_STATUS[event.type] ?? (printfulStatus ? PRINTFUL_STATUS_STATUS[printfulStatus] : undefined);
   // A finished order stays finished: a late, retried or out-of-order delivery must never
@@ -246,7 +318,7 @@ Deno.serve(async req => {
       console.error("printful-webhook: failed to update printful_status", mirrorError);
       return new Response("Update failed", { status: 500 }); // transient -- let Printful retry
     }
-    return new Response("ok", { status: 200 });
+    return done();
   }
 
   // .select() so we know whether this delivery is the one that actually changed the status --
@@ -288,5 +360,5 @@ Deno.serve(async req => {
     );
   }
 
-  return new Response("ok", { status: 200 });
+  return done();
 });
