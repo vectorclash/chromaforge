@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Button from '../components/ui/Button';
 import Toggle from '../components/ui/Toggle';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -56,9 +57,12 @@ const TONES = {
   error: 'border-red-400/40 bg-red-500/10 text-red-200'
 };
 
-function Card({ tone = 'neutral', children }) {
+function Card({ tone = 'neutral', children, cardRef = undefined }) {
   return (
-    <div className={`mt-4 animate-fade-in rounded-lg border p-3 text-sm ${TONES[tone]}`}>
+    <div
+      ref={cardRef}
+      className={`mt-4 animate-fade-in rounded-lg border p-3 text-sm ${TONES[tone]}`}
+    >
       {children}
     </div>
   );
@@ -91,7 +95,8 @@ export default function InstagramPost({
   buildFiles,
   onPosted,
   progress,
-  durationSec
+  durationSec,
+  coverNote = 'The cover is the frame under the playhead.'
 }) {
   const [setup, setSetup] = useState(null); // the dev server's status answer
   const [shareToFeed, setShareToFeed] = useState(true);
@@ -100,6 +105,17 @@ export default function InstagramPost({
   const [stage, setStage] = useState(null); // null | text while a post is under way
   const [result, setResult] = useState(null); // { error, authError? } | { permalink, note? }
   const alive = useRef(true);
+  // The progress card while a post is under way, then the result card: each is scrolled into view
+  // as it appears, since Post sits at the bottom of a long panel and the work takes minutes.
+  const stageCard = useRef(null);
+  const resultCard = useRef(null);
+  const posting = !!stage;
+  useEffect(() => {
+    if (posting) stageCard.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [posting]);
+  useEffect(() => {
+    if (result) resultCard.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [result]);
   // Set on mount as well as cleared on unmount: StrictMode unmounts and remounts once in dev.
   useEffect(() => {
     alive.current = true;
@@ -131,7 +147,9 @@ export default function InstagramPost({
         for (const it of files.items) items.push({ type: it.type, id: await sendFile(it.blob) });
         body = { items, caption };
       } else {
-        const [video, cover] = [await sendFile(files.video), await sendFile(files.cover)];
+        const video = await sendFile(files.video);
+        // A cover is optional: without one Instagram uses the video's first frame.
+        const cover = files.cover ? await sendFile(files.cover) : undefined;
         body = { video, cover, caption, shareToFeed, trial };
       }
       const { job } = await api('/__ads/instagram/post', {
@@ -221,9 +239,7 @@ export default function InstagramPost({
           {stage ? 'Posting…' : `Post ${NOUN[kind]}`}
         </Button>
         {kind === 'reel' && (
-          <p className="mt-2 text-center text-xs text-neutral-500">
-            The cover is the frame under the playhead.
-          </p>
+          <p className="mt-2 text-center text-xs text-neutral-500">{coverNote}</p>
         )}
       </div>
       {blocked && <Card tone="error">{blocked}</Card>}
@@ -237,7 +253,7 @@ export default function InstagramPost({
       )}
 
       {stage && (
-        <Card>
+        <Card cardRef={stageCard}>
           <p className="text-sm text-white">{progress ? progress.label : stage}</p>
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
             {progress && progress.progress > 0 ? (
@@ -255,7 +271,7 @@ export default function InstagramPost({
         </Card>
       )}
       {result?.error && (
-        <Card tone="error">
+        <Card tone="error" cardRef={resultCard}>
           <p className="text-sm font-semibold">Not posted</p>
           <p className="mt-1 text-xs">{result.error}</p>
           {result.authError && (
@@ -266,7 +282,7 @@ export default function InstagramPost({
         </Card>
       )}
       {result && !result.error && (
-        <Card tone="success">
+        <Card tone="success" cardRef={resultCard}>
           <p className="flex items-center gap-2 text-sm font-semibold text-white">
             <span
               aria-hidden="true"
@@ -321,18 +337,25 @@ export default function InstagramPost({
         </div>
       )}
 
-      <ConfirmDialog
-        open={confirming}
-        title={`Post this ${NOUN[kind]}?`}
-        message={
-          posted.length
-            ? 'This has been posted before. It goes out publicly to @chromaforge.app again, and can only be deleted from the app.'
-            : 'It goes out publicly to @chromaforge.app, and can only be deleted from the app.'
-        }
-        confirmLabel="Post"
-        onConfirm={post}
-        onCancel={() => setConfirming(false)}
-      />
+      {/* On the body, not in place: the builder's panel has will-change: transform (see
+          AdBuilder), which makes it the containing block of anything fixed inside it. In place,
+          the "full-screen" dialog sat at the top of the panel's scrolled content, and its
+          autofocused button scrolled the panel up to it -- the jump back to the top on Post. */}
+      {createPortal(
+        <ConfirmDialog
+          open={confirming}
+          title={`Post this ${NOUN[kind]}?`}
+          message={
+            posted.length
+              ? 'This has been posted before. It goes out publicly to @chromaforge.app again, and can only be deleted from the app.'
+              : 'It goes out publicly to @chromaforge.app, and can only be deleted from the app.'
+          }
+          confirmLabel="Post"
+          onConfirm={post}
+          onCancel={() => setConfirming(false)}
+        />,
+        document.body
+      )}
     </div>
   );
 }

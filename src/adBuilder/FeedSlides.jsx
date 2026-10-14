@@ -1,17 +1,104 @@
 import React from 'react';
 import Button from '../components/ui/Button';
+import Toggle from '../components/ui/Toggle';
 import {
   MAX_SLIDES,
   SLIDE_LABELS,
+  CLIP_LENGTHS,
+  OBJECT_SHARES,
   everyAngleSlides,
   singlePhotoSlides,
+  flightOptions,
   makeSlide
 } from './feedPost';
+
+function Choice({ value, options, onChange, label }) {
+  return (
+    <div className="flex flex-wrap gap-1" role="group" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button
+          key={String(v)}
+          type="button"
+          aria-pressed={value === v}
+          onClick={() => onChange(v)}
+          className={`rounded-md px-2 py-1 text-sm tabular-nums ${
+            value === v
+              ? 'bg-white/15 text-white'
+              : 'text-neutral-400 hover:bg-white/5 hover:text-white'
+          }`}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// A flight's options: the selected flight slide's, or the Flight mode's. Each change rebuilds the
+// preview's scene.
+// `length` replaces the seconds choice, for the Flight mode with music: { label, value, options,
+// onChange, note }.
+export function FlightOptions({
+  slide,
+  design,
+  onChange,
+  title = 'Flight clip',
+  boxed = true,
+  length = null
+}) {
+  const o = flightOptions(slide, design);
+  const set = patch => onChange({ ...slide, ...patch });
+  return (
+    <div className={`flex flex-col gap-3 text-sm ${boxed ? 'mt-3 rounded-lg bg-white/5 p-3' : ''}`}>
+      {title && <p className="text-xs text-neutral-500">{title}</p>}
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-neutral-400">{length?.label ?? 'Length'}</span>
+          <Choice
+            label="Flight clip length"
+            value={length ? length.value : o.seconds}
+            options={length ? length.options : CLIP_LENGTHS.map(n => [n, `${n}s`])}
+            onChange={length ? length.onChange : seconds => set({ seconds })}
+          />
+        </div>
+        {length?.note && <p className="mt-1 text-xs text-neutral-500">{length.note}</p>}
+      </div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-neutral-400">Speed ramp</p>
+          <p className="text-xs text-neutral-500">
+            {o.ramp ? 'Slows to a near stop at the loop seam.' : 'Constant speed.'}
+          </p>
+        </div>
+        <Toggle
+          className="shrink-0"
+          on={o.ramp}
+          onClick={() => set({ ramp: !o.ramp })}
+          aria-label="Speed ramp"
+        />
+      </div>
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-neutral-400">Objects</span>
+          <Choice
+            label="Share of plates carrying geometry"
+            value={o.objects}
+            options={OBJECT_SHARES.map(n => [n, `${Math.round(n * 100)}%`])}
+            onChange={objects => set({ objects })}
+          />
+        </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          How many of the flight&rsquo;s plates carry geometry; more also fills out the cage.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // The slides of a feed post, in order. Photos come from the products above; the rest are made
 // from the design. Two starting points match the two shapes of post: every angle (a carousel) and
 // a single photo standing in its own artwork (one image).
-export default function FeedSlides({ slides, onChange, photos, labelOf, index, onSelect }) {
+export default function FeedSlides({ slides, onChange, photos, labelOf, index, onSelect, design }) {
   const full = slides.length >= MAX_SLIDES;
   const move = (i, d) => {
     const next = [...slides];
@@ -99,6 +186,13 @@ export default function FeedSlides({ slides, onChange, photos, labelOf, index, o
         ))}
       </ol>
       {!slides.length && <p className="text-xs text-neutral-500">No slides yet.</p>}
+      {slides[index]?.type === 'flight' && (
+        <FlightOptions
+          slide={slides[index]}
+          design={design}
+          onChange={s => onChange(slides.map((x, i) => (i === index ? s : x)))}
+        />
+      )}
 
       <p className="mb-1.5 mt-4 text-xs text-neutral-500">
         Add a slide{' '}

@@ -1,6 +1,7 @@
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { resolveDesignPalette } from '../render/resolvedPalette';
+import { getGeometrySettings, getGeometryPresence } from '../render/designSettings';
 import { coverCanvas } from '../components/ui/facetMosaic';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { encodeMp4 } from '../lib/videoEncode';
@@ -12,10 +13,25 @@ import { analyseAlpha } from './adComposer';
 
 export const FEED_W = 1080;
 export const FEED_H = 1350;
+// The Flight mode's clip: the flight on its own, posted as a Reel (Instagram has no other kind of
+// single-video post), so at a Reel's 9:16. The scene composes for the shape it is rendered at, so
+// this is its own composition, not the 4:5 slide with sky added.
+export const FLIGHT_W = 1080;
+export const FLIGHT_H = 1920;
+export const isFlightOnly = slides => slides.length === 1 && slides[0].type === 'flight';
 // Instagram's carousel limit through the API (the app itself allows 20).
 export const MAX_SLIDES = 10;
-// The flight clip is one whole loop of a 6s scene, so the carousel's own looping never shows a cut.
-export const CLIP_SECONDS = 6;
+// The flight clip is one whole loop of its scene, so the carousel's own looping never shows a cut.
+// Each flight slide carries its own length, ramp and object share (`seconds`, `ramp`, `objects`);
+// a slide without them -- every one saved before they existed -- is a 6s ramped loop at the
+// design's own odds, exactly as before.
+export const DEFAULT_CLIP_SECONDS = 6;
+// 3s is Instagram's shortest Reel; carousel videos run to 60s, but past ~15s a loop of this scene
+// only repeats its plates (the content length caps and the camera laps it).
+export const CLIP_LENGTHS = [3, 4, 6, 8, 10, 15];
+// Share of the flight's plates that carry geometry -- the 3D scene's reading of `chance`, which
+// also thickens the cage. A stored design states no odds, so it resolves to the legacy 0.4.
+export const OBJECT_SHARES = [0.2, 0.4, 0.6, 0.8, 1];
 const CLIP_FPS = 30;
 // Under the API's 25 Mbps ceiling for video, with headroom.
 const CLIP_BITRATE = 16_000_000;
@@ -45,6 +61,33 @@ export const makeSlide = (type, url = null) => ({
 export function everyAngleSlides(photoUrls) {
   const photos = photoUrls.slice(0, MAX_SLIDES - 4).map(u => makeSlide('photo', u));
   return [makeSlide('art'), ...photos, makeSlide('macro'), makeSlide('flight'), makeSlide('seed')];
+}
+
+// A flight slide's options -- or the Flight mode's, which take the same shape -- resolved: what
+// it states, else the defaults.
+export function flightOptions(slide, design) {
+  return {
+    seconds: slide?.seconds ?? DEFAULT_CLIP_SECONDS,
+    ramp: slide?.ramp ?? true,
+    objects: slide?.objects ?? getGeometrySettings(design?.settings).chance
+  };
+}
+
+// The design the flight is built from, with the slide's object share as its odds. The design's
+// own geometry layer (the first plate) must not move with them, so a design that states nothing
+// about it is pinned to what its own odds give -- otherwise new odds would re-flip that coin too.
+function flightSceneDesign(design, objects) {
+  const geometry = design.settings?.geometry ?? {};
+  if (objects === getGeometrySettings(design.settings).chance) return design;
+  let present = getGeometryPresence(design.settings);
+  if (present === null) {
+    present = !!generateArtwork(design.seed, 320, 320, design.colors || [], design.settings ?? null)
+      .geometryConfig;
+  }
+  return {
+    ...design,
+    settings: { ...design.settings, geometry: { ...geometry, present, chance: objects } }
+  };
 }
 
 // "Standing in its own artwork": one photo, as a single image post.
@@ -312,14 +355,21 @@ export const canvasToJpeg = c =>
     )
   );
 
-// The 3D flight at the slide's shape, one whole loop, ramped like every other flight. Built at
-// `width` x `height`; the caller draws it with world.render(renderer).
-export async function createFlightLoop(design, width, height, { exact = false } = {}) {
+// The 3D flight at the slide's shape, one whole loop, ramped like every other flight unless the
+// slide turns the ramp off (then the camera flies at constant speed, rush 0, as the studio does).
+// Built at `width` x `height`; the caller draws it with world.render(renderer).
+export async function createFlightLoop(
+  design,
+  width,
+  height,
+  { exact = false, seconds = DEFAULT_CLIP_SECONDS, ramp = true, objects = undefined } = {}
+) {
+  const sceneDesign = objects === undefined ? design : flightSceneDesign(design, objects);
   const [{ WebGLRenderer }, { createTunnelScene, warmTunnelStars }] = await Promise.all([
     import('three'),
     import('../animation3d/tunnelScene')
   ]);
-  await warmTunnelStars(CLIP_SECONDS);
+  await warmTunnelStars(seconds);
   const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(1);
   renderer.setSize(width, height, false);
@@ -334,10 +384,10 @@ export async function createFlightLoop(design, width, height, { exact = false } 
   };
   try {
     world = createTunnelScene({
-      seed: design.seed,
-      colors: design.colors || [],
-      settings: design.settings ?? null,
-      duration: CLIP_SECONDS,
+      seed: sceneDesign.seed,
+      colors: sceneDesign.colors || [],
+      settings: sceneDesign.settings ?? null,
+      duration: seconds,
       width,
       height,
       exact
@@ -351,33 +401,66 @@ export async function createFlightLoop(design, width, height, { exact = false } 
     canvas: renderer.domElement,
     // t in seconds, wrapped to the loop.
     draw(t) {
-      const tt = ((t % CLIP_SECONDS) + CLIP_SECONDS) % CLIP_SECONDS;
-      world.setTime(rampTime(tt, CLIP_SECONDS, RAMP_FLOOR_3D), rampRush(tt, CLIP_SECONDS), null);
+      const tt = ((t % seconds) + seconds) % seconds;
+      if (ramp) world.setTime(rampTime(tt, seconds, RAMP_FLOOR_3D), rampRush(tt, seconds), null);
+      else world.setTime(tt, 0, null);
       world.render(renderer);
     },
     dispose
   };
 }
 
-// The flight clip as a silent MP4.
+// One frame of the flight at `t` seconds into its loop, exact, as a JPEG: the Flight mode's cover.
+// Copied out of WebGL in the same task it was drawn, before the browser can clear the buffer.
+export async function renderFlightFrame(design, slide, t, width, height) {
+  const loop = await createFlightLoop(design, width, height, {
+    exact: true,
+    ...flightOptions(slide, design)
+  });
+  const out = canvas(width, height);
+  try {
+    loop.draw(t);
+    out.getContext('2d').drawImage(loop.canvas, 0, 0);
+  } finally {
+    loop.dispose();
+  }
+  const blob = await canvasToJpeg(out);
+  out.width = 0;
+  out.height = 0;
+  return blob;
+}
+
+// The flight clip as an MP4, with the slide's own options: silent, unless the Flight mode hands it
+// a take of music exactly its length.
 /**
  * @param {{ seed: string, colors?: string[], settings?: any }} design
- * @param {{ onProgress?: (f: number) => void }} [opts]
+ * @param {{ onProgress?: (f: number) => void, slide?: any, width?: number, height?: number,
+ *   audio?: AudioBuffer | null, audioMaxBitrate?: number }} [opts]
  */
 export async function renderFlightClip(design, opts = {}) {
-  const { onProgress } = opts;
+  const {
+    onProgress,
+    slide = null,
+    width = FEED_W,
+    height = FEED_H,
+    audio = null,
+    audioMaxBitrate = Infinity
+  } = opts;
+  const options = flightOptions(slide, design);
   const releases = [];
   try {
-    const loop = await createFlightLoop(design, FEED_W, FEED_H, { exact: true });
+    const loop = await createFlightLoop(design, width, height, { exact: true, ...options });
     releases.push(loop.dispose);
-    const totalFrames = CLIP_SECONDS * CLIP_FPS;
+    const totalFrames = Math.round(options.seconds * CLIP_FPS);
     return await encodeMp4({
-      width: FEED_W,
-      height: FEED_H,
+      width,
+      height,
       fps: CLIP_FPS,
       totalFrames,
       bitrate: CLIP_BITRATE,
       releases,
+      audio,
+      audioMaxBitrate,
       renderFrame: f => {
         loop.draw(f / CLIP_FPS);
         return loop.canvas;
@@ -411,7 +494,10 @@ export async function renderSlideFiles(slides, design, images, onProgress = () =
       });
     report(0);
     if (s.type === 'flight') {
-      out.push({ type: 'video', blob: await renderFlightClip(design, { onProgress: report }) });
+      out.push({
+        type: 'video',
+        blob: await renderFlightClip(design, { onProgress: report, slide: s })
+      });
     } else {
       const c = await renderStillSlide(s, design, images.get(s.url) ?? null);
       out.push({ type: 'image', blob: await canvasToJpeg(c) });

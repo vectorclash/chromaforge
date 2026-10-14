@@ -14,9 +14,21 @@ import InstagramOverlay from './InstagramOverlay';
 import DesignThumb from './DesignThumb';
 import PostCopy from './PostCopy';
 import InstagramPost from './InstagramPost';
-import FeedPreview from './FeedPreview';
-import FeedSlides from './FeedSlides';
-import { FEED_W, FEED_H, everyAngleSlides, renderSlideFiles, loadImage } from './feedPost';
+import FeedPreview, { FlightPlayer } from './FeedPreview';
+import FeedSlides, { FlightOptions } from './FeedSlides';
+import {
+  FEED_W,
+  FEED_H,
+  everyAngleSlides,
+  renderSlideFiles,
+  renderFlightClip,
+  renderFlightFrame,
+  flightOptions,
+  isFlightOnly,
+  FLIGHT_W,
+  FLIGHT_H,
+  loadImage
+} from './feedPost';
 import { DEFAULT_POST, fullCaption } from './postText';
 import { createAdComposer } from './adComposer';
 import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
@@ -30,6 +42,8 @@ import { keepFile, listSavedAds, loadAd, saveAd, adSlug } from './devApi';
 const PREVIEW_W = AD_WIDTH / 2;
 const PREVIEW_H = AD_HEIGHT / 2;
 const FLIGHT_BARS = [1, 2, 3, 4];
+// The Flight mode's lengths with music, in bars (those between 3s and 30s at the take's tempo).
+const FLIGHT_BAR_COUNTS = [1, 2, 3, 4, 6, 8];
 const PRODUCT_BARS = [0.5, 1, 2];
 const MAX_PRODUCTS = 5;
 const ROOT_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -70,7 +84,7 @@ function Segmented({ value, options, onChange, label }) {
           type="button"
           aria-pressed={value === v}
           onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 text-sm ${
+          className={`whitespace-nowrap rounded-md px-2.5 py-1 text-sm ${
             value === v
               ? 'bg-white/15 text-white'
               : 'text-neutral-400 hover:bg-white/5 hover:text-white'
@@ -100,8 +114,10 @@ export default function AdBuilder() {
   });
   const [name, setName] = useState('');
   const [post, setPost] = useState(DEFAULT_POST);
-  // 'reel', or 'feed': a single image or a carousel, made of the slides in `feed`.
+  // 'reel' (the music ad), 'feed' (an image or carousel), or 'flight': the flight on its own,
+  // posted as a 9:16 Reel with its own length, ramp and objects (`flight`, flightOptions' shape).
   const [format, setFormat] = useState('reel');
+  const [flight, setFlight] = useState({});
   const [feed, setFeed] = useState({ slides: [] });
 
   // ── Supporting data and UI state ────────────────────────────────────────────
@@ -171,7 +187,26 @@ export default function AdBuilder() {
       }),
     [tempo, timing, photos.length]
   );
-  const musicStale = !!musicBuffer && Math.abs((music.duration ?? 0) - timeline.total) > 0.001;
+  // The Flight mode with music loops on a bar line, as the Reel's cuts land on one: its length is
+  // a whole number of bars (`flight.bars`) at the take's tempo, from 3s (Instagram's shortest
+  // Reel) to 30s. Without music it is the plain seconds choice.
+  const barSec = 240 / tempo;
+  const flightBarChoices = FLIGHT_BAR_COUNTS.filter(b => b * barSec >= 3 && b * barSec <= 30);
+  const flightBars = music.plan
+    ? flightBarChoices.includes(flight.bars)
+      ? flight.bars
+      : flightBarChoices.reduce((best, b) =>
+          Math.abs(b * barSec - flightOptions(flight).seconds) <
+          Math.abs(best * barSec - flightOptions(flight).seconds)
+            ? b
+            : best
+        )
+    : null;
+  const flightPlay = flightBars ? { ...flight, seconds: flightBars * barSec } : flight;
+  const flightSeconds = flightOptions(flightPlay).seconds;
+  // How long the music must be: the Reel's timeline, or the flight's loop.
+  const adLength = format === 'flight' ? flightSeconds : timeline.total;
+  const musicStale = !!musicBuffer && Math.abs((music.duration ?? 0) - adLength) > 0.001;
 
   useEffect(() => {
     listCatalogProducts()
@@ -214,6 +249,9 @@ export default function AdBuilder() {
   const timeRef = useRef(null);
   const drawState = useRef({ timeline, overlay });
   drawState.current = { timeline, overlay };
+  // What playback loops over: the Reel's timeline, or the Flight mode's loop.
+  const lengthRef = useRef(adLength);
+  lengthRef.current = adLength;
   // Products are placed clear of the lockup, so where the text sits is part of their layout.
   const photoLayout = { position: overlay.position, showText: overlay.show };
   const photosKey = JSON.stringify([photos, photoLayout]);
@@ -233,8 +271,7 @@ export default function AdBuilder() {
 
   const showTime = t => {
     if (scrubRef.current) scrubRef.current.value = String(t);
-    if (timeRef.current)
-      timeRef.current.textContent = `${fmt(t)} / ${fmt(drawState.current.timeline.total)}`;
+    if (timeRef.current) timeRef.current.textContent = `${fmt(t)} / ${fmt(lengthRef.current)}`;
   };
 
   // `readout: false` is for playback, which updates the time and scrubber on its own schedule.
@@ -303,6 +340,13 @@ export default function AdBuilder() {
       .catch(e => setNotice(`A photo failed to load: ${e.message}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photosKey]);
+
+  // The Flight mode's loop changed length (or the mode changed): keep the playhead inside it and
+  // the readout and scrubber honest.
+  useEffect(() => {
+    if (play.current.t > adLength) play.current.t = 0;
+    showTime(play.current.t);
+  }, [adLength, format]);
 
   // Timing, text or tempo changed while paused: redraw where the playhead is.
   const drawKey = JSON.stringify([timeline.total, timing, overlay]);
@@ -375,7 +419,7 @@ export default function AdBuilder() {
     if (p.playing) return;
     p.playing = true;
     perf.current.last = 0;
-    if (p.t >= drawState.current.timeline.total - 0.02) p.t = 0;
+    if (p.t >= lengthRef.current - 0.02) p.t = 0;
     // The audio context is made and unlocked HERE, inside the click, even with no take yet.
     // A take that lands mid-play starts its source from an effect; a context first created
     // there is outside any user gesture, and Safari keeps it suspended -- a silent preview
@@ -387,7 +431,7 @@ export default function AdBuilder() {
       if (!p.playing) return;
       let t = clockNow();
       // Loops like a Reel does.
-      if (t >= drawState.current.timeline.total) {
+      if (t >= lengthRef.current) {
         t = 0;
         startClock(0);
       }
@@ -501,6 +545,7 @@ export default function AdBuilder() {
       const plan = await planFromLink(music.link);
       if (!plan)
         throw new Error('That is not an Orrery share link. Use SHARE in Orrery’s Manual mode.');
+      takes.current.clear();
       setMusic(m => ({ ...m, plan, audioUrl: null, duration: null }));
       setMusicBuffer(null);
     } catch (e) {
@@ -514,6 +559,12 @@ export default function AdBuilder() {
   // counts: the length can change again while one is rendering, and an older take landing last
   // would be the wrong length.
   const renderToken = useRef(0);
+  // Every take of the loaded plan this session, by length. The Reel and the Flight mode want takes
+  // of different lengths, and so does changing a length and changing it back; without this, each
+  // of those threw the take away for a new random one -- on a saved ad, its saved take. A re-roll
+  // replaces the take of its own length only.
+  const takes = useRef(new Map());
+  const takeKey = d => d.toFixed(3);
   const renderTake = async (plan, duration) => {
     const token = ++renderToken.current;
     const current = () => token === renderToken.current;
@@ -534,6 +585,7 @@ export default function AdBuilder() {
       if (!current()) return;
       const audioUrl = await keepFile(encodeWav(buffer));
       if (!current()) return;
+      takes.current.set(takeKey(duration), { audioUrl, buffer });
       setMusic(m => ({ ...m, audioUrl, duration }));
       setMusicBuffer(buffer);
     } catch (e) {
@@ -547,16 +599,28 @@ export default function AdBuilder() {
   // whenever the ad's length changes (a product added, the timing changed) -- otherwise the music
   // ran out partway through the loop until someone pressed Render. A short debounce, so a run of
   // edits renders once. A failed render is not retried until something changes.
+  // The Flight mode's take is its loop's length, the Reel's the timeline's. A length that already
+  // has a take this session gets that take back rather than a new one.
   const needsTake =
-    !!music.plan && (!musicBuffer || Math.abs((music.duration ?? 0) - timeline.total) > 0.001);
+    !!music.plan && (!musicBuffer || Math.abs((music.duration ?? 0) - adLength) > 0.001);
   useEffect(() => {
-    if (!needsTake) return;
-    const id = setTimeout(() => renderTake(music.plan, timeline.total), 400);
+    if (!needsTake || format === 'feed') return;
+    const kept = takes.current.get(takeKey(adLength));
+    if (kept) {
+      renderToken.current++; // a render already under way is for some other length
+      setMusicBusy(null);
+      setMusic(m => ({ ...m, audioUrl: kept.audioUrl, duration: adLength }));
+      setMusicBuffer(kept.buffer);
+      return;
+    }
+    const id = setTimeout(() => renderTake(music.plan, adLength), 400);
     return () => clearTimeout(id);
-  }, [needsTake, music.plan, timeline.total]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsTake, music.plan, adLength, format]);
 
   const clearMusic = () => {
     renderToken.current++;
+    takes.current.clear();
     setMusicBusy(null);
     setMusic({ link: '', plan: null, audioUrl: null, duration: null });
     setMusicBuffer(null);
@@ -575,6 +639,7 @@ export default function AdBuilder() {
     timing,
     overlay,
     feed: { slides: feedSlides },
+    flight,
     post: adPost
   });
 
@@ -615,7 +680,14 @@ export default function AdBuilder() {
       setPost(ad.post ?? DEFAULT_POST);
       setFormat(ad.format ?? 'reel');
       setFeed(ad.feed ?? { slides: [] });
+      setFlight(ad.flight ?? {});
       setSlideIndex(0);
+      takes.current.clear();
+      if (savedTake && ad.music?.duration)
+        takes.current.set(takeKey(ad.music.duration), {
+          audioUrl: ad.music.audioUrl,
+          buffer: savedTake
+        });
       setMusic(ad.music);
       setMusicBuffer(savedTake);
       play.current.t = 0;
@@ -789,6 +861,7 @@ export default function AdBuilder() {
     catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
   );
   const isFeed = format === 'feed';
+  const isFlight = format === 'flight';
   const photoLabel = url => {
     const p = photoByUrl.get(url);
     return (
@@ -807,11 +880,69 @@ export default function AdBuilder() {
   const feedPhotosReady = feedSlides.every(s => s.type !== 'photo' || feedImages.has(s.url));
   const canExportFeed = !!flightDesign && feedSlides.length > 0 && feedPhotosReady && !busy;
   const feedKind = feedSlides.length === 1 ? 'image' : 'carousel';
-  const feedBlocked =
-    feedSlides.length === 1 && feedSlides[0].type === 'flight'
-      ? 'A post with only the flight clip goes out as a Reel. Add a still slide, or switch to Reel.'
-      : null;
-  const caption = fullCaption(post, design, isFeed ? feedProductNames : productNames);
+  // Instagram has no single-video feed post: one video IS a Reel, which is the Flight mode.
+  const feedBlocked = isFlightOnly(feedSlides)
+    ? 'A post with only the flight clip goes out as a Reel. Add a still slide, or use Flight.'
+    : null;
+
+  // The Flight mode: the flight on its own as a 9:16 Reel, with the take when there is music, and
+  // the frame under the playhead as its cover.
+  const canExportFlight = !!flightDesign && !busy && !needsTake && musicBusy === null;
+  const buildFlightClip = async ({ audioMaxBitrate = Infinity } = {}) => {
+    pause();
+    setExportState({ label: 'Rendering the flight clip', progress: 0 });
+    try {
+      return await renderFlightClip(flightDesign, {
+        slide: flightPlay,
+        width: FLIGHT_W,
+        height: FLIGHT_H,
+        audio: music.plan ? musicBuffer : null,
+        audioMaxBitrate,
+        onProgress: f => setExportState({ label: 'Rendering the flight clip', progress: f })
+      });
+    } finally {
+      setExportState(null);
+    }
+  };
+  // The frame under the playhead, at full size: the Flight mode's cover.
+  const buildFlightCover = async () => {
+    pause();
+    setExportState({ label: 'Rendering the cover', progress: 0 });
+    try {
+      return await renderFlightFrame(
+        flightDesign,
+        flightPlay,
+        Math.min(play.current.t, flightSeconds),
+        FLIGHT_W,
+        FLIGHT_H
+      );
+    } finally {
+      setExportState(null);
+    }
+  };
+  const downloadFlightCover = async () => {
+    try {
+      saveAs(await buildFlightCover(), `${fileBase()}-flight-cover.jpg`);
+    } catch (e) {
+      setNotice(`Cover failed: ${e.message}`);
+    }
+  };
+  const downloadFlight = async () => {
+    try {
+      saveAs(
+        await buildFlightClip(),
+        `${fileBase()}-flight-${FLIGHT_W}x${FLIGHT_H}-${Number(flightSeconds.toFixed(2))}s.mp4`
+      );
+    } catch (e) {
+      console.error('[ad builder] flight clip failed', e);
+      setNotice(`Download failed: ${e.message}`);
+    }
+  };
+  const caption = fullCaption(
+    post,
+    design,
+    isFeed ? feedProductNames : isFlight ? [] : productNames
+  );
 
   // ── Layout ──────────────────────────────────────────────────────────────────
   return (
@@ -827,12 +958,14 @@ export default function AdBuilder() {
             far down the panel you are. */}
         <header className="sticky top-0 z-10 border-b border-white/10 bg-[#0c0b12] px-5 py-4">
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <h1 className="font-[Exo] text-lg font-bold tracking-wide text-white">Ad builder</h1>
-              <span className="text-xs text-neutral-500">
+              <span className="block truncate text-xs text-neutral-500">
                 {isFeed
-                  ? `Feed post · ${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
-                  : `Instagram Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
+                  ? `${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
+                  : isFlight
+                    ? `Reel · ${FLIGHT_W}×${FLIGHT_H} · ${Number(flightSeconds.toFixed(2))}s${music.plan ? '' : ', silent'}`
+                    : `Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
               </span>
             </div>
             <Segmented
@@ -840,7 +973,8 @@ export default function AdBuilder() {
               value={format}
               options={[
                 ['reel', 'Reel'],
-                ['feed', 'Feed post']
+                ['feed', 'Feed post'],
+                ['flight', 'Flight']
               ]}
               onChange={switchFormat}
             />
@@ -952,45 +1086,74 @@ export default function AdBuilder() {
           {designError && <p className="mt-2 text-xs text-red-300">{designError}</p>}
         </Section>
 
-        <Section
-          title="2 · Products"
-          aside={
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={slots.length >= MAX_PRODUCTS}
-              onClick={() =>
-                setSlots(s => [
-                  ...s,
-                  newSlot(STARTER_PRODUCT_IDS[(s.length * 3) % STARTER_PRODUCT_IDS.length])
-                ])
+        {!isFlight && (
+          <Section
+            title="2 · Products"
+            aside={
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={slots.length >= MAX_PRODUCTS}
+                onClick={() =>
+                  setSlots(s => [
+                    ...s,
+                    newSlot(STARTER_PRODUCT_IDS[(s.length * 3) % STARTER_PRODUCT_IDS.length])
+                  ])
+                }
+              >
+                Add
+              </Button>
+            }
+          >
+            <div className="flex flex-col gap-2">
+              {slots.map((slot, i) => (
+                <ProductSlot
+                  key={slot.uid}
+                  index={i}
+                  slot={slot}
+                  design={mockupDesign}
+                  catalog={catalog}
+                  signedIn={!!user}
+                  onChange={update =>
+                    setSlots(s => s.map(x => (x.uid === slot.uid ? update(x) : x)))
+                  }
+                  onRemove={() => setSlots(s => s.filter(x => x.uid !== slot.uid))}
+                  reel={!isFeed}
+                />
+              ))}
+            </div>
+            {!design && (
+              <p className="mt-2 text-xs text-neutral-500">
+                Choose a design first: mockups are made of it.
+              </p>
+            )}
+          </Section>
+        )}
+
+        {isFlight && (
+          <Section title="2 · Flight">
+            <FlightOptions
+              slide={flightPlay}
+              design={flightDesign}
+              // With music the slide's seconds are derived from the bars: keep the stored choice
+              // for when the music goes. Without, the seconds ARE the choice.
+              onChange={next => setFlight(flightBars ? { ...next, seconds: flight.seconds } : next)}
+              title={null}
+              boxed={false}
+              length={
+                flightBars
+                  ? {
+                      label: 'Bars',
+                      value: flightBars,
+                      options: flightBarChoices.map(b => [b, String(b)]),
+                      onChange: bars => setFlight(f => ({ ...f, bars })),
+                      note: `${flightBars} bar${flightBars > 1 ? 's' : ''} = ${fmt(flightSeconds)} at ${Math.round(tempo)} bpm, so the loop ends on a bar line.`
+                    }
+                  : null
               }
-            >
-              Add
-            </Button>
-          }
-        >
-          <div className="flex flex-col gap-2">
-            {slots.map((slot, i) => (
-              <ProductSlot
-                key={slot.uid}
-                index={i}
-                slot={slot}
-                design={mockupDesign}
-                catalog={catalog}
-                signedIn={!!user}
-                onChange={update => setSlots(s => s.map(x => (x.uid === slot.uid ? update(x) : x)))}
-                onRemove={() => setSlots(s => s.filter(x => x.uid !== slot.uid))}
-                reel={!isFeed}
-              />
-            ))}
-          </div>
-          {!design && (
-            <p className="mt-2 text-xs text-neutral-500">
-              Choose a design first: mockups are made of it.
-            </p>
-          )}
-        </Section>
+            />
+          </Section>
+        )}
 
         {isFeed && (
           <Section
@@ -1004,80 +1167,83 @@ export default function AdBuilder() {
               labelOf={slideLabel}
               index={feedIndex}
               onSelect={setSlideIndex}
+              design={flightDesign}
             />
           </Section>
         )}
 
-        {!isFeed && (
-          <>
-            <Section
-              title="3 · Music"
-              aside={
-                music.plan && (
-                  <button
-                    type="button"
-                    className="text-xs text-neutral-500 hover:text-white"
-                    onClick={clearMusic}
-                  >
-                    Remove
-                  </button>
-                )
-              }
-            >
-              <div className="flex gap-2">
-                <input
-                  value={music.link}
-                  onChange={e => setMusic(m => ({ ...m, link: e.target.value }))}
-                  placeholder="Orrery share link (SHARE in Manual mode)"
-                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!music.link || musicBusy !== null}
-                  onClick={loadMusicLink}
+        {format !== 'feed' && (
+          <Section
+            title="3 · Music"
+            aside={
+              music.plan && (
+                <button
+                  type="button"
+                  className="text-xs text-neutral-500 hover:text-white"
+                  onClick={clearMusic}
                 >
-                  Load
-                </Button>
-              </div>
-              {music.plan && (
-                <div className="mt-3 text-sm">
-                  <p>
-                    {Math.round(music.plan.state.tempo)} bpm ·{' '}
-                    {ROOT_NAMES[music.plan.state.rootMidi % 12]} ·{' '}
-                    <span className="text-neutral-400">
-                      {music.plan.voices.join(', ') || 'no voices'}
-                    </span>
-                    {music.plan.bassStyle && (
-                      <span className="text-neutral-400">, bass ({music.plan.bassStyle})</span>
-                    )}
-                  </p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={musicBusy !== null}
-                      onClick={() => renderTake(music.plan, timeline.total)}
-                      title="Orrery plays it differently every time"
-                    >
-                      Re-roll
-                    </Button>
-                    <span className="text-xs text-neutral-400">
-                      {typeof musicBusy === 'number'
-                        ? `Rendering ${Math.round(musicBusy * 100)}%`
-                        : musicBuffer && !musicStale
-                          ? `${fmt(music.duration)} take, playing with the preview.`
-                          : 'Rendering…'}
-                    </span>
-                  </div>
+                  Remove
+                </button>
+              )
+            }
+          >
+            <div className="flex gap-2">
+              <input
+                value={music.link}
+                onChange={e => setMusic(m => ({ ...m, link: e.target.value }))}
+                placeholder="Orrery share link (SHARE in Manual mode)"
+                className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!music.link || musicBusy !== null}
+                onClick={loadMusicLink}
+              >
+                Load
+              </Button>
+            </div>
+            {music.plan && (
+              <div className="mt-3 text-sm">
+                <p>
+                  {Math.round(music.plan.state.tempo)} bpm ·{' '}
+                  {ROOT_NAMES[music.plan.state.rootMidi % 12]} ·{' '}
+                  <span className="text-neutral-400">
+                    {music.plan.voices.join(', ') || 'no voices'}
+                  </span>
+                  {music.plan.bassStyle && (
+                    <span className="text-neutral-400">, bass ({music.plan.bassStyle})</span>
+                  )}
+                </p>
+                <div className="mt-2 flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={musicBusy !== null}
+                    onClick={() => renderTake(music.plan, adLength)}
+                    title="Orrery plays it differently every time"
+                  >
+                    Re-roll
+                  </Button>
+                  <span className="text-xs text-neutral-400">
+                    {typeof musicBusy === 'number'
+                      ? `Rendering ${Math.round(musicBusy * 100)}%`
+                      : musicBuffer && !musicStale
+                        ? `${fmt(music.duration)} take, playing with the preview.`
+                        : 'Rendering…'}
+                  </span>
                 </div>
-              )}
-              {musicBusy === 'loading' && (
-                <p className="mt-2 text-xs text-neutral-400">Reading the link…</p>
-              )}
-              {musicError && <p className="mt-2 text-xs text-red-300">{musicError}</p>}
-            </Section>
+              </div>
+            )}
+            {musicBusy === 'loading' && (
+              <p className="mt-2 text-xs text-neutral-400">Reading the link…</p>
+            )}
+            {musicError && <p className="mt-2 text-xs text-red-300">{musicError}</p>}
+          </Section>
+        )}
 
+        {format === 'reel' && (
+          <>
             <Section
               title="4 · Timing"
               aside={
@@ -1144,11 +1310,31 @@ export default function AdBuilder() {
           </>
         )}
 
-        <Section title={isFeed ? '4 · Export' : '6 · Export'}>
-          {isFeed ? (
+        <Section title={isFeed ? '4 · Export' : isFlight ? '4 · Export' : '6 · Export'}>
+          {isFlight ? (
+            <div className="flex items-center gap-3">
+              <Button className="shrink-0" disabled={!canExportFlight} onClick={downloadFlight}>
+                Download MP4
+              </Button>
+              <Button
+                variant="ghost"
+                className="shrink-0"
+                disabled={!canExportFlight}
+                onClick={downloadFlightCover}
+                title={`The frame under the playhead, as a ${FLIGHT_W}×${FLIGHT_H} JPG`}
+              >
+                Cover
+              </Button>
+              <span className="text-xs text-neutral-500">
+                {FLIGHT_W}×{FLIGHT_H} · {fmt(flightSeconds)} ·{' '}
+                {music.plan ? 'with music' : 'silent'}
+              </span>
+            </div>
+          ) : isFeed ? (
             <div className="flex items-center gap-3">
               <Button disabled={!canExportFeed} onClick={downloadSlides}>
-                Download {feedSlides.length === 1 ? 'image' : 'slides'}
+                Download{' '}
+                {isFlightOnly(feedSlides) ? 'clip' : feedSlides.length === 1 ? 'image' : 'slides'}
               </Button>
               <span className="text-xs text-neutral-500">
                 JPGs{feedSlides.some(s => s.type === 'flight') ? ' and a silent MP4' : ''}, in order
@@ -1180,30 +1366,104 @@ export default function AdBuilder() {
           )}
         </Section>
 
-        <Section title={isFeed ? '5 · Post' : '7 · Post'}>
+        <Section title={isFeed ? '5 · Post' : isFlight ? '5 · Post' : '7 · Post'}>
           <PostCopy
             design={design}
-            productNames={isFeed ? feedProductNames : productNames}
+            productNames={isFeed ? feedProductNames : isFlight ? [] : productNames}
             post={post}
             onChange={setPost}
           />
           <InstagramPost
             kind={isFeed ? feedKind : 'reel'}
             blocked={isFeed ? feedBlocked : null}
-            canPost={isFeed ? canExportFeed : canExport}
+            canPost={isFeed ? canExportFeed : isFlight ? canExportFlight : canExport}
             caption={caption}
             posted={post.posted || []}
             buildFiles={
-              isFeed ? async () => ({ items: await buildSlideFiles() }) : buildInstagramFiles
+              isFeed
+                ? async () => ({ items: await buildSlideFiles() })
+                : isFlight
+                  ? async () => ({
+                      video: await buildFlightClip({ audioMaxBitrate: 128_000 }),
+                      cover: await buildFlightCover()
+                    })
+                  : buildInstagramFiles
             }
             onPosted={recordPost}
             progress={exportState}
-            durationSec={timeline.total}
+            durationSec={isFlight ? flightSeconds : timeline.total}
           />
         </Section>
       </aside>
 
-      {isFeed ? (
+      {isFlight ? (
+        <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
+          <div
+            className="relative isolate overflow-hidden rounded-xl bg-black shadow-2xl will-change-transform"
+            style={{ height: 'min(80dvh, 960px)', aspectRatio: '9 / 16' }}
+          >
+            {flightDesign ? (
+              <FlightPlayer
+                design={flightDesign}
+                options={flightOptions(flightPlay, flightDesign)}
+                width={FLIGHT_W}
+                height={FLIGHT_H}
+                // The flight follows the transport -- the take's clock with music, the wall clock
+                // without -- so it can be scrubbed, and paused on the frame the cover is taken from.
+                clock={() =>
+                  play.current.playing ? Math.min(clockNow(), lengthRef.current) : play.current.t
+                }
+              />
+            ) : (
+              <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">
+                Choose a design to start.
+              </p>
+            )}
+            {showIg && <InstagramOverlay />}
+          </div>
+          <div
+            className="flex flex-col gap-2"
+            style={{ width: 'max(360px, calc(min(80dvh, 960px) * 9 / 16))' }}
+          >
+            <input
+              ref={scrubRef}
+              type="range"
+              min="0"
+              max={flightSeconds}
+              step="0.01"
+              defaultValue="0"
+              className="w-full"
+              aria-label="Playhead"
+              onChange={e => {
+                pause();
+                play.current.t = Number(e.target.value);
+                showTime(play.current.t);
+              }}
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                disabled={!flightDesign || busy || (!!music.plan && (!musicBuffer || musicStale))}
+                onClick={playing ? pause : start}
+              >
+                {playing ? 'Pause' : 'Play'}
+              </Button>
+              <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
+              <label className="ml-auto flex items-center gap-2 text-xs text-neutral-400">
+                <Toggle
+                  on={showIg}
+                  onClick={() => setShowIg(v => !v)}
+                  aria-label="Show Instagram's UI"
+                />
+                IG UI
+              </label>
+            </div>
+            <p className="text-xs text-neutral-500">
+              The cover is the frame under the playhead. Rendered in full when you download or post.
+            </p>
+          </div>
+        </main>
+      ) : isFeed ? (
         <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
           <FeedPreview
             slides={feedSlides}

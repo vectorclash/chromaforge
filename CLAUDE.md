@@ -2221,6 +2221,11 @@ Things worth not re-deriving:
   draw on a transparent 2D canvas above (`createAdComposer`'s `layered`), so no frame copies out of
   WebGL -- a read-back, and in Safari a cross-process one. The export still composites into one
   canvas. Not the cause here, but it halved draw cost and stays.
+- **The panel's `will-change: transform` makes it the containing block of anything `fixed`
+  inside it**, so a modal rendered in the panel is not full-screen: it sits at the top of the
+  panel's scrolled content. Post's confirm dialog did, and its autofocused button scrolled the
+  panel to the top on every Post (2026-10-14). Render any overlay from the panel through a portal
+  to `document.body`, as InstagramPost now does.
 - **The settled lockup is cached** and blitted on whole pixels once its entrance and any hue-wave
   are done; every piece sits on whole pixels vertically, so it matches the live drawing (largest
   difference at the hand-off 3/255, the tail of the wave).
@@ -2303,12 +2308,38 @@ mode: a Reel / Feed post switch in the header, then the design and product photo
 list of slides -- Artwork, a product Photo (set into its dimmed artwork by its alpha: on-model shots
 rise from the bottom edge, flat cutouts float; a close-up whose subject runs off the photo's top or
 sides fills the slide, gaps showing the artwork -- placed as a cutout it left a hard edge mid-slide), Close-up (the artwork at 3x,
-cropped to its busiest window), Flight clip (one whole loop of a 6s scene, silent MP4) and Seed card.
+cropped to its busiest window), Flight clip (one whole loop, silent MP4) and Seed card.
 "Every angle" and "One photo" are presets. 1080x1350, at most 10 slides (the API's carousel limit;
 the app allows 20). Things worth not re-deriving:
 - **Posting reuses the Reel route.** `startPost` also takes `{ items: [{ type, id }], caption }`:
   one image posts as a photo; 2-10 items make a child container each (`is_carousel_item`), then one
-  `CAROUSEL` container. A lone video is refused (it would be a Reel). **Verified with a real carousel
+  `CAROUSEL` container. A feed post of only the flight is blocked: Instagram posts any lone video
+  as a Reel, and that is the Flight mode below.
+- **Flight mode** (the header's third choice, 2026-10-14, Aaron: a flight-only post "is actually a
+  reels", so it does not belong under Feed post): the flight on its own as a **9:16** Reel
+  (`FLIGHT_W`x`FLIGHT_H`, 1080x1920), posted through the Reel route with the frame under the
+  playhead as its cover (`renderFlightFrame`, exact, copied out of WebGL in the task it was drawn;
+  also the Cover button). The scene recomposes for the shape, so it is not a padded
+  4:5. No products or lockup; its options are saved with the ad as `flight` (the same shape as a
+  flight slide's). A flight slide inside a carousel stays 4:5.
+  **It shares the Reel's Music section.** With a take loaded, Length becomes whole BARS
+  (`flight.bars`, 3-30s at the take's tempo), so the loop ends on a bar line the way the Reel's
+  cuts do; without music it is plain seconds. The take renders at the loop's length (`adLength`),
+  and every take of the loaded plan is kept for the session by length (`takes`), so switching
+  between Reel and Flight, or changing a length and back, restores the take it had instead of
+  rolling a new one (which on a saved ad replaced its saved take). Re-roll replaces only its own
+  length's take. The preview always runs on the Reel's
+  transport (Play/Pause, scrubber; FlightPlayer's `clock`): the take's clock with music, the wall
+  clock without, looping at the flight's length. The take is muxed
+  into both the download and the post (audio capped at 128 kbps for Instagram).
+- **Each flight slide, and the Flight mode, carries its own `seconds` (3-15), `ramp` and
+  `objects`** (2026-10-14, Aaron).
+  Objects is the 3D scene's `chance`, the share of plates carrying geometry (it also thickens the
+  cage). A stored design states no odds, so absent it resolves to the legacy **0.4** -- which is
+  why flights here look sparser than the studio's (0.9). Overriding it pins the design's own
+  geometry layer (`present`) first, so new odds never re-flip that coin. A slide without the
+  fields is the old 6s ramped loop at the design's odds, byte-for-byte. The Reel's flight is
+  unchanged and still uses the design's odds. **Verified with a real carousel
   post (Aaron, 2026-10-12: "it looks great")**; a single-image post has not been made yet.
 - **Every still slide is rendered by one function for preview and file** (`renderStillSlide`); the
   preview's flight clip plays the cached scene live and is encoded `exact` only on export or post.

@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   FEED_W,
   FEED_H,
-  CLIP_SECONDS,
   SLIDE_LABELS,
   createFlightLoop,
+  flightOptions,
   renderStillSlide
 } from './feedPost';
 
@@ -13,17 +13,21 @@ import {
 // the preview is the file. The flight clip plays live from the 3D scene (cached path) instead of
 // being encoded, which only happens on export.
 
-// The flight, looping, at preview size.
-function FlightPlayer({ design }) {
+// The flight, looping, at half of `width` x `height`, with the slide's own length, ramp and
+// objects. Also the Flight mode's preview. `clock`, when given, says which second to draw each
+// frame (the Flight mode's music); without one it plays on its own from the start.
+export function FlightPlayer({ design, options, width, height, clock = null }) {
   const host = useRef(null);
   const [error, setError] = useState(null);
-  const key = JSON.stringify(design);
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
+  const key = JSON.stringify([design, options, width, height]);
   useEffect(() => {
     let loop = null;
     let raf = 0;
     let cancelled = false;
     setError(null);
-    createFlightLoop(design, FEED_W / 2, FEED_H / 2)
+    createFlightLoop(design, width / 2, height / 2, options)
       .then(l => {
         if (cancelled) return l.dispose();
         loop = l;
@@ -31,7 +35,7 @@ function FlightPlayer({ design }) {
         host.current?.appendChild(l.canvas);
         const t0 = performance.now();
         const tick = now => {
-          l.draw((now - t0) / 1000);
+          l.draw(clockRef.current ? clockRef.current() : (now - t0) / 1000);
           raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
@@ -144,7 +148,14 @@ export default function FeedPreview({ slides, design, images, index, onIndex, sh
               Add a slide.
             </p>
           )}
-          {design && slide?.type === 'flight' && <FlightPlayer design={design} />}
+          {design && slide?.type === 'flight' && (
+            <FlightPlayer
+              design={design}
+              options={flightOptions(slide, design)}
+              width={FEED_W}
+              height={FEED_H}
+            />
+          )}
           {design && slide && slide.type !== 'flight' && shown && (
             <img
               src={shown}
@@ -210,7 +221,7 @@ export default function FeedPreview({ slides, design, images, index, onIndex, sh
       </div>
       <p className="text-xs text-neutral-500">
         {slide?.type === 'flight'
-          ? `Flight clip: a ${CLIP_SECONDS}s loop, rendered in full when you export or post.`
+          ? `Flight clip: a ${flightOptions(slide, design).seconds}s loop, rendered in full when you export or post.`
           : showIg
             ? 'The dashed lines show the 3:4 crop the profile grid uses.'
             : ' '}
