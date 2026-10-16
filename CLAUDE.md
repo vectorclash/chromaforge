@@ -1592,6 +1592,22 @@ files would otherwise alias). 8K renders in ~0.3s on desktop.
 scaled down uniformly so the shape survives -- the render-print-file lesson. Typed text is only
 committed on blur/Enter; an emptied box reverts to the last valid value.
 (4) `check-leaks.mjs` exports through the panel now; its preview's WebGL context is covered too.
+(5) **Format SVG is the geometry layer alone, as vectors** (`render/geometrySvg.js`, 2026-10-16,
+Aaron: "no reason a user can't use it too"). It mirrors `GeometricShape.js` element for element
+(same container transform, gradient line p0 -> p2 with stops 0/0.5/1, `mix-blend-mode: hard-light`
+in an isolated group, transparent background, NOT the layer's `thirdBlend` against the rest of
+the piece) and must move with it. Rasterized in Chromium and WebKit it matches the canvas layer at
+mean 0.1-0.7/255 (24 cases x 2 engines; controls with the blend stripped or another seed fail at
+22-90). It is **framed by the geometry's own bounds** (Aaron: "nothing is cut off"), often 1-5x
+the artwork's size, so Ratio and Size are hidden for it: measured across 16:9/9:16/4:5/1:1/3:1 the
+figure is the same up to scale (points within 0.04% of its width), so it always generates at
+`GEOMETRY_SVG_ARTWORK` (3840x2160) and one design is one file on every device. A design with no
+geometry layer says so and disables Download. **Switching to and from SVG never pops** (Aaron,
+same day): Ratio/Size fold away with GSAP rather than unmounting (`applyRasterRows`, `inert` while
+folded, instant under reduced motion), the preview crossfades when its KIND changes (raster /
+vector / the no-geometry note, `downloadPreview` + `downloadPreviewLeaving`) while a ratio flick
+still swaps inside one layer as before, and the Format note fades with its final words. All on
+0.35s; measured, the panel resizes over ~17 frames and the stage never goes blank.
 **The Recent panel keeps the studio's last 9 stills -- a full 3x3 grid; 20 felt overwhelming (2026-10-10, Aaron: "I hit generate and a
 moment later realized that the artwork was amazing").** A clock icon beside the settings icon opens
 it, built from the Download panel's parts; layout C of three mocked up and compared

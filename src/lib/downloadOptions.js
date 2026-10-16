@@ -106,11 +106,22 @@ export function videoDims({ exportAspect, exportSize }, mobile) {
   return dimsFor(RATIOS[exportAspect] ? exportAspect : '16:9', VIDEO_SIZES[size]);
 }
 
+// The SVG download (render/geometrySvg.js) is the geometry layer alone, framed by its own
+// bounds rather than the artwork's (Aaron, 2026-10-16), so it takes neither a ratio nor a size.
+// Measured, not assumed: across 16:9, 9:16, 4:5, 1:1 and 3:1 the geometry is the SAME figure,
+// only scaled -- points agree to 0.04% of its width, colours exactly -- because ratio only
+// decides how large the figure sits in the frame. So it is always generated at the studio's
+// reference canvas, which makes one design one file on every device.
+export const GEOMETRY_SVG_ARTWORK = { width: 3840, height: 2160 };
+
 // File names carry everything that makes one file different from another made from the same
 // piece. Pixel size rather than ratio, since it says the ratio AND the resolution and also
 // covers custom sizes with no tidy ratio name. Video adds frame rate and length: two loops of
 // one flight at 5s and 10s were otherwise the same name, and the browser numbered them.
+// An SVG is the geometry layer alone, so its name says so -- it must never be mistaken for the
+// full piece sitting next to it in a downloads folder -- and carries no size: there is only one.
 export function imageFileName(name, width, height, format) {
+  if (format === 'svg') return `${name}_geometry.svg`;
   return `${name}_${width}x${height}.${format === 'png' ? 'png' : 'jpg'}`;
 }
 

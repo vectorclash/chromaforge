@@ -11,6 +11,7 @@ import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { toCompactDesign } from '../render/compactDesign';
+import { geometrySvgBlob } from '../render/geometrySvg';
 import { recentDesignKey, RECENT_MAX } from '../lib/recentDesigns';
 import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
@@ -46,6 +47,7 @@ import {
   videoDims,
   clampCustomSize,
   imageFileName,
+  GEOMETRY_SVG_ARTWORK,
   videoFileName,
   previewDims
 } from '../lib/downloadOptions';
@@ -143,9 +145,13 @@ const ANIM_LIMIT = ANIM_LIMITS[isMobileDevice() ? 'mobile' : 'desktop'];
 // a field to DEFAULT_VIDEO_PREFS is all it takes for it to be remembered.
 const VIDEO_PREF_KEYS = Object.keys(DEFAULT_VIDEO_PREFS);
 const IMAGE_PREF_KEYS = Object.keys(DEFAULT_IMAGE_PREFS);
-// What changes the Download panel's preview. Size and format never do: within one ratio the
-// composition is identical at every resolution, so the preview is the same picture.
-const PREVIEW_KEYS = ['downloadVisible', 'imageRatio', 'customWidth', 'customHeight', 'exportAspect', 'animationMode', 'threeDDesign', 'cycleDuration', 'speedRamp'];
+// What changes the Download panel's preview. Size never does: within one ratio the composition
+// is identical at every resolution, so the preview is the same picture. Format does only for
+// SVG, which previews the geometry layer alone (JPG and PNG share one preview).
+// How long a preview layer takes to fade out when the stage changes kind; components.css's
+// .download-preview-layer rules carry the same 0.35s (DURATION_BASE), to match the rows.
+const PREVIEW_LAYER_FADE_MS = 350;
+const PREVIEW_KEYS = ['downloadVisible', 'imageRatio', 'imageFormat', 'customWidth', 'customHeight', 'exportAspect', 'animationMode', 'threeDDesign', 'cycleDuration', 'speedRamp'];
 // The Video-tab settings a saved animation records (see lib/savedAnimation's compactVideo)
 const SAVED_PLAYBACK_KEYS = ['cycleDuration', 'speedRamp', 'logoMark'];
 
@@ -224,6 +230,8 @@ export function coverSourceRect(srcWidth, srcHeight, dstWidth, dstHeight) {
 export default class DisplayCanvas extends React.Component {
   constructor(props) {
     super(props);
+    this.setRasterRows = this.setRasterRows.bind(this);
+    this.previewLayerSeq = 0;
     // Settings remembered from the user's last visit (lib/studioPrefs.js). The palette and
     // geometry sliders normally arrive via the initialDesign prop -- StudioContext seeds its
     // first design from the same store, and init()/adoptDesign* sync the panel to it -- so
@@ -288,11 +296,15 @@ export default class DisplayCanvas extends React.Component {
       downloadVisible: false,
       imageDownloading: false,
       downloadDone: false,
-      downloadPreviewUrl: null,
+      // The stage's picture, as a layer { id, url, kind }. kind is 'raster' (a JPG of the still
+      // or a video frame), 'vector' (the transparent SVG) or 'empty' (the no-geometry message).
+      // Reshaping the same kind keeps the layer and swaps its picture; a change of KIND mounts a
+      // new layer that fades in while the old one, moved to downloadPreviewLeaving, fades out.
+      downloadPreview: null,
+      downloadPreviewLeaving: null,
       downloadPreviewBusy: false,
-      // Bumped whenever the stage is emptied, so the next preview mounts fresh and fades in.
-      // A ratio change keeps the same element and just swaps its picture.
-      downloadPreviewEpoch: 0,
+      // The SVG's real size (the geometry's bounds), learned when its preview is built.
+      downloadSvgDims: null,
       // Speed ramp: playback-time warp (see utils/speedRamp) -- each loop accelerates
       // through its whole first half and decelerates through its whole second half, still
       // looping seamlessly. 3D nearly stops at the seam and peaks at 2.16x; 2D keeps a
@@ -591,6 +603,8 @@ export default class DisplayCanvas extends React.Component {
     this.recentThumbJob++;
     clearTimeout(this.downloadDoneTimer);
     if (this.downloadPreviewUrl) URL.revokeObjectURL(this.downloadPreviewUrl);
+    clearTimeout(this.previewLeaveTimer);
+    if (this.state.downloadPreviewLeaving?.url) URL.revokeObjectURL(this.state.downloadPreviewLeaving.url);
     this.heroRevealFallback?.kill();
     this.pendingHeroReveal = null;
     if (this.boundOnKeyUp) window.removeEventListener('keyup', this.boundOnKeyUp);
@@ -635,6 +649,9 @@ export default class DisplayCanvas extends React.Component {
     }
     if (this.state.downloadVisible && prevState && PREVIEW_KEYS.some(key => prevState[key] !== this.state[key])) {
       this.queueDownloadPreview();
+    }
+    if (prevState && (prevState.imageFormat === 'svg') !== (this.state.imageFormat === 'svg')) {
+      this.applyRasterRows(this.state.downloadVisible);
     }
     // A 3D flight is the studio's live work too, so it reaches StudioContext like a still or a
     // 2D animation's last frame does. Every change to it (Generate, a palette or slider edit, a
@@ -1949,15 +1966,32 @@ export default class DisplayCanvas extends React.Component {
     if (stale) {
       URL.revokeObjectURL(this.downloadPreviewUrl);
       this.downloadPreviewUrl = null;
+      if (this.state.downloadPreviewLeaving?.url) URL.revokeObjectURL(this.state.downloadPreviewLeaving.url);
     }
-    this.setState(s => ({
+    this.setState(() => ({
       downloadVisible: true,
       downloadDone: false,
-      ...(stale ? { downloadPreviewUrl: null, downloadPreviewEpoch: s.downloadPreviewEpoch + 1 } : null)
+      ...(stale ? { downloadPreview: null, downloadPreviewLeaving: null } : null)
     }), () => {
       const els = '#controls-download .download-preview, #controls-download .settings-field, #controls-download .row';
+      // Rows start 20px low, which counts toward the scroller's overflow: measured, it ran up to
+      // 14px over for ~14 frames of every open while fitting exactly at rest, so a classic
+      // scrollbar came in, narrowed every row, and left again as they landed (Aaron: "you see a
+      // scroll bar while it's animating in and then ... everything pops into place"). Locked for
+      // the entrance, as animateSettingsTab and the Recent panel already do.
+      const scroller = this.mount?.querySelector('#controls-download .settings-scroll');
+      if (scroller) scroller.style.overflowY = 'hidden';
       gsap.set(els, { alpha: 0, y: 20 });
-      gsap.to(els, { duration: DURATION_BASE, alpha: 1, y: 0, stagger: 0.05, ease: 'back.out(1.7)' });
+      gsap.to(els, {
+        duration: DURATION_BASE,
+        alpha: 1,
+        y: 0,
+        stagger: 0.05,
+        ease: 'back.out(1.7)',
+        onComplete: () => {
+          if (scroller) scroller.style.overflowY = '';
+        }
+      });
     });
   }
 
@@ -2016,8 +2050,15 @@ export default class DisplayCanvas extends React.Component {
     // Let the busy state paint before a render can hold the main thread.
     await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
     let blob = null;
+    let svgDims = null;
+    const vector = !animationMode && this.state.imageFormat === 'svg';
     try {
-      if (!animationMode) {
+      if (vector) {
+        // The SVG previews as itself, scaled by the <img>: the preview IS the file.
+        const svg = this.geometrySvgDownload();
+        blob = svg?.blob ?? null;
+        svgDims = svg && { width: svg.width, height: svg.height };
+      } else if (!animationMode) {
         blob = await this.renderStillBlob(width, height, 'image/jpeg', 0.9);
       } else if (threeDMode && threeDDesign) {
         const { render3DStill } = await import('../animation3d/renderStill');
@@ -2047,11 +2088,63 @@ export default class DisplayCanvas extends React.Component {
     }
     if (this.unmounted || token !== this.downloadPreviewToken) return;
     const old = this.downloadPreviewUrl;
-    this.downloadPreviewUrl = blob ? URL.createObjectURL(blob) : null;
+    const url = blob ? URL.createObjectURL(blob) : null;
+    this.downloadPreviewUrl = url;
     this.downloadPreviewPiece = piece;
     this.downloadPreviewMode = animationMode;
-    this.setState({ downloadPreviewUrl: this.downloadPreviewUrl, downloadPreviewBusy: false }, () => {
-      if (old) URL.revokeObjectURL(old);
+    const kind = vector ? (url ? 'vector' : 'empty') : url ? 'raster' : null;
+    const prev = this.state.downloadPreview;
+    const next = !kind ? null : prev && prev.kind === kind ? { ...prev, url } : { id: ++this.previewLayerSeq, url, kind };
+    const replaced = prev && prev !== next && (!next || next.id !== prev.id);
+    const update = { downloadPreview: next, downloadPreviewBusy: false, downloadSvgDims: svgDims };
+    if (replaced) {
+      // The old layer fades out over the new one rather than vanishing; its picture is
+      // released once it has gone. A layer still leaving from a quick earlier switch goes now.
+      if (this.state.downloadPreviewLeaving?.url) URL.revokeObjectURL(this.state.downloadPreviewLeaving.url);
+      update.downloadPreviewLeaving = prev;
+      clearTimeout(this.previewLeaveTimer);
+      this.previewLeaveTimer = setTimeout(() => {
+        if (this.unmounted) return;
+        this.setState(s => (s.downloadPreviewLeaving === prev ? { downloadPreviewLeaving: null } : null));
+        if (prev.url) URL.revokeObjectURL(prev.url);
+      }, PREVIEW_LAYER_FADE_MS + 50);
+    }
+    this.setState(update, () => {
+      if (old && !replaced && old !== url) URL.revokeObjectURL(old);
+    });
+  }
+
+  // Ratio and Size have no meaning for the SVG (see lib/downloadOptions' GEOMETRY_SVG_ARTWORK),
+  // so they fold away rather than unmount: the rows close up and the panel shrinks around them,
+  // on the same beat as the preview's crossfade. `inert` keeps folded selects out of the tab
+  // order. Applied without animation when the wrapper mounts, so a panel opening on a
+  // remembered SVG choice starts folded.
+  setRasterRows(el) {
+    this.rasterRowsEl = el;
+    if (el) this.applyRasterRows(false);
+  }
+
+  applyRasterRows(animate) {
+    const el = this.rasterRowsEl;
+    if (!el) return;
+    const hide = this.state.imageFormat === 'svg';
+    el.inert = hide;
+    const settled = { clearProps: 'height,opacity,visibility,overflow' };
+    if (!animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      gsap.killTweensOf(el);
+      gsap.set(el, hide ? { height: 0, autoAlpha: 0, overflow: 'hidden' } : settled);
+      return;
+    }
+    gsap.set(el, { overflow: 'hidden' });
+    gsap.to(el, {
+      height: hide ? 0 : 'auto',
+      autoAlpha: hide ? 0 : 1,
+      duration: DURATION_BASE,
+      ease: 'power2.inOut',
+      overwrite: true,
+      // Open again, the rows hand their size back to layout, and the select shadows are no
+      // longer clipped by the overflow the fold needed.
+      onComplete: hide ? undefined : () => gsap.set(el, settled)
     });
   }
 
@@ -2095,6 +2188,22 @@ export default class DisplayCanvas extends React.Component {
     return blob;
   }
 
+  // The design's geometry layer alone, as vectors framed by its own bounds
+  // (render/geometrySvg.js): { blob, width, height }. Regenerated at GEOMETRY_SVG_ARTWORK
+  // rather than taken from the on-screen config, whose size differs by device. Null for a
+  // design with no geometry layer: presence is part of the design (settings.geometry.present),
+  // so it is the same at every size.
+  geometrySvgDownload() {
+    const config = this.mainConfig;
+    if (!config) throw new Error('Nothing to download yet.');
+    if (!config.geometryConfig) return null;
+    const design = toCompactDesign(config);
+    const { width, height } = GEOMETRY_SVG_ARTWORK;
+    const built = generateArtwork(design.seed, width, height, design.colors, design.settings);
+    if (!built.geometryConfig) return null;
+    return geometrySvgBlob(built.geometryConfig, { title: this.pieceName(this.blobConfig ?? config) });
+  }
+
   async onDownloadConfirm() {
     const { animationMode, isExporting, imageDownloading } = this.state;
     if (isExporting || imageDownloading) return;
@@ -2103,14 +2212,22 @@ export default class DisplayCanvas extends React.Component {
       if (!this.unmounted) this.flashDownloadDone();
       return;
     }
+    const format = this.state.imageFormat;
+    const name = this.pieceName(this.blobConfig ?? this.mainConfig);
+    if (format === 'svg') {
+      const svg = this.geometrySvgDownload();
+      if (!svg) return; // the button is off for a design with no geometry layer
+      saveAs(svg.blob, imageFileName(name, svg.width, svg.height, 'svg'));
+      this.flashDownloadDone();
+      return;
+    }
     const custom = this.state.imageRatio === 'custom';
     const { width, height } = custom ? this.commitCustomSize() : this.downloadImageDims();
-    const png = this.state.imageFormat === 'png';
     this.setState({ imageDownloading: true });
     await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
     try {
-      const blob = await this.renderStillBlob(width, height, png ? 'image/png' : 'image/jpeg', 0.98);
-      saveAs(blob, imageFileName(this.pieceName(this.blobConfig ?? this.mainConfig), width, height, png ? 'png' : 'jpg'));
+      const blob = await this.renderStillBlob(width, height, format === 'png' ? 'image/png' : 'image/jpeg', 0.98);
+      saveAs(blob, imageFileName(name, width, height, format));
       this.flashDownloadDone();
     } catch (e) {
       console.warn('[Chromaforge] Image download failed:', e);
@@ -3572,12 +3689,37 @@ export default class DisplayCanvas extends React.Component {
       exportProgress,
       imageDownloading,
       downloadDone,
-      downloadPreviewUrl,
+      downloadPreview,
+      downloadPreviewLeaving,
       downloadPreviewBusy,
-      downloadPreviewEpoch
+      downloadSvgDims
     } = this.state;
     const mobile = isMobileDevice();
+    const vector = !animationMode && imageFormat === 'svg';
+    // Nothing to put in an SVG: the panel says so and Download stays off.
+    const noGeometry = vector && !this.mainConfig?.geometryConfig;
+    // The Format note fades in once with its final words, and keeps them while it fades out.
+    const svgNote = !vector
+      ? null
+      : noGeometry
+        ? 'no geometry layer'
+        : downloadSvgDims && `geometry only, ${downloadSvgDims.width} \u00d7 ${downloadSvgDims.height}`;
+    if (svgNote) this.lastSvgNote = svgNote;
+    const previewLayer = (layer, leaving) => {
+      const cls =
+        'download-preview-layer' +
+        (leaving ? ' is-leaving' : downloadPreviewBusy ? ' is-busy' : '') +
+        (layer.kind === 'vector' ? ' is-transparent' : '');
+      return layer.kind === 'empty' ? (
+        <span key={layer.id} className={cls + ' download-preview-empty'}>
+          This design has no geometry layer
+        </span>
+      ) : (
+        <img key={layer.id} src={layer.url} alt="" className={cls} />
+      );
+    };
     const busy = isExporting || imageDownloading;
+    const blocked = busy || noGeometry;
     const dims = animationMode ? this.downloadVideoDims() : this.downloadImageDims();
     const dimsLabel = `${dims.width} \u00d7 ${dims.height}`;
     const custom = !animationMode && imageRatio === 'custom';
@@ -3604,14 +3746,12 @@ export default class DisplayCanvas extends React.Component {
           {/* A fixed-height stage so switching between a wide and a tall ratio never moves
               the rows below it. The preview keeps its own shape inside it. */}
           <div className="download-preview" aria-hidden="true">
-            {downloadPreviewUrl && (
-              <img
-                key={downloadPreviewEpoch}
-                src={downloadPreviewUrl}
-                alt=""
-                className={downloadPreviewBusy ? 'is-busy' : ''}
-              />
-            )}
+            {/* One keyed list, so a layer that starts leaving keeps its element and fades from
+                where it is instead of remounting. */}
+            {[
+              downloadPreviewLeaving && previewLayer(downloadPreviewLeaving, true),
+              downloadPreview && previewLayer(downloadPreview, false)
+            ]}
           </div>
 
           {animationMode ? (
@@ -3673,6 +3813,10 @@ export default class DisplayCanvas extends React.Component {
             </>
           ) : (
             <>
+              {/* An SVG is framed by its geometry and the figure is the same at every ratio
+                  (lib/downloadOptions' GEOMETRY_SVG_ARTWORK), so neither choice applies: the
+                  rows fold away (applyRasterRows). */}
+              <div ref={this.setRasterRows} className="download-raster-rows">
               <div className="settings-field">
                 <span className="settings-label">Ratio</span>
                 <select
@@ -3741,8 +3885,14 @@ export default class DisplayCanvas extends React.Component {
                   </select>
                 </div>
               )}
+              </div>
               <div className="settings-field">
-                <span className="settings-label">Format</span>
+                <span className="settings-label">
+                  Format
+                  <span className={'settings-label-note download-format-note' + (svgNote ? ' is-shown' : '')}>
+                    {this.lastSvgNote ? ` ${this.lastSvgNote}` : ''}
+                  </span>
+                </span>
                 <select
                   className="settings-select"
                   value={imageFormat}
@@ -3751,6 +3901,7 @@ export default class DisplayCanvas extends React.Component {
                 >
                   <option value="jpg">JPG</option>
                   <option value="png">PNG</option>
+                  <option value="svg">SVG</option>
                 </select>
               </div>
             </>
@@ -3770,8 +3921,8 @@ export default class DisplayCanvas extends React.Component {
           <button
             onClick={this.onDownloadConfirm.bind(this)}
             className="button-small"
-            disabled={busy}
-            style={busy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+            disabled={blocked}
+            style={blocked ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
           >
             {busy ? 'Preparing...' : downloadDone ? 'Downloaded' : 'Download'}
           </button>

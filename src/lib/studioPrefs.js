@@ -205,7 +205,7 @@ export function readImagePrefs(ratios, sizes) {
   return {
     imageRatio: stored.imageRatio === 'custom' || ratios.includes(stored.imageRatio) ? stored.imageRatio : d.imageRatio,
     imageSize: sizes.includes(stored.imageSize) ? stored.imageSize : d.imageSize,
-    imageFormat: stored.imageFormat === 'png' ? 'png' : 'jpg',
+    imageFormat: ['png', 'svg'].includes(stored.imageFormat) ? stored.imageFormat : 'jpg',
     customWidth: clampInt(stored.customWidth, 1, 100000, d.customWidth),
     customHeight: clampInt(stored.customHeight, 1, 100000, d.customHeight)
   };

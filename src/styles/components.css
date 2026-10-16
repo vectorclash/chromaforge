@@ -2373,19 +2373,25 @@
    at the chosen shape), so max-width/max-height alone letterbox it correctly. */
 .display-canvas .controls-inner .download-preview {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* One grid cell that every layer sits in, centred: a layer fading out and the one fading in
+     overlap exactly, whatever their two shapes. */
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
   height: 150px;
   margin-bottom: 10px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.25);
 }
+.display-canvas .controls-inner .download-preview > * {
+  grid-area: 1 / 1;
+}
 .display-canvas .controls-inner .download-preview img {
   display: block;
-  /* Plays only when the element mounts -- into an empty stage (see downloadPreviewEpoch) --
-     never when a ratio change swaps the picture inside it. */
-  animation: download-preview-in 0.25s ease-out;
+  /* Plays only when a layer mounts -- into an empty stage, or when the picture changes KIND
+     (JPG <-> SVG <-> the no-geometry note) -- never when a ratio change swaps the picture
+     inside the same layer. 0.35s (DURATION_BASE) to match the rows folding with it. */
+  animation: download-preview-in 0.35s ease-in-out;
   max-width: calc(100% - 16px);
   max-height: calc(100% - 16px);
   border-radius: 4px;
@@ -2471,6 +2477,41 @@
   from {
     opacity: 0;
   }
+}
+/* The SVG download is the geometry layer alone on a transparent background, so its preview
+   sits on a checkerboard: the empty areas read as "nothing here", not as the stage's grey. */
+.display-canvas .controls-inner .download-preview img.is-transparent {
+  background: repeating-conic-gradient(rgba(255, 255, 255, 0.14) 0 25%, rgba(255, 255, 255, 0.04) 0 50%) 0 0 / 12px 12px;
+}
+.display-canvas .controls-inner .download-preview-empty {
+  animation: download-preview-in 0.35s ease-in-out;
+  padding: 0 16px;
+  font-size: 12px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* The layer being replaced fades from wherever it is (full, or dimmed while busy) to nothing,
+   under the new one fading in. `animation: none` so a layer replaced mid-entrance fades from
+   its current value instead of finishing the entrance first. */
+.display-canvas .controls-inner .download-preview-layer.is-leaving {
+  opacity: 0;
+  animation: none;
+  transition: opacity 0.35s ease-in-out;
+  pointer-events: none;
+}
+/* Ratio + Size fold away for the SVG (DisplayCanvas.applyRasterRows). The wrapper would make
+   Size the "last field" and strip its rule, so the rule is put back. */
+.display-canvas .controls-inner .download-raster-rows > .settings-field:last-child {
+  border-bottom: 1px solid rgba(250, 250, 250, 0.06);
+  margin-bottom: 0;
+}
+/* The Format note is always mounted and fades, keeping its words while it goes. */
+.display-canvas .controls-inner .settings-label-note.download-format-note {
+  opacity: 0;
+  transition: opacity 0.35s ease-in-out;
+}
+.display-canvas .controls-inner .settings-label-note.download-format-note.is-shown {
+  opacity: 0.5;
 }
 /* Holds the previous picture, dimmed, while the next renders -- never a blank flash. */
 .display-canvas .controls-inner .download-preview img.is-busy {
