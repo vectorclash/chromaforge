@@ -2147,6 +2147,11 @@
 .display-canvas .controls-inner .palette-chip-cluster > span + span {
   margin-left: -5px;
 }
+/* The Auto chip's mark: one swatch holding the whole wheel, since the generator may pick any
+   colours at all. Same size and ring as a preset's swatches, so the row stays one family. */
+.display-canvas .controls-inner .palette-chip-cluster > .palette-chip-auto {
+  background: conic-gradient(#ff3d7f, #ffd23f, #3ddc84, #1fc8db, #7b3fe4, #ff3d7f);
+}
 .display-canvas .controls-inner .palette-chip-name {
   white-space: nowrap;
 }

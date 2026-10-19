@@ -4442,20 +4442,16 @@ export default class DisplayCanvas extends React.Component {
                     ''
                   )}
                 </div>
+                {/* The old full-width CLEAR button is the strip's first chip now, "Auto"
+                    (2026-10-19, Aaron: it felt odd sitting between things). Emptying the palette
+                    was never really a delete -- it is the mode where the generator picks its
+                    own colours, i.e. one more palette to choose -- and as a chip it says so,
+                    stops reading as destructive, and gives the tab back ~70px of height. */}
                 <PalettePicker
                   colors={colors.map(c => c.value)}
                   onApply={c => this.onApplyPalette(c)}
+                  onAuto={this.onClearColors.bind(this)}
                 />
-                {/* CLEAR goes full width now that the strip has taken its ADD 🌈 partner.
-                    It is not merely destructive -- an empty palette is the auto-palette mode
-                    the generator picks its own colours in, i.e. the counterpart to the strip
-                    beside it -- so it keeps a real button rather than being demoted to a link
-                    in the label row above. */}
-                <div className="row">
-                  <button onClick={this.onClearColors.bind(this)} className="button-medium">
-                    CLEAR
-                  </button>
-                </div>
                 {/* On = the nebula takes the star field's gradient, so gas and stars read as one;
                     off (the default) = its own gradient plus colour pools. A design setting like
                     Stars in front (settings.geometry.nebulaLinked, render/nebula.js). The note is
@@ -4753,11 +4749,12 @@ export default class DisplayCanvas extends React.Component {
 
             {settingsTab === 'video' && (
               <>
-                <div className="settings-field">
-                  <span className="settings-label">
-                    3D
-                    <span className="settings-label-note"> fly through the artwork</span>
-                  </span>
+                {/* No note on the three toggles in this tab (3D, Speed ramp, Logo), matching
+                    Geometry's rule that a toggle already IS its value; their one-line
+                    explanations moved into hover hints (2026-10-19). Notes in this panel are
+                    value readouts, and the steppers below show their values in place. */}
+                <div className="settings-field" title="Fly through the artwork in 3D">
+                  <span className="settings-label">3D</span>
                   <button
                     className={'settings-toggle' + (threeDMode ? ' on' : '')}
                     onClick={this.onThreeDToggle.bind(this)}
@@ -4804,11 +4801,8 @@ export default class DisplayCanvas extends React.Component {
                 {/* Playback-time warp only (see the speedRamp state comment) -- frame
                     content is untouched, so this applies live in both modes with no
                     "regenerate to apply" notice. */}
-                <div className="settings-field">
-                  <span className="settings-label">
-                    Speed Ramp
-                    <span className="settings-label-note"> ease in and out each loop</span>
-                  </span>
+                <div className="settings-field" title="Ease in and out of each loop">
+                  <span className="settings-label">Speed Ramp</span>
                   <button
                     className={'settings-toggle' + (speedRamp ? ' on' : '')}
                     onClick={() => this.setState({ speedRamp: !speedRamp })}
@@ -4823,11 +4817,8 @@ export default class DisplayCanvas extends React.Component {
                     the mark is derived from the seed, so there is nothing to persist.
                     In the SCENE group rather than the export group below, because both
                     previews draw it -- it is not something only the file gets. */}
-                <div className="settings-field">
-                  <span className="settings-label">
-                    Logo
-                    <span className="settings-label-note"> flies through the loop seam</span>
-                  </span>
+                <div className="settings-field" title="The design's logo mark flies through the loop seam">
+                  <span className="settings-label">Logo</span>
                   <button
                     className={'settings-toggle' + (logoMark ? ' on' : '')}
                     onClick={() => this.setState({ logoMark: !logoMark })}
@@ -4845,8 +4836,8 @@ export default class DisplayCanvas extends React.Component {
 
             {/* Two .button-small halves rather than one full-width .button-medium: BACK
                 never needed the whole rail, and the 48.5% pair is the split the Color tab's
-                own CLEAR / ADD row already uses, so this needs no new width rule. RESET sits
-                left, matching that row's destructive-left order, and carries .button-danger
+                swatch grid already uses, so this needs no new width rule. RESET sits
+                left, destructive-left, and carries .button-danger
                 so it can't be mistaken for BACK at a glance.
 
                 This row is a fixed rail OUTSIDE .settings-scroll, which is why the reset

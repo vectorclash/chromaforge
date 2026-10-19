@@ -22,13 +22,16 @@ import { PALETTE_PRESETS, isPresetPalette } from '../../render/palettePresets';
 //
 // The cluster is GalleryModal's palette chip, deliberately: overlapping the swatches makes a
 // palette read as one object rather than four dots competing with the chip's own label.
-export default function PalettePicker({ colors, onApply }) {
+// `onAuto` empties the palette -- the generator then picks its own colours. It is the first
+// chip ("Auto"), lit whenever the palette is empty, and replaced a full-width CLEAR button.
+export default function PalettePicker({ colors, onApply, onAuto }) {
   // `colors` is the live swatch list. It lags the DOM by up to the 350ms debounce after a
   // jscolor edit (see DisplayCanvas.onColorSwatchEdit, which reads the inputs back into state
   // there rather than on every input event) -- so a chip can stay lit for that beat after a
   // stop has been nudged off the preset. Worth knowing, not worth a second source of truth:
   // it settles on its own, and this only drives a highlight.
-  const activeName = PALETTE_PRESETS.find(preset => isPresetPalette(preset, colors))?.name;
+  const isAuto = colors.length === 0;
+  const activeName = isAuto ? 'Auto' : PALETTE_PRESETS.find(preset => isPresetPalette(preset, colors))?.name;
 
   return (
     <div className="palette-picker">
@@ -41,6 +44,18 @@ export default function PalettePicker({ colors, onApply }) {
           swipes the row natively, and the rail's own `overscroll-behavior-x: none` keeps that
           swipe from chaining out to the page at either end. */}
       <ScrollStrip className="palette-strip" railClassName="palette-strip-rail" dragToScroll>
+        <button
+          type="button"
+          className="palette-chip"
+          aria-pressed={isAuto}
+          aria-label="Let the generator pick the colors"
+          onClick={onAuto}
+        >
+          <span className="palette-chip-cluster" aria-hidden="true">
+            <span className="palette-chip-auto" />
+          </span>
+          <span className="palette-chip-name">Auto</span>
+        </button>
         {PALETTE_PRESETS.map(preset => (
           <button
             key={preset.name}
