@@ -2208,6 +2208,14 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       if (nebula3d) {
         nebula3d.render(renderer, camera, accum, spare);
         swap();
+        if (nebula3d.debugOnly) {
+          renderer.setRenderTarget(target);
+          copyUniforms.uSrc.value = accum.texture;
+          renderer.render(copyScene, orthoCam);
+          renderer.setClearColor(_clear, clearAlpha);
+          renderer.autoClear = autoClear;
+          return;
+        }
       }
     } else if (blobs.count) composite(radialScene, radialBlend);
     if (!art.starsOnTop) composite(starScene, starsBlend);

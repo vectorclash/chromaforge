@@ -38,15 +38,25 @@ export const NEB3D = {
   sheetUnique: 8, // distinct slices, reused along the flight
   sheetAlpha: 0.45, // per sheet, before the amount strength
   sheetScale: 2.2, // sheet size against the 2D frame at FRAME_D
-  volRadius: 280, // world units either side of the flight axis the volume covers
+  volRadius: 150, // corridor radius, world units
   volLateral: 192, // voxels across
   volStep: 5, // world units per voxel along the flight
-  volSteps: 48, // ray-march samples per pixel
-  volSigma: 0.05, // extinction per world unit at full density
-  volDetail: 0.8, // how much the detail noise erodes edges
-  volDetailFreq: 0.08, // detail cycles per world unit
+  volSteps: 96, // ray-march samples per pixel
+  volSigma: 1.5, // extinction per world unit at full density
+  volLight: [-0.3, 0.6, 0.75], // toward the light: right, up, ahead
+  volLightStep: 6,
+  volShadow: 0.8,
+  volAmbient: 0.25,
+  volFar: 420,
+  volJitter: true, // per-pixel sample offsets
+  volStretch: 1,
+  volNear: [12, 55], // close gas dissolves before it reaches the camera, where its cells would magnify into smears // how many times slower the field changes along the flight than across it
+  volOct: 6, // octaves baked into the grid -- no more than its slice spacing can hold
+  volDetail: 0.35, // how far the detail noise moves the field
+  volDetailSize: 40, // world units per detail tile
   volRes: 0.5, // march resolution against the frame
-  volContrast: [0.25, 0.6], // density remap: smoothstep(lo, hi, d) -- sharper edges as the range narrows
+  volContrast: [0.5, 0.85], // density remap: smoothstep(lo, hi, d) -- sharper edges as the range narrows
+  debugView: false, // lab: show the nebula layer alone, white on black
   pools: 0.6, // colour pools (own-gradient designs), as in 2D
   poolGain: 1.6
 };
@@ -216,41 +226,53 @@ function buildSheets({ seed, plan, L, frameH, space }) {
 }
 
 // ─── Volume ───────────────────────────────────────────────────────────────────────────
-// A tiling 3D value-noise fBm, for the detail that a coarse baked grid cannot hold.
+// Fine detail: a tiling 3D Perlin fBm texture (gradient noise, integer lattice periods, so it
+// wraps exactly), sampled continuously by the march. The baked grid can only hold detail its
+// slice spacing can represent -- baked with all octaves, the fine ones aliased between slices into
+// rows of 'scales' -- so it carries the large shapes and this carries the small ones.
 let DETAIL = null;
 function detailTexture() {
   if (DETAIL) return DETAIL;
-  const N = 32, P = 8; // N voxels, lattice period P cells (tiles exactly)
+  const N = 64;
   let h = 2166136261 >>> 0;
-  const rnd = new Float32Array(P * P * P * 8);
-  for (let i = 0; i < rnd.length; i++) {
-    h = Math.imul(h ^ (i + 0x9e3779b9), 16777619) >>> 0;
-    h ^= h >>> 13;
-    rnd[i] = (h & 0xffff) / 0xffff;
+  const rand = () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0;
+    h ^= h >>> 16;
+    return h / 4294967296;
+  };
+  const MAXP = 32;
+  const grads = new Float32Array(MAXP * MAXP * MAXP * 3);
+  for (let i = 0; i < MAXP * MAXP * MAXP; i++) {
+    const z = rand() * 2 - 1, a = rand() * Math.PI * 2, r = Math.sqrt(1 - z * z);
+    grads.set([r * Math.cos(a), r * Math.sin(a), z], i * 3);
   }
-  const lat = (x, y, z, per, o) => rnd[o + ((x % per) * per * per + (y % per) * per + (z % per))];
-  const vnoise = (x, y, z, per, o) => {
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const perlin = (x, y, z, P) => {
     const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
     const fx = x - X, fy = y - Y, fz = z - Z;
-    const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
-    const g = (a, b, c) => lat(X + a, Y + b, Z + c, per, o);
-    const x00 = g(0, 0, 0) + (g(1, 0, 0) - g(0, 0, 0)) * u, x10 = g(0, 1, 0) + (g(1, 1, 0) - g(0, 1, 0)) * u;
-    const x01 = g(0, 0, 1) + (g(1, 0, 1) - g(0, 0, 1)) * u, x11 = g(0, 1, 1) + (g(1, 1, 1) - g(0, 1, 1)) * u;
-    const y0 = x00 + (x10 - x00) * v, y1 = x01 + (x11 - x01) * v;
-    return y0 + (y1 - y0) * w;
+    let out = 0;
+    const u = fade(fx), v = fade(fy), w = fade(fz);
+    for (let c = 0; c < 8; c++) {
+      const dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
+      const gi = ((((X + dx) % P) * MAXP + ((Y + dy) % P)) * MAXP + ((Z + dz) % P)) * 3;
+      const dot = grads[gi] * (fx - dx) + grads[gi + 1] * (fy - dy) + grads[gi + 2] * (fz - dz);
+      out += dot * (dx ? u : 1 - u) * (dy ? v : 1 - v) * (dz ? w : 1 - w);
+    }
+    return out;
   };
   const data = new Uint8Array(N * N * N);
   for (let z = 0; z < N; z++)
     for (let y = 0; y < N; y++)
       for (let x = 0; x < N; x++) {
-        let sum = 0, amp = 0.5, norm = 0;
-        for (let o = 0; o < 3; o++) {
-          const per = P << o, f = per / N;
-          sum += amp * vnoise(x * f, y * f, z * f, per, o * P * P * P);
+        let sum = 0, amp = 1, norm = 0;
+        for (let o = 0; o < 4; o++) {
+          const P = 4 << o; // lattice cells across the tile: 4, 8, 16, 32
+          sum += amp * perlin((x / N) * P, (y / N) * P, (z / N) * P, P);
           norm += amp;
           amp *= 0.5;
         }
-        data[(z * N + y) * N + x] = Math.round((sum / norm) * 255);
+        data[(z * N + y) * N + x] = Math.max(0, Math.min(255, Math.round((0.5 + (0.9 * sum) / norm) * 255)));
       }
   const tex = new THREE.Data3DTexture(data, N, N, N);
   tex.format = THREE.RedFormat;
@@ -262,49 +284,78 @@ function detailTexture() {
   return tex;
 }
 
+// The volume is a CORRIDOR: gas fills a tube of radius volRadius around the flight path, on an even
+// grid, fading out at the tube's wall; the sky shows beyond it, the way the plates and the cage
+// frame the flight. Two wider-reaching grids were tried first and both failed in the same way: a
+// fixed number of cells stretched over a huge (or infinite) extent made far cells enormous, and the
+// far gas smeared into streaks pointing at the vanishing point.
+function corridorSlice(loc, n, oct, units) {
+  const f = nebulaFieldGpu(loc, n, n, oct, units);
+  if (!f) throw new Error('nebula3d volume needs WebGL2');
+  return f;
+}
+
+// Lighting: each sample looks up the density a little way toward a light ahead
+// and above; lit gas shows as the palette colour, gas in its own shadow lets the sky through --
+// the approved Blender look (lit luminance -> alpha -> gradient), so no colour leaves the palette.
 const MARCH_FRAG = /* glsl */ `
   precision highp sampler3D;
   varying vec2 vUv;
   uniform sampler3D uVol;
-  uniform sampler3D uDetail;
   uniform vec2 uTan;      // tan(fov/2) * aspect, tan(fov/2)
   uniform float uCamZ;
   uniform float uL;
-  uniform float uR;
+  uniform float uR;       // corridor radius, world units
   uniform int uSteps;
   uniform float uSigma;
-  uniform float uDetailAmt;
-  uniform float uDetailFreq;
   uniform float uStrength;
   uniform float uJitter;
   uniform vec2 uContrast;
+  uniform vec3 uLight;    // toward the light: x right, y up, z ahead
+  uniform float uLightStep;
+  uniform float uShadow;  // extinction toward the light
+  uniform float uAmbient; // how much shadowed gas still shows
+  uniform float uFar;
+  uniform vec2 uNear;     // gas fades in over this range of distance from the camera
+  uniform sampler3D uDetail;
+  uniform float uDetailAmt;
+  uniform vec3 uDetailFreq; // tiles per world unit: lateral, lateral, along the loop (whole tiles per L)
   SPACE_GLSL_HERE
+  float dens(vec2 lat, float zw) {
+    float wall = 1.0 - smoothstep(0.7, 1.0, length(lat) / uR);
+    if (wall <= 0.0) return 0.0;
+    vec3 g = vec3(0.5 + 0.5 * lat.x / uR, 0.5 - 0.5 * lat.y / uR, mod(zw, uL) / uL);
+    float b = texture(uVol, g).r * wall;
+    float det = texture(uDetail, vec3(lat, mod(zw, uL)) * uDetailFreq).r;
+    // erode: detail pushes the field up and down around its own value, most at the edges
+    b += uDetailAmt * (det - 0.5) * (1.0 - 0.6 * b);
+    return smoothstep(uContrast.x, uContrast.y, b);
+  }
   void main() {
-    vec2 ndc = vUv * 2.0 - 1.0;
-    vec2 ray = ndc * uTan;
-    float T = 1.0;
-    float tPrev = 1.5;
-    // exponential steps from 1.5 to 400: fine near the camera, coarse where the warp has shrunk it
-    for (int i = 0; i < 128; i++) {
+    vec2 ray = (vUv * 2.0 - 1.0) * uTan;
+    float T = 1.0, A = 0.0, tPrev = 2.0;
+    // Per-pixel offset of the sample depths (interleaved gradient noise). With every pixel sampling
+    // the same depths, sharp cloud edges showed the steps as evenly spaced ridges along each ray.
+    float jit = uJitter < 0.0 ? fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) : uJitter;
+    for (int i = 0; i < 160; i++) {
       if (i >= uSteps || T < 0.01) break;
-      float f = (float(i) + uJitter) / float(uSteps);
-      float t = 1.5 * pow(400.0 / 1.5, f);
+      float t = 2.0 * pow(uFar / 2.0, (float(i) + jit) / float(uSteps));
       float dt = t - tPrev; tPrev = t;
-      vec2 lat = ray * t / warpW(t); // the real lateral position this pixel shows at depth t
-      vec2 g = lat / (2.0 * uR) + 0.5;
-      float edgeFade = smoothstep(0.0, 0.08, g.x) * smoothstep(1.0, 0.92, g.x) * smoothstep(0.0, 0.08, g.y) * smoothstep(1.0, 0.92, g.y);
-      if (edgeFade <= 0.0) continue;
-      float z = mod(uCamZ + t, uL);
-      float d = texture(uVol, vec3(g, z / uL)).r;
-      if (d <= 0.004) continue;
-      float det = texture(uDetail, vec3(lat.x, lat.y, uCamZ + t) * uDetailFreq).r;
-      d = clamp(d - uDetailAmt * det * (1.0 - d), 0.0, 1.0);
-      d = smoothstep(uContrast.x, uContrast.y, d);
-      d *= edgeFade * smoothstep(2.0, 25.0, t) * haze(t);
+      vec2 lat = ray * t;
+      float zw = uCamZ + t;
+      float d = dens(lat, zw);
+      if (d <= 0.003) continue;
+      d *= smoothstep(uNear.x, uNear.y, t) * haze(t);
       float a = 1.0 - exp(-d * uSigma * dt);
+      // two looks toward the light
+      vec3 l1 = vec3(lat, zw) + uLight * uLightStep;
+      vec3 l2 = vec3(lat, zw) + uLight * uLightStep * 3.0;
+      float occ = dens(l1.xy, l1.z) + 2.0 * dens(l2.xy, l2.z);
+      float lit = exp(-uShadow * occ);
+      A += T * a * mix(uAmbient, 1.0, lit);
       T *= 1.0 - a;
     }
-    float A = (1.0 - T) * uStrength;
+    A *= uStrength;
     gl_FragColor = vec4(A, A, A, A);
   }
 `;
@@ -312,18 +363,21 @@ const MARCH_FRAG = /* glsl */ `
 function buildVolume({ seed, plan, L, frameH, space }) {
   const loc = placement(seed, plan.cover);
   const s = UNITS_PER_SHORT_EDGE / frameH;
-  const R = NEB3D.volRadius, NX = NEB3D.volLateral;
+  const NX = NEB3D.volLateral, R = NEB3D.volRadius;
   const NZ = Math.max(32, Math.round(L / NEB3D.volStep));
-  const units = 2 * R * s;
   const seam = 0.2; // the last 20% of the loop crossfades into the slices before its start
   const t0 = performance.now();
   const vol = new Float32Array(NX * NX * NZ);
   for (let k = 0; k < NZ; k++) {
     const z = (k / NZ) * L;
-    let f = field([loc[0], loc[1] + z * s, loc[2]], NX, NX, 6, units);
+    // depth runs slower through the field than the lateral axes (volStretch): the recipe's strong
+    // domain warp makes it change fast along every axis, and slices this far apart were otherwise
+    // nearly unrelated, which their blend showed as rows of 'scales'
+    const sz = s / NEB3D.volStretch;
+    let f = corridorSlice([loc[0], loc[1] + z * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s);
     const w = smooth(L * (1 - seam), L, z);
     if (w > 0) {
-      const g = field([loc[0], loc[1] + (z - L) * s, loc[2]], NX, NX, 6, units);
+      const g = corridorSlice([loc[0], loc[1] + (z - L) * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s);
       f = f.map((v, i) => v + (g[i] - v) * w);
     }
     vol.set(f, k * NX * NX);
@@ -343,27 +397,32 @@ function buildVolume({ seed, plan, L, frameH, space }) {
 
   const uniforms = {
     uVol: { value: tex },
-    uDetail: { value: detailTexture() },
     uTan: { value: new THREE.Vector2(1, 1) },
     uCamZ: { value: 0 },
     uL: { value: L },
     uR: { value: R },
     uSteps: { value: NEB3D.volSteps },
     uSigma: { value: NEB3D.volSigma },
-    uDetailAmt: { value: NEB3D.volDetail },
-    // a whole number of detail tiles per loop, so the detail is periodic in L like everything else
-    uDetailFreq: { value: Math.max(1, Math.round(L * NEB3D.volDetailFreq)) / L },
     uStrength: { value: plan.strength },
-    uJitter: { value: 0.5 },
-    uContrast: { value: new THREE.Vector2(...NEB3D.volContrast) }
+    uJitter: { value: NEB3D.volJitter ? -1 : 0.5 },
+    uContrast: { value: new THREE.Vector2(...NEB3D.volContrast) },
+    uLight: { value: new THREE.Vector3(...NEB3D.volLight).normalize() },
+    uLightStep: { value: NEB3D.volLightStep },
+    uShadow: { value: NEB3D.volShadow },
+    uAmbient: { value: NEB3D.volAmbient },
+    uFar: { value: NEB3D.volFar },
+    uNear: { value: new THREE.Vector2(...NEB3D.volNear) },
+    uDetail: { value: detailTexture() },
+    uDetailAmt: { value: NEB3D.volDetail },
+    uDetailFreq: { value: new THREE.Vector3(1 / NEB3D.volDetailSize, 1 / NEB3D.volDetailSize, Math.max(1, Math.round(L / NEB3D.volDetailSize)) / L) }
   };
   const mat = space.passMaterial(MARCH_FRAG.replace('SPACE_GLSL_HERE', space.SPACE_GLSL), uniforms);
   const scene = new THREE.Scene();
   scene.add(space.screenQuad(mat));
   let low = null;
-  const upU = { uSrc: { value: null } };
+  const upU = { uSrc: { value: null }, uTexel: { value: new THREE.Vector2() } };
   const upScene = new THREE.Scene();
-  upScene.add(space.screenQuad(space.passMaterial('varying vec2 vUv; uniform sampler2D uSrc; void main() { gl_FragColor = texture2D(uSrc, vUv); }', upU)));
+  upScene.add(space.screenQuad(space.passMaterial('varying vec2 vUv; uniform sampler2D uSrc; uniform vec2 uTexel; void main() { vec4 c = texture2D(uSrc, vUv) * 0.4; c += (texture2D(uSrc, vUv + vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv - vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv + vec2(0.0, uTexel.y)) + texture2D(uSrc, vUv - vec2(0.0, uTexel.y))) * 0.15; gl_FragColor = c; }', upU)));
   return {
     bakeMs,
     update(camZ) {
@@ -379,6 +438,7 @@ function buildVolume({ seed, plan, L, frameH, space }) {
       renderer.setRenderTarget(low);
       renderer.render(scene, space.orthoCam);
       upU.uSrc.value = low.texture;
+      upU.uTexel.value.set(1 / w, 1 / h);
       renderer.setRenderTarget(target);
       renderer.render(upScene, space.orthoCam);
     },
@@ -413,11 +473,13 @@ const NEB_COMP_FRAG = /* glsl */ `
   uniform sampler2D uPool;
   uniform float uPools;
   uniform float uPoolGain;
+  uniform float uDebug;
   GRADIENT_FN_HERE
   void main() {
     vec3 cb = texture2D(uBack, vUv).rgb;
     float a = texture2D(uLayer, vUv).a;
     if (uPools > 0.0) a = max(a, min(1.0, texture2D(uPool, vUv).a * uPoolGain) * uPools);
+    if (uDebug > 0.5) { gl_FragColor = vec4(vec3(clamp(a, 0.0, 1.0)), 1.0); return; }
     gl_FragColor = vec4(mix(cb, gradientAt(vUv), clamp(a, 0.0, 1.0)), 1.0);
   }
 `;
@@ -442,12 +504,14 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
     uLayer: { value: layer.texture },
     uPool: { value: poolB.texture },
     uPools: { value: own ? NEB3D.pools : 0 },
-    uPoolGain: { value: NEB3D.poolGain }
+    uPoolGain: { value: NEB3D.poolGain },
+    uDebug: { value: NEB3D.debugView ? 1 : 0 }
   };
   const compScene = new THREE.Scene();
   compScene.add(space.screenQuad(space.passMaterial(NEB_COMP_FRAG.replace('GRADIENT_FN_HERE', gradientFn), compU)));
   return {
     mode,
+    debugOnly: NEB3D.debugView,
     bakeMs: neb.bakeMs ?? 0,
     update: neb.update,
     // Draws the nebula onto `back` (the frame so far), writing the result into `out`.
