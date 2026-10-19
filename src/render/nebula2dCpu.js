@@ -1,9 +1,13 @@
-// LAB (branch nebula-gpu-lab): the 2D nebula recipe on the CPU, written for speed -- the same math
-// as nebulaGpu.js's NEB2D_FS, statement for statement, so a print rendered without a GPU matches
-// the studio's GPU render (checked: see the lab notes). No allocation in the hot path.
-// Returns sRGB luminance per pixel, row 0 at the top, for a design placed at `loc`.
+// The 2D nebula recipe on the CPU, written for speed -- the same math as nebulaGpu.js's shader,
+// statement for statement, so a print rendered without a GPU (render-service, or a browser with no
+// WebGL2) matches the studio's GPU render to within ~1.3/255. No allocation in the hot path.
+// Returns sRGB luminance per pixel, row 0 at the top, for a design placed at `loc`. render/nebula.js
+// owns everything around it (placement, tone curve, colour); this file is only the field.
+// It is also deliberately the ONLY renderer used to pick a design's placement, so that choice is
+// exact JS arithmetic everywhere and can never differ between a GPU mockup and a CPU print.
 
-const OFF = [[186.03127584467438, 114.9559537682114, 154.44750347045425], [199.8400018782914, 162.2925926843408, 154.048234399885], [111.63384265071569, 157.36939531224067, 199.0881114730351], [165.44527757573996, 162.76821379148592, 193.4084041028769], [155.58091529076475, 177.15463090621742, 138.140034568063]].map((o) => o.map((v) => Math.fround(v)));
+export const NOISE_OFFSETS = [[186.03127584467438, 114.9559537682114, 154.44750347045425], [199.8400018782914, 162.2925926843408, 154.048234399885], [111.63384265071569, 157.36939531224067, 199.0881114730351], [165.44527757573996, 162.76821379148592, 193.4084041028769], [155.58091529076475, 177.15463090621742, 138.140034568063]].map((o) => o.map((v) => Math.fround(v)));
+const OFF = NOISE_OFFSETS;
 
 // Lattice hash: a classic shuffled permutation table (Perlin's own scheme) rather than Blender's
 // Jenkins mix -- about 2.4x faster per noise on a CPU. The GPU shader uses the SAME table, so the
@@ -69,7 +73,6 @@ function curveS(x) {
 const srgb = (c) => { c = clamp01(c); return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; };
 
 export const UNITS_PER_SHORT_EDGE = 0.81;
-export function octavesFor(w, h) { return Math.max(6, Math.min(12, Math.round(Math.log2(Math.max(w, h)) + 0.5))); }
 
 /** Rows y0..y1 of a w x h nebula into out (Float32Array of (y1-y0)*w). */
 export function nebula2dRows(loc, w, h, oct, y0, y1, out, { warpOct = Math.min(oct, 6), fineOct = Math.min(oct, 6) } = {}) {

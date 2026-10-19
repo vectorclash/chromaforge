@@ -48,7 +48,7 @@ const LAUNCH = { args: ['--enable-gpu', '--use-angle=metal', '--ignore-gpu-block
 
 // Runs in the page before any of its scripts.
 function instrument({ origin, failEncoderAt }) {
-  const S = (window.__leak = { made: 0, lost: 0, raf: 0, floatUploads: 0 });
+  const S = (window.__leak = { made: 0, lost: 0, nebula: 0, raf: 0, floatUploads: 0 });
 
   // Each 3D scene build uploads its plate data as two FLOAT textures, so counting those shows
   // a rebuild happened without assuming it makes a new context (it does not: the preview keeps
@@ -71,6 +71,9 @@ function instrument({ origin, failEncoderAt }) {
     const ctx = getContext.call(this, type, ...rest);
     if (ctx && /webgl/.test(type) && !seen.has(ctx)) {
       seen.add(ctx);
+      // The nebula keeps ONE context for the whole visit by design (render/nebulaGpu.js), so it
+      // is counted on its own: it must never be more than one, and is left out of `made`.
+      if (this.dataset && this.dataset.nebula) { S.nebula++; return ctx; }
       S.made++;
       this.addEventListener('webglcontextlost', () => S.lost++);
     }
@@ -205,8 +208,9 @@ async function homepage(browser, base) {
   const after = await page.evaluate(() => window.__leak.listeners());
   check(total(after) <= total(before), `homepage: listeners flat across ${GENERATES - 1} more Generates`, grew(before, after) || `${total(after)} listeners`);
 
-  const gl = await page.evaluate(() => ({ made: window.__leak.made, lost: window.__leak.lost }));
+  const gl = await page.evaluate(() => ({ made: window.__leak.made, lost: window.__leak.lost, nebula: window.__leak.nebula }));
   check(gl.made - gl.lost <= 1, 'homepage: at most one live WebGL context', `made ${gl.made}, lost ${gl.lost}`);
+  check(gl.nebula >= 1 && gl.nebula <= 1, 'homepage: the nebula made exactly one WebGL context', `${gl.nebula} nebula contexts`);
 
   // Navigation: home -> shop -> product -> home.
   const navBefore = await page.evaluate(() => window.__leak.listeners());

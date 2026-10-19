@@ -742,6 +742,24 @@ the actual print, generated the same deterministic way.
   pause the store for the whole deploy (the mismatch check is a strict equality, so either
   ordering fails live checkout until both sides match).
 
+- **The NEBULA replaces the radial field on every design -- `GENERATOR_VERSION = 15`
+  (built 2026-10-19 on branch `nebula-gpu-lab`, NOT merged or deployed).** `render/nebula.js`
+  owns it; `nebulaGpu.js` (WebGL2, studio) and `nebula2dCpu.js` (CPU: render-service and any
+  browser without WebGL2) are the same field to within 1/255. The radial field is still
+  GENERATED (its rng draws sit upstream of the geometry coin) and just never drawn.
+  `config.nebulaConfig` comes from side streams only. Four things worth not re-deriving:
+  (1) the field renders at a FIXED PIXEL AREA (`NEBULA_PIXELS`, 960x540 worth) and is upscaled,
+  so mockup and print get the identical field -- verified: the t-shirt's capped mockup and true
+  printfile, and the shorts sheet's, resolve to the same render size; (2) placement is a re-roll
+  loop of hard comparisons, so it is ALWAYS picked on the CPU, or GPU/CPU rounding could choose
+  a different nebula for the print than the mockup showed; (3) `check-render-regression.mjs`
+  compares configs and is blind to the nebula's pixels -- it passed 142/142 with 0 geometry
+  moved, which proves the rng discipline, not the look; (4) the nebula keeps ONE WebGL context
+  for the visit (`data-nebula` on its canvas), which `check-leaks.mjs` counts separately.
+  Cost: ~35-230ms per render on the GPU (placement included), ~2.5s on the CPU, so render-service
+  checkouts get ~2.5s slower per placement -- unmeasured on Fly. Deploy needs the full v14-style
+  sequence: paused store, render-service first, thumbnail backfill with no filter. The 3D flight
+  still builds its colour volumes from the radial field.
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was

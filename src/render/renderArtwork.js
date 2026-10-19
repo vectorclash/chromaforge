@@ -7,10 +7,9 @@
 // take an `images` argument carrying the two star PNGs through a createjs LoadQueue.
 
 import LinearGradient from '../components/Canvas/LinearGradient';
-import LargeRadialField from '../components/Canvas/LargeRadialField';
 import StarField from '../components/Canvas/StarField';
 import GeometricShape from '../components/Canvas/GeometricShape';
-import { nebulaLabOn, nebulaLayers, nebulaTreatment, NEBULA_LAB } from './nebulaGpu';
+import { drawNebula } from './nebula';
 
 function clearElement(el) {
   el.width = 0;
@@ -44,29 +43,10 @@ export default function renderArtwork(config) {
   ctx.drawImage(gradientBackground, 0, 0);
   clearElement(gradientBackground);
 
-  // LAB (branch nebula-gpu-lab, dev only): the GPU nebula replaces the radial field. Dust darkens
-  // the sky here; the gas goes on later, above the geometry and under the stars.
-  let nebula = null;
-  if (nebulaLabOn() && config.seed) {
-    try { nebula = nebulaLayers(config); } catch (err) { console.warn('[nebula lab]', err); }
-  }
-  // a design whose nebula amount is 'none' still replaces the radial field -- with nothing
-  if (nebula && nebula.none) nebula = { gas: null, dust: null, none: true };
-  const nebulaT = nebula ? nebulaTreatment() : null;
-  if (nebula && nebula.dust) ctx.drawImage(nebula.dust, 0, 0);
-  if (nebula && nebula.gas && NEBULA_LAB.view) { // lab: show one raw layer over black
-    ctx.fillStyle = NEBULA_LAB.view === 'dust' ? '#fff' : '#000';
-    ctx.fillRect(0, 0, config.width, config.height);
-    if (NEBULA_LAB.view !== 'dust' || nebula.dust) ctx.drawImage(NEBULA_LAB.view === 'dust' ? nebula.dust : nebula.gas, 0, 0);
-    return canvas;
-  }
-
-  if (config.radialFieldConfig && !nebula) {
-    ctx.globalCompositeOperation = config.firstBlend;
-    const radialField = LargeRadialField(config.radialFieldConfig);
-    ctx.drawImage(radialField, 0, 0);
-    clearElement(radialField);
-  }
+  // The nebula, in the slot the radial gradient field used to occupy (GENERATOR_VERSION 15 -- see
+  // render/nebula.js). The radial field is still generated, so the shared rng sequence is
+  // untouched, but it is never drawn. A design whose nebula tier is 'none' gets nothing here.
+  drawNebula(ctx, config);
 
   // config.starsOnTop (a design SETTING -- see designSettings.js -- unlike mirrorX above,
   // which is per-render context) swaps these two layers' compositing order. The default
@@ -97,35 +77,12 @@ export default function renderArtwork(config) {
     clearElement(geometry);
   };
 
-  // LAB: the gas, tinted by the star field's own gradient, drawn with the mode's treatment
-  const drawNebulaGas = () => {
-    if (!nebula || !nebula.gas) return;
-    const tinted = document.createElement('canvas');
-    tinted.width = config.width;
-    tinted.height = config.height;
-    const tx = tinted.getContext('2d');
-    tx.drawImage(nebula.gas, 0, 0);
-    if (nebula.tint !== false) { // styles that carry their own colours skip the star-gradient fill
-      tx.globalCompositeOperation = 'source-in';
-      tx.drawImage(LinearGradient(nebula.colour?.gradient || config.starFieldConfig.gradientConfig), 0, 0);
-    }
-    ctx.globalCompositeOperation = nebulaT.blend;
-    ctx.globalAlpha = nebulaT.gasAlpha;
-    ctx.drawImage(tinted, 0, 0);
-    ctx.globalAlpha = 1;
-    clearElement(tinted);
-  };
-
-  const gasOnTop = nebulaT && nebulaT.place === 'top';
-  if (nebulaT && !gasOnTop) drawNebulaGas(); // the radial field's slot
   if (config.starsOnTop) {
     drawGeometry();
-    if (gasOnTop) drawNebulaGas();
     drawStars();
   } else {
     drawStars();
     drawGeometry();
-    if (gasOnTop) drawNebulaGas();
   }
 
   if (config.overlayConfig) {

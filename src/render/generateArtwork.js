@@ -11,6 +11,7 @@ import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import { makeRng, randomSeed, expandMonochromePalette, meanLuminance, BRIGHT_BACKDROP } from './prng';
 import { getGeometrySettings, getGeometryPresence, compactSettings } from './designSettings';
+import { generateNebula } from './nebula';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
 // seed, so old designs can be detected and (re)rendered with matching behaviour.
@@ -208,7 +209,20 @@ import { getGeometrySettings, getGeometryPresence, compactSettings } from './des
 // Operationally: redeploy render-service, re-run backfill-thumbnails.mjs with NO
 // --generator-version filter, and pause the store for the window -- the mismatch check is a
 // strict equality, so EITHER deploy order fails live checkout until both sides match.
-export const GENERATOR_VERSION = 14;
+//
+// v15 (2026-10-19) -- THE NEBULA REPLACES THE RADIAL FIELD, on every design, old ones included
+// (Aaron's call: he never liked the radial blobs). See render/nebula.js for the layer itself.
+// config.nebulaConfig is computed from SIDE STREAMS only (`${seed}-nebula-*`), and the radial
+// field is still GENERATED -- radialChance, firstBlend and every blob's draws -- and simply never
+// drawn. Deleting it would remove draws upstream of geometryChance and re-roll every stored
+// design's geometry coin, the 2026-08-02 incident. So geometry, stars, overlay and every blend roll
+// are byte-identical; only the radial field's pixels are replaced by the nebula's.
+// check-render-regression.mjs is EXPECTED to report the background change on every design that
+// had a radial field or now gets a nebula; it must still report 0 geometry gained or lost.
+// Operationally: redeploy render-service (it must have the CPU nebula), re-run
+// backfill-thumbnails.mjs with NO --generator-version filter, and pause the store for the window
+// -- the mismatch check is a strict equality, so EITHER deploy order fails live checkout.
+export const GENERATOR_VERSION = 15;
 
 const BLEND_MODES = [
   'screen',
@@ -363,6 +377,11 @@ export function generateArtwork(
     rng
   );
 
+  // Pure: side streams only, so it moves nothing in the shared sequence (see the v15 note).
+  config.nebulaConfig = generateNebula(config);
+
+  // Still generated, never drawn (v15): the nebula took its slot, but these draws are upstream of
+  // the geometry coin and must stay exactly where they are.
   let radialChance = rng();
 
   if (radialChance > 0.4) {
