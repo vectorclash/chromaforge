@@ -760,6 +760,12 @@ the actual print, generated the same deterministic way.
   checkouts get ~2.5s slower per placement -- unmeasured on Fly. Deploy needs the full v14-style
   sequence: paused store, render-service first, thumbnail backfill with no filter. The 3D flight
   still builds its colour volumes from the radial field.
+  **Nebula colour is a user setting, not a roll** (`settings.geometry.nebulaLinked`, default
+  false = own gradient + colour pools; true = the star field's gradient). It sits in the studio
+  tab renamed **Layers** (was Geometry; state key still `'geometry'`), after a group rule, with
+  Stars in front. It makes that tab scroll at 390x664 (37px hidden) where it used to fit.
+  Amount tiers: faint strength 0.35-0.55, medium 0.60-0.85 (raised so they don't vanish under
+  geometry).
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was

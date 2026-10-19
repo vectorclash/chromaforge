@@ -436,7 +436,16 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // Hence no GENERATOR_VERSION bump. Unlike mirrorX/legSymmetry (render context, per-order)
   // this IS part of a design's identity: it changes how the design itself reads, so it is
   // persisted and compared by isSameDesign.
-  starsOnTop: false
+  starsOnTop: false,
+  // Whether the nebula (render/nebula.js) takes the STAR FIELD's gradient, so gas and stars read
+  // as one, instead of its own gradient plus colour pools. false (own colours) is the default:
+  // Aaron, 2026-10-19 -- own colours + pools is what "really makes everything pop", but linking
+  // them is a real look worth choosing, so it is the user's call rather than a per-seed roll.
+  // Lives under geometry for the same pragmatic reason as starsOnTop (compactSettings and
+  // isSameSettings iterate this block). Consumes no shared rng(); it is part of a design's
+  // identity, persisted only when true. An absent key on every stored design reads as own
+  // colours, which is intended -- v15 gave every design its nebula at once.
+  nebulaLinked: false
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.
@@ -978,8 +987,10 @@ var NEBULA_PIXELS = 960 * 540;
 var NEBULA_OCTAVES = 9;
 var AMOUNT_TIERS = [
   { name: "none", share: 0.15 },
-  { name: "faint", share: 0.2, cover: [0.1, 0.2], strength: [0.2, 0.4] },
-  { name: "medium", share: 0.4, cover: [0.2, 0.35], strength: [0.45, 0.75] },
+  // Floors raised 2026-10-19 (faint was 0.20-0.40, medium 0.45-0.75): on geometry-heavy designs
+  // those vanished completely, and a nebula nobody can see is the 'none' tier in disguise.
+  { name: "faint", share: 0.2, cover: [0.1, 0.2], strength: [0.35, 0.55] },
+  { name: "medium", share: 0.4, cover: [0.2, 0.35], strength: [0.6, 0.85] },
   { name: "full", share: 0.25, cover: [0.35, 0.55], strength: [0.8, 1] }
 ];
 function nebulaAmount(seed) {
@@ -994,12 +1005,12 @@ function nebulaAmount(seed) {
     }
   }
 }
-var OWN_GRADIENT_SHARE = 0.5;
 var POOL_STRENGTH = 0.6;
-function nebulaColour(config, force = null) {
+function nebulaColour(config, linked) {
   const rng = makeRng(`${config.seed}-nebula-colour`);
-  const u = rng(), angle = rng() * Math.PI * 2, count = 2 + Math.floor(rng() * 4);
-  if ((force || (u < OWN_GRADIENT_SHARE ? "own" : "stars")) === "stars") return { mode: "stars", gradient: null };
+  rng();
+  const angle = rng() * Math.PI * 2, count = 2 + Math.floor(rng() * 4);
+  if (linked) return { mode: "stars", gradient: null };
   const palRng = makeRng(`${config.seed}-nebula-palette`);
   const user = (config.colors || []).filter(Boolean);
   let colors;
@@ -1024,10 +1035,10 @@ function nebulaColour(config, force = null) {
     gradient: { width: W, height: H, colors: [...colors, colors[colors.length - 1]], gradientDirection: { x1: W / 2 - dx, y1: H / 2 - dy, x2: W / 2 + dx, y2: H / 2 + dy } }
   };
 }
-function generateNebula(config) {
+function generateNebula(config, { linked = false } = {}) {
   const amount = nebulaAmount(config.seed);
   if (amount.strength === 0) return { ...amount, colour: null };
-  return { ...amount, colour: nebulaColour(config) };
+  return { ...amount, colour: nebulaColour(config, linked) };
 }
 function fieldCpu(loc, w, h, oct) {
   return nebula2dRows(loc, w, h, oct, 0, h, new Float32Array(w * h));
@@ -1272,7 +1283,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     paletteColors.slice(),
     rng
   );
-  config.nebulaConfig = generateNebula(config);
+  config.nebulaConfig = generateNebula(config, { linked: geometry.nebulaLinked });
   let radialChance = rng();
   if (radialChance > 0.4) {
     config.firstBlend = randomBlendMode(rng);

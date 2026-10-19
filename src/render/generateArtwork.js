@@ -378,7 +378,7 @@ export function generateArtwork(
   );
 
   // Pure: side streams only, so it moves nothing in the shared sequence (see the v15 note).
-  config.nebulaConfig = generateNebula(config);
+  config.nebulaConfig = generateNebula(config, { linked: geometry.nebulaLinked });
 
   // Still generated, never drawn (v15): the nebula took its slot, but these draws are upstream of
   // the geometry coin and must stay exactly where they are.

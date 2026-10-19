@@ -4397,7 +4397,10 @@ export default class DisplayCanvas extends React.Component {
                 className={'settings-tab-btn' + (settingsTab === 'geometry' ? ' active' : '')}
                 onClick={() => this.setState({ settingsTab: 'geometry' }, () => this.animateSettingsTab())}
               >
-                Geometry
+                {/* "Layers", not "Geometry" (Aaron, 2026-10-19): the tab also holds how the layers
+                    stack and colour each other -- Stars in front and Nebula colors. The state key
+                    stays 'geometry' so nothing stored or wired to it moves. */}
+                Layers
               </button>
               <button
                 className={'settings-tab-btn' + (settingsTab === 'video' ? ' active' : '')}
@@ -4701,7 +4704,9 @@ export default class DisplayCanvas extends React.Component {
                     down to 320px, where every OTHER Geometry row already wraps. Sitting
                     among Chance/Points/Coherence/Size/Density, "in front" has only one
                     possible referent; the aria-label spells it out for screen readers. */}
-                <div className="settings-field">
+                {/* settings-group-start: everything above shapes the geometry; Stars in front
+                    and Nebula colors decide how the finished layers stack and colour each other. */}
+                <div className="settings-field settings-group-start">
                   <span className="settings-label">Stars in front</span>
                   <button
                     className={'settings-toggle' + (geometrySettings.starsOnTop ? ' on' : '')}
@@ -4712,6 +4717,37 @@ export default class DisplayCanvas extends React.Component {
                       geometrySettings.starsOnTop
                         ? 'Stars in front of geometry'
                         : 'Stars behind geometry'
+                    }
+                  >
+                    <span className="settings-toggle-thumb" />
+                  </button>
+                </div>
+                {/* On = the nebula takes the star field's gradient, so gas and stars read as one;
+                    off (the default) = its own gradient plus colour pools. A design setting like
+                    Stars in front (settings.geometry.nebulaLinked, render/nebula.js). The note is
+                    a value readout like the rest of this tab, and dashes on a design whose
+                    nebula tier draws nothing, where the toggle genuinely does nothing. */}
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Nebula colors
+                    <span className="settings-label-note">
+                      {' '}
+                      {this.mainConfig?.nebulaConfig?.tier === 'none'
+                        ? '—'
+                        : geometrySettings.nebulaLinked
+                          ? 'match stars'
+                          : 'own'}
+                    </span>
+                  </span>
+                  <button
+                    className={'settings-toggle' + (geometrySettings.nebulaLinked ? ' on' : '')}
+                    onClick={() =>
+                      this.onGeometrySettingChange({ nebulaLinked: !geometrySettings.nebulaLinked })
+                    }
+                    aria-label={
+                      geometrySettings.nebulaLinked
+                        ? 'Nebula uses the star colors'
+                        : 'Nebula uses its own colors'
                     }
                   >
                     <span className="settings-toggle-thumb" />

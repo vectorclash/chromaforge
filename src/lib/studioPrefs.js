@@ -104,7 +104,8 @@ function sanitizeGeometry(geometry) {
     starsOnTop:
       typeof geometry.starsOnTop === 'boolean'
         ? geometry.starsOnTop
-        : STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
+        : STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
+    nebulaLinked: geometry.nebulaLinked === true
   };
 }
 

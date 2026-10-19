@@ -99,7 +99,16 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // Hence no GENERATOR_VERSION bump. Unlike mirrorX/legSymmetry (render context, per-order)
   // this IS part of a design's identity: it changes how the design itself reads, so it is
   // persisted and compared by isSameDesign.
-  starsOnTop: false
+  starsOnTop: false,
+  // Whether the nebula (render/nebula.js) takes the STAR FIELD's gradient, so gas and stars read
+  // as one, instead of its own gradient plus colour pools. false (own colours) is the default:
+  // Aaron, 2026-10-19 -- own colours + pools is what "really makes everything pop", but linking
+  // them is a real look worth choosing, so it is the user's call rather than a per-seed roll.
+  // Lives under geometry for the same pragmatic reason as starsOnTop (compactSettings and
+  // isSameSettings iterate this block). Consumes no shared rng(); it is part of a design's
+  // identity, persisted only when true. An absent key on every stored design reads as own
+  // colours, which is intended -- v15 gave every design its nebula at once.
+  nebulaLinked: false
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.

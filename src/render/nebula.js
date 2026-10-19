@@ -46,8 +46,10 @@ export const NEBULA_OCTAVES = 9;
 // strength, so the nebula needs that range too. Always three draws, whatever the tier.
 export const AMOUNT_TIERS = [
   { name: 'none', share: 0.15 },
-  { name: 'faint', share: 0.2, cover: [0.1, 0.2], strength: [0.2, 0.4] },
-  { name: 'medium', share: 0.4, cover: [0.2, 0.35], strength: [0.45, 0.75] },
+  // Floors raised 2026-10-19 (faint was 0.20-0.40, medium 0.45-0.75): on geometry-heavy designs
+  // those vanished completely, and a nebula nobody can see is the 'none' tier in disguise.
+  { name: 'faint', share: 0.2, cover: [0.1, 0.2], strength: [0.35, 0.55] },
+  { name: 'medium', share: 0.4, cover: [0.2, 0.35], strength: [0.6, 0.85] },
   { name: 'full', share: 0.25, cover: [0.35, 0.55], strength: [0.8, 1.0] }
 ];
 function nebulaAmount(seed) {
@@ -63,21 +65,23 @@ function nebulaAmount(seed) {
   }
 }
 
-// The nebula's colours. Either the star field's own gradient (gas and stars read as one, which is
-// what the first nebula rounds were built around) or a gradient of its OWN -- the radial field gave
-// every blob its own random palette on auto-palette designs and that was much of their colour; own
-// gradients plus colour pools are what Aaron picked as making "everything pop" (2026-10-18).
+// The nebula's colours. Either a gradient of its OWN plus colour pools (the default -- the radial
+// field gave every blob its own random palette on auto-palette designs and that was much of their
+// colour; own gradients plus pools are what Aaron picked as making "everything pop", 2026-10-18), or
+// the star field's gradient so gas and stars read as one. Which one is the design setting
+// settings.geometry.nebulaLinked (the studio's Color tab), not a roll.
 // Own: the user's palette from a new starting stop if there is one, else hues centred opposite the
 // background's mean hue, sweeping 120-220deg, so the nebula adds colours the design lacks.
-export const OWN_GRADIENT_SHARE = 0.5;
 // Colour pools: a heavily blurred copy of the gas laid under it as a broad glow (own gradient only),
 // so the nebula puts down colour the way the radial blobs did, but shaped by the nebula.
 const POOL_STRENGTH = 0.6;
-// `force` ('own' | 'stars') overrides the roll -- for comparison pages only, never the app.
-export function nebulaColour(config, force = null) {
+export function nebulaColour(config, linked) {
   const rng = makeRng(`${config.seed}-nebula-colour`);
-  const u = rng(), angle = rng() * Math.PI * 2, count = 2 + Math.floor(rng() * 4);
-  if ((force || (u < OWN_GRADIENT_SHARE ? 'own' : 'stars')) === 'stars') return { mode: 'stars', gradient: null };
+  // The first draw used to roll own vs stars. It is still taken so the angle and palette size
+  // that follow are the ones the approved comparison pages showed.
+  rng();
+  const angle = rng() * Math.PI * 2, count = 2 + Math.floor(rng() * 4);
+  if (linked) return { mode: 'stars', gradient: null };
   const palRng = makeRng(`${config.seed}-nebula-palette`);
   const user = (config.colors || []).filter(Boolean);
   let colors;
@@ -101,10 +105,10 @@ export function nebulaColour(config, force = null) {
 }
 
 /** Pure: the design's nebula plan, for config.nebulaConfig. No shared-rng draws. */
-export function generateNebula(config) {
+export function generateNebula(config, { linked = false } = {}) {
   const amount = nebulaAmount(config.seed);
   if (amount.strength === 0) return { ...amount, colour: null };
-  return { ...amount, colour: nebulaColour(config) };
+  return { ...amount, colour: nebulaColour(config, linked) };
 }
 
 // ---- rendering ----
