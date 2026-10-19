@@ -3882,10 +3882,12 @@ actually change.
 (7) **The active-chip highlight lags a jscolor edit by the 350ms debounce**, because
 `onColorSwatchEdit` reads the inputs back into state there rather than on every input event.
 Known and left alone: it settles on its own and only drives a highlight.
-**CLEAR went full-width** (`button-medium`) now the strip has taken its partner. It stays a real
-button rather than being demoted to a link: an empty palette is the auto-palette mode the
-generator picks its own colours in, i.e. the counterpart to the strip beside it, not merely a
-destructive action.
+**CLEAR is gone; the strip's first chip is "Auto"** (2026-10-19, Aaron: the big button felt odd
+sitting between things). An empty palette is the mode where the generator picks its own colours,
+i.e. one more palette, so it is a chip (`onAuto`, lit when the palette is empty, the label note
+reads "Auto") rather than a destructive-looking button. Gave the Color tab back 70px: it now fits
+a 390x664 phone with six colours. The Video tab's three toggles lost their prose notes to hover
+hints the same day -- in this panel a note is a value readout, and a toggle is its own value.
 Verified live on the production build in Chromium and WebKit at 1280/390/360/320: palettes apply
 and regenerate the artwork, `aria-pressed` tracks the live palette, zero console errors, zero
 horizontal page overflow.
