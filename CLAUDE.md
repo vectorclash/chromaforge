@@ -761,9 +761,10 @@ the actual print, generated the same deterministic way.
   sequence: paused store, render-service first, thumbnail backfill with no filter. The 3D flight
   still builds its colour volumes from the radial field.
   **Nebula colour is a user setting, not a roll** (`settings.geometry.nebulaLinked`, default
-  false = own gradient + colour pools; true = the star field's gradient). It sits in the studio
-  tab renamed **Layers** (was Geometry; state key still `'geometry'`), after a group rule, with
-  Stars in front. It makes that tab scroll at 390x664 (37px hidden) where it used to fit.
+  false = own gradient + colour pools; true = the star field's gradient). It is the last row of
+  the studio's Color tab. A renamed "Layers" tab grouping it with Stars in front was built and
+  compared first and dropped: it scrolled at 390x664 for everyone (37px hidden), where the
+  Color tab only scrolls there with all six palette colours (13px).
   Amount tiers: faint strength 0.35-0.55, medium 0.60-0.85 (raised so they don't vanish under
   geometry).
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
