@@ -3888,6 +3888,10 @@ i.e. one more palette, so it is a chip (`onAuto`, lit when the palette is empty,
 reads "Auto") rather than a destructive-looking button. Gave the Color tab back 70px: it now fits
 a 390x664 phone with six colours. The Video tab's three toggles lost their prose notes to hover
 hints the same day -- in this panel a note is a value readout, and a toggle is its own value.
+The Video tab is now labelled **Animation** (state key still `'video'`), matching the main panel's
+Image / Animation tabs. The longer label overflowed the strip at 360 (13px) and 320 (53px, past
+the panel), so below 480px the tabs use `padding: 0 10px` and 1px letter-spacing: 223px wide,
+fitting 320 with 17px spare in Chromium and WebKit. Desktop metrics are unchanged.
 Verified live on the production build in Chromium and WebKit at 1280/390/360/320: palettes apply
 and regenerate the artwork, `aria-pressed` tracks the live palette, zero console errors, zero
 horizontal page overflow.

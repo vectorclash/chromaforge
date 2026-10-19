@@ -1543,7 +1543,7 @@
   }
 }
 
-/* Settings tabs (Color / Video) */
+/* Settings tabs (Color / Geometry / Animation) */
 .display-canvas .controls-inner .settings-tabs {
   display: flex;
   width: 100%;
@@ -1568,6 +1568,16 @@
   cursor: pointer;
   mix-blend-mode: normal;
   transition: color 0.2s ease, border-color 0.2s ease;
+}
+/* Narrow phones: "Animation" (renamed from "Video", 2026-10-19) made the three labels 293px wide
+   against a 280px strip at 360 and 240px at 320, running past the panel there. Tighter spacing
+   and padding below 480px brings them to ~223px, fitting 320 with room to spare; wider screens
+   are untouched. This is the fix CLAUDE.md recorded in advance for a fourth tab. */
+@media (max-width: 480px) {
+  .display-canvas .controls-inner .settings-tab-btn {
+    padding: 0 10px;
+    letter-spacing: 1px;
+  }
 }
 .display-canvas .controls-inner .settings-tab-btn.active {
   color: var(--color-text);

@@ -4403,7 +4403,9 @@ export default class DisplayCanvas extends React.Component {
                 className={'settings-tab-btn' + (settingsTab === 'video' ? ' active' : '')}
                 onClick={() => this.setState({ settingsTab: 'video' }, () => this.animateSettingsTab())}
               >
-                Video
+                {/* "Animation", matching the main panel's Image / Animation tabs (2026-10-19).
+                    The state key stays 'video'. */}
+                Animation
               </button>
             </div>
 
