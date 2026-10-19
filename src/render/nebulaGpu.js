@@ -55,6 +55,11 @@ vec3 warped(vec3 v, float scale, float distortion) {
   return p;
 }
 uniform vec2 uRes; uniform vec3 uLoc; uniform float uK; uniform int uOct;
+// Offsets the two terms the recipe anchors to the VIEW (the slow rim glow and the fine grain). Zero
+// for the 2D layer, where the nebula is one picture and adding zero changes nothing. The 3D flight's
+// lab passes each slice's depth, or those terms are identical in every slice and stack into a solid
+// tube along the whole flight.
+uniform vec3 uViewOff;
 #define WOCT min(uOct, 6)
 out vec4 o;
 float cloud(vec3 v, float scale, float distortion, float ovScale, float ovDist) {
@@ -98,9 +103,9 @@ void main() {
   float t2 = clamp((cloud(base, 0.82, 0.33, 3.18, 0.36) - 0.49) / (0.533 - 0.49), 0.0, 1.0);
   float t3 = clamp((cloud(base + vec3(0.0, 0.0, -0.08), 1.09, 0.0, 1.9, 11.0) - 0.474) / (0.689 - 0.474), 0.0, 1.0);
   vec3 neb = screen(screen(screen(vec3(0.0), vec3(0.019, 0.047, 0.107) * t1), vec3(0.103, 0.19, 0.265) * t2), vec3(0.161, 0.011, 0.0) * t3);
-  float ambT = clamp((fbm(warped(dir + vec3(0.0, 0.0, -0.3), 1.96, 0.0), 1) - 0.125) / (0.792 - 0.125), 0.0, 1.0);
+  float ambT = clamp((fbm(warped(dir + uViewOff + vec3(0.0, 0.0, -0.3), 1.96, 0.0), 1) - 0.125) / (0.792 - 0.125), 0.0, 1.0);
   vec3 m7 = dodge(neb, vec3(ambT), band(gray(neb), 0.005, 0.167, 0.257));
-  vec3 g = dir * 5.0;
+  vec3 g = (dir + uViewOff) * 5.0;
   vec3 nc = vec3(fbm(g, WOCT), fbm(g + ${f3(NOISE_OFFSETS[3])}, WOCT), fbm(g + ${f3(NOISE_OFFSETS[4])}, WOCT));
   vec3 fine = vec3(0.692, 0.173, 0.007) * clamp((gray(nc) - 0.148) / (0.816 - 0.148), 0.0, 1.0);
   vec3 m5 = dodge(m7, fine, band(gray(m7), 0.002, 0.264, 0.68));
@@ -147,7 +152,7 @@ function context() {
 /** The nebula field at w x h for placement `loc`, or null if the GPU cannot do it. */
 // `units` (optional) is how many noise units the short edge spans; the 2D layer always uses
 // UNITS_PER_SHORT_EDGE. The 3D flight's lab bakes wider and coarser slices through it.
-export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE) {
+export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, viewOff = [0, 0, 0]) {
   const s = context();
   if (!s) return null;
   const { g, prog, fb } = s;
@@ -162,6 +167,7 @@ export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE) {
   g.uniform2f(g.getUniformLocation(prog, 'uRes'), w, h);
   g.uniform1f(g.getUniformLocation(prog, 'uK'), units / Math.min(w, h));
   g.uniform1i(g.getUniformLocation(prog, 'uOct'), oct);
+  g.uniform3fv(g.getUniformLocation(prog, 'uViewOff'), viewOff);
   g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
   const px = new Float32Array(w * h * 4);
   g.readPixels(0, 0, w, h, g.RGBA, g.FLOAT, px);

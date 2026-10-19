@@ -20,6 +20,7 @@ import * as THREE from 'three';
 import { nebulaFieldGpu } from '../render/nebulaGpu';
 import { nebula2dRows, UNITS_PER_SHORT_EDGE } from '../render/nebula2dCpu';
 import { placement, hisCurveKnots, applyHisCurve } from '../render/nebula';
+import { makeRng } from '../render/prng';
 
 export function nebula3dMode() {
   if (typeof window === 'undefined' || !import.meta.env?.DEV) return null;
@@ -43,7 +44,9 @@ export const NEB3D = {
   volStep: 5, // world units per voxel along the flight
   volSteps: 96, // ray-march samples per pixel
   volSigma: 1.5, // extinction per world unit at full density
-  volLight: [-0.3, 0.6, 0.75], // toward the light: right, up, ahead
+  volEnvSwing: 0.5, // how far the amount envelope moves the gas threshold (0 = uniform)
+  volDrift: 55, // how far the corridor's centre wanders, world units
+  volFarFade: [110, 400], // gas fades in from afar over this range (the volume takes no warp)
   volLightStep: 6,
   volShadow: 0.8,
   volAmbient: 0.25,
@@ -289,8 +292,8 @@ function detailTexture() {
 // frame the flight. Two wider-reaching grids were tried first and both failed in the same way: a
 // fixed number of cells stretched over a huge (or infinite) extent made far cells enormous, and the
 // far gas smeared into streaks pointing at the vanishing point.
-function corridorSlice(loc, n, oct, units) {
-  const f = nebulaFieldGpu(loc, n, n, oct, units);
+function corridorSlice(loc, n, oct, units, depthOff) {
+  const f = nebulaFieldGpu(loc, n, n, oct, units, [0, depthOff, 0]);
   if (!f) throw new Error('nebula3d volume needs WebGL2');
   return f;
 }
@@ -317,11 +320,24 @@ const MARCH_FRAG = /* glsl */ `
   uniform float uAmbient; // how much shadowed gas still shows
   uniform float uFar;
   uniform vec2 uNear;     // gas fades in over this range of distance from the camera
+  uniform vec2 uFarFade;  // and fades out (in from afar) over this range
+  // Along the loop: how much gas (three harmonics, whole cycles per loop) and where the corridor's
+  // centre sits (two drifts). All periodic in L, so the loop still closes.
+  uniform vec3 uEnvK; uniform vec3 uEnvP; uniform vec3 uEnvA; uniform float uEnvSwing;
+  uniform vec2 uDriftK; uniform vec2 uDriftP; uniform float uDriftA;
+  const float TAU = 6.2831853;
+  float envelope(float zw) {
+    float x = zw / uL * TAU;
+    float e = uEnvA.x * sin(uEnvK.x * x + uEnvP.x) + uEnvA.y * sin(uEnvK.y * x + uEnvP.y) + uEnvA.z * sin(uEnvK.z * x + uEnvP.z);
+    return clamp(0.5 + 0.5 * e, 0.0, 1.0);
+  }
   uniform sampler3D uDetail;
   uniform float uDetailAmt;
   uniform vec3 uDetailFreq; // tiles per world unit: lateral, lateral, along the loop (whole tiles per L)
   SPACE_GLSL_HERE
   float dens(vec2 lat, float zw) {
+    float x = zw / uL * TAU;
+    lat -= uDriftA * vec2(sin(uDriftK.x * x + uDriftP.x), sin(uDriftK.y * x + uDriftP.y));
     float wall = 1.0 - smoothstep(0.7, 1.0, length(lat) / uR);
     if (wall <= 0.0) return 0.0;
     vec3 g = vec3(0.5 + 0.5 * lat.x / uR, 0.5 - 0.5 * lat.y / uR, mod(zw, uL) / uL);
@@ -329,7 +345,9 @@ const MARCH_FRAG = /* glsl */ `
     float det = texture(uDetail, vec3(lat, mod(zw, uL)) * uDetailFreq).r;
     // erode: detail pushes the field up and down around its own value, most at the edges
     b += uDetailAmt * (det - 0.5) * (1.0 - 0.6 * b);
-    return smoothstep(uContrast.x, uContrast.y, b);
+    // thin stretches raise the threshold (sparse, open), dense ones lower it
+    float shift = (0.5 - envelope(zw)) * uEnvSwing;
+    return smoothstep(uContrast.x + shift, uContrast.y + shift, b);
   }
   void main() {
     vec2 ray = (vUv * 2.0 - 1.0) * uTan;
@@ -345,7 +363,8 @@ const MARCH_FRAG = /* glsl */ `
       float zw = uCamZ + t;
       float d = dens(lat, zw);
       if (d <= 0.003) continue;
-      d *= smoothstep(uNear.x, uNear.y, t) * haze(t);
+      float far = 1.0 - smoothstep(uFarFade.x, uFarFade.y, t);
+      d *= smoothstep(uNear.x, uNear.y, t) * far * far;
       float a = 1.0 - exp(-d * uSigma * dt);
       // two looks toward the light
       vec3 l1 = vec3(lat, zw) + uLight * uLightStep;
@@ -374,10 +393,10 @@ function buildVolume({ seed, plan, L, frameH, space }) {
     // domain warp makes it change fast along every axis, and slices this far apart were otherwise
     // nearly unrelated, which their blend showed as rows of 'scales'
     const sz = s / NEB3D.volStretch;
-    let f = corridorSlice([loc[0], loc[1] + z * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s);
+    let f = corridorSlice([loc[0], loc[1] + z * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s, z * sz);
     const w = smooth(L * (1 - seam), L, z);
     if (w > 0) {
-      const g = corridorSlice([loc[0], loc[1] + (z - L) * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s);
+      const g = corridorSlice([loc[0], loc[1] + (z - L) * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s, (z - L) * sz);
       f = f.map((v, i) => v + (g[i] - v) * w);
     }
     vol.set(f, k * NX * NX);
@@ -395,6 +414,22 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   const bakeMs = Math.round(performance.now() - t0);
   console.info(`[nebula3d] volume ${NX}x${NX}x${NZ} baked in ${bakeMs}ms`);
 
+  // Per design, on its own stream: the light's direction around the flight axis (always mostly ahead,
+  // so gas is backlit; a fixed one lit the same side of every flight), the amount envelope and the
+  // corridor's drift. Whole cycles per loop throughout.
+  const vr = makeRng(`${seed}-nebula3d-vary`);
+  const cyc = per => Math.max(1, Math.round(L / per));
+  const az = vr() * Math.PI * 2;
+  const variation = {
+    light: new THREE.Vector3(Math.cos(az) * 0.6, Math.sin(az) * 0.6, 0.8).normalize(),
+    uEnvK: { value: new THREE.Vector3(cyc(1100), cyc(520), cyc(260)) },
+    uEnvP: { value: new THREE.Vector3(vr() * 6.283, vr() * 6.283, vr() * 6.283) },
+    uEnvA: { value: new THREE.Vector3(0.7, 0.45, 0.25) },
+    uEnvSwing: { value: NEB3D.volEnvSwing },
+    uDriftK: { value: new THREE.Vector2(cyc(900), cyc(700)) },
+    uDriftP: { value: new THREE.Vector2(vr() * 6.283, vr() * 6.283) },
+    uDriftA: { value: NEB3D.volDrift }
+  };
   const uniforms = {
     uVol: { value: tex },
     uTan: { value: new THREE.Vector2(1, 1) },
@@ -406,12 +441,15 @@ function buildVolume({ seed, plan, L, frameH, space }) {
     uStrength: { value: plan.strength },
     uJitter: { value: NEB3D.volJitter ? -1 : 0.5 },
     uContrast: { value: new THREE.Vector2(...NEB3D.volContrast) },
-    uLight: { value: new THREE.Vector3(...NEB3D.volLight).normalize() },
+    uLight: { value: variation.light },
     uLightStep: { value: NEB3D.volLightStep },
     uShadow: { value: NEB3D.volShadow },
     uAmbient: { value: NEB3D.volAmbient },
     uFar: { value: NEB3D.volFar },
     uNear: { value: new THREE.Vector2(...NEB3D.volNear) },
+    uFarFade: { value: new THREE.Vector2(...NEB3D.volFarFade) },
+    uEnvK: variation.uEnvK, uEnvP: variation.uEnvP, uEnvA: variation.uEnvA, uEnvSwing: variation.uEnvSwing,
+    uDriftK: variation.uDriftK, uDriftP: variation.uDriftP, uDriftA: variation.uDriftA,
     uDetail: { value: detailTexture() },
     uDetailAmt: { value: NEB3D.volDetail },
     uDetailFreq: { value: new THREE.Vector3(1 / NEB3D.volDetailSize, 1 / NEB3D.volDetailSize, Math.max(1, Math.round(L / NEB3D.volDetailSize)) / L) }
