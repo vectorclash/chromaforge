@@ -767,6 +767,15 @@ the actual print, generated the same deterministic way.
   Color tab only scrolls there with all six palette colours (13px).
   Amount tiers: faint strength 0.35-0.55, medium 0.60-0.85 (raised so they don't vanish under
   geometry).
+  **3D flight, LAB (dev only, `?nebula3d=volume` on the studio URL):** `animation3d/nebula3d.js`
+  replaces the flight's radial blobs with the same nebula as a ray-marched volume. Things worth not
+  re-deriving: the 2D nebula is already a slice of a 3D field, so 3D samples the same recipe with
+  depth (`NEBULA_LIB_GLSL`, shared with the 2D shader); the recipe's two VIEW-anchored terms must be
+  offset by depth (`uViewOff`, zero in 2D) or they stack into a fixed tube; the bake runs on the GPU
+  into a 3D render target in fenced chunks during the scene's `ready`, with its shaders compiled via
+  `compileAsync`, so a Generate no longer freezes (~500ms -> no worse than with it off); and the
+  studio no longer builds a full-size still it would discard when a 3D Generate is adopted in
+  Animation mode (`adoptInitialDesign`).
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was

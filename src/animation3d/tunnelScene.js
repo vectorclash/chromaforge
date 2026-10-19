@@ -1733,7 +1733,7 @@ export function sceneBasePalette(seed, colors = [], settings = null) {
 }
 
 // ─── Scene factory ────────────────────────────────────────────────────────────────────
-export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true }) {
+export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true, renderer: bakeRenderer = null }) {
   const rng = makeRng(`${seed}-3d`);
   // The 2D artwork for this seed, on the studio canvas. Everything in the flight derives
   // from it or from the generators that built it.
@@ -2324,7 +2324,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   }
 
   setTime(0);
-  return { scene: skyScene, camera, render, setSize, setTime, dispose, ready, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
+  // The nebula lab's volume bakes in chunks during `ready` when the caller hands over its renderer;
+  // otherwise it bakes in full on the first render.
+  const allReady = nebula3d && bakeRenderer ? Promise.all([ready, nebula3d.prepare(bakeRenderer)]) : ready;
+  return { scene: skyScene, camera, render, setSize, setTime, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
 }
 
 export default createTunnelScene;

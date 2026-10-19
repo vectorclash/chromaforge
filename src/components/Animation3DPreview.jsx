@@ -272,7 +272,8 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
           duration: cycleDuration,
           width: container.clientWidth,
           height: container.clientHeight,
-          logoMark
+          logoMark,
+          renderer: s.renderer
         });
         // Wait for the star sprites to decode, so the swap never shows a starless frame
         await built.ready;

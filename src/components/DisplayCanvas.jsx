@@ -802,6 +802,12 @@ export default class DisplayCanvas extends React.Component {
     clearTimeout(this.adoptDesignTimer);
     const design = this.props.initialDesign;
     if (!design || design === this.mainConfig || design === this.adoptedDesign) return;
+    // Not while Animation is showing. A still adopted there is never shown -- setImage drops it so
+    // the Image tab keeps the still the visitor left (2026-10-10) -- so building it was a full-size
+    // render and JPEG encode thrown away. Every 3D Generate hands its design to StudioContext and
+    // landed here: with the 2D nebula in that render (v15) it was the bulk of the freeze after
+    // Generate (Aaron, 2026-10-19), measured 67-341ms against 50-83ms without it.
+    if (this.state.animationMode) return;
     if (this.state.generateDisabled) {
       this.adoptDesignTimer = setTimeout(() => this.adoptInitialDesign(), 350);
       return;
@@ -2394,6 +2400,7 @@ export default class DisplayCanvas extends React.Component {
         width,
         height,
         logoMark: logoCfg,
+        renderer,
         // Redraw every plate every frame: the preview reuses a plate's render across a few
         // frames (scaled), which is invisible live but would make the file inexact.
         exact: true

@@ -32,7 +32,8 @@ async function withStill(design, { duration, speedRamp = true, width, height, at
       duration,
       width,
       height,
-      exact: true
+      exact: true,
+      renderer
     });
     await world.ready;
     const t = at * duration;

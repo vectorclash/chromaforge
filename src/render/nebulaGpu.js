@@ -17,9 +17,11 @@ const VS = `#version 300 es
 in vec2 aPos;
 void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
-const FS = `#version 300 es
-precision highp float; precision highp int;
-const int PERM[256] = int[256](${PERM.join(',')});
+// The recipe as a GLSL library, so the 3D flight's volume bake (animation3d/nebula3d.js) runs the
+// SAME code in its own (three.js) context rather than a copy. It expects uniforms uLoc, uOct and
+// uViewOff (see NEBULA_UNIFORMS_GLSL) and defines nebulaLum(dir), the sRGB luminance at view
+// direction `dir` -- exactly what the 2D shader's main() writes out.
+const NOISE_GLSL = `const int PERM[256] = int[256](${PERM.join(',')});
 int pm(int i) { return PERM[i & 255]; }
 float fade(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
 float grad3(uint h, float x, float y, float z) {
@@ -54,14 +56,8 @@ vec3 warped(vec3 v, float scale, float distortion) {
   if (distortion != 0.0) p += vec3(snoise(p + ${f3(NOISE_OFFSETS[0])}), snoise(p + ${f3(NOISE_OFFSETS[1])}), snoise(p + ${f3(NOISE_OFFSETS[2])})) * distortion;
   return p;
 }
-uniform vec2 uRes; uniform vec3 uLoc; uniform float uK; uniform int uOct;
-// Offsets the two terms the recipe anchors to the VIEW (the slow rim glow and the fine grain). Zero
-// for the 2D layer, where the nebula is one picture and adding zero changes nothing. The 3D flight's
-// lab passes each slice's depth, or those terms are identical in every slice and stack into a solid
-// tube along the whole flight.
-uniform vec3 uViewOff;
-#define WOCT min(uOct, 6)
-out vec4 o;
+`;
+const RECIPE_GLSL = `#define WOCT min(uOct, 6)
 float cloud(vec3 v, float scale, float distortion, float ovScale, float ovDist) {
   float m = distortion + fbm(warped(v, ovScale, ovDist * 0.5), WOCT);
   vec3 p = warped(v, scale, m * 0.5);
@@ -93,11 +89,7 @@ float curveS(float x) {
   return (2.0 * t3 - 3.0 * t2 + 1.0) * Y[i] + (t3 - 2.0 * t2 + t) * h * M[i] + (-2.0 * t3 + 3.0 * t2) * Y[i + 1] + (t3 - t2) * h * M[i + 1];
 }
 float srgb(float c) { c = clamp(c, 0.0, 1.0); return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
-void main() {
-  // gl_FragCoord's y runs up; the CPU's dz = (h/2 - py - 0.5) * k for row py from the top is the
-  // same value here, since this pixel's row from the top is h - 1 - floor(gl_FragCoord.y).
-  vec2 px = gl_FragCoord.xy;
-  vec3 dir = vec3((px.x - uRes.x * 0.5) * uK, 1.0, (px.y - uRes.y * 0.5) * uK);
+float nebulaLum(vec3 dir) {
   vec3 base = uLoc + dir;
   float t1 = clamp((cloud(base, 1.64, 0.18, 0.76, -2.88) - 0.535) / (0.704 - 0.535), 0.0, 1.0);
   float t2 = clamp((cloud(base, 0.82, 0.33, 3.18, 0.36) - 0.49) / (0.533 - 0.49), 0.0, 1.0);
@@ -109,7 +101,28 @@ void main() {
   vec3 nc = vec3(fbm(g, WOCT), fbm(g + ${f3(NOISE_OFFSETS[3])}, WOCT), fbm(g + ${f3(NOISE_OFFSETS[4])}, WOCT));
   vec3 fine = vec3(0.692, 0.173, 0.007) * clamp((gray(nc) - 0.148) / (0.816 - 0.148), 0.0, 1.0);
   vec3 m5 = dodge(m7, fine, band(gray(m7), 0.002, 0.264, 0.68));
-  o = vec4(srgb(gray(vec3(curveS(m5.r), curveS(m5.g), curveS(m5.b)))), 0.0, 0.0, 1.0);
+  return srgb(gray(vec3(curveS(m5.r), curveS(m5.g), curveS(m5.b))));
+}
+`;
+export const NEBULA_UNIFORMS_GLSL = `uniform vec3 uLoc; uniform int uOct;
+// Offsets the two terms the recipe anchors to the VIEW (the slow rim glow and the fine grain). Zero
+// for the 2D layer, where the nebula is one picture and adding zero changes nothing. The 3D flight's
+// volume passes each slice's depth, or those terms are identical in every slice and stack into a
+// solid tube along the whole flight.
+uniform vec3 uViewOff;
+`;
+export const NEBULA_LIB_GLSL = NOISE_GLSL + RECIPE_GLSL;
+
+const FS = `#version 300 es
+precision highp float; precision highp int;
+uniform vec2 uRes; uniform float uK;
+${NEBULA_UNIFORMS_GLSL}out vec4 o;
+${NEBULA_LIB_GLSL}void main() {
+  // gl_FragCoord's y runs up; the CPU's dz = (h/2 - py - 0.5) * k for row py from the top is the
+  // same value here, since this pixel's row from the top is h - 1 - floor(gl_FragCoord.y).
+  vec2 px = gl_FragCoord.xy;
+  vec3 dir = vec3((px.x - uRes.x * 0.5) * uK, 1.0, (px.y - uRes.y * 0.5) * uK);
+  o = vec4(nebulaLum(dir), 0.0, 0.0, 1.0);
 }`;
 
 let STATE = null; // { g, prog, fb } | false once known unavailable

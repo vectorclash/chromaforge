@@ -1,6 +1,6 @@
 // LAB (branch nebula-gpu-lab, dev only): the 2D nebula, given depth in the 3D flight. It takes the
-// radial field's slot, as the nebula does in 2D. Two techniques, switched with
-// localStorage 'cf-lab:nebula3d' = 'sheets' | 'volume' (anything else: the old radial blobs).
+// radial field's slot, as the nebula does in 2D. On with localStorage 'cf-lab:nebula3d' = 'volume'
+// (?nebula3d=volume on the studio URL; ?nebula3d=off for the old radial blobs).
 //
 // The premise both share: the 2D nebula is already a flat SLICE through a 3D noise field (the
 // recipe samples loc + (x, 1, y) -- noise x = screen right, noise y = depth, noise z = screen up).
@@ -8,18 +8,16 @@
 // to noise units at the 2D framing: the 2D frame's short edge (FRAME_H world units at FRAME_D) is
 // UNITS_PER_SHORT_EDGE noise units.
 //
-//   sheets -- translucent slices of that field at their own depths, flown through with parallax
-//             and the scene's warp and haze. A few textures, a few quads: phone-safe.
-//   volume -- the field's coarse structure baked once into a 3D texture around the flight axis,
-//             periodic along the loop, plus a small tiling detail noise for fine edges, ray-marched
-//             per pixel. Real depth; the cost is the bake and the march.
+// The volume: the field baked into a 3D texture filling a corridor around the flight path, periodic
+// along the loop, plus a small tiling detail noise, ray-marched per pixel. A cheaper 'sheets' form
+// (stacked slices flown through) was built alongside it and dropped when Aaron picked this one.
 //
 // Both draw alpha only. Colour is the 2D rule, applied in screen space: the nebula's own gradient
 // (plus colour pools, a blur of the layer) or the star field's gradient, from art.nebulaConfig.
 import * as THREE from 'three';
-import { nebulaFieldGpu } from '../render/nebulaGpu';
-import { nebula2dRows, UNITS_PER_SHORT_EDGE } from '../render/nebula2dCpu';
-import { placement, hisCurveKnots, applyHisCurve } from '../render/nebula';
+import { nebulaFieldGpu, NEBULA_LIB_GLSL, NEBULA_UNIFORMS_GLSL } from '../render/nebulaGpu';
+import { UNITS_PER_SHORT_EDGE } from '../render/nebula2dCpu';
+import { placement, hisCurveKnots, ALPHAQ } from '../render/nebula';
 import { makeRng } from '../render/prng';
 
 export function nebula3dMode() {
@@ -28,20 +26,17 @@ export function nebula3dMode() {
     const q = new URLSearchParams(window.location.search).get('nebula3d');
     if (q) localStorage.setItem('cf-lab:nebula3d', q);
     const m = localStorage.getItem('cf-lab:nebula3d');
-    return m === 'sheets' || m === 'volume' ? m : null;
+    // 'sheets' was the other technique; Aaron picked the volume (2026-10-19) and it was removed
+    return m === 'volume' || m === 'on' || m === 'sheets' ? 'volume' : null;
   } catch {
     return null;
   }
 }
 // Lab tuning without a rebuild: localStorage 'cf-lab:nebula3d-opts' = JSON over these.
 export const NEB3D = {
-  sheetSpacing: 30, // world units between sheets
-  sheetUnique: 8, // distinct slices, reused along the flight
-  sheetAlpha: 0.45, // per sheet, before the amount strength
-  sheetScale: 2.2, // sheet size against the 2D frame at FRAME_D
   volRadius: 150, // corridor radius, world units
-  volLateral: 192, // voxels across
-  volStep: 5, // world units per voxel along the flight
+  volLateral: 128, // voxels across
+  volStep: 7, // world units per voxel along the flight
   volSteps: 96, // ray-march samples per pixel
   volSigma: 1.5, // extinction per world unit at full density
   volEnvSwing: 0.5, // how far the amount envelope moves the gas threshold (0 = uniform)
@@ -54,7 +49,7 @@ export const NEB3D = {
   volJitter: true, // per-pixel sample offsets
   volStretch: 1,
   volNear: [12, 55], // close gas dissolves before it reaches the camera, where its cells would magnify into smears // how many times slower the field changes along the flight than across it
-  volOct: 6, // octaves baked into the grid -- no more than its slice spacing can hold
+  volOct: 5, // octaves baked into the grid -- no more than its slice spacing can hold
   volDetail: 0.35, // how far the detail noise moves the field
   volDetailSize: 40, // world units per detail tile
   volRes: 0.5, // march resolution against the frame
@@ -76,157 +71,6 @@ const smooth = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
-// The GPU field if it can, else the CPU one (same field to within 1/255).
-function field(loc, w, h, oct, units) {
-  const g = nebulaFieldGpu(loc, w, h, oct, units);
-  if (g) return g;
-  const out = new Float32Array(w * h);
-  // nebula2dRows has no units parameter; a different span is a different loc spacing, which
-  // only the GPU path needs in the lab
-  return nebula2dRows(loc, w, h, oct, 0, h, out);
-}
-
-// ─── Sheets ───────────────────────────────────────────────────────────────────────────
-const SHEET_VERT = /* glsl */ `
-  attribute vec2 aUv;
-  attribute float aLayer;
-  attribute float aA;
-  varying vec2 vUv;
-  varying float vLayer;
-  varying float vA;
-  void main() {
-    vUv = aUv; vLayer = aLayer; vA = aA;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-const SHEET_FRAG = /* glsl */ `
-  precision highp sampler2DArray;
-  uniform sampler2DArray uTex;
-  varying vec2 vUv;
-  varying float vLayer;
-  varying float vA;
-  void main() {
-    vec2 c = vUv * 2.0 - 1.0;
-    // soft elliptical edge, so no sheet ever shows a rectangle
-    float edge = 1.0 - smoothstep(0.55, 1.0, length(c));
-    float a = texture(uTex, vec3(vUv, vLayer)).r * edge * vA;
-    if (a < 0.002) discard;
-    gl_FragColor = vec4(a, a, a, a); // premultiplied white
-  }
-`;
-
-function buildSheets({ seed, plan, L, frameH, space }) {
-  const { warpW, haze, VIEW_FAR, BEHIND } = space;
-  const loc = placement(seed, plan.cover);
-  const W = 768, H = 432;
-  const s = UNITS_PER_SHORT_EDGE / frameH; // noise units per world unit
-  const worldH = frameH * NEB3D.sheetScale, worldW = (worldH * W) / H;
-  const units = worldH * s;
-  const U = NEB3D.sheetUnique;
-  const data = new Uint8Array(W * H * U);
-  const fields = [];
-  for (let k = 0; k < U; k++) {
-    // slices through the field's own depth axis, spaced as the sheets themselves will be
-    fields.push(field([loc[0], loc[1] + k * NEB3D.sheetSpacing * s, loc[2]], W, H, 8, units));
-  }
-  const knots = hisCurveKnots(fields[Math.floor(U / 2)]);
-  fields.forEach((f, k) => {
-    const a = applyHisCurve(f, knots);
-    for (let i = 0; i < a.length; i++) data[k * W * H + i] = Math.round(a[i] * 255);
-  });
-  const tex = new THREE.DataArrayTexture(data, W, H, U);
-  tex.format = THREE.RedFormat;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.flipY = false;
-  tex.needsUpdate = true;
-
-  const n = Math.max(U, Math.round(L / NEB3D.sheetSpacing));
-  const sheets = Array.from({ length: n }, (_, i) => ({ z: (i / n) * L, layer: i % U }));
-  const positions = new Float32Array(n * 4 * 3);
-  const uv = new Float32Array(n * 4 * 2);
-  const layer = new Float32Array(n * 4);
-  const alpha = new Float32Array(n * 4);
-  const index = new Uint32Array(n * 6);
-  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
-  sheets.forEach((sh, i) => {
-    for (let c = 0; c < 4; c++) {
-      uv.set([(corners[c][0] + 1) / 2, (corners[c][1] + 1) / 2], (i * 4 + c) * 2);
-      layer[i * 4 + c] = sh.layer;
-    }
-  });
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
-  geo.setAttribute('aUv', new THREE.BufferAttribute(uv, 2));
-  geo.setAttribute('aLayer', new THREE.BufferAttribute(layer, 1));
-  geo.setAttribute('aA', new THREE.BufferAttribute(alpha, 1).setUsage(THREE.DynamicDrawUsage));
-  geo.setIndex(new THREE.BufferAttribute(index, 1).setUsage(THREE.DynamicDrawUsage));
-  const mat = new THREE.ShaderMaterial({
-    vertexShader: SHEET_VERT,
-    fragmentShader: SHEET_FRAG,
-    uniforms: { uTex: { value: tex } },
-    transparent: true,
-    depthTest: false,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    blending: THREE.CustomBlending,
-    blendEquation: THREE.AddEquation,
-    blendSrc: THREE.OneFactor,
-    blendDst: THREE.OneMinusSrcAlphaFactor,
-    blendSrcAlpha: THREE.OneFactor,
-    blendDstAlpha: THREE.OneMinusSrcAlphaFactor
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.frustumCulled = false;
-  const scene = new THREE.Scene();
-  scene.add(mesh);
-
-  const depth = new Float32Array(n);
-  const order = [];
-  function update(camZ) {
-    order.length = 0;
-    for (let i = 0; i < n; i++) {
-      let dz = (((sheets[i].z - camZ) % L) + L) % L;
-      if (dz > L - BEHIND) dz -= L;
-      if (dz > VIEW_FAR || dz < 0.5) continue;
-      const a = NEB3D.sheetAlpha * plan.strength * smooth(3, 45, dz) * haze(dz);
-      if (a < 0.002) continue;
-      depth[i] = dz;
-      const w = warpW(dz);
-      for (let c = 0; c < 4; c++) {
-        const o = (i * 4 + c) * 3;
-        positions[o] = corners[c][0] * (worldW / 2) * w;
-        positions[o + 1] = corners[c][1] * (worldH / 2) * w;
-        positions[o + 2] = camZ + dz;
-        alpha[i * 4 + c] = a;
-      }
-      order.push(i);
-    }
-    order.sort((i, j) => depth[j] - depth[i]);
-    for (let k = 0; k < order.length; k++) {
-      const b = order[k] * 4;
-      index.set([b, b + 1, b + 2, b, b + 2, b + 3], k * 6);
-    }
-    geo.setDrawRange(0, order.length * 6);
-    geo.index.needsUpdate = true;
-    geo.attributes.position.needsUpdate = true;
-    geo.attributes.aA.needsUpdate = true;
-  }
-  return {
-    update,
-    draw(renderer, camera, target) {
-      renderer.setRenderTarget(target);
-      renderer.setClearColor(0x000000, 0);
-      renderer.clear();
-      renderer.render(scene, camera);
-    },
-    dispose() {
-      geo.dispose();
-      mat.dispose();
-      tex.dispose();
-    }
-  };
-}
 
 // ─── Volume ───────────────────────────────────────────────────────────────────────────
 // Fine detail: a tiling 3D Perlin fBm texture (gradient noise, integer lattice periods, so it
@@ -292,12 +136,6 @@ function detailTexture() {
 // frame the flight. Two wider-reaching grids were tried first and both failed in the same way: a
 // fixed number of cells stretched over a huge (or infinite) extent made far cells enormous, and the
 // far gas smeared into streaks pointing at the vanishing point.
-function corridorSlice(loc, n, oct, units, depthOff) {
-  const f = nebulaFieldGpu(loc, n, n, oct, units, [0, depthOff, 0]);
-  if (!f) throw new Error('nebula3d volume needs WebGL2');
-  return f;
-}
-
 // Lighting: each sample looks up the density a little way toward a light ahead
 // and above; lit gas shows as the palette colour, gas in its own shadow lets the sky through --
 // the approved Blender look (lit luminance -> alpha -> gradient), so no colour leaves the palette.
@@ -340,7 +178,7 @@ const MARCH_FRAG = /* glsl */ `
     lat -= uDriftA * vec2(sin(uDriftK.x * x + uDriftP.x), sin(uDriftK.y * x + uDriftP.y));
     float wall = 1.0 - smoothstep(0.7, 1.0, length(lat) / uR);
     if (wall <= 0.0) return 0.0;
-    vec3 g = vec3(0.5 + 0.5 * lat.x / uR, 0.5 - 0.5 * lat.y / uR, mod(zw, uL) / uL);
+    vec3 g = vec3(0.5 + 0.5 * lat.x / uR, 0.5 + 0.5 * lat.y / uR, mod(zw, uL) / uL);
     float b = texture(uVol, g).r * wall;
     float det = texture(uDetail, vec3(lat, mod(zw, uL)) * uDetailFreq).r;
     // erode: detail pushes the field up and down around its own value, most at the edges
@@ -379,40 +217,128 @@ const MARCH_FRAG = /* glsl */ `
   }
 `;
 
+// The bake runs on the GPU, in the scene's own (three.js) context, straight into a 3D render target:
+// one draw per depth slice, the 2D recipe's own GLSL (NEBULA_LIB_GLSL), the tone curve applied in
+// the shader. Nothing is read back. Built first as 480 draws in a separate context, each read back
+// as floats, then curved and re-uploaded from JavaScript: ~1s of one task, measured as a ~0.5s
+// freeze after every Generate. The GPU work itself is a small part of that.
+// It is done in chunks (bake(renderer, budget)) so a build never holds the main thread for long;
+// see createNebula3d's `ready`.
+const ALPHAQ_GLSL = `const float ALPHAQ[33] = float[33](${ALPHAQ.map(v => v.toFixed(4)).join(',')});`;
+const BAKE_FRAG = /* glsl */ `
+  precision highp float; precision highp int;
+  ${NEBULA_UNIFORMS_GLSL}
+  ${NEBULA_LIB_GLSL}
+  ${ALPHAQ_GLSL}
+  uniform float uRes;      // voxels across
+  uniform float uSpan;     // noise units across
+  uniform float uDepthA;   // this slice's depth, noise units
+  uniform float uDepthB;   // the same slice one loop earlier (the seam crossfade)
+  uniform float uSeamW;
+  uniform float uKnots[33];
+  float curve(float v) {
+    int lo = 0, hi = 32;
+    for (int it = 0; it < 6; it++) { int m = (lo + hi) / 2; if (uKnots[m] <= v) lo = m; else hi = m; }
+    float span = uKnots[hi] - uKnots[lo];
+    float f = span > 0.0 ? clamp((v - uKnots[lo]) / span, 0.0, 1.0) : 0.0;
+    return ALPHAQ[lo] + (ALPHAQ[hi] - ALPHAQ[lo]) * f;
+  }
+  void main() {
+    vec2 q = (gl_FragCoord.xy - uRes * 0.5) * (uSpan / uRes);
+    float v = nebulaLum(vec3(q.x, 1.0 + uDepthA, q.y));
+    if (uSeamW > 0.0) v = mix(v, nebulaLum(vec3(q.x, 1.0 + uDepthB, q.y)), uSeamW);
+    gl_FragColor = vec4(curve(v), 0.0, 0.0, 1.0);
+  }
+`;
+
 function buildVolume({ seed, plan, L, frameH, space }) {
   const loc = placement(seed, plan.cover);
   const s = UNITS_PER_SHORT_EDGE / frameH;
   const NX = NEB3D.volLateral, R = NEB3D.volRadius;
   const NZ = Math.max(32, Math.round(L / NEB3D.volStep));
   const seam = 0.2; // the last 20% of the loop crossfades into the slices before its start
-  const t0 = performance.now();
-  const vol = new Float32Array(NX * NX * NZ);
-  for (let k = 0; k < NZ; k++) {
-    const z = (k / NZ) * L;
-    // depth runs slower through the field than the lateral axes (volStretch): the recipe's strong
-    // domain warp makes it change fast along every axis, and slices this far apart were otherwise
-    // nearly unrelated, which their blend showed as rows of 'scales'
-    const sz = s / NEB3D.volStretch;
-    let f = corridorSlice([loc[0], loc[1] + z * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s, z * sz);
-    const w = smooth(L * (1 - seam), L, z);
-    if (w > 0) {
-      const g = corridorSlice([loc[0], loc[1] + (z - L) * sz, loc[2]], NX, NEB3D.volOct, 2 * R * s, (z - L) * sz);
-      f = f.map((v, i) => v + (g[i] - v) * w);
-    }
-    vol.set(f, k * NX * NX);
+  // depth can run slower through the field than across it (volStretch, 1 = isotropic)
+  const sz = s / NEB3D.volStretch;
+  const span = 2 * R * s;
+
+  // The tone curve's knots, from a coarse sample of the same field: 12 slices at 48x48 through the
+  // 2D layer's renderer (a few ms). The curve is a rank map, so a sample this size pins it well.
+  const sample = [];
+  for (let k = 0; k < 12; k++) {
+    const z = ((k + 0.5) / 12) * L;
+    const f = nebulaFieldGpu([loc[0], loc[1] + z * sz, loc[2]], 48, 48, NEB3D.volOct, span, [0, z * sz, 0]);
+    if (!f) throw new Error('nebula3d volume needs WebGL2');
+    for (const v of f) sample.push(v);
   }
-  const knots = hisCurveKnots(vol);
-  const a = applyHisCurve(vol, knots);
-  const data = new Uint8Array(a.length);
-  for (let i = 0; i < a.length; i++) data[i] = Math.round(a[i] * 255);
-  const tex = new THREE.Data3DTexture(data, NX, NX, NZ);
-  tex.format = THREE.RedFormat;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.wrapR = THREE.RepeatWrapping;
-  tex.needsUpdate = true;
-  const bakeMs = Math.round(performance.now() - t0);
-  console.info(`[nebula3d] volume ${NX}x${NX}x${NZ} baked in ${bakeMs}ms`);
+  // (The bake below puts depth into dir.y rather than loc.y + uViewOff: the same sums, since the
+  // recipe sees base = loc + dir and the view terms see dir + uViewOff.)
+  const knots = hisCurveKnots(sample);
+
+  const rt = new THREE.WebGL3DRenderTarget(NX, NX, NZ, { format: THREE.RedFormat, type: THREE.UnsignedByteType, depthBuffer: false });
+  rt.texture.minFilter = THREE.LinearFilter;
+  rt.texture.magFilter = THREE.LinearFilter;
+  rt.texture.wrapR = THREE.RepeatWrapping;
+  const bakeU = {
+    uLoc: { value: new THREE.Vector3(...loc) },
+    uOct: { value: NEB3D.volOct },
+    uViewOff: { value: new THREE.Vector3(0, 0, 0) },
+    uRes: { value: NX },
+    uSpan: { value: span },
+    uDepthA: { value: 0 },
+    uDepthB: { value: 0 },
+    uSeamW: { value: 0 },
+    uKnots: { value: knots }
+  };
+  const bakeMat = new THREE.ShaderMaterial({
+    vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: BAKE_FRAG,
+    uniforms: bakeU,
+    depthTest: false,
+    depthWrite: false
+  });
+  const bakeScene = new THREE.Scene();
+  const bakeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bakeMat);
+  bakeQuad.frustumCulled = false;
+  bakeScene.add(bakeQuad);
+  let next = 0;
+  let fence = null;
+  // Bakes slices until `budget` ms have passed (Infinity = all), returning true when complete.
+  // `async` mode never waits on the GPU: it queues one chunk, leaves a fence, and on the next call
+  // queues another only once that fence has signalled -- so the main thread is never blocked
+  // waiting for slices to finish. The synchronous form (a caller that never prepared) waits.
+  function bake(renderer, budget = Infinity, async = false) {
+    if (next >= NZ && !fence) return true;
+    const gl = renderer.getContext();
+    if (fence) {
+      if (async && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) return false;
+      gl.deleteSync(fence);
+      fence = null;
+      if (next >= NZ) return true;
+    }
+    const t0 = performance.now();
+    const prev = renderer.getRenderTarget();
+    const px = new Uint8Array(4);
+    while (next < NZ) {
+      for (let c = 0; c < 16 && next < NZ; c++, next++) {
+        const z = (next / NZ) * L;
+        bakeU.uDepthA.value = z * sz;
+        bakeU.uDepthB.value = (z - L) * sz;
+        bakeU.uSeamW.value = smooth(L * (1 - seam), L, z);
+        renderer.setRenderTarget(rt, next);
+        renderer.render(bakeScene, space.orthoCam);
+      }
+      if (async) {
+        fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+        break;
+      }
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // wait, so the budget is real time
+      if (performance.now() - t0 > budget) break;
+    }
+    renderer.setRenderTarget(prev);
+    return next >= NZ && !fence;
+  }
+  const tex = rt.texture;
 
   // Per design, on its own stream: the light's direction around the flight axis (always mostly ahead,
   // so gas is backlit; a fixed one lit the same side of every flight), the amount envelope and the
@@ -462,11 +388,18 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   const upScene = new THREE.Scene();
   upScene.add(space.screenQuad(space.passMaterial('varying vec2 vUv; uniform sampler2D uSrc; uniform vec2 uTexel; void main() { vec4 c = texture2D(uSrc, vUv) * 0.4; c += (texture2D(uSrc, vUv + vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv - vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv + vec2(0.0, uTexel.y)) + texture2D(uSrc, vUv - vec2(0.0, uTexel.y))) * 0.15; gl_FragColor = c; }', upU)));
   return {
-    bakeMs,
+    bake,
+    // Compiles both shaders without blocking (KHR_parallel_shader_compile, via three's
+    // compileAsync). The bake shader is the whole 2D recipe: compiled on first use it was a ~400ms
+    // stall, once per visit.
+    compile(renderer) {
+      return Promise.all([renderer.compileAsync(bakeScene, space.orthoCam), renderer.compileAsync(scene, space.orthoCam)]);
+    },
     update(camZ) {
       uniforms.uCamZ.value = camZ;
     },
     draw(renderer, camera, target) {
+      bake(renderer); // a caller that never prepared gets the whole bake here, once
       const tan = Math.tan((camera.fov * Math.PI) / 360);
       uniforms.uTan.value.set(tan * camera.aspect, tan);
       // march at reduced resolution, then upscale into the layer target
@@ -482,7 +415,9 @@ function buildVolume({ seed, plan, L, frameH, space }) {
     },
     dispose() {
       mat.dispose();
-      tex.dispose();
+      rt.dispose();
+      bakeMat.dispose();
+      bakeQuad.geometry.dispose();
       low?.dispose();
     }
   };
@@ -526,7 +461,7 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
   readOpts();
   const plan = art.nebulaConfig;
   if (!plan || !plan.strength) return null;
-  const neb = mode === 'volume' ? buildVolume({ seed, plan, L, frameH, space }) : buildSheets({ seed, plan, L, frameH, space });
+  const neb = buildVolume({ seed, plan, L, frameH, space });
   const own = plan.colour?.mode === 'own';
   const gu = gradientUniforms(plan.colour?.gradient || art.starFieldConfig.gradientConfig);
   gu.uView.value = space.view;
@@ -545,13 +480,19 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
     uPoolGain: { value: NEB3D.poolGain },
     uDebug: { value: NEB3D.debugView ? 1 : 0 }
   };
+  let disposed = false;
   const compScene = new THREE.Scene();
   compScene.add(space.screenQuad(space.passMaterial(NEB_COMP_FRAG.replace('GRADIENT_FN_HERE', gradientFn), compU)));
   return {
     mode,
     debugOnly: NEB3D.debugView,
-    bakeMs: neb.bakeMs ?? 0,
     update: neb.update,
+    // Bakes the volume a few ms at a time, yielding between chunks, so building a flight never
+    // holds the main thread for long. Resolves when done (or when disposed first).
+    async prepare(renderer) {
+      await neb.compile(renderer);
+      while (!disposed && !neb.bake(renderer, Infinity, true)) await new Promise(r => setTimeout(r, 0));
+    },
     // Draws the nebula onto `back` (the frame so far), writing the result into `out`.
     render(renderer, camera, back, out) {
       if (layer.width !== back.width || layer.height !== back.height) layer.setSize(back.width, back.height);
@@ -575,6 +516,7 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
       renderer.render(compScene, space.orthoCam);
     },
     dispose() {
+      disposed = true;
       neb.dispose();
       layer.dispose();
       poolA.dispose();

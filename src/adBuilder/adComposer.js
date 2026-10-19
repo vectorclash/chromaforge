@@ -154,7 +154,8 @@ export async function createAdComposer({ design, width, height, exact, layered =
       duration: SCENE_DURATION,
       width,
       height,
-      exact
+      exact,
+      renderer
     });
     await world.ready;
   } catch (e) {

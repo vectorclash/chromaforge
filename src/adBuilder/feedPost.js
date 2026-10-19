@@ -390,7 +390,8 @@ export async function createFlightLoop(
       duration: seconds,
       width,
       height,
-      exact
+      exact,
+      renderer
     });
     await world.ready;
   } catch (e) {

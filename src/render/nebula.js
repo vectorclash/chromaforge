@@ -75,6 +75,7 @@ function nebulaAmount(seed) {
 // Colour pools: a heavily blurred copy of the gas laid under it as a broad glow (own gradient only),
 // so the nebula puts down colour the way the radial blobs did, but shaped by the nebula.
 const POOL_STRENGTH = 0.6;
+const POOL_DOWNSAMPLE = 4;
 export function nebulaColour(config, linked) {
   const rng = makeRng(`${config.seed}-nebula-colour`);
   // The first draw used to roll own vs stars. It is still taken so the angle and palette size
@@ -141,7 +142,7 @@ export function placement(seed, target) {
 
 // His alpha's tonal curve: 33 quantiles of the alpha channel of his old Photoshop piece, applied to
 // the field by rank.
-const ALPHAQ = [0, 0.031, 0.043, 0.055, 0.063, 0.075, 0.082, 0.094, 0.11, 0.125, 0.149, 0.173, 0.2, 0.227, 0.255,
+export const ALPHAQ = [0, 0.031, 0.043, 0.055, 0.063, 0.075, 0.082, 0.094, 0.11, 0.125, 0.149, 0.173, 0.2, 0.227, 0.255,
   0.282, 0.306, 0.333, 0.357, 0.384, 0.412, 0.439, 0.467, 0.498, 0.522, 0.549, 0.584, 0.62, 0.655, 0.698, 0.737, 0.792, 1];
 // Split in two so the 3D flight (animation3d/nebula3d.js) can take knots from one field and
 // apply them to another; toHisCurve is the 2D path, unchanged.
@@ -206,10 +207,32 @@ export function nebulaMask(config, { gpu = true } = {}) {
   const field = (gpu && nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES)) || fieldCpu(loc, w, h, NEBULA_OCTAVES);
   const a = toHisCurve(field);
   if (plan.colour.mode === 'own') {
-    const pools = blurField(a, w, h, Math.round(Math.max(w, h) / 24));
+    // Pools are a very wide blur (~1/24 of the long edge), so they are computed on a 4x-reduced
+    // grid and sampled back bilinearly: the same soft glow for ~1/16 of the work (it was ~30ms of
+    // every render at full size).
+    const D = POOL_DOWNSAMPLE, sw = Math.ceil(w / D), sh = Math.ceil(h / D);
+    const small = new Float32Array(sw * sh);
+    for (let y = 0; y < sh; y++)
+      for (let x = 0; x < sw; x++) {
+        let sum = 0, n = 0;
+        for (let yy = y * D; yy < Math.min(h, y * D + D); yy++)
+          for (let xx = x * D; xx < Math.min(w, x * D + D); xx++) { sum += a[yy * w + xx]; n++; }
+        small[y * sw + x] = sum / n;
+      }
+    const pools = blurField(small, sw, sh, Math.max(1, Math.round(Math.max(w, h) / 24 / D)));
     let mx = 1e-6;
     for (const v of pools) mx = Math.max(mx, v);
-    for (let k = 0; k < a.length; k++) a[k] = Math.max(a[k], (pools[k] / mx) * POOL_STRENGTH);
+    const k0 = POOL_STRENGTH / mx;
+    for (let y = 0; y < h; y++) {
+      const fy = Math.min(sh - 1, Math.max(0, (y + 0.5) / D - 0.5)), y0 = Math.floor(fy), y1 = Math.min(sh - 1, y0 + 1), ty = fy - y0;
+      for (let x = 0; x < w; x++) {
+        const fx = Math.min(sw - 1, Math.max(0, (x + 0.5) / D - 0.5)), x0 = Math.floor(fx), x1 = Math.min(sw - 1, x0 + 1), tx = fx - x0;
+        const top = pools[y0 * sw + x0] + (pools[y0 * sw + x1] - pools[y0 * sw + x0]) * tx;
+        const bot = pools[y1 * sw + x0] + (pools[y1 * sw + x1] - pools[y1 * sw + x0]) * tx;
+        const k = y * w + x;
+        a[k] = Math.max(a[k], (top + (bot - top) * ty) * k0);
+      }
+    }
   }
   for (let k = 0; k < a.length; k++) a[k] *= plan.strength;
   return { a, w, h };
