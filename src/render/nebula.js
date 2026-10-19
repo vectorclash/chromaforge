@@ -120,7 +120,7 @@ function fieldCpu(loc, w, h, oct) {
 // Placement re-rolled until the gas covers about the tier's target share of the frame. CPU only --
 // see (2) above. The preview is a fixed 64x36 whatever the output's shape, so it is per seed.
 const PLACEMENTS = new Map();
-function placement(seed, target) {
+export function placement(seed, target) {
   const key = `${seed}:${target}`;
   if (PLACEMENTS.has(key)) return PLACEMENTS.get(key);
   let best = null;
@@ -143,12 +143,19 @@ function placement(seed, target) {
 // the field by rank.
 const ALPHAQ = [0, 0.031, 0.043, 0.055, 0.063, 0.075, 0.082, 0.094, 0.11, 0.125, 0.149, 0.173, 0.2, 0.227, 0.255,
   0.282, 0.306, 0.333, 0.357, 0.384, 0.412, 0.439, 0.467, 0.498, 0.522, 0.549, 0.584, 0.62, 0.655, 0.698, 0.737, 0.792, 1];
-function toHisCurve(L) {
+// Split in two so the 3D flight (animation3d/nebula3d.js) can take knots from one field and
+// apply them to another; toHisCurve is the 2D path, unchanged.
+export function hisCurveKnots(L) {
   const step = Math.max(1, Math.floor(L.length / 20000)), sample = [];
   for (let k = 0; k < L.length; k += step) sample.push(L[k]);
   sample.sort((a, b) => a - b);
   const q = (r) => sample[Math.min(sample.length - 1, Math.floor(r * (sample.length - 1)))];
-  const knots = Array.from({ length: 33 }, (_, i) => q(i / 32));
+  return Array.from({ length: 33 }, (_, i) => q(i / 32));
+}
+function toHisCurve(L) {
+  return applyHisCurve(L, hisCurveKnots(L));
+}
+export function applyHisCurve(L, knots) {
   const out = new Float32Array(L.length);
   for (let k = 0; k < L.length; k++) {
     const v = L[k];

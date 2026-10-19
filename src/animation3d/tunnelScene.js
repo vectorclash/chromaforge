@@ -8,6 +8,7 @@ import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape'
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
 import { LOGO_SCREEN_FRACTION, LOGO_OCTAVES, logoAlpha, logoDraw } from '../utils/logoIntro';
 import { drawLogoMark } from '../render/renderLogoMark';
+import { nebula3dMode, createNebula3d } from './nebula3d';
 import largeStarUrl from '../assets/images/star-sprite-large-3d.png';
 import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
 
@@ -293,6 +294,34 @@ const GRADIENT_FRAG = /* glsl */ `
       col = mix(col, uStops[i], clamp(x - float(i - 1), 0.0, 1.0));
     }
     gl_FragColor = blendOut(col, uAlpha);
+  }
+`;
+
+// GRADIENT_FRAG's colour as a function, for passes that colour something else by the gradient
+// (the nebula lab). Same uniforms.
+const GRADIENT_FN = /* glsl */ `
+  uniform vec3 uStops[${MAX_STOPS}];
+  uniform float uCount;
+  uniform vec2 uP1;
+  uniform vec2 uP2;
+  uniform vec2 uView;
+  uniform float uAngle;
+  vec3 gradientAt(vec2 uv) {
+    vec2 ref = vec2(${REF_W.toFixed(1)}, ${REF_H.toFixed(1)});
+    float scale = max(uView.x / ref.x, uView.y / ref.y);
+    vec2 p = (uv - 0.5) * uView / scale;
+    p.y = -p.y;
+    float c = cos(uAngle), s = sin(uAngle);
+    p = mat2(c, s, -s, c) * p + ref * 0.5;
+    vec2 d = uP2 - uP1;
+    float t = clamp(dot(p - uP1, d) / max(dot(d, d), 1e-4), 0.0, 1.0);
+    float x = t * uCount;
+    vec3 col = uStops[0];
+    for (int i = 1; i < ${MAX_STOPS}; i++) {
+      if (float(i) >= uCount) break;
+      col = mix(col, uStops[i], clamp(x - float(i - 1), 0.0, 1.0));
+    }
+    return col;
   }
 `;
 
@@ -1988,6 +2017,27 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
 
   const blendOf = mode => BLEND_INDEX[mode] ?? 0;
   const radialBlend = blendOf(art.firstBlend);
+
+  // LAB (nebula-gpu-lab, dev only): the nebula in the radial field's slot. The blobs above are
+  // still built (their rng draws are upstream of the plates), just not drawn.
+  const nebulaLab = nebula3dMode();
+  let nebula3d = null;
+  if (nebulaLab) {
+    try {
+      nebula3d = createNebula3d({
+        mode: nebulaLab,
+        seed,
+        art,
+        L,
+        frameH: REF_H * PX,
+        space: { SPACE_GLSL, warpW, haze, VIEW_FAR, BEHIND, passMaterial, screenQuad, orthoCam, view },
+        gradientUniforms: cfg => gradientUniforms(cfg, 1),
+        gradientFn: GRADIENT_FN
+      });
+    } catch (err) {
+      console.warn('[nebula3d]', err);
+    }
+  }
   const starsBlend = blendOf(art.secondBlend);
   const overlayBlend = blendOf(art.overlayBlend);
   const overlayAlpha = Number(art.overlayAlpha) || 0;
@@ -2050,6 +2100,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     }
 
     blobs.update(camZ);
+    nebula3d?.update(camZ);
     if (cage) cage.update(progress, cagePaletteHsl, camZ);
 
     // Plates in view, far to near, each with its fade
@@ -2153,7 +2204,12 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       swap();
     };
 
-    if (blobs.count) composite(radialScene, radialBlend);
+    if (nebulaLab) {
+      if (nebula3d) {
+        nebula3d.render(renderer, camera, accum, spare);
+        swap();
+      }
+    } else if (blobs.count) composite(radialScene, radialBlend);
     if (!art.starsOnTop) composite(starScene, starsBlend);
     // One full-screen pass per plate in view, reading the frame so far and blending the
     // plate on with the design's geometry blend.
@@ -2250,6 +2306,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
 
   function dispose() {
     for (const d of disposables) d.dispose?.();
+    nebula3d?.dispose();
     layerTarget.dispose();
     layerTargetAA.dispose();
     accum.dispose();

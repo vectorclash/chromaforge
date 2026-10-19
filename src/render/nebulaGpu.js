@@ -145,7 +145,9 @@ function context() {
 }
 
 /** The nebula field at w x h for placement `loc`, or null if the GPU cannot do it. */
-export function nebulaFieldGpu(loc, w, h, oct) {
+// `units` (optional) is how many noise units the short edge spans; the 2D layer always uses
+// UNITS_PER_SHORT_EDGE. The 3D flight's lab bakes wider and coarser slices through it.
+export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE) {
   const s = context();
   if (!s) return null;
   const { g, prog, fb } = s;
@@ -158,7 +160,7 @@ export function nebulaFieldGpu(loc, w, h, oct) {
   g.useProgram(prog);
   g.uniform3fv(g.getUniformLocation(prog, 'uLoc'), loc);
   g.uniform2f(g.getUniformLocation(prog, 'uRes'), w, h);
-  g.uniform1f(g.getUniformLocation(prog, 'uK'), UNITS_PER_SHORT_EDGE / Math.min(w, h));
+  g.uniform1f(g.getUniformLocation(prog, 'uK'), units / Math.min(w, h));
   g.uniform1i(g.getUniformLocation(prog, 'uOct'), oct);
   g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
   const px = new Float32Array(w * h * 4);
