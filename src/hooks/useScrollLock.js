@@ -37,12 +37,24 @@ export function isScrollLocked() {
 
 let lockCount = 0;
 let savedScrollY = 0;
+let keptScrollbar = false;
 
 function lockBody() {
   if (lockCount++ > 0) return;
   // Before the body moves, so nothing sees the intermediate scroll position.
   listeners.forEach(fn => fn(true));
   savedScrollY = window.scrollY;
+  // Keep the page the SAME WIDTH while locked. With a classic (non-overlay) scrollbar -- desktop
+  // Safari with a mouse attached, Windows -- fixing the body removed the scrollbar, the page got
+  // ~15px wider, and everything laid out again at the new width, then again when it came back:
+  // and things that size to their box (the About blob asks for a fresh render at its new size)
+  // did real work twice, during the menu's own fade. In Safari that read as the menu stalling
+  // on the way in and popping on the way out (Aaron, 2026-10-19). Holding the root's scrollbar
+  // track in place keeps every width, fixed elements included. Overlay scrollbars take no
+  // width, so nothing is done for them.
+  const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+  keptScrollbar = scrollbar > 0;
+  if (keptScrollbar) document.documentElement.style.overflowY = 'scroll';
   const { style } = document.body;
   style.position = 'fixed';
   style.top = `-${savedScrollY}px`;
@@ -60,6 +72,8 @@ function unlockBody() {
   style.left = '';
   style.right = '';
   style.width = '';
+  if (keptScrollbar) document.documentElement.style.overflowY = '';
+  keptScrollbar = false;
   // Instant, not smooth -- this is restoring where the user already was, not a navigation.
   window.scrollTo(0, savedScrollY);
   // After the restore, so a resuming effect reads the real position rather than the 0 the

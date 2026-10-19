@@ -20,7 +20,18 @@ import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionToke
 // the generate choreography the next time they open would narrate work the user already
 // watched happen somewhere else. The caller decides -- the hook can't tell a fresh
 // generate from a catch-up.
-export function useCrossfadeImage(url, { instant = false } = {}) {
+//
+// `pending` (2026-10-19) starts the reveal BEFORE the url exists: true from the moment the design
+// starts changing (StudioContext's designChanging) until its image lands. The fade-out and the
+// blank hold run from that moment, in the click's own frame, and the fade-in follows as soon as
+// the hold is over AND the new url has decoded -- the same sequence, started where it used to
+// appear to start. Before the nebula a render took a few ms, so starting on the url looked like
+// starting on the click; with renders now taking a beat (in a worker, queued), starting on the
+// url made every surface begin late and at its own moment (Aaron: "the loading/generating state
+// needs to start immediately on all surfaces that run this"). If the change ends with no new
+// url (a failed render, or a surface that skipped an identical design), the image it already
+// had fades back in.
+export function useCrossfadeImage(url, { instant = false, pending = false } = {}) {
   const [shownSrc, setShownSrc] = useState(null);
   const [incomingSrc, setIncomingSrc] = useState(null);
   const [holding, setHolding] = useState(false);
@@ -78,8 +89,81 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
     });
   };
 
+  // The early reveal started by `pending`: { epoch, held, target, loaded }.
+  const earlyRef = useRef(null);
+  const finishEarly = () => {
+    const e = earlyRef.current;
+    if (!e || e.epoch !== epochRef.current || !e.held || !e.loaded) return;
+    earlyRef.current = null;
+    setHolding(false);
+    setIncomingSrc(e.target);
+  };
+  const takeEarlyUrl = nextUrl => {
+    const e = earlyRef.current;
+    e.target = nextUrl;
+    e.loaded = false;
+    const preload = new Image();
+    // onerror proceeds too, for the reason revealRef gives: never strand `holding`.
+    const done = () => {
+      if (earlyRef.current !== e || e.target !== nextUrl) return;
+      e.loaded = true;
+      finishEarly();
+    };
+    preload.onload = done;
+    preload.onerror = done;
+    preload.src = nextUrl;
+  };
+
+  useLayoutEffect(() => {
+    if (pending) {
+      // Only from rest, with something on screen to fade, and never for an instant-swap surface.
+      if (instant || busyRef.current || !shownSrc || !shownRef.current) return;
+      const epoch = epochRef.current;
+      const e = { epoch, held: false, target: null, loaded: false };
+      earlyRef.current = e;
+      busyRef.current = true;
+      setHolding(true);
+      gsap.to(shownRef.current, {
+        duration: DURATION_FAST,
+        opacity: 0,
+        ease: 'power2.inOut',
+        onComplete: () => {
+          if (epoch !== epochRef.current) return;
+          gsap.delayedCall(DURATION_HOLD, () => {
+            if (earlyRef.current !== e || epoch !== epochRef.current) return;
+            e.held = true;
+            finishEarly();
+          });
+        }
+      });
+      return;
+    }
+    // The change ended. If it brought a url, the url effect below has it; if not, put back
+    // what was there.
+    const e = earlyRef.current;
+    if (!e || e.target || (url && url !== shownSrc)) return;
+    earlyRef.current = null;
+    epochRef.current += 1;
+    gsap.killTweensOf(shownRef.current);
+    setHolding(false);
+    gsap.to(shownRef.current, {
+      duration: DURATION_SLOW,
+      opacity: 1,
+      ease: 'power2.inOut',
+      onComplete: () => {
+        busyRef.current = false;
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending]);
+
   useEffect(() => {
     if (!url || url === shownSrc || url === incomingSrc) return;
+    if (earlyRef.current && !instant) {
+      // The reveal is already under way (started by `pending`): this is its image.
+      takeEarlyUrl(url);
+      return;
+    }
     if (!shownSrc) {
       // First-ever appearance (nothing to fade from) -- show it immediately.
       setShownSrc(url);
@@ -91,6 +175,7 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
       epochRef.current += 1;
       busyRef.current = false;
       queuedUrlRef.current = null;
+      earlyRef.current = null;
       gsap.killTweensOf([shownRef.current, incomingRef.current].filter(Boolean));
       if (shownRef.current) gsap.set(shownRef.current, { opacity: 1 });
       setHolding(false);
@@ -140,5 +225,9 @@ export function useCrossfadeImage(url, { instant = false } = {}) {
     });
   }, [incomingSrc]);
 
-  return { shown: shownSrc, incoming: incomingSrc, shownRef, incomingRef, holding };
+  // False while a reveal started by `pending` is still waiting for its image: a loading
+  // indicator (DotRipple's onBeat) uses it to keep going only for as long as that wait lasts.
+  const revealReady = () => !earlyRef.current || earlyRef.current.loaded;
+
+  return { shown: shownSrc, incoming: incomingSrc, shownRef, incomingRef, holding, revealReady };
 }

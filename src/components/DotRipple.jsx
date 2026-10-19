@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import tinycolor from 'tinycolor2';
 import { gsap } from 'gsap/all';
 import { DURATION_FAST, DURATION_HOLD } from '../utils/motionTokens';
@@ -221,6 +221,24 @@ function DotRipple({ introDelay = null, active, onBeat = null }) {
       <div className="dot-ripple" />
     </div>
   );
+}
+
+// For a host that keeps a continuous ripple (`active`) inside something that animates its own
+// opacity, like MobileNav's panel: true while `active`, and for as long after as the last ring
+// takes to run out, then false so the host unmounts it. Mounted for good, its layers (each a
+// composited `will-change` layer with a blend mode) sat inside the panel's open/close fade, the
+// arrangement that made that fade stall and pop in WebKit (2026-10-19).
+export function useRippleMounted(active) {
+  const [lingering, setLingering] = useState(false);
+  useEffect(() => {
+    if (active) {
+      setLingering(true);
+      return undefined;
+    }
+    const t = setTimeout(() => setLingering(false), RIPPLE_CYCLE * 1000 + 100);
+    return () => clearTimeout(t);
+  }, [active]);
+  return active || lingering;
 }
 
 export default DotRipple;

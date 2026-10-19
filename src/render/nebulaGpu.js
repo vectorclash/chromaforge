@@ -176,6 +176,62 @@ function context() {
 // `units` (optional) is how many noise units the short edge spans; the 2D layer always uses
 // UNITS_PER_SHORT_EDGE. The 3D flight's lab bakes wider and coarser slices through it.
 export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, viewOff = [0, 0, 0]) {
+  const s = begin(loc, w, h, oct, units, viewOff);
+  if (!s) return null;
+  s.g.drawArrays(s.g.TRIANGLE_STRIP, 0, 4);
+  return finish(s, w, h);
+}
+
+// The same field, drawn in horizontal BANDS with the GPU handed back between them (2026-10-19,
+// Aaron: Generate on the homepage stuttered badly on his phone). The whole field is one draw of a
+// very heavy shader (~100 Perlin evaluations per pixel), and a phone GPU cannot preempt a draw:
+// for as long as it runs the page cannot composite a frame, however idle the main thread is --
+// and the homepage asks for six of them per Generate (one per surface aspect). Banded, each draw
+// is a few ms of GPU time, and a fence between bands lets the compositor's frames in. Every pixel
+// runs the identical shader with the identical gl_FragCoord, so the result is byte-identical to
+// the one-draw version (verified). Used by the nebula's worker, where waiting is free.
+// Band size is in PIXELS and adapts: a band that came back by the first poll grows, one that held
+// the GPU clearly longer than the budget shrinks in proportion. The wait itself cannot be timed
+// finer than the worker's timer (~1-5ms), so only a long wait is read as GPU time.
+const BAND_START_PX = 16384, BAND_MIN_PX = 8192, BAND_MAX_PX = 131072, BAND_SLOW_MS = 10, BAND_TARGET_MS = 6;
+export async function nebulaFieldGpuBanded(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, viewOff = [0, 0, 0], stats = null) {
+  const s = begin(loc, w, h, oct, units, viewOff);
+  if (!s) return null;
+  const { g } = s;
+  g.enable(g.SCISSOR_TEST);
+  let y = 0, px = BAND_START_PX, band = 0;
+  try {
+    while (y < h) {
+      const n = Math.min(h - y, Math.max(1, Math.round(px / w)));
+      g.scissor(0, y, w, n);
+      g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+      const fence = g.fenceSync(g.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      g.flush();
+      const t0 = performance.now();
+      let polls = 0;
+      // Poll rather than block: a blocking clientWaitSync would hold the worker for the band.
+      while (g.clientWaitSync(fence, 0, 0) === g.TIMEOUT_EXPIRED) {
+        if (g.isContextLost()) { g.deleteSync(fence); return null; }
+        polls++;
+        await new Promise(r => setTimeout(r, 1));
+      }
+      g.deleteSync(fence);
+      const ms = performance.now() - t0;
+      if (stats) { stats.bands = (stats.bands || 0) + 1; stats.maxBandMs = Math.max(stats.maxBandMs || 0, ms); }
+      y += n;
+      // The first band of a job can carry the shader's compile (seconds, on a software GL), which
+      // says nothing about how long a band of pixels takes, so it never shrinks the next one.
+      if (band++ === 0 && ms > BAND_SLOW_MS) continue;
+      if (ms > BAND_SLOW_MS) px = Math.max(BAND_MIN_PX, px * Math.max(0.5, BAND_TARGET_MS / ms));
+      else if (polls <= 1) px = Math.min(BAND_MAX_PX, px * 1.5);
+    }
+  } finally {
+    g.disable(g.SCISSOR_TEST);
+  }
+  return finish(s, w, h);
+}
+
+function begin(loc, w, h, oct, units, viewOff) {
   const s = context();
   if (!s) return null;
   const { g, prog, fb } = s;
@@ -191,7 +247,11 @@ export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, vie
   g.uniform1f(g.getUniformLocation(prog, 'uK'), units / Math.min(w, h));
   g.uniform1i(g.getUniformLocation(prog, 'uOct'), oct);
   g.uniform3fv(g.getUniformLocation(prog, 'uViewOff'), viewOff);
-  g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+  return { ...s, tex };
+}
+
+function finish(s, w, h) {
+  const { g, tex } = s;
   const px = new Uint8Array(w * h * 4);
   g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, px);
   g.deleteTexture(tex);

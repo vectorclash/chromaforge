@@ -237,7 +237,7 @@ export function drawStarSprite(ctx, cx, cy, size, shape = STAR_SHAPE) {
 // ─── The fine/medium tiers' four-point star ────────────────────────────────────────────
 //
 // Authored here rather than loaded from star-sprite-small.png, so both star shapes live in
-// code and are tunable together. Unlike the large star this is BUILT ONCE PER RENDER and
+// code and are tunable together. Unlike the large star this is BUILT ONCE (per visit, StarField.js) and
 // then blitted, which is a deliberate split, not an inconsistency:
 //
 //   - The large star had to become per-star drawing because its hairline arm went sub-pixel

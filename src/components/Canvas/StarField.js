@@ -12,6 +12,22 @@ import { buildSmallStarSprite, drawStarSprite } from '../../render/starSprite';
 // 7x of headroom.
 const SMALL_SPRITE_PX = 256;
 
+// The sprite depends on nothing but SMALL_SPRITE_PX and SMALL_STAR_SHAPE, so it is built once per
+// visit, not once per render (2026-10-19): the homepage renders the design for six surfaces per
+// Generate, and building it costs a getImageData flatten -- a GPU read-back that stalled every one
+// of them (~20ms each at 4x CPU). Nothing draws into it after it is built.
+let SMALL_SPRITE = null;
+function smallStarSprite() {
+  if (!SMALL_SPRITE)
+    SMALL_SPRITE = buildSmallStarSprite(SMALL_SPRITE_PX, (w, h) => {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      return c;
+    });
+  return SMALL_SPRITE;
+}
+
 export default function StarField(config) {
   let canvas = document.createElement('canvas');
   let context = canvas.getContext('2d');
@@ -32,12 +48,7 @@ export default function StarField(config) {
 
   // Built once and then blitted, unlike the large star which is drawn per-star. That split is
   // deliberate and measured -- see buildSmallStarSprite's header.
-  const smallSprite = buildSmallStarSprite(SMALL_SPRITE_PX, (w, h) => {
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    return c;
-  });
+  const smallSprite = smallStarSprite();
 
   for (let i = 0; i < config.stars.length; i++) {
     const star = config.stars[i];

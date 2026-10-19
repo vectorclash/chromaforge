@@ -67,11 +67,11 @@ export default function GalleryPage() {
     path: '/gallery'
   });
   const { user } = useAuth();
-  const { setPrintQueueDesign, previewUrl, markDesignDeleted } = useStudio();
+  const { setPrintQueueDesign, previewUrl, designChanging, markDesignDeleted } = useStudio();
   // Two stacked layers through the shared hook rather than a bare <img src={previewUrl}>:
   // MiniGenerator sits on this route, so generating from it used to crossfade the widget
   // while this empty-state thumbnail popped to the new design on the same beat.
-  const emptyPreview = useCrossfadeImage(previewUrl);
+  const emptyPreview = useCrossfadeImage(previewUrl, { pending: designChanging });
   const navigate = useNavigate();
   const [tab, setTab] = useState('public');
   const [designs, setDesigns] = useState([]);

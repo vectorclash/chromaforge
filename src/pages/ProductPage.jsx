@@ -255,6 +255,7 @@ export default function ProductPage() {
   const {
     currentDesign,
     previewUrl: studioPreviewUrl,
+    designChanging,
     printQueueDesign,
     setPrintQueueDesign
   } = useStudio();
@@ -262,7 +263,7 @@ export default function ProductPage() {
   // Crossfades the "Current studio design" tile between successive MiniGenerator
   // regenerations instead of popping straight to the new render -- same hook/timing
   // MiniGenerator and SiteFooter already use off this same previewUrl.
-  const currentTileCrossfade = useCrossfadeImage(studioPreviewUrl);
+  const currentTileCrossfade = useCrossfadeImage(studioPreviewUrl, { pending: designChanging });
   const {
     status,
     error: mockupError,

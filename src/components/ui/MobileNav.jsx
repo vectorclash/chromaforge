@@ -8,7 +8,7 @@ import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import ShirtIcon from '../buttons/ShirtIcon';
 import HexagonIcon from '../buttons/HexagonIcon';
-import DotRipple from '../DotRipple';
+import DotRipple, { useRippleMounted } from '../DotRipple';
 import FadeImage from './FadeImage';
 import MiniGenerator from './MiniGenerator';
 import { isSameDesign } from '../../render/designSettings';
@@ -51,7 +51,7 @@ const itemClass = ({ isActive }) =>
 // stagger is simpler and matches everywhere else in the app that staggers a list in.
 export default function MobileNav({ open, onClose }) {
   const { user, authResolved, avatarUrl } = useAuth();
-  const { currentDesign, renderDesignBlob } = useStudio();
+  const { currentDesign, ambientRender, designChanging } = useStudio();
   // Keyed on `open`, not `mounted`: the page unfreezes as the close tween starts rather
   // than after it, and on a navigation the unlock's scroll restore lands before
   // SiteLayout's own route-change scroll-to-top (cleanups run before effects in a commit),
@@ -95,7 +95,8 @@ export default function MobileNav({ open, onClose }) {
     if (!mounted) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
     let cancelled = false;
-    renderDesignBlob(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
+    // ambientRender: lands in the same frame as the mini generator's preview (StudioContext)
+    ambientRender(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
       .then(blob => {
         if (cancelled) return;
         // Only mark the design "rendered" once the blob actually lands -- marking it
@@ -117,11 +118,17 @@ export default function MobileNav({ open, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [mounted, currentDesign, renderDesignBlob]);
+  }, [mounted, currentDesign, ambientRender]);
 
-  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl, {
-    instant: bgInstant
+  const { shown, incoming, shownRef, incomingRef, holding, revealReady } = useCrossfadeImage(bgUrl, {
+    // bgInstant is decided per landed url and still describes the LAST one while a change is
+    // under way -- after opening onto an unchanged design it is true, which would keep the first
+    // Generate made from inside the open nav from starting its reveal on the click. A design
+    // changing while the nav is up is one the visitor is watching, so it never swaps instantly.
+    instant: bgInstant && !designChanging,
+    pending: designChanging
   });
+  const rippleMounted = useRippleMounted(holding);
 
   useEffect(() => {
     if (!mounted || !panelRef.current) return;
@@ -179,17 +186,30 @@ export default function MobileNav({ open, onClose }) {
           opacity image, crossfaded between designs, dark gradient over it for contrast. */}
       {shown && (
         <div className="mobile-nav-bg pointer-events-none absolute inset-0 z-0 opacity-75">
-          <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          {incoming && (
-            <img
-              ref={incomingRef}
-              src={incoming}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-              style={{ opacity: 0 }}
-            />
-          )}
-          {holding && <DotRipple />}
+          {/* The crossfading images on their own composited layer WHILE THEY CROSSFADE, as the
+              footer's always are (its parallax layer). Without it the generator panel's glass
+              above them sampled the crossfade mid-change on iOS and showed colour artifacts
+              through the frosting (Aaron, 2026-10-19). Only while crossfading, never for good:
+              a permanent layer under the panel's own opacity fade made the menu's entrance
+              crunchy and its exit pop out at the end on the phone -- WebKit composites the
+              child outside its fading parent. The two do not overlap in practice. */}
+          <div className={`absolute inset-0${holding || incoming ? ' will-change-transform' : ''}`}>
+            <img ref={shownRef} src={shown} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            {incoming && (
+              <img
+                ref={incomingRef}
+                src={incoming}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ opacity: 0 }}
+              />
+            )}
+          </div>
+          {/* The usual two rings, then more only while the new image is still not ready --
+              so a long render keeps rippling instead of stopping partway (Aaron, 2026-10-19:
+              "the loading animation stops 1 third of the way through"), and a quick one ends
+              on its second ring as it always has, with the image arriving on the third beat. */}
+          {rippleMounted && <DotRipple active={holding} onBeat={n => n < 2 || !revealReady()} />}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/80 to-ink-950/40" />
         </div>
       )}

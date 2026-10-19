@@ -702,6 +702,7 @@ export default function MiniGenerator({ inline = false, className = '', style })
   const {
     previewUrl,
     previewPalette,
+    designChanging,
     currentDesign,
     generateRandom,
     saveCurrentDesign,
@@ -730,7 +731,7 @@ export default function MiniGenerator({ inline = false, className = '', style })
     pathname: location.pathname
   });
 
-  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(previewUrl);
+  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(previewUrl, { pending: designChanging });
 
   // The top edge's colours, kept on the artwork's own beat rather than the design's. The whole
   // point is that they change WITH the thumbnail, and the two facts arrive at different times:

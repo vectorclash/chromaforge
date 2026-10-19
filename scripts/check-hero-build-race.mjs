@@ -52,17 +52,47 @@ const BASE = arg('url') || 'http://localhost:4173';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const INIT = `
+// Two modes, run in turn (2026-10-19): builds are drawn in the render worker
+// (render/renderOffThread.js) where the browser has OffscreenCanvas, else on the page as before.
+// 'page' hides OffscreenCanvas so every build takes the page path and its toBlob callbacks are
+// held; 'worker' holds the render worker's replies instead. Either way a held build is released
+// by the harness, in whatever order a scenario wants.
+const INIT = mode => `
 window.__cf = { n: 0, previews: 0, pending: [], thrown: [], urlIndex: new Map(), blobIndex: new Map() };
+const MODE = '${mode}';
+if (MODE === 'page') delete window.OffscreenCanvas;
 const origToBlob = HTMLCanvasElement.prototype.toBlob;
 HTMLCanvasElement.prototype.toBlob = function (cb, type, q) {
   // StudioContext's shared 480px preview -- the signal that the ACTIVE DESIGN changed, i.e.
   // that every non-canvas surface has moved on. Used to prove a click really did something.
   if (q === 0.85 && this.width === 480) window.__cf.previews++;
-  if (q !== 0.98 || this.width < 1000) return origToBlob.call(this, cb, type, q);
+  if (MODE !== 'page' || q !== 0.98 || this.width < 1000) return origToBlob.call(this, cb, type, q);
   const i = ++window.__cf.n;
   origToBlob.call(this, blob => { window.__cf.pending.push({ i, blob, cb }); }, type, q);
 };
+if (MODE === 'worker') {
+  const RealWorker = window.Worker;
+  window.Worker = class extends RealWorker {
+    constructor(url, opts) {
+      super(url, opts);
+      if (!String(url).includes('renderWorker')) return;
+      const outs = new Map();
+      const post = this.postMessage.bind(this);
+      this.postMessage = msg => { outs.set(msg.id, msg.out); post(msg); };
+      let handler = null;
+      super.onmessage = e => {
+        const out = outs.get(e.data.id) || {};
+        if (out.quality === 0.85 && out.width === 480) window.__cf.previews++;
+        if (out.quality !== 0.98 || out.width < 1000 || e.data.error) return handler && handler(e);
+        const i = ++window.__cf.n;
+        // released as null, the worker is reported as failing, which sends the page to its
+        // own render (the fallback under test in that case)
+        window.__cf.pending.push({ i, blob: e.data.blob, cb: b => handler(b ? e : { data: { id: e.data.id, error: 'held as null' } }) });
+      };
+      Object.defineProperty(this, 'onmessage', { set: fn => { handler = fn; }, get: () => handler });
+    }
+  };
+}
 const origCreate = URL.createObjectURL;
 URL.createObjectURL = function (blob) {
   const url = origCreate.call(URL, blob);
@@ -97,14 +127,16 @@ const check = (ok, label, detail) => {
   if (!ok) failures.push(label);
 };
 
-async function open(browser) {
+async function open(browser, mode) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  await ctx.addInitScript(INIT);
+  await ctx.addInitScript(INIT(mode));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e.message || e)));
   await page.goto(`${BASE}/`, { waitUntil: 'load' });
-  await page.waitForFunction('window.__cf && window.__cf.pending.length >= 1', null, { timeout: 30000 });
+  await page.waitForFunction('window.__cf && window.__cf.pending.length >= 1', null, {
+    timeout: 30000
+  });
   return { ctx, page, errors };
 }
 
@@ -125,7 +157,9 @@ async function releaseWhenReady(page, i, asNull = false) {
 // paints after its decode, a DURATION_HOLD and a fade, and that span has varied as the reveal
 // has been reworked. A build that never paints still fails the check that follows.
 async function waitForHero(page, i) {
-  await page.waitForFunction(n => window.__cf.heroIndex() === n, i, { timeout: 10000 }).catch(() => {});
+  await page
+    .waitForFunction(n => window.__cf.heroIndex() === n, i, { timeout: 10000 })
+    .catch(() => {});
 }
 
 // Generate from an ambient surface, NOT the canvas's own button -- that one is disabled while
@@ -150,77 +184,103 @@ async function generateFromWidget(page) {
       break;
     }
   }
-  await sleep(800);
+  // Bounded wait, not a fixed sleep: the 480px preview lands only once its nebula mask is made
+  // (render/nebula.js), and this check runs on a software GL where that takes seconds.
+  await page
+    .waitForFunction(b => window.__cf.previews > b, before, { timeout: 10000 })
+    .catch(() => {});
   const after = await page.evaluate(() => window.__cf.previews);
   return after > before;
 }
 
 async function main() {
   const browser = await chromium.launch();
+  for (const mode of ['page', 'worker']) {
+    console.log(`\n${mode} render path:`);
 
-  // 1. A generate landing mid-build must not open a second full-size build, and the design it
-  //    asked for must still get built once the in-flight one lands.
-  {
-    const { ctx, page, errors } = await open(browser);
-    const changed = await generateFromWidget(page);
-    check(changed, 'a widget generate actually changed the active design');
+    // 1. A generate landing mid-build must not open a second full-size build, and the design it
+    //    asked for must still get built once the in-flight one lands.
+    {
+      const { ctx, page, errors } = await open(browser, mode);
+      const changed = await generateFromWidget(page);
+      check(changed, 'a widget generate actually changed the active design');
 
-    const inFlight = await page.evaluate(() => window.__cf.n);
-    check(inFlight === 1, 'only one full-size build in flight at a time', `builds=${inFlight}`);
+      const inFlight = await page.evaluate(() => window.__cf.n);
+      check(inFlight === 1, 'only one full-size build in flight at a time', `builds=${inFlight}`);
 
-    if (inFlight >= 2) {
-      // Unfixed: land the NEWER build first, then the OLDER one, and see who wins.
-      await releaseWhenReady(page, 2);
-      await sleep(1200);
+      if (inFlight >= 2) {
+        // Unfixed: land the NEWER build first, then the OLDER one, and see who wins.
+        await releaseWhenReady(page, 2);
+        await sleep(1200);
+        await releaseWhenReady(page, 1);
+        await sleep(2000);
+        const hero = await page.evaluate(() => window.__cf.heroIndex());
+        check(
+          hero === 2,
+          'a stale build cannot paint over a newer one',
+          `canvas shows build ${hero}`
+        );
+      } else {
+        await releaseWhenReady(page, 1);
+        // "Eventually", not "within 2.5s": the deferred build waits out the landed build's hold and
+        // fade-in, then a 350ms retry.
+        await page
+          .waitForFunction(() => window.__cf.n >= 2, null, { timeout: 10000 })
+          .catch(() => {});
+        const after = await page.evaluate(() => window.__cf.n);
+        check(after === 2, 'the deferred design builds once the canvas is free', `builds=${after}`);
+        await releaseWhenReady(page, 2);
+        await waitForHero(page, 2);
+        const hero = await page.evaluate(() => window.__cf.heroIndex());
+        check(hero === 2, 'the canvas ends on the newest design', `canvas shows build ${hero}`);
+      }
+      check(errors.length === 0, 'no page errors', errors.join(' | '));
+      await ctx.close();
+    }
+
+    // 2. The encoder giving up (a real WebKit behaviour at these canvas sizes) must not strand
+    //    the UI. Pre-fix this threw out of the toBlob callback and left "Generating" forever.
+    {
+      const { ctx, page, errors } = await open(browser, mode);
+      await releaseWhenReady(page, 1, true);
+      await sleep(2500);
+      // In worker mode a failed worker build falls back to a page render, nebula and all, which on
+      // this software GL takes seconds: wait (bounded) for the controls rather than assuming 2.5s.
+      await page
+        .waitForFunction(() => window.__cf.generateLabel() === 'Generate', null, { timeout: 20000 })
+        .catch(() => {});
+      const thrown = await page.evaluate(() => window.__cf.thrown);
+      const label = await page.evaluate(() => window.__cf.generateLabel());
+      check(thrown.length === 0, 'a null blob does not throw out of setImage', thrown.join(' | '));
+      check(
+        label === 'Generate',
+        'the controls come back after a failed build',
+        `button reads "${label}"`
+      );
+      check(errors.length === 0, 'no page errors', errors.join(' | '));
+      await ctx.close();
+    }
+
+    // 3. The ordinary path still works, from an idle canvas.
+    {
+      const { ctx, page, errors } = await open(browser, mode);
       await releaseWhenReady(page, 1);
-      await sleep(2000);
-      const hero = await page.evaluate(() => window.__cf.heroIndex());
-      check(hero === 2, 'a stale build cannot paint over a newer one', `canvas shows build ${hero}`);
-    } else {
-      await releaseWhenReady(page, 1);
-      // "Eventually", not "within 2.5s": the deferred build waits out the landed build's hold and
-      // fade-in, then a 350ms retry.
-      await page.waitForFunction(() => window.__cf.n >= 2, null, { timeout: 10000 }).catch(() => {});
-      const after = await page.evaluate(() => window.__cf.n);
-      check(after === 2, 'the deferred design builds once the canvas is free', `builds=${after}`);
+      await sleep(2500);
+      const first = await page.evaluate(() => window.__cf.heroIndex());
+      check(first === 1, 'first build paints', `canvas shows build ${first}`);
+      await generateFromWidget(page);
+      // releaseWhenReady waits for the build rather than assuming a fixed sleep covers it.
       await releaseWhenReady(page, 2);
       await waitForHero(page, 2);
-      const hero = await page.evaluate(() => window.__cf.heroIndex());
-      check(hero === 2, 'the canvas ends on the newest design', `canvas shows build ${hero}`);
+      const second = await page.evaluate(() => window.__cf.heroIndex());
+      check(
+        second === 2,
+        'a generate from an idle canvas repaints',
+        `canvas shows build ${second}`
+      );
+      check(errors.length === 0, 'no page errors', errors.join(' | '));
+      await ctx.close();
     }
-    check(errors.length === 0, 'no page errors', errors.join(' | '));
-    await ctx.close();
-  }
-
-  // 2. The encoder giving up (a real WebKit behaviour at these canvas sizes) must not strand
-  //    the UI. Pre-fix this threw out of the toBlob callback and left "Generating" forever.
-  {
-    const { ctx, page, errors } = await open(browser);
-    await releaseWhenReady(page, 1, true);
-    await sleep(2500);
-    const thrown = await page.evaluate(() => window.__cf.thrown);
-    const label = await page.evaluate(() => window.__cf.generateLabel());
-    check(thrown.length === 0, 'a null blob does not throw out of setImage', thrown.join(' | '));
-    check(label === 'Generate', 'the controls come back after a failed build', `button reads "${label}"`);
-    check(errors.length === 0, 'no page errors', errors.join(' | '));
-    await ctx.close();
-  }
-
-  // 3. The ordinary path still works, from an idle canvas.
-  {
-    const { ctx, page, errors } = await open(browser);
-    await releaseWhenReady(page, 1);
-    await sleep(2500);
-    const first = await page.evaluate(() => window.__cf.heroIndex());
-    check(first === 1, 'first build paints', `canvas shows build ${first}`);
-    await generateFromWidget(page);
-    // releaseWhenReady waits for the build rather than assuming a fixed sleep covers it.
-    await releaseWhenReady(page, 2);
-    await waitForHero(page, 2);
-    const second = await page.evaluate(() => window.__cf.heroIndex());
-    check(second === 2, 'a generate from an idle canvas repaints', `canvas shows build ${second}`);
-    check(errors.length === 0, 'no page errors', errors.join(' | '));
-    await ctx.close();
   }
 
   await browser.close();

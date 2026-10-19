@@ -5,6 +5,13 @@ import { useStudio } from '../context/StudioContext';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 import { capMockupRenderSize } from '../lib/printful';
 import { resolvedPalette } from '../render/resolvedPalette';
+import { PRIORITY_SHIRT } from '../render/renderOffThread';
+import { NEBULA_PIXELS_LITE } from '../render/nebula';
+
+// The shirt's texture renders: ahead of the hero in the render worker, so the sheet is ready on
+// the hero's reveal beat (render/renderOffThread.js PRIORITY_SHIRT), with the decorative nebula
+// area (render/nebula.js NEBULA_PIXELS_LITE) -- the shirt is drawn about 190px tall.
+const SHIRT_RENDER = { priority: PRIORITY_SHIRT, nebulaPixels: NEBULA_PIXELS_LITE };
 import { createTshirtSwirl } from './tshirtSwirl';
 
 // Small live 3D garment preview for the homepage hero panel: the current design rendered
@@ -1122,9 +1129,9 @@ export default function TshirtPreview({
     (async () => {
       try {
         const [baseBlob, bodyBlob, sleeveBlob] = await Promise.all([
-          renderDesignBlob(currentDesign, TEXTURE_SIZE, TEXTURE_SIZE),
-          renderDesignBlob(currentDesign, BODY_RENDER.w, BODY_RENDER.h),
-          renderDesignBlob(currentDesign, SLEEVE_RENDER.w, SLEEVE_RENDER.h)
+          renderDesignBlob(currentDesign, TEXTURE_SIZE, TEXTURE_SIZE, SHIRT_RENDER),
+          renderDesignBlob(currentDesign, BODY_RENDER.w, BODY_RENDER.h, SHIRT_RENDER),
+          renderDesignBlob(currentDesign, SLEEVE_RENDER.w, SLEEVE_RENDER.h, SHIRT_RENDER)
         ]);
         const [base, body, sleeve] = await Promise.all(
           [baseBlob, bodyBlob, sleeveBlob].map(b => createImageBitmap(b))

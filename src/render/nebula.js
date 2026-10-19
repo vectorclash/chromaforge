@@ -35,10 +35,17 @@
 import tinycolor from 'tinycolor2';
 import { makeRng, randomPalette } from './prng';
 import { nebula2dRows } from './nebula2dCpu';
-import { nebulaFieldGpu } from './nebulaGpu';
+import { nebulaFieldGpu, nebulaFieldGpuBanded } from './nebulaGpu';
 import LinearGradient from '../components/Canvas/LinearGradient';
 
 export const NEBULA_PIXELS = 960 * 540;
+// The field's area for a DECORATIVE render -- one shown small and never compared against a print
+// (the mini generator, footer band, mobile nav, the homepage shirt and About blob): a quarter, so
+// a quarter of the GPU work, which is most of what a render costs (2026-10-19, measured: the
+// nebula 55-110ms of each render on a desktop GPU, drawing 2-8ms; a phone is several times that).
+// Set per render through generateArtwork's renderContext.nebulaPixels; never on anything a
+// customer approves as a print, so (1) above still holds for every mockup and print file.
+export const NEBULA_PIXELS_LITE = NEBULA_PIXELS / 4;
 export const NEBULA_OCTAVES = 9;
 
 // How much nebula a design gets. Four tiers, smooth within each: none ~15%, faint ~20%, medium
@@ -192,9 +199,9 @@ function blurField(a, w, h, r) { // three box passes ~ a gaussian
 }
 
 /** The fixed render size for an output of width x height (see (1) above). */
-export function nebulaRenderSize(width, height) {
+export function nebulaRenderSize(width, height, pixels = NEBULA_PIXELS) {
   const aspect = width / height;
-  const w = Math.max(16, Math.round(Math.sqrt(NEBULA_PIXELS * aspect)));
+  const w = Math.max(16, Math.round(Math.sqrt((pixels || NEBULA_PIXELS) * aspect)));
   const h = Math.max(16, Math.round(w / aspect));
   return { w, h };
 }
@@ -202,11 +209,26 @@ export function nebulaRenderSize(width, height) {
 /** Alpha mask (0..1, row 0 at the top) at the fixed render size. Exported for checks. */
 export function nebulaMask(config, { gpu = true, info = null } = {}) {
   const plan = config.nebulaConfig;
-  const { w, h } = nebulaRenderSize(config.width, config.height);
+  const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
   const loc = placement(config.seed, plan.cover);
   let field = gpu ? nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES) : null;
   if (info) info.gpu = !!field;
   if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  return maskFromField(field, w, h, plan);
+}
+
+/** nebulaMask with the GPU field drawn in bands (nebulaGpu.js), for the worker. Same result. */
+export async function nebulaMaskBanded(config, { gpu = true, info = null } = {}) {
+  const plan = config.nebulaConfig;
+  const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
+  const loc = placement(config.seed, plan.cover);
+  let field = gpu ? await nebulaFieldGpuBanded(loc, w, h, NEBULA_OCTAVES, undefined, undefined, info) : null;
+  if (info) info.gpu = !!field;
+  if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  return maskFromField(field, w, h, plan);
+}
+
+function maskFromField(field, w, h, plan) {
   const a = toHisCurve(field);
   if (plan.colour.mode === 'own') {
     // Pools are a very wide blur (~1/24 of the long edge), so they are computed on a 4x-reduced
@@ -243,7 +265,12 @@ export function nebulaMask(config, { gpu = true, info = null } = {}) {
 // The mask as RGBA pixels (white, alpha = the mask), ready for putImageData. Pure: runs in the page
 // or in the nebula's worker.
 export function nebulaRGBA(config, opts) {
-  const m = nebulaMask(config, opts);
+  return maskToRGBA(nebulaMask(config, opts));
+}
+export async function nebulaRGBABanded(config, opts) {
+  return maskToRGBA(await nebulaMaskBanded(config, opts));
+}
+function maskToRGBA(m) {
   const rgba = new Uint8ClampedArray(m.w * m.h * 4);
   for (let k = 0; k < m.a.length; k++) {
     const o = k * 4;
@@ -260,7 +287,7 @@ export function nebulaRGBA(config, opts) {
 const MASKS = new Map();
 function maskKey(config) {
   const plan = config.nebulaConfig;
-  const { w, h } = nebulaRenderSize(config.width, config.height);
+  const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
   return `${config.seed}:${w}x${h}:${plan.cover}:${plan.strength}:${plan.colour.mode}`;
 }
 function storeMask(key, rgba, w, h) {
@@ -364,7 +391,7 @@ export function prepareNebula(config) {
     JOBS.set(id, msg => {
       if (!msg.error && !MASKS.has(key)) storeMask(key, msg.rgba, msg.w, msg.h);
       else if (msg.error) console.warn('[nebula] worker job failed:', msg.error);
-      if (import.meta.env?.DEV && !msg.error) console.info(`[nebula] ${msg.w}x${msg.h} in the worker, ${msg.gpu ? 'GPU' : 'CPU'}, ${msg.ms}ms`);
+      if (import.meta.env?.DEV && !msg.error) console.info(`[nebula] ${msg.w}x${msg.h} in the worker, ${msg.gpu ? `GPU, ${msg.bands} bands, worst ${msg.maxBandMs}ms` : 'CPU'}, ${msg.ms}ms`);
       PENDING.delete(key);
       resolve();
     });
@@ -378,6 +405,17 @@ export function prepareNebula(config) {
   });
   PENDING.set(key, p);
   return p;
+}
+
+/** Computes and caches `config`'s mask on THIS thread, drawing the GPU field in bands. For the
+ * render worker (render/renderWorker.js), which is already off the page's thread. */
+export async function prepareNebulaHere(config) {
+  const plan = config?.nebulaConfig;
+  if (!plan || !plan.strength) return;
+  const key = maskKey(config);
+  if (MASKS.has(key)) return;
+  const { rgba, w, h } = await nebulaRGBABanded(config);
+  if (!MASKS.has(key)) storeMask(key, rgba, w, h);
 }
 
 /** Composite the design's nebula onto ctx (the radial field's old slot). */

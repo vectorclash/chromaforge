@@ -2,7 +2,9 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
-import { prepareNebula } from '../render/nebula';
+import { prepareNebula, NEBULA_PIXELS_LITE } from '../render/nebula';
+import { yieldToPaint } from '../render/animationFrames';
+import { renderOffThread, logRender, PRIORITY_AMBIENT, PRIORITY_DEFAULT } from '../render/renderOffThread';
 import { toCompactDesign } from '../render/compactDesign';
 import {
   isSameDesign,
@@ -110,6 +112,11 @@ export function StudioProvider({ children }) {
   // of the image it belongs to. Pairing them here is what lets a surface tint itself with the
   // artwork it is showing rather than the one it is about to show.
   const [previewPalette, setPreviewPalette] = useState(null);
+  // The design the current preview was rendered from. While it is not currentDesign, the
+  // design is CHANGING: every ambient surface (mini generator, footer band, mobile nav, the
+  // product and gallery tiles) starts its loading state on that, in the click's own frame, and
+  // reveals when its image lands (useCrossfadeImage's `pending`). See ambientRender below.
+  const [previewDesign, setPreviewDesign] = useState(null);
   // Mirrors previewUrl so the render effect can revoke the url it is replacing without
   // doing that (a side effect) inside a setState updater, which StrictMode invokes twice.
   const previewUrlRef = useRef(null);
@@ -166,6 +173,7 @@ export function StudioProvider({ children }) {
   // doesn't add render cost to the hot paths that already call this on every design change
   // (the mini-generator/footer/mobile-nav previews) -- only callers that render once per
   // save or on-demand (thumbnails, the gallery modal) opt in.
+  const renderTurnRef = useRef(Promise.resolve());
   const renderDesignBlob = useCallback(
     async (
       config,
@@ -178,20 +186,33 @@ export function StudioProvider({ children }) {
         highDensity = false,
         sizeFrame = null,
         legSymmetry = false,
-        geometryScale = 1
+        geometryScale = 1,
+        priority = PRIORITY_DEFAULT,
+        nebulaPixels = null
       } = {}
     ) => {
       const { width: genWidth, height: genHeight } = highDensity
         ? densityFloorSize(width, height)
         : { width, height };
-      const built = generateArtwork(config.seed, genWidth, genHeight, config.colors, config.settings, {
-        includeGeometry,
-        geometryLayout,
-        mirrorX,
-        sizeFrame,
-        legSymmetry,
-        geometryScale
-      });
+      const renderContext = { includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, geometryScale, nebulaPixels };
+      // In the render worker (render/renderOffThread.js) when there is one: the page then does
+      // nothing for this render but receive the image.
+      const offThread = await renderOffThread(
+        [config.seed, genWidth, genHeight, config.colors || [], config.settings ?? null, renderContext],
+        { width, height, quality: 0.85 },
+        priority
+      );
+      if (offThread) return offThread;
+      // On the page: one render at a time, each after a paint (2026-10-19, Aaron: a few lost
+      // frames "right as you press generate"). Every surface showing the design asks for its
+      // render from the same effect flush right after the click, so their generateArtwork calls
+      // all ran in ONE task in the click's frame. Taking turns puts each in its own task.
+      const pageStart = performance.now();
+      const turn = renderTurnRef.current.then(yieldToPaint);
+      renderTurnRef.current = turn;
+      await turn;
+      const pageDrawStart = performance.now();
+      const built = generateArtwork(config.seed, genWidth, genHeight, config.colors, config.settings, renderContext);
       await prepareNebula(built); // off the main thread (render/nebula.js)
       const canvas = renderArtwork(built);
       let outputCanvas = canvas;
@@ -205,12 +226,67 @@ export function StudioProvider({ children }) {
         canvas.width = 0;
         canvas.height = 0;
       }
+      const pageDrawn = performance.now();
       const blob = await new Promise(resolve => outputCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+      logRender({
+        size: `${width}x${height}`,
+        priority,
+        path: 'PAGE',
+        wait: Math.round(pageDrawStart - pageStart),
+        phases: `main-thread ${Math.round(pageDrawn - pageDrawStart)} (incl. nebula wait)`,
+        total: Math.round(performance.now() - pageStart)
+      });
       outputCanvas.width = 0;
       outputCanvas.height = 0;
       return blob;
     },
     []
+  );
+
+  // The surfaces that mirror the design in small -- the mini generator's thumbnail (this
+  // provider's own preview), the footer's art band and the mobile nav's background -- each
+  // render their own copy, and they must change AS ONE (Aaron, 2026-10-19: "these need to stay
+  // exactly in sync as they were before"). With every render queued in one worker they landed
+  // one by one, so the three revealed at different moments. ambientRender renders at the
+  // worker's highest priority and holds each result until every ambient render asked for the
+  // SAME design object has finished, then hands them all back in one task -- one React commit,
+  // one frame. All three ask from the same effect flush after the design changes, so the group
+  // is complete before any of it can finish. A late arrival (the mobile nav opening after the
+  // group landed) simply renders on its own.
+  const ambientGroupRef = useRef(null);
+  // `join: false` renders at the same priority without waiting on (or holding) the group: for a
+  // surface that is covered right now, like the footer under the open mobile nav. Holding the
+  // visible ones for a covered one was the reverted 2026-09-23 shared cycle's worst cost (a
+  // Generate from the menu waited on the footer's 3200px render, which nobody could see).
+  const ambientRender = useCallback(
+    (design, width, height, { join = true } = {}) => {
+      if (!join) return renderDesignBlob(design, width, height, { priority: PRIORITY_AMBIENT, nebulaPixels: NEBULA_PIXELS_LITE });
+      let g = ambientGroupRef.current;
+      if (!g || g.design !== design || g.landed) {
+        g = { design, pending: 0, waiting: [], landed: false };
+        ambientGroupRef.current = g;
+      }
+      const group = g;
+      group.pending++;
+      const settle = () => {
+        if (--group.pending > 0) return;
+        group.landed = true;
+        for (const finish of group.waiting.splice(0)) finish();
+      };
+      return renderDesignBlob(design, width, height, { priority: PRIORITY_AMBIENT, nebulaPixels: NEBULA_PIXELS_LITE }).then(
+        blob =>
+          new Promise(resolve => {
+            group.waiting.push(() => resolve(blob));
+            settle();
+          }),
+        err =>
+          new Promise((_, reject) => {
+            group.waiting.push(() => reject(err));
+            settle();
+          })
+      );
+    },
+    [renderDesignBlob]
   );
 
   // The list is written whenever it changes; a design re-recorded as current leaves the entries
@@ -275,13 +351,14 @@ export function StudioProvider({ children }) {
   // each consumer rendering its own copy.
   useEffect(() => {
     let cancelled = false;
-    renderDesignBlob(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
+    ambientRender(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
       .then(blob => {
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
         const dead = previewUrlRef.current;
         previewUrlRef.current = url;
         setPreviewUrl(url);
+        setPreviewDesign(currentDesign);
         // `currentDesign` here is the closure's -- the design this blob was rendered FROM,
         // not whatever happens to be current by the time it resolves.
         setPreviewPalette(resolvedPalette(currentDesign));
@@ -296,12 +373,16 @@ export function StudioProvider({ children }) {
         // previews landed close together, which is a load error, not a blank frame.
         if (dead) setTimeout(() => URL.revokeObjectURL(dead), STALE_PREVIEW_REVOKE_MS);
       })
-      .catch(() => {});
+      .catch(() => {
+        // A failed preview still ends the change, or every ambient surface would hold its
+        // loading state (faded out) forever; they fade the image they have back in.
+        if (!cancelled) setPreviewDesign(currentDesign);
+      });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDesign, renderDesignBlob]);
+  }, [currentDesign, ambientRender]);
 
   // Fresh seed, but keeps the CURRENT palette/geometry settings -- what "Generate" means
   // everywhere else in the app (DisplayCanvas.onGenerateButtonClick's buildConfig() defaults
@@ -419,7 +500,9 @@ export function StudioProvider({ children }) {
     setCurrentDesign,
     previewUrl,
     previewPalette,
+    designChanging: previewDesign !== currentDesign,
     renderDesignBlob,
+    ambientRender,
     generateRandom,
     saveCurrentDesign,
     markDesignSaved,

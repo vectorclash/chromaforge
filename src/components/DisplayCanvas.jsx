@@ -11,6 +11,7 @@ import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { prepareNebula } from '../render/nebula';
+import { renderConfigOffThread } from '../render/renderOffThread';
 import { toCompactDesign } from '../render/compactDesign';
 import { geometrySvgBlob } from '../render/geometrySvg';
 import { recentDesignKey, RECENT_MAX } from '../lib/recentDesigns';
@@ -1240,14 +1241,27 @@ export default class DisplayCanvas extends React.Component {
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
     const token = ++this.buildToken;
-    // The nebula is computed off the main thread first (render/nebula.js prepareNebula), so the
-    // loader keeps animating; done inside renderArtwork it froze the page on every Generate.
-    prepareNebula(config).then(() => {
-      if (token !== this.buildToken) return; // superseded while its nebula was being made
-      const canvas = renderArtwork(config);
-      canvas.toBlob(blob => this.setImage(blob, token, config), 'image/jpeg', 0.98);
-      this.clearElement(canvas);
-    });
+    // Drawn in the render worker (render/renderOffThread.js), so the old artwork's fade-out and
+    // the loader keep moving while it is drawn; drawn here, the render froze them for its whole
+    // length on every Generate. A page render is the fallback when the worker is unavailable,
+    // with its nebula made off the main thread first (render/nebula.js prepareNebula).
+    // Posted a paint later: the surfaces that change with it (StudioContext.ambientRender, the
+    // shirt) ask for their renders from the effects of this same click, which run after this
+    // handler -- posted first, the hero was already being drawn when theirs arrived, and the
+    // worker's priorities could not put them ahead of a job already under way. The hero is held
+    // for its loader beat regardless, so it has the slack.
+    yieldToPaint()
+      .then(() => (token === this.buildToken ? renderConfigOffThread(config, 0.98) : null))
+      .then(blob => {
+        if (token !== this.buildToken) return; // superseded while it was being drawn
+        if (blob) return this.setImage(blob, token, config);
+        prepareNebula(config).then(() => {
+          if (token !== this.buildToken) return; // superseded while its nebula was being made
+          const canvas = renderArtwork(config);
+          canvas.toBlob(b => this.setImage(b, token, config), 'image/jpeg', 0.98);
+          this.clearElement(canvas);
+        });
+      });
   }
 
   clearElement(element) {

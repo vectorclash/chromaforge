@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStudio } from '../../context/StudioContext';
 import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
-import { subscribeScrollLock } from '../../hooks/useScrollLock';
-import DotRipple from '../DotRipple';
+import { subscribeScrollLock, isScrollLocked } from '../../hooks/useScrollLock';
+import DotRipple, { useRippleMounted } from '../DotRipple';
 import MiniGenerator from './MiniGenerator';
 import Wordmark from './Wordmark';
 
@@ -24,7 +24,7 @@ const PARALLAX_SCALE = 1.24;
 const STALE_BG_REVOKE_MS = 5000;
 
 export default function SiteFooter() {
-  const { currentDesign, renderDesignBlob } = useStudio();
+  const { currentDesign, ambientRender, designChanging } = useStudio();
   const [bgUrl, setBgUrl] = useState(null);
   const bgUrlRef = useRef(null);
   const footerRef = useRef(null);
@@ -32,7 +32,8 @@ export default function SiteFooter() {
 
   useEffect(() => {
     let cancelled = false;
-    renderDesignBlob(currentDesign, RENDER_WIDTH, RENDER_HEIGHT)
+    // ambientRender: lands in the same frame as the mini generator's preview (StudioContext)
+    ambientRender(currentDesign, RENDER_WIDTH, RENDER_HEIGHT, { join: !isScrollLocked() })
       .then(blob => {
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
@@ -48,9 +49,10 @@ export default function SiteFooter() {
     return () => {
       cancelled = true;
     };
-  }, [currentDesign, renderDesignBlob]);
+  }, [currentDesign, ambientRender]);
 
-  const { shown, incoming, shownRef, incomingRef, holding } = useCrossfadeImage(bgUrl);
+  const { shown, incoming, shownRef, incomingRef, holding, revealReady } = useCrossfadeImage(bgUrl, { pending: designChanging });
+  const rippleMounted = useRippleMounted(holding);
 
   // The artwork drifts down into place as the footer scrolls in, lagging the page rather than
   // riding with it. Same construction as the hero's parallax, with two differences worth
@@ -176,7 +178,11 @@ export default function SiteFooter() {
               />
             )}
           </div>
-          {holding && <DotRipple />}
+          {/* The usual two rings, then more only while the new image is still not ready --
+              so a long render keeps rippling instead of stopping partway (Aaron, 2026-10-19:
+              "the loading animation stops 1 third of the way through"), and a quick one ends
+              on its second ring as it always has, with the image arriving on the third beat. */}
+          {rippleMounted && <DotRipple active={holding} onBeat={n => n < 2 || !revealReady()} />}
           {/* Subtle dark gradient overlay to ensure text contrast */}
           {/* Contrast scrim. Weighted to the bottom, where the legal/bottom bar sits on the
               smallest type in the app; the top is left far more open so the artwork reads. */}

@@ -3,6 +3,8 @@ import { gsap } from 'gsap';
 import { useStudio } from '../../context/StudioContext';
 import { DURATION_FAST, DURATION_HOLD, DURATION_SLOW } from '../../utils/motionTokens';
 import logoUrl from '../../assets/images/logo.svg';
+import { NEBULA_PIXELS_LITE } from '../../render/nebula';
+import { PRIORITY_LOW } from '../../render/renderOffThread';
 import starUrl from '../../assets/images/star-sprite-large.png';
 
 // The About section's second image: the amorphous blob from the 2021 design, reused as a
@@ -358,7 +360,7 @@ export default function AboutBlob({ className = '' }) {
     // recompose for that ratio rather than a stretch of another one.
     const width = ART_CAP;
     const height = Math.round(width / ASPECT);
-    renderDesignBlob(currentDesign, width, height)
+    renderDesignBlob(currentDesign, width, height, { nebulaPixels: NEBULA_PIXELS_LITE, priority: PRIORITY_LOW })
       .then(blob => {
         if (cancelled) return null;
         url = URL.createObjectURL(blob);

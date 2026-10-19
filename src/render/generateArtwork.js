@@ -320,7 +320,10 @@ export function generateArtwork(
     mirrorX = false,
     sizeFrame = null,
     legSymmetry = false,
-    geometryScale = 1
+    geometryScale = 1,
+    // Render context like the rest: the nebula field's area (render/nebula.js NEBULA_PIXELS_LITE)
+    // for a decorative render. Consumes no rng(); null is the standard fixed area.
+    nebulaPixels = null
   } = {}
 ) {
   const rng = makeRng(seed);
@@ -379,6 +382,7 @@ export function generateArtwork(
 
   // Pure: side streams only, so it moves nothing in the shared sequence (see the v15 note).
   config.nebulaConfig = generateNebula(config, { linked: geometry.nebulaLinked });
+  if (nebulaPixels && config.nebulaConfig.strength) config.nebulaConfig.pixels = nebulaPixels;
 
   // Still generated, never drawn (v15): the nebula took its slot, but these draws are upstream of
   // the geometry coin and must stay exactly where they are.
@@ -507,5 +511,11 @@ export function generateArtwork(
     );
   }
 
+  // The exact call, kept so the render worker (render/renderOffThread.js) can rebuild this
+  // config on its own thread instead of copying ~100k star objects across. Non-enumerable, so
+  // spreading, compacting or saving a config never carries it, and nothing reads it but that.
+  Object.defineProperty(config, 'generatedBy', {
+    value: [seed, width, height, colorValues.slice(), settings, { includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, geometryScale, nebulaPixels }]
+  });
   return config;
 }

@@ -4,6 +4,7 @@ import { gsap } from 'gsap';
 
 import { AuthProvider } from './context/AuthContext';
 import { StudioProvider } from './context/StudioContext';
+import RenderLog from './components/ui/RenderLog';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import SiteLayout from './components/ui/SiteLayout';
 import HomePage from './pages/HomePage';
@@ -89,6 +90,7 @@ export default function App() {
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
             </Routes>
+            <RenderLog />
           </StudioProvider>
         </AuthProvider>
       </BrowserRouter>

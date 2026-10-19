@@ -771,6 +771,92 @@ the actual print, generated the same deterministic way.
   else the CPU (~2s, still no freeze). The GPU field packs its 16-bit result into RGBA8, so it no
   longer needs EXT_color_buffer_float. Verified: worker and inline renders are pixel-identical;
   production build, phone-ish 2D Generate worst frame median 50ms vs master 83ms.
+  **Off the main thread is not off the GPU: the worker draws the field in BANDS**
+  (`nebulaFieldGpuBanded`, 2026-10-19, Aaron: homepage Generate "pretty bad on my phone", studio
+  less so). The shader is ~100 Perlin evaluations per pixel as ONE draw, a phone GPU cannot
+  preempt a draw, so the page could not composite frames while it ran however idle the main
+  thread was -- and the homepage makes SIX masks per Generate (one per surface aspect: hero, mini
+  preview, shirt body, shirt sleeve, About blob, footer), the studio one or two. Bands are sized
+  in pixels and adapt (grow if back by the first poll, shrink if a band clearly held the GPU past
+  10ms), with a fence polled between them; worker jobs run one at a time since they now await.
+  Byte-identical to the one-draw field (4 sizes, 0 differing values). Measured on desktop with a
+  16x field standing in for a slow GPU: one draw dropped a frame (50ms gap), banded none. Cost:
+  ~60-200ms per job instead of ~17ms, i.e. ~0.6s more before all six homepage surfaces land; the
+  floor is the worker's ~5ms timer per band. CPU throttling in Playwright cannot show any of
+  this (it throttles the main thread, not the GPU) -- judge it on the phone.
+  **The click itself also lost frames (same day, Aaron: "right as you press generate, we lose a
+  few frames").** Every surface's `renderDesignBlob` started from the same effect flush, so their
+  `generateArtwork` calls (mostly the fine star field's noise) ran as ONE 50-75ms task (4x CPU) in
+  the click's frame. They now take turns, one `yieldToPaint` apiece (`renderTurnRef` in
+  StudioContext). And `StarField` rebuilt the small star sprite on every render -- a
+  `getImageData` flatten, i.e. a GPU read-back, ~20ms at 4x each time -- it is now built once per
+  visit (pixel-identical). Result at 4x: click-frame task gone, at most one ~50-65ms task per
+  Generate (the hero's own full-size render). `check-hero-build-race.mjs`'s widget step waits
+  (bounded) for the preview instead of a fixed 800ms: on its software GL the nebula takes seconds.
+  **Then the whole render moved off the page — `render/renderWorker.js` + `renderOffThread.js`
+  (same day, Aaron: "everything just stops and loses a beat", during the old artwork's fade-out,
+  worst on his iPhone 18 Pro).** The hero's `renderArtwork` started the moment its nebula mask
+  landed, mid fade-out, and froze everything for its length; then each surface's did the same.
+  Now the hero's `buildImage` and StudioContext's `renderDesignBlob` (every homepage surface,
+  mockups, thumbnails, the gallery modal) send generateArtwork's ARGUMENTS to one worker, which
+  regenerates, makes the nebula (banded, same thread), draws on OffscreenCanvas and returns a JPEG
+  Blob. Measured at 4x CPU, production build: **0 long tasks, no frame over 17ms**, homepage and
+  studio. Five things worth not re-deriving:
+  (1) **Arguments, not the config:** a resolved star field is ~100k objects and cloning it would
+  cost the page more than drawing it. `generateArtwork` keeps its exact call on the result as a
+  NON-enumerable `generatedBy` (so spreading/compacting/saving never carries it); a config whose
+  size no longer matches it renders on the page.
+  (2) **The shim is render-service's, in a worker:** `document.createElement('canvas')` gives an
+  OffscreenCanvas (with `dataset`/`style` stubs — nebulaGpu tags its canvas via `dataset`, and
+  without it silently fell to the 2.5s CPU field), and `/createjs.min.js` is fetched and run by
+  indirect eval so its `this.createjs` lands on the worker's global, as a script tag would.
+  (3) **Byte-identical to the page render**, JPEG bytes and pixels, in Chromium AND WebKit, across
+  three designs incl. a geometry lattice; `check-render-regression.mjs` 0 changed.
+  (4) **The page render is the fallback, kept whole:** no OffscreenCanvas 2D (Safari < 16.4) or a
+  failed worker job → page render with the nebula worker, for the rest of the visit.
+  `check-hero-build-race.mjs` now runs every scenario in BOTH modes ('page' hides OffscreenCanvas;
+  'worker' holds the worker's replies instead of toBlob callbacks).
+  (5) Still on the page: 2D animation frames, downloads, Recent thumbnails, label backdrops, the
+  logo-ink probe. None run on a Generate; move them the same way if one ever stutters.
+  `check-route-intro-once.mjs` fails on reduced-motion /gallery and /shop/257 on the committed code
+  too — pre-existing, not this.
+  **The ambient surfaces then fell out of sync, and the fix is a rule worth keeping** (same day,
+  Aaron: "these need to stay exactly in sync as they were before... the loading/generating state
+  needs to start immediately on all surfaces"). The mini generator (StudioContext's preview), the
+  footer band and the mobile nav each render their OWN copy; queued one worker job at a time they
+  landed at different moments, 600-750ms after the click. Before the nebula they only LOOKED
+  immediate because a render took a few ms (master, measured: fade-out at ~290ms, hero at ~160).
+  Now: (1) **the loading state starts on the CHANGE, not the image** — StudioContext's
+  `designChanging` (currentDesign vs the design the preview was made from) drives
+  useCrossfadeImage's `pending`, which runs the fade-out and hold from the click and fades in once
+  the hold is over AND the url has decoded; a change that ends with no url fades the old image
+  back. The reveal still only shows a real render, so the previewUrl rule above stands.
+  (2) **`ambientRender`** groups those three renders per design object and releases them in ONE
+  task (one commit), at the worker's top priority, ahead of the hero (whose reveal is held for its
+  loader beat anyway). (3) MobileNav's per-url `instant` is ignored while a change is under way:
+  it described the LAST url and blocked the first Generate made inside the open nav. Measured,
+  production build, desktop and a phone viewport at 1x and 4x CPU, hero/mini/in-nav Generate:
+  hero, mini, footer and nav all start fading out on the SAME frame; footer, mini and nav fade in on
+  the same frame, the hero within 1-2 frames (~1.33s after the click; master ~1.5s).
+  **Queue order and cost, round 2 (same day, from his phone: shirt lagging the hero, a blank shirt
+  on first load, the nav's Generate slow with its dots stopping a third of the way).** Worker
+  priorities (`renderOffThread.js`): AMBIENT 3 > SHIRT 2 (the shirt commits its sheet on the
+  hero's reveal, so its three textures must be done first) > DEFAULT 1 (the hero) > LOW 0 (About
+  blob). The hero POSTS a paint later (`buildImage`'s `yieldToPaint`): posted in the click handler
+  it was already being drawn before the effects asked for anything else, and a priority cannot
+  reorder a job under way. A covered surface does not join the ambient group (`join:
+  !isScrollLocked()` — the footer under the open nav; waiting on it was the 2026-09-23 revert's
+  worst cost all over again). Footer and nav dots use DotRipple's continuous mode, mounted only
+  while loading plus one ring's run-out (`useRippleMounted`: a permanently mounted ripple puts
+  composited blend-mode layers inside the nav's opacity fade, the WebKit pop again), with
+  `onBeat` allowing rings past two only while the image is not in hand (`revealReady`).
+  **Decorative renders use a quarter-area nebula** (`NEBULA_PIXELS_LITE`, renderContext
+  `nebulaPixels`): ambient, shirt, About blob. The nebula is most of a render's cost (55-110ms of
+  each on a desktop GPU, drawing 2-8ms). Measured at displayed size over 6 seeds: mean 0.0-0.7/255,
+  worst pixels 32 on the 1440px footer (grain). Never on the hero, mockups, prints, saved
+  thumbnails or the gallery modal. **`?renderlog=1`** (remembered; `=0` off) shows every render's
+  queue wait, phase times, worker/page path and frames over 50ms, timed from the last tap — for a
+  device that misbehaves where Playwright does not.
   **Nebula colour is a user setting, not a roll** (`settings.geometry.nebulaLinked`, default
   false = own gradient + colour pools; true = the star field's gradient). It is the last row of
   the studio's Color tab. A renamed "Layers" tab grouping it with Stars in front was built and
@@ -3452,6 +3538,15 @@ Three things worth not re-deriving:
   an open MobileNav) — its start/end were cached against a collapsed document.
 - **Notify order is load-bearing**: on lock, before the body moves; on unlock, after the
   scroll is restored. Either way round, a listener resumes against the wrong number.
+- **The lock must not change the page's WIDTH (2026-10-19, Aaron: in desktop Safari the menu
+  stalled opening and popped closing; Firefox fine; "maybe the scrollbar going away").** With a
+  classic scrollbar, fixing the body removed it, so the page got 15px wider (measured 505 -> 520px
+  in WebKit) and re-laid out on open and again on close -- and anything sized to its box did real
+  work during the menu's fade (the About blob requests a fresh render at its new size). `lockBody`
+  now holds `<html>`'s scrollbar track (`overflow-y: scroll`) when one takes width; overlay
+  scrollbars take none and are left alone. **Headless browsers use overlay scrollbars, so this is
+  invisible to every Playwright check**; force a classic one with a `::-webkit-scrollbar { width }`
+  style (WebKit honours it; headless Chromium did not) to see it.
 
 ### ProductPage's hero image slot — one animated layer, and why
 Recorded because getting this wrong cost a long, ugly debugging session (2026-07-29) and every

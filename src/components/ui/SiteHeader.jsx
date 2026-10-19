@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ShirtIcon from '../buttons/ShirtIcon';
@@ -51,6 +51,21 @@ export default function SiteHeader({
 }) {
   const { user, authResolved, avatarUrl } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  // The menu only exists below `sm` (MobileNav is `sm:hidden`), so a window widened past it
+  // while the menu is open must CLOSE it, not just hide it: hidden-but-open kept its scroll
+  // lock, which pins the page (useScrollLock) and left the site unscrollable and offset until it
+  // was narrowed again and the menu closed by hand (Aaron, 2026-10-19). Closing runs the normal
+  // path -- exit fade, unlock, scroll restored. 40rem is Tailwind's `sm`.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const wide = window.matchMedia('(min-width: 40rem)');
+    const onChange = () => {
+      if (wide.matches) setMenuOpen(false);
+    };
+    onChange();
+    wide.addEventListener('change', onChange);
+    return () => wide.removeEventListener('change', onChange);
+  }, [menuOpen]);
   const showGradient = transparent || menuOpen;
   const revertDuration = menuOpen ? 'var(--duration-base)' : 'var(--duration-fast)';
   return (

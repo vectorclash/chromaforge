@@ -957,6 +957,12 @@ function context() {
   }
 }
 function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, viewOff = [0, 0, 0]) {
+  const s = begin(loc, w, h, oct, units, viewOff);
+  if (!s) return null;
+  s.g.drawArrays(s.g.TRIANGLE_STRIP, 0, 4);
+  return finish(s, w, h);
+}
+function begin(loc, w, h, oct, units, viewOff) {
   const s = context();
   if (!s) return null;
   const { g, prog, fb } = s;
@@ -972,7 +978,10 @@ function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, viewOff = 
   g.uniform1f(g.getUniformLocation(prog, "uK"), units / Math.min(w, h));
   g.uniform1i(g.getUniformLocation(prog, "uOct"), oct);
   g.uniform3fv(g.getUniformLocation(prog, "uViewOff"), viewOff);
-  g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+  return { ...s, tex };
+}
+function finish(s, w, h) {
+  const { g, tex } = s;
   const px = new Uint8Array(w * h * 4);
   g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, px);
   g.deleteTexture(tex);
@@ -1009,6 +1018,7 @@ function LinearGradient(config) {
 
 // ../src/render/nebula.js
 var NEBULA_PIXELS = 960 * 540;
+var NEBULA_PIXELS_LITE = NEBULA_PIXELS / 4;
 var NEBULA_OCTAVES = 9;
 var AMOUNT_TIERS = [
   { name: "none", share: 0.15 },
@@ -1182,19 +1192,22 @@ function blurField(a, w, h, r) {
   }
   return out;
 }
-function nebulaRenderSize(width, height) {
+function nebulaRenderSize(width, height, pixels = NEBULA_PIXELS) {
   const aspect = width / height;
-  const w = Math.max(16, Math.round(Math.sqrt(NEBULA_PIXELS * aspect)));
+  const w = Math.max(16, Math.round(Math.sqrt((pixels || NEBULA_PIXELS) * aspect)));
   const h = Math.max(16, Math.round(w / aspect));
   return { w, h };
 }
 function nebulaMask(config, { gpu = true, info = null } = {}) {
   const plan = config.nebulaConfig;
-  const { w, h } = nebulaRenderSize(config.width, config.height);
+  const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
   const loc = placement(config.seed, plan.cover);
   let field = gpu ? nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES) : null;
   if (info) info.gpu = !!field;
   if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  return maskFromField(field, w, h, plan);
+}
+function maskFromField(field, w, h, plan) {
   const a = toHisCurve(field);
   if (plan.colour.mode === "own") {
     const D = POOL_DOWNSAMPLE, sw = Math.ceil(w / D), sh = Math.ceil(h / D);
@@ -1228,7 +1241,9 @@ function nebulaMask(config, { gpu = true, info = null } = {}) {
   return { a, w, h };
 }
 function nebulaRGBA(config, opts) {
-  const m = nebulaMask(config, opts);
+  return maskToRGBA(nebulaMask(config, opts));
+}
+function maskToRGBA(m) {
   const rgba = new Uint8ClampedArray(m.w * m.h * 4);
   for (let k = 0; k < m.a.length; k++) {
     const o = k * 4;
@@ -1242,7 +1257,7 @@ function nebulaRGBA(config, opts) {
 var MASKS = /* @__PURE__ */ new Map();
 function maskKey(config) {
   const plan = config.nebulaConfig;
-  const { w, h } = nebulaRenderSize(config.width, config.height);
+  const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
   return `${config.seed}:${w}x${h}:${plan.cover}:${plan.strength}:${plan.colour.mode}`;
 }
 function storeMask(key, rgba, w, h) {
@@ -1319,7 +1334,10 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
   mirrorX = false,
   sizeFrame = null,
   legSymmetry = false,
-  geometryScale = 1
+  geometryScale = 1,
+  // Render context like the rest: the nebula field's area (render/nebula.js NEBULA_PIXELS_LITE)
+  // for a decorative render. Consumes no rng(); null is the standard fixed area.
+  nebulaPixels = null
 } = {}) {
   const rng = makeRng(seed);
   const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
@@ -1352,6 +1370,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
     rng
   );
   config.nebulaConfig = generateNebula(config, { linked: geometry.nebulaLinked });
+  if (nebulaPixels && config.nebulaConfig.strength) config.nebulaConfig.pixels = nebulaPixels;
   let radialChance = rng();
   if (radialChance > 0.4) {
     config.firstBlend = randomBlendMode(rng);
@@ -1414,6 +1433,9 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
       rng
     );
   }
+  Object.defineProperty(config, "generatedBy", {
+    value: [seed, width, height, colorValues.slice(), settings, { includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, geometryScale, nebulaPixels }]
+  });
   return config;
 }
 
@@ -1634,6 +1656,17 @@ function buildSmallStarSprite(px, makeCanvas, shape = SMALL_STAR_SHAPE) {
 
 // ../src/components/Canvas/StarField.js
 var SMALL_SPRITE_PX = 256;
+var SMALL_SPRITE = null;
+function smallStarSprite() {
+  if (!SMALL_SPRITE)
+    SMALL_SPRITE = buildSmallStarSprite(SMALL_SPRITE_PX, (w, h) => {
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      return c;
+    });
+  return SMALL_SPRITE;
+}
 function StarField(config) {
   let canvas = document.createElement("canvas");
   let context2 = canvas.getContext("2d");
@@ -1646,12 +1679,7 @@ function StarField(config) {
   let starContext = starCanvas.getContext("2d");
   starCanvas.width = config.width;
   starCanvas.height = config.height;
-  const smallSprite = buildSmallStarSprite(SMALL_SPRITE_PX, (w, h) => {
-    const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
-    return c;
-  });
+  const smallSprite = smallStarSprite();
   for (let i = 0; i < config.stars.length; i++) {
     const star = config.stars[i];
     if (star.image === "star-large") {
