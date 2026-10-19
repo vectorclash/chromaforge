@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
+import { prepareNebula } from '../render/nebula';
 import { toCompactDesign } from '../render/compactDesign';
 import {
   isSameDesign,
@@ -191,6 +192,7 @@ export function StudioProvider({ children }) {
         legSymmetry,
         geometryScale
       });
+      await prepareNebula(built); // off the main thread (render/nebula.js)
       const canvas = renderArtwork(built);
       let outputCanvas = canvas;
       if (genWidth !== width || genHeight !== height) {

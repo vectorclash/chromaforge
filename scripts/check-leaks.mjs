@@ -210,7 +210,10 @@ async function homepage(browser, base) {
 
   const gl = await page.evaluate(() => ({ made: window.__leak.made, lost: window.__leak.lost, nebula: window.__leak.nebula }));
   check(gl.made - gl.lost <= 1, 'homepage: at most one live WebGL context', `made ${gl.made}, lost ${gl.lost}`);
-  check(gl.nebula >= 1 && gl.nebula <= 1, 'homepage: the nebula made exactly one WebGL context', `${gl.nebula} nebula contexts`);
+  // The nebula's GPU work runs in its worker (an OffscreenCanvas this counter cannot see), so the
+  // page itself usually makes none; it may make one (the 3D volume's sampling, or a browser without
+  // workers), never more.
+  check(gl.nebula <= 1, 'homepage: the nebula made at most one WebGL context in the page', `${gl.nebula} nebula contexts`);
 
   // Navigation: home -> shop -> product -> home.
   const navBefore = await page.evaluate(() => window.__leak.listeners());

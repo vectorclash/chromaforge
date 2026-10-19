@@ -17,7 +17,8 @@
 import * as THREE from 'three';
 import { nebulaFieldGpu, NEBULA_LIB_GLSL, NEBULA_UNIFORMS_GLSL } from '../render/nebulaGpu';
 import { UNITS_PER_SHORT_EDGE } from '../render/nebula2dCpu';
-import { placement, hisCurveKnots, ALPHAQ } from '../render/nebula';
+import { placement, placementAsync, askNebulaWorker, hisCurveKnots, ALPHAQ } from '../render/nebula';
+import { detailNoiseData, DETAIL_SIZE } from '../render/nebulaDetail';
 import { makeRng } from '../render/prng';
 
 export function nebula3dMode() {
@@ -77,51 +78,14 @@ const smooth = (a, b, x) => {
 // wraps exactly), sampled continuously by the march. The baked grid can only hold detail its
 // slice spacing can represent -- baked with all octaves, the fine ones aliased between slices into
 // rows of 'scales' -- so it carries the large shapes and this carries the small ones.
+// The texture is made at once (zeros) and filled from the worker when it arrives (fillDetail);
+// an unprepared caller fills it inline.
 let DETAIL = null;
+let detailFilled = false;
 function detailTexture() {
   if (DETAIL) return DETAIL;
-  const N = 64;
-  let h = 2166136261 >>> 0;
-  const rand = () => {
-    h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
-    h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0;
-    h ^= h >>> 16;
-    return h / 4294967296;
-  };
-  const MAXP = 32;
-  const grads = new Float32Array(MAXP * MAXP * MAXP * 3);
-  for (let i = 0; i < MAXP * MAXP * MAXP; i++) {
-    const z = rand() * 2 - 1, a = rand() * Math.PI * 2, r = Math.sqrt(1 - z * z);
-    grads.set([r * Math.cos(a), r * Math.sin(a), z], i * 3);
-  }
-  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
-  const perlin = (x, y, z, P) => {
-    const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
-    const fx = x - X, fy = y - Y, fz = z - Z;
-    let out = 0;
-    const u = fade(fx), v = fade(fy), w = fade(fz);
-    for (let c = 0; c < 8; c++) {
-      const dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
-      const gi = ((((X + dx) % P) * MAXP + ((Y + dy) % P)) * MAXP + ((Z + dz) % P)) * 3;
-      const dot = grads[gi] * (fx - dx) + grads[gi + 1] * (fy - dy) + grads[gi + 2] * (fz - dz);
-      out += dot * (dx ? u : 1 - u) * (dy ? v : 1 - v) * (dz ? w : 1 - w);
-    }
-    return out;
-  };
-  const data = new Uint8Array(N * N * N);
-  for (let z = 0; z < N; z++)
-    for (let y = 0; y < N; y++)
-      for (let x = 0; x < N; x++) {
-        let sum = 0, amp = 1, norm = 0;
-        for (let o = 0; o < 4; o++) {
-          const P = 4 << o; // lattice cells across the tile: 4, 8, 16, 32
-          sum += amp * perlin((x / N) * P, (y / N) * P, (z / N) * P, P);
-          norm += amp;
-          amp *= 0.5;
-        }
-        data[(z * N + y) * N + x] = Math.max(0, Math.min(255, Math.round((0.5 + (0.9 * sum) / norm) * 255)));
-      }
-  const tex = new THREE.Data3DTexture(data, N, N, N);
+  const N = DETAIL_SIZE;
+  const tex = new THREE.Data3DTexture(new Uint8Array(N * N * N), N, N, N);
   tex.format = THREE.RedFormat;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
@@ -129,6 +93,18 @@ function detailTexture() {
   tex.needsUpdate = true;
   DETAIL = tex;
   return tex;
+}
+let detailPending = null;
+function fillDetail(data) {
+  if (detailFilled) return;
+  detailTexture().image.data = data;
+  DETAIL.needsUpdate = true;
+  detailFilled = true;
+}
+function fillDetailAsync() {
+  if (detailFilled) return Promise.resolve();
+  if (!detailPending) detailPending = askNebulaWorker({ detail: true }).then(msg => fillDetail(msg && msg.data ? msg.data : detailNoiseData()));
+  return detailPending;
 }
 
 // The volume is a CORRIDOR: gas fills a tube of radius volRadius around the flight path, on an even
@@ -252,7 +228,6 @@ const BAKE_FRAG = /* glsl */ `
 `;
 
 function buildVolume({ seed, plan, L, frameH, space }) {
-  const loc = placement(seed, plan.cover);
   const s = UNITS_PER_SHORT_EDGE / frameH;
   const NX = NEB3D.volLateral, R = NEB3D.volRadius;
   const NZ = Math.max(32, Math.round(L / NEB3D.volStep));
@@ -261,25 +236,34 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   const sz = s / NEB3D.volStretch;
   const span = 2 * R * s;
 
-  // The tone curve's knots, from a coarse sample of the same field: 12 slices at 48x48 through the
-  // 2D layer's renderer (a few ms). The curve is a rank map, so a sample this size pins it well.
-  const sample = [];
-  for (let k = 0; k < 12; k++) {
-    const z = ((k + 0.5) / 12) * L;
-    const f = nebulaFieldGpu([loc[0], loc[1] + z * sz, loc[2]], 48, 48, NEB3D.volOct, span, [0, z * sz, 0]);
-    if (!f) throw new Error('nebula3d volume needs WebGL2');
-    for (const v of f) sample.push(v);
+  // Placement (where in the field this design sits) and the tone curve's knots, set once before
+  // the first slice. The placement is the 2D nebula's own (render/nebula.js), and computing it is
+  // ~100ms of CPU -- on a phone several times that -- so a prepared bake fetches it from the
+  // nebula's worker (placementAsync) rather than doing it here, inline in the scene build.
+  let located = false;
+  function locate(loc) {
+    // The knots, from a coarse sample of the same field: 12 slices at 48x48 through the 2D layer's
+    // renderer (a few ms). The curve is a rank map, so a sample this size pins it well.
+    const sample = [];
+    for (let k = 0; k < 12; k++) {
+      const z = ((k + 0.5) / 12) * L;
+      const f = nebulaFieldGpu([loc[0], loc[1] + z * sz, loc[2]], 48, 48, NEB3D.volOct, span, [0, z * sz, 0]);
+      if (!f) throw new Error('nebula3d volume needs WebGL2');
+      for (const v of f) sample.push(v);
+    }
+    // (The bake below puts depth into dir.y rather than loc.y + uViewOff: the same sums, since the
+    // recipe sees base = loc + dir and the view terms see dir + uViewOff.)
+    bakeU.uLoc.value.set(loc[0], loc[1], loc[2]);
+    bakeU.uKnots.value = hisCurveKnots(sample);
+    located = true;
   }
-  // (The bake below puts depth into dir.y rather than loc.y + uViewOff: the same sums, since the
-  // recipe sees base = loc + dir and the view terms see dir + uViewOff.)
-  const knots = hisCurveKnots(sample);
 
   const rt = new THREE.WebGL3DRenderTarget(NX, NX, NZ, { format: THREE.RedFormat, type: THREE.UnsignedByteType, depthBuffer: false });
   rt.texture.minFilter = THREE.LinearFilter;
   rt.texture.magFilter = THREE.LinearFilter;
   rt.texture.wrapR = THREE.RepeatWrapping;
   const bakeU = {
-    uLoc: { value: new THREE.Vector3(...loc) },
+    uLoc: { value: new THREE.Vector3() },
     uOct: { value: NEB3D.volOct },
     uViewOff: { value: new THREE.Vector3(0, 0, 0) },
     uRes: { value: NX },
@@ -287,7 +271,7 @@ function buildVolume({ seed, plan, L, frameH, space }) {
     uDepthA: { value: 0 },
     uDepthB: { value: 0 },
     uSeamW: { value: 0 },
-    uKnots: { value: knots }
+    uKnots: { value: new Array(33).fill(0) }
   };
   const bakeMat = new THREE.ShaderMaterial({
     vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
@@ -308,6 +292,8 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   // waiting for slices to finish. The synchronous form (a caller that never prepared) waits.
   function bake(renderer, budget = Infinity, async = false) {
     if (next >= NZ && !fence) return true;
+    if (!located) locate(placement(seed, plan.cover)); // an unprepared caller: inline
+    if (!detailFilled) fillDetail(detailNoiseData());
     const gl = renderer.getContext();
     if (fence) {
       if (async && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) return false;
@@ -389,6 +375,13 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   upScene.add(space.screenQuad(space.passMaterial('varying vec2 vUv; uniform sampler2D uSrc; uniform vec2 uTexel; void main() { vec4 c = texture2D(uSrc, vUv) * 0.4; c += (texture2D(uSrc, vUv + vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv - vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv + vec2(0.0, uTexel.y)) + texture2D(uSrc, vUv - vec2(0.0, uTexel.y))) * 0.15; gl_FragColor = c; }', upU)));
   return {
     bake,
+    async locate() {
+      await fillDetailAsync();
+      if (!located) {
+        const loc = await placementAsync(seed, plan.cover);
+        if (!located) locate(loc);
+      }
+    },
     // Compiles both shaders without blocking (KHR_parallel_shader_compile, via three's
     // compileAsync). The bake shader is the whole 2D recipe: compiled on first use it was a ~400ms
     // stall, once per visit.
@@ -490,6 +483,8 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
     // Bakes the volume a few ms at a time, yielding between chunks, so building a flight never
     // holds the main thread for long. Resolves when done (or when disposed first).
     async prepare(renderer) {
+      await neb.locate();
+      if (disposed) return;
       await neb.compile(renderer);
       while (!disposed && !neb.bake(renderer, Infinity, true)) await new Promise(r => setTimeout(r, 0));
     },

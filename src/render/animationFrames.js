@@ -73,7 +73,10 @@ export async function renderFrames(count, draw, { type = 'image/jpeg', quality =
     for (let i = 0; i < count; i++) {
       await yieldToPaint();
       if (isCancelled?.()) throw new AnimationBuildCancelled();
-      const job = encodeFrame(draw(i), type, quality, rasterize).then(url => {
+      // draw may be async (a frame waits for its nebula, render/nebula.js prepareNebula)
+      const canvas = await draw(i);
+      if (isCancelled?.()) throw new AnimationBuildCancelled();
+      const job = encodeFrame(canvas, type, quality, rasterize).then(url => {
         urls[i] = url;
         onFrame?.(++done);
       });

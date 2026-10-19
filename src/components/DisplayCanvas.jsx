@@ -10,6 +10,7 @@ import { randomSeed } from '../render/prng';
 import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette';
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
+import { prepareNebula } from '../render/nebula';
 import { toCompactDesign } from '../render/compactDesign';
 import { geometrySvgBlob } from '../render/geometrySvg';
 import { recentDesignKey, RECENT_MAX } from '../lib/recentDesigns';
@@ -1239,9 +1240,14 @@ export default class DisplayCanvas extends React.Component {
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
     const token = ++this.buildToken;
-    const canvas = renderArtwork(config);
-    canvas.toBlob(blob => this.setImage(blob, token, config), 'image/jpeg', 0.98);
-    this.clearElement(canvas);
+    // The nebula is computed off the main thread first (render/nebula.js prepareNebula), so the
+    // loader keeps animating; done inside renderArtwork it froze the page on every Generate.
+    prepareNebula(config).then(() => {
+      if (token !== this.buildToken) return; // superseded while its nebula was being made
+      const canvas = renderArtwork(config);
+      canvas.toBlob(blob => this.setImage(blob, token, config), 'image/jpeg', 0.98);
+      this.clearElement(canvas);
+    });
   }
 
   clearElement(element) {
@@ -1300,9 +1306,10 @@ export default class DisplayCanvas extends React.Component {
     this.suppressDesignSync = true;
     let frames, starFrames;
     try {
-      frames = await this.renderAnimationFrames(frameCount, () => {
+      frames = await this.renderAnimationFrames(frameCount, async () => {
         const config = this.buildConfig();
         configs.push(config);
+        await prepareNebula(config);
         return renderArtwork(config);
       }, 'image/jpeg', 0.98, n => !isCancelled() && this.setState({ animationProgress: n }), isCancelled);
     } catch (e) {
@@ -1357,7 +1364,10 @@ export default class DisplayCanvas extends React.Component {
     try {
       frames = await this.renderAnimationFrames(
         resolvedConfigs.length,
-        i => renderArtwork(resolvedConfigs[i]),
+        async i => {
+          await prepareNebula(resolvedConfigs[i]);
+          return renderArtwork(resolvedConfigs[i]);
+        },
         'image/jpeg',
         0.98,
         n => !isCancelled() && this.setState({ animationProgress: n }),
@@ -2176,6 +2186,7 @@ export default class DisplayCanvas extends React.Component {
     const design = toCompactDesign(config);
     const gen = densityFloorSize(width, height);
     const built = generateArtwork(design.seed, gen.width, gen.height, design.colors, design.settings);
+    await prepareNebula(built);
     let canvas = renderArtwork(built);
     while (canvas.width > width) {
       const next = document.createElement('canvas');
@@ -3427,10 +3438,11 @@ export default class DisplayCanvas extends React.Component {
   // down, since a direct render this small aliases its finest specks (the same reason
   // renderDesignBlob has a density floor). Counts are size-independent, so it is the same
   // composition the studio shows, only smaller.
-  renderRecentThumb(design) {
+  async renderRecentThumb(design) {
     const { width, height } = this.recentThumbSize();
     const scale = isMobileDevice() ? 2 : 3;
     const config = generateArtwork(design.seed, width * scale, height * scale, design.colors, design.settings ?? null);
+    await prepareNebula(config);
     const source = renderArtwork(config);
     return this.encodeRecentThumb(source, width, height).finally(() => this.clearElement(source));
   }

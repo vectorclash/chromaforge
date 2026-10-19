@@ -760,6 +760,17 @@ the actual print, generated the same deterministic way.
   checkouts get ~2.5s slower per placement -- unmeasured on Fly. Deploy needs the full v14-style
   sequence: paused store, render-service first, thumbnail backfill with no filter. The 3D flight
   still builds its colour volumes from the radial field.
+  **The nebula is built OFF THE MAIN THREAD** (`prepareNebula`, `render/nebulaWorker.js`), because
+  renderArtwork is synchronous and computing a mask inline froze the page, loader included, on
+  every Generate -- measured at phone-ish speed (4x CPU, mobile viewport): 450-1150ms single long
+  task against master's ~140ms (Aaron, 2026-10-19: "a massive pause that reads as being broken").
+  Every user-triggered render awaits `prepareNebula(config)` first (studio still, StudioContext's
+  renderDesignBlob, 2D animation frames, the gallery player, downloads, Recent thumbs); anything
+  that does not (render-service, label backdrops, logo ink) computes the identical mask inline.
+  The worker uses the GPU through an OffscreenCanvas where WebGL2-in-workers exists (iOS 17+),
+  else the CPU (~2s, still no freeze). The GPU field packs its 16-bit result into RGBA8, so it no
+  longer needs EXT_color_buffer_float. Verified: worker and inline renders are pixel-identical;
+  production build, phone-ish 2D Generate worst frame median 50ms vs master 83ms.
   **Nebula colour is a user setting, not a roll** (`settings.geometry.nebulaLinked`, default
   false = own gradient + colour pools; true = the star field's gradient). It is the last row of
   the studio's Color tab. A renamed "Layers" tab grouping it with Stars in front was built and

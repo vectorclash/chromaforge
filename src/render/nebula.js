@@ -200,11 +200,13 @@ export function nebulaRenderSize(width, height) {
 }
 
 /** Alpha mask (0..1, row 0 at the top) at the fixed render size. Exported for checks. */
-export function nebulaMask(config, { gpu = true } = {}) {
+export function nebulaMask(config, { gpu = true, info = null } = {}) {
   const plan = config.nebulaConfig;
   const { w, h } = nebulaRenderSize(config.width, config.height);
   const loc = placement(config.seed, plan.cover);
-  const field = (gpu && nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES)) || fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  let field = gpu ? nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES) : null;
+  if (info) info.gpu = !!field;
+  if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
   const a = toHisCurve(field);
   if (plan.colour.mode === 'own') {
     // Pools are a very wide blur (~1/24 of the long edge), so they are computed on a 4x-reduced
@@ -238,30 +240,144 @@ export function nebulaMask(config, { gpu = true } = {}) {
   return { a, w, h };
 }
 
+// The mask as RGBA pixels (white, alpha = the mask), ready for putImageData. Pure: runs in the page
+// or in the nebula's worker.
+export function nebulaRGBA(config, opts) {
+  const m = nebulaMask(config, opts);
+  const rgba = new Uint8ClampedArray(m.w * m.h * 4);
+  for (let k = 0; k < m.a.length; k++) {
+    const o = k * 4;
+    rgba[o] = 255;
+    rgba[o + 1] = 255;
+    rgba[o + 2] = 255;
+    rgba[o + 3] = Math.round(m.a[k] * 255);
+  }
+  return { rgba, w: m.w, h: m.h };
+}
+
 // The studio re-renders the same design often (sliders, palette edits, thumbnails, label
 // backdrops), so masks are cached per seed + render size + plan.
 const MASKS = new Map();
-function maskCanvas(config) {
+function maskKey(config) {
   const plan = config.nebulaConfig;
   const { w, h } = nebulaRenderSize(config.width, config.height);
-  const key = `${config.seed}:${w}x${h}:${plan.cover}:${plan.strength}:${plan.colour.mode}`;
-  if (MASKS.has(key)) return MASKS.get(key);
-  const m = nebulaMask(config);
+  return `${config.seed}:${w}x${h}:${plan.cover}:${plan.strength}:${plan.colour.mode}`;
+}
+function storeMask(key, rgba, w, h) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
+  // createImageData rather than new ImageData(): render-service's Node canvas has no global
+  // ImageData constructor
   const x = c.getContext('2d');
   const id = x.createImageData(w, h);
-  for (let k = 0; k < m.a.length; k++) {
-    id.data[k * 4] = 255;
-    id.data[k * 4 + 1] = 255;
-    id.data[k * 4 + 2] = 255;
-    id.data[k * 4 + 3] = Math.round(m.a[k] * 255);
-  }
+  id.data.set(rgba);
   x.putImageData(id, 0, 0);
   if (MASKS.size > 12) MASKS.delete(MASKS.keys().next().value);
   MASKS.set(key, c);
   return c;
+}
+function maskCanvas(config) {
+  const key = maskKey(config);
+  if (MASKS.has(key)) return MASKS.get(key);
+  // Not prepared (render-service, or a caller that never asked): computed here, synchronously.
+  const { rgba, w, h } = nebulaRGBA(config);
+  return storeMask(key, rgba, w, h);
+}
+
+// ─── Off the main thread ───────────────────────────────────────────────────────────────
+// Computing a mask is hundreds of ms on a phone (placement, the GPU field and its read-back, the
+// tone curve, the pools), and renderArtwork is synchronous: done inline it froze the page,
+// loader included, on every Generate (Aaron, 2026-10-19: "a massive pause that reads as being
+// broken"). prepareNebula(config) computes the mask in a worker (render/nebulaWorker.js; the GPU
+// field through an OffscreenCanvas there, else the CPU) and caches it, so the render that follows
+// finds it ready. Same code, same result as the synchronous path. Every surface that renders on a
+// user action awaits it first; anything that does not still gets the right mask, synchronously.
+let WORKER = null;
+let workerFailed = false;
+let jobId = 0;
+const JOBS = new Map();
+const PENDING = new Map();
+function nebulaWorker() {
+  if (WORKER || workerFailed) return WORKER;
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') return null;
+  try {
+    WORKER = new Worker(new URL('./nebulaWorker.js', import.meta.url), { type: 'module' });
+    WORKER.onmessage = e => {
+      const job = JOBS.get(e.data.id);
+      JOBS.delete(e.data.id);
+      job?.(e.data);
+    };
+    WORKER.onerror = err => {
+      console.warn('[nebula] worker failed, computing in the page:', err.message);
+      workerFailed = true;
+      WORKER = null;
+      for (const done of JOBS.values()) done({ error: 'worker failed' });
+      JOBS.clear();
+    };
+  } catch (err) {
+    workerFailed = true;
+    WORKER = null;
+  }
+  return WORKER;
+}
+
+/** Sends `payload` to the nebula's worker; resolves with its reply, or null without a worker. */
+export function askNebulaWorker(payload) {
+  const w = nebulaWorker();
+  if (!w) return Promise.resolve(null);
+  return new Promise(resolve => {
+    const id = ++jobId;
+    JOBS.set(id, msg => resolve(msg.error ? null : msg));
+    w.postMessage({ id, ...payload });
+  });
+}
+
+/** Resolves with a design's nebula placement, computed in the worker (the 3D flight needs it too). */
+export function placementAsync(seed, cover) {
+  const key = `${seed}:${cover}`;
+  if (PLACEMENTS.has(key)) return Promise.resolve(PLACEMENTS.get(key));
+  const w = nebulaWorker();
+  if (!w) return Promise.resolve(placement(seed, cover));
+  return new Promise(resolve => {
+    const id = ++jobId;
+    JOBS.set(id, msg => {
+      if (msg.error) return resolve(placement(seed, cover));
+      if (!PLACEMENTS.has(key)) PLACEMENTS.set(key, msg.loc);
+      resolve(PLACEMENTS.get(key));
+    });
+    w.postMessage({ id, placement: { seed, cover } });
+  });
+}
+
+/** Resolves once `config`'s nebula mask is cached (computed off the main thread where possible). */
+export function prepareNebula(config) {
+  const plan = config?.nebulaConfig;
+  if (!plan || !plan.strength) return Promise.resolve();
+  const key = maskKey(config);
+  if (MASKS.has(key)) return Promise.resolve();
+  if (PENDING.has(key)) return PENDING.get(key);
+  const w = nebulaWorker();
+  if (!w) return Promise.resolve();
+  const p = new Promise(resolve => {
+    const id = ++jobId;
+    JOBS.set(id, msg => {
+      if (!msg.error && !MASKS.has(key)) storeMask(key, msg.rgba, msg.w, msg.h);
+      else if (msg.error) console.warn('[nebula] worker job failed:', msg.error);
+      if (import.meta.env?.DEV && !msg.error) console.info(`[nebula] ${msg.w}x${msg.h} in the worker, ${msg.gpu ? 'GPU' : 'CPU'}, ${msg.ms}ms`);
+      PENDING.delete(key);
+      resolve();
+    });
+    w.postMessage({
+      id,
+      job: { seed: config.seed, width: config.width, height: config.height, nebulaConfig: plan },
+      // dev only: localStorage cf-lab:nebula-cpu = 1 forces the worker's CPU path, to time the
+      // fallback a browser without WebGL2 in workers would take
+      cpu: !!(import.meta.env?.DEV && localStorage.getItem('cf-lab:nebula-cpu'))
+    });
+  });
+  PENDING.set(key, p);
+  return p;
 }
 
 /** Composite the design's nebula onto ctx (the radial field's old slot). */

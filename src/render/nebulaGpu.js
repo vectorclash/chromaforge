@@ -122,7 +122,10 @@ ${NEBULA_LIB_GLSL}void main() {
   // same value here, since this pixel's row from the top is h - 1 - floor(gl_FragCoord.y).
   vec2 px = gl_FragCoord.xy;
   vec3 dir = vec3((px.x - uRes.x * 0.5) * uK, 1.0, (px.y - uRes.y * 0.5) * uK);
-  o = vec4(nebulaLum(dir), 0.0, 0.0, 1.0);
+  // Packed into two 8-bit channels (16 bits), so this needs no float render target: those are an
+  // extension (EXT_color_buffer_float) a phone may lack, which silently sent it to the CPU path.
+  float q = floor(clamp(nebulaLum(dir), 0.0, 1.0) * 65535.0 + 0.5);
+  o = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, 0.0, 1.0);
 }`;
 
 let STATE = null; // { g, prog, fb } | false once known unavailable
@@ -130,12 +133,19 @@ function context() {
   if (STATE === false) return null;
   if (STATE && !STATE.g.isContextLost()) return STATE;
   STATE = false;
-  if (typeof document === 'undefined' || typeof WebGL2RenderingContext === 'undefined') return null;
+  const inWorker = typeof document === 'undefined';
+  if (inWorker ? typeof OffscreenCanvas === 'undefined' : typeof WebGL2RenderingContext === 'undefined') return null;
   try {
-    const canvas = document.createElement('canvas');
-    canvas.dataset.nebula = '1'; // scripts/check-leaks.mjs counts this one context separately
-    const g = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false });
-    if (!g || !g.getExtension('EXT_color_buffer_float')) return null;
+    // In the page, a canvas element (counted by scripts/check-leaks.mjs via data-nebula); in the
+    // nebula's worker (render/nebulaWorker.js), an OffscreenCanvas.
+    let canvas;
+    if (inWorker) canvas = new OffscreenCanvas(1, 1);
+    else {
+      canvas = document.createElement('canvas');
+      canvas.dataset.nebula = '1';
+    }
+    const g = /** @type {WebGL2RenderingContext} */ (canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false }));
+    if (!g) return null;
     const compile = (type, src) => {
       const s = g.createShader(type);
       g.shaderSource(s, src);
@@ -171,7 +181,7 @@ export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, vie
   const { g, prog, fb } = s;
   const tex = g.createTexture();
   g.bindTexture(g.TEXTURE_2D, tex);
-  g.texImage2D(g.TEXTURE_2D, 0, g.RGBA32F, w, h, 0, g.RGBA, g.FLOAT, null);
+  g.texImage2D(g.TEXTURE_2D, 0, g.RGBA8, w, h, 0, g.RGBA, g.UNSIGNED_BYTE, null);
   g.bindFramebuffer(g.FRAMEBUFFER, fb);
   g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, tex, 0);
   g.viewport(0, 0, w, h);
@@ -182,15 +192,15 @@ export function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, vie
   g.uniform1i(g.getUniformLocation(prog, 'uOct'), oct);
   g.uniform3fv(g.getUniformLocation(prog, 'uViewOff'), viewOff);
   g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
-  const px = new Float32Array(w * h * 4);
-  g.readPixels(0, 0, w, h, g.RGBA, g.FLOAT, px);
+  const px = new Uint8Array(w * h * 4);
+  g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, px);
   g.deleteTexture(tex);
   g.bindFramebuffer(g.FRAMEBUFFER, null);
   if (g.isContextLost()) return null;
   const out = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     const src = (h - 1 - y) * w * 4, dst = y * w; // GL rows are bottom-up
-    for (let x = 0; x < w; x++) out[dst + x] = px[src + x * 4];
+    for (let x = 0; x < w; x++) out[dst + x] = (px[src + x * 4] * 256 + px[src + x * 4 + 1]) / 65535;
   }
   return out;
 }

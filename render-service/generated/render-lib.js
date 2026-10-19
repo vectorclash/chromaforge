@@ -807,9 +807,7 @@ var f3 = (v) => `vec3(${v.map((x) => x.toFixed(10)).join(",")})`;
 var VS = `#version 300 es
 in vec2 aPos;
 void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
-var FS = `#version 300 es
-precision highp float; precision highp int;
-const int PERM[256] = int[256](${PERM.join(",")});
+var NOISE_GLSL = `const int PERM[256] = int[256](${PERM.join(",")});
 int pm(int i) { return PERM[i & 255]; }
 float fade(float t) { return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); }
 float grad3(uint h, float x, float y, float z) {
@@ -844,9 +842,8 @@ vec3 warped(vec3 v, float scale, float distortion) {
   if (distortion != 0.0) p += vec3(snoise(p + ${f3(NOISE_OFFSETS[0])}), snoise(p + ${f3(NOISE_OFFSETS[1])}), snoise(p + ${f3(NOISE_OFFSETS[2])})) * distortion;
   return p;
 }
-uniform vec2 uRes; uniform vec3 uLoc; uniform float uK; uniform int uOct;
-#define WOCT min(uOct, 6)
-out vec4 o;
+`;
+var RECIPE_GLSL = `#define WOCT min(uOct, 6)
 float cloud(vec3 v, float scale, float distortion, float ovScale, float ovDist) {
   float m = distortion + fbm(warped(v, ovScale, ovDist * 0.5), WOCT);
   vec3 p = warped(v, scale, m * 0.5);
@@ -878,35 +875,62 @@ float curveS(float x) {
   return (2.0 * t3 - 3.0 * t2 + 1.0) * Y[i] + (t3 - 2.0 * t2 + t) * h * M[i] + (-2.0 * t3 + 3.0 * t2) * Y[i + 1] + (t3 - t2) * h * M[i + 1];
 }
 float srgb(float c) { c = clamp(c, 0.0, 1.0); return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
-void main() {
-  // gl_FragCoord's y runs up; the CPU's dz = (h/2 - py - 0.5) * k for row py from the top is the
-  // same value here, since this pixel's row from the top is h - 1 - floor(gl_FragCoord.y).
-  vec2 px = gl_FragCoord.xy;
-  vec3 dir = vec3((px.x - uRes.x * 0.5) * uK, 1.0, (px.y - uRes.y * 0.5) * uK);
+float nebulaLum(vec3 dir) {
   vec3 base = uLoc + dir;
   float t1 = clamp((cloud(base, 1.64, 0.18, 0.76, -2.88) - 0.535) / (0.704 - 0.535), 0.0, 1.0);
   float t2 = clamp((cloud(base, 0.82, 0.33, 3.18, 0.36) - 0.49) / (0.533 - 0.49), 0.0, 1.0);
   float t3 = clamp((cloud(base + vec3(0.0, 0.0, -0.08), 1.09, 0.0, 1.9, 11.0) - 0.474) / (0.689 - 0.474), 0.0, 1.0);
   vec3 neb = screen(screen(screen(vec3(0.0), vec3(0.019, 0.047, 0.107) * t1), vec3(0.103, 0.19, 0.265) * t2), vec3(0.161, 0.011, 0.0) * t3);
-  float ambT = clamp((fbm(warped(dir + vec3(0.0, 0.0, -0.3), 1.96, 0.0), 1) - 0.125) / (0.792 - 0.125), 0.0, 1.0);
+  float ambT = clamp((fbm(warped(dir + uViewOff + vec3(0.0, 0.0, -0.3), 1.96, 0.0), 1) - 0.125) / (0.792 - 0.125), 0.0, 1.0);
   vec3 m7 = dodge(neb, vec3(ambT), band(gray(neb), 0.005, 0.167, 0.257));
-  vec3 g = dir * 5.0;
+  vec3 g = (dir + uViewOff) * 5.0;
   vec3 nc = vec3(fbm(g, WOCT), fbm(g + ${f3(NOISE_OFFSETS[3])}, WOCT), fbm(g + ${f3(NOISE_OFFSETS[4])}, WOCT));
   vec3 fine = vec3(0.692, 0.173, 0.007) * clamp((gray(nc) - 0.148) / (0.816 - 0.148), 0.0, 1.0);
   vec3 m5 = dodge(m7, fine, band(gray(m7), 0.002, 0.264, 0.68));
-  o = vec4(srgb(gray(vec3(curveS(m5.r), curveS(m5.g), curveS(m5.b)))), 0.0, 0.0, 1.0);
+  return srgb(gray(vec3(curveS(m5.r), curveS(m5.g), curveS(m5.b))));
+}
+`;
+var NEBULA_UNIFORMS_GLSL = `uniform vec3 uLoc; uniform int uOct;
+// Offsets the two terms the recipe anchors to the VIEW (the slow rim glow and the fine grain). Zero
+// for the 2D layer, where the nebula is one picture and adding zero changes nothing. The 3D flight's
+// volume passes each slice's depth, or those terms are identical in every slice and stack into a
+// solid tube along the whole flight.
+uniform vec3 uViewOff;
+`;
+var NEBULA_LIB_GLSL = NOISE_GLSL + RECIPE_GLSL;
+var FS = `#version 300 es
+precision highp float; precision highp int;
+uniform vec2 uRes; uniform float uK;
+${NEBULA_UNIFORMS_GLSL}out vec4 o;
+${NEBULA_LIB_GLSL}void main() {
+  // gl_FragCoord's y runs up; the CPU's dz = (h/2 - py - 0.5) * k for row py from the top is the
+  // same value here, since this pixel's row from the top is h - 1 - floor(gl_FragCoord.y).
+  vec2 px = gl_FragCoord.xy;
+  vec3 dir = vec3((px.x - uRes.x * 0.5) * uK, 1.0, (px.y - uRes.y * 0.5) * uK);
+  // Packed into two 8-bit channels (16 bits), so this needs no float render target: those are an
+  // extension (EXT_color_buffer_float) a phone may lack, which silently sent it to the CPU path.
+  float q = floor(clamp(nebulaLum(dir), 0.0, 1.0) * 65535.0 + 0.5);
+  o = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, 0.0, 1.0);
 }`;
 var STATE = null;
 function context() {
   if (STATE === false) return null;
   if (STATE && !STATE.g.isContextLost()) return STATE;
   STATE = false;
-  if (typeof document === "undefined" || typeof WebGL2RenderingContext === "undefined") return null;
+  const inWorker = typeof document === "undefined";
+  if (inWorker ? typeof OffscreenCanvas === "undefined" : typeof WebGL2RenderingContext === "undefined") return null;
   try {
-    const canvas = document.createElement("canvas");
-    canvas.dataset.nebula = "1";
-    const g = canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: false });
-    if (!g || !g.getExtension("EXT_color_buffer_float")) return null;
+    let canvas;
+    if (inWorker) canvas = new OffscreenCanvas(1, 1);
+    else {
+      canvas = document.createElement("canvas");
+      canvas.dataset.nebula = "1";
+    }
+    const g = (
+      /** @type {WebGL2RenderingContext} */
+      canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: false })
+    );
+    if (!g) return null;
     const compile = (type, src) => {
       const s = g.createShader(type);
       g.shaderSource(s, src);
@@ -932,31 +956,32 @@ function context() {
     return null;
   }
 }
-function nebulaFieldGpu(loc, w, h, oct) {
+function nebulaFieldGpu(loc, w, h, oct, units = UNITS_PER_SHORT_EDGE, viewOff = [0, 0, 0]) {
   const s = context();
   if (!s) return null;
   const { g, prog, fb } = s;
   const tex = g.createTexture();
   g.bindTexture(g.TEXTURE_2D, tex);
-  g.texImage2D(g.TEXTURE_2D, 0, g.RGBA32F, w, h, 0, g.RGBA, g.FLOAT, null);
+  g.texImage2D(g.TEXTURE_2D, 0, g.RGBA8, w, h, 0, g.RGBA, g.UNSIGNED_BYTE, null);
   g.bindFramebuffer(g.FRAMEBUFFER, fb);
   g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, tex, 0);
   g.viewport(0, 0, w, h);
   g.useProgram(prog);
   g.uniform3fv(g.getUniformLocation(prog, "uLoc"), loc);
   g.uniform2f(g.getUniformLocation(prog, "uRes"), w, h);
-  g.uniform1f(g.getUniformLocation(prog, "uK"), UNITS_PER_SHORT_EDGE / Math.min(w, h));
+  g.uniform1f(g.getUniformLocation(prog, "uK"), units / Math.min(w, h));
   g.uniform1i(g.getUniformLocation(prog, "uOct"), oct);
+  g.uniform3fv(g.getUniformLocation(prog, "uViewOff"), viewOff);
   g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
-  const px = new Float32Array(w * h * 4);
-  g.readPixels(0, 0, w, h, g.RGBA, g.FLOAT, px);
+  const px = new Uint8Array(w * h * 4);
+  g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, px);
   g.deleteTexture(tex);
   g.bindFramebuffer(g.FRAMEBUFFER, null);
   if (g.isContextLost()) return null;
   const out = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     const src = (h - 1 - y) * w * 4, dst = y * w;
-    for (let x = 0; x < w; x++) out[dst + x] = px[src + x * 4];
+    for (let x = 0; x < w; x++) out[dst + x] = (px[src + x * 4] * 256 + px[src + x * 4 + 1]) / 65535;
   }
   return out;
 }
@@ -1006,6 +1031,7 @@ function nebulaAmount(seed) {
   }
 }
 var POOL_STRENGTH = 0.6;
+var POOL_DOWNSAMPLE = 4;
 function nebulaColour(config, linked) {
   const rng = makeRng(`${config.seed}-nebula-colour`);
   rng();
@@ -1097,12 +1123,17 @@ var ALPHAQ = [
   0.792,
   1
 ];
-function toHisCurve(L) {
+function hisCurveKnots(L) {
   const step = Math.max(1, Math.floor(L.length / 2e4)), sample2 = [];
   for (let k = 0; k < L.length; k += step) sample2.push(L[k]);
   sample2.sort((a, b) => a - b);
   const q = (r) => sample2[Math.min(sample2.length - 1, Math.floor(r * (sample2.length - 1)))];
-  const knots = Array.from({ length: 33 }, (_, i) => q(i / 32));
+  return Array.from({ length: 33 }, (_, i) => q(i / 32));
+}
+function toHisCurve(L) {
+  return applyHisCurve(L, hisCurveKnots(L));
+}
+function applyHisCurve(L, knots) {
   const out = new Float32Array(L.length);
   for (let k = 0; k < L.length; k++) {
     const v = L[k];
@@ -1157,43 +1188,80 @@ function nebulaRenderSize(width, height) {
   const h = Math.max(16, Math.round(w / aspect));
   return { w, h };
 }
-function nebulaMask(config, { gpu = true } = {}) {
+function nebulaMask(config, { gpu = true, info = null } = {}) {
   const plan = config.nebulaConfig;
   const { w, h } = nebulaRenderSize(config.width, config.height);
   const loc = placement(config.seed, plan.cover);
-  const field = gpu && nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES) || fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  let field = gpu ? nebulaFieldGpu(loc, w, h, NEBULA_OCTAVES) : null;
+  if (info) info.gpu = !!field;
+  if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
   const a = toHisCurve(field);
   if (plan.colour.mode === "own") {
-    const pools = blurField(a, w, h, Math.round(Math.max(w, h) / 24));
+    const D = POOL_DOWNSAMPLE, sw = Math.ceil(w / D), sh = Math.ceil(h / D);
+    const small = new Float32Array(sw * sh);
+    for (let y = 0; y < sh; y++)
+      for (let x = 0; x < sw; x++) {
+        let sum = 0, n = 0;
+        for (let yy = y * D; yy < Math.min(h, y * D + D); yy++)
+          for (let xx = x * D; xx < Math.min(w, x * D + D); xx++) {
+            sum += a[yy * w + xx];
+            n++;
+          }
+        small[y * sw + x] = sum / n;
+      }
+    const pools = blurField(small, sw, sh, Math.max(1, Math.round(Math.max(w, h) / 24 / D)));
     let mx = 1e-6;
     for (const v of pools) mx = Math.max(mx, v);
-    for (let k = 0; k < a.length; k++) a[k] = Math.max(a[k], pools[k] / mx * POOL_STRENGTH);
+    const k0 = POOL_STRENGTH / mx;
+    for (let y = 0; y < h; y++) {
+      const fy = Math.min(sh - 1, Math.max(0, (y + 0.5) / D - 0.5)), y0 = Math.floor(fy), y1 = Math.min(sh - 1, y0 + 1), ty = fy - y0;
+      for (let x = 0; x < w; x++) {
+        const fx = Math.min(sw - 1, Math.max(0, (x + 0.5) / D - 0.5)), x0 = Math.floor(fx), x1 = Math.min(sw - 1, x0 + 1), tx = fx - x0;
+        const top = pools[y0 * sw + x0] + (pools[y0 * sw + x1] - pools[y0 * sw + x0]) * tx;
+        const bot = pools[y1 * sw + x0] + (pools[y1 * sw + x1] - pools[y1 * sw + x0]) * tx;
+        const k = y * w + x;
+        a[k] = Math.max(a[k], (top + (bot - top) * ty) * k0);
+      }
+    }
   }
   for (let k = 0; k < a.length; k++) a[k] *= plan.strength;
   return { a, w, h };
 }
+function nebulaRGBA(config, opts) {
+  const m = nebulaMask(config, opts);
+  const rgba = new Uint8ClampedArray(m.w * m.h * 4);
+  for (let k = 0; k < m.a.length; k++) {
+    const o = k * 4;
+    rgba[o] = 255;
+    rgba[o + 1] = 255;
+    rgba[o + 2] = 255;
+    rgba[o + 3] = Math.round(m.a[k] * 255);
+  }
+  return { rgba, w: m.w, h: m.h };
+}
 var MASKS = /* @__PURE__ */ new Map();
-function maskCanvas(config) {
+function maskKey(config) {
   const plan = config.nebulaConfig;
   const { w, h } = nebulaRenderSize(config.width, config.height);
-  const key = `${config.seed}:${w}x${h}:${plan.cover}:${plan.strength}:${plan.colour.mode}`;
-  if (MASKS.has(key)) return MASKS.get(key);
-  const m = nebulaMask(config);
+  return `${config.seed}:${w}x${h}:${plan.cover}:${plan.strength}:${plan.colour.mode}`;
+}
+function storeMask(key, rgba, w, h) {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   const x = c.getContext("2d");
   const id = x.createImageData(w, h);
-  for (let k = 0; k < m.a.length; k++) {
-    id.data[k * 4] = 255;
-    id.data[k * 4 + 1] = 255;
-    id.data[k * 4 + 2] = 255;
-    id.data[k * 4 + 3] = Math.round(m.a[k] * 255);
-  }
+  id.data.set(rgba);
   x.putImageData(id, 0, 0);
   if (MASKS.size > 12) MASKS.delete(MASKS.keys().next().value);
   MASKS.set(key, c);
   return c;
+}
+function maskCanvas(config) {
+  const key = maskKey(config);
+  if (MASKS.has(key)) return MASKS.get(key);
+  const { rgba, w, h } = nebulaRGBA(config);
+  return storeMask(key, rgba, w, h);
 }
 function drawNebula(ctx, config) {
   const plan = config.nebulaConfig;

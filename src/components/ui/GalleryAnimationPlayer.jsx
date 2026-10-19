@@ -18,6 +18,7 @@ import { DURATION_SLOW } from '../../utils/motionTokens';
 import { is3DAnimation, storedVideo } from '../../lib/savedAnimation';
 import { generateArtwork } from '../../render/generateArtwork';
 import renderArtwork from '../../render/renderArtwork';
+import { prepareNebula } from '../../render/nebula';
 import { renderFrames, renderStarFrames, animTiming, AnimationBuildCancelled } from '../../render/animationFrames';
 import { DISPLAY_RENDER_CAP } from '../../render/scale';
 import { resolveDesignPalette } from '../../render/resolvedPalette';
@@ -101,7 +102,10 @@ export default function GalleryAnimationPlayer({ data, onError }) {
       try {
         const configs = data.frames.map(f => generateArtwork(f.seed, FRAME_SIZE, FRAME_SIZE, f.colors || [], f.settings ?? null));
         const starCount = Math.min(Math.max(1, Math.floor(configs.length / 2)), video.starFrameCount ?? Math.ceil(configs.length / 2));
-        const frames = await renderFrames(configs.length, i => renderArtwork(configs[i]), {
+        const frames = await renderFrames(configs.length, async i => {
+          await prepareNebula(configs[i]);
+          return renderArtwork(configs[i]);
+        }, {
           rasterize,
           isCancelled,
           onFrame: n => !cancelled && setProgress(n)
