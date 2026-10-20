@@ -33,6 +33,9 @@ geometry-chance-rollback-*.json
 # reads) and a dry run's preview images
 render-service/avatar-backfill-*.json
 render-service/avatar-backfill-preview/
+# scripts/backfill-3d-thumbnails.mjs: a dry run's previews, and each real run's copy of the
+# thumbnails it replaced
+.thumb3d-backfill/
 
 # Output of render-service/spike-test.js (regenerated on every run)
 render-service/spike-*.png

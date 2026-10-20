@@ -2248,7 +2248,10 @@ Things worth not re-deriving:
 path, lazily imported), taken at the SEAM (`STILL_AT = 0`): compared across 0-0.5 on three designs,
 the seam is when the first plate fills the view; by 0.3 the rush streaks cross it.
 `backfill-thumbnails.mjs` SKIPS 3D rows explicitly -- it has no WebGL and recomposing the 2D design
-would replace the still with a different picture. `check-render-regression.mjs` now includes 3D
+would replace the still with a different picture. **`scripts/backfill-3d-thumbnails.mjs` re-renders those**, with
+the app's own `render3DStill` in a GPU-backed Chromium page off a Vite dev server -- run it whenever
+the 3D scene changes how a flight looks (first run 2026-10-19, after the nebula volume: 10 rows).
+`--dry-run` writes previews; a real run keeps each replaced thumbnail under `.thumb3d-backfill/`. `check-render-regression.mjs` now includes 3D
 rows' designs (they print), and still leaves 2D animations out.
 (2) **Animations never print, 3D included** (`printableRow`). A 3D row briefly printed as its one
 design; Aaron pulled it because the artwork picker (images only) couldn't offer it, and the deeper
