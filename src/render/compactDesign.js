@@ -29,7 +29,7 @@ export function toCompactDesign(config) {
 // version entirely -- generateArtwork() regenerates from seed/colors/settings using whatever
 // code is in the bundle and stamps its own GENERATOR_VERSION on the result. So a v6 row
 // previewed as a perfectly good v7 mockup, but checkout forwarded the design object
-// VERBATIM (see lib/printful.js's renderPrintFileStrategy) to render-service, which
+// VERBATIM (lib/printful.js's print-file request, now printFileRequest) to render-service, which
 // hard-fails a version mismatch with a 422 -- making 13 of the 38 public gallery designs
 // (every one saved before the v6->v7 bump) mockup-able but unbuyable. The customer got the
 // error only AFTER sitting through a 30-90s mockup round trip.

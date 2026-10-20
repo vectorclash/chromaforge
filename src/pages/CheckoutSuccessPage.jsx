@@ -7,7 +7,10 @@ import { getOrder } from '../lib/checkout';
 import { usePageMeta } from '../hooks/usePageMeta';
 
 const POLL_INTERVAL_MS = 2000;
-const POLL_MAX_TRIES = 15; // ~30s -- the webhook usually beats the browser back to this page
+// ~90s. The webhook usually beats the browser back here, but since print files render AFTER
+// payment (2026-10-19) an order then spends a further ~10-30s at 'paid' before it reaches
+// Printful, longer for a big garment on a cold render machine.
+const POLL_MAX_TRIES = 45;
 
 // Statuses that mean "stop polling" -- deliberately NOT every terminal status, which is the
 // trap here. Below, only 'failed' gets its own screen: anything else that resolves falls
@@ -90,7 +93,11 @@ export default function CheckoutSuccessPage() {
     );
   }
 
-  const resolved = order && RESOLVED_STATUSES.has(order.status);
+  // 'paid' is shown as confirmed (it is: the money has settled) while polling carries on until the
+  // order reaches Printful or fails. It is not in RESOLVED_STATUSES because polling must not stop
+  // there -- a render or submission failure after payment still has to reach the screen below.
+  const preparing = order?.status === 'paid';
+  const resolved = order && (RESOLVED_STATUSES.has(order.status) || preparing);
 
   if (!resolved) {
     return (
@@ -139,7 +146,14 @@ export default function CheckoutSuccessPage() {
   const item = order.order_items?.[0];
 
   return (
-    <PageContainer title="Order confirmed" subtitle="Thanks! Your order is on its way to production.">
+    <PageContainer
+      title="Order confirmed"
+      subtitle={
+        preparing
+          ? "Thanks! Your payment went through and we're preparing your print files now."
+          : 'Thanks! Your order is on its way to production.'
+      }
+    >
       {item && (
         <div className="max-w-sm rounded-xl border border-hairline bg-ink-800 p-5">
           <p className="font-quicksand text-sm font-bold text-text">

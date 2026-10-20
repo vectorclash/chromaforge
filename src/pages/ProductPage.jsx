@@ -22,7 +22,7 @@ import {
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   getHatWrap,
-  renderPrintFileStrategy
+  describePrintFileStrategy
 } from '../lib/printful';
 import { getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
@@ -222,51 +222,30 @@ function statusNarration(elapsedSeconds, picks, timeline = STATUS_TIMELINE) {
   return preventOrphan(picks.get(idx));
 }
 
-// Same narration treatment for the "Buy now" -> Stripe gap, which is the single longest
-// wait in the app: every placement renders at TRUE print resolution server-side before
-// the checkout session can even be created (a cold render machine plus a multi-placement
-// garment is legitimately 30-90s+, confirmed live). Without this the button just sat on
-// a static "Preparing checkout..." long enough to read as broken. Real progress (file
-// counts, from renderAndUploadPrintFiles' onProgress) is shown alongside these lines.
+// Same narration treatment for the "Buy now" -> Stripe gap. Until 2026-10-19 this was the
+// longest wait in the app, because every placement rendered at true print resolution before the
+// checkout session could be created. Print files now render after payment (process-order), so
+// the gap is the label marks plus creating the session -- a second or two -- and these lines
+// only need to carry a slow network or a slow Stripe without claiming work that isn't happening.
 const CHECKOUT_TIMELINE = [
   {
     at: 0,
+    texts: ['Preparing your order.', 'Opening secure checkout.', 'Initiating checkout sequence.']
+  },
+  {
+    at: 6,
     texts: [
-      'Preparing your order for production.',
-      'Beginning print-file generation. Standby.',
-      'Initiating checkout sequence.'
+      'Still connecting to checkout. Hang tight.',
+      'Waiting on the payment page. Almost there.',
+      'Checkout is taking a moment to answer.'
     ]
   },
   {
-    at: 8,
+    at: 20,
     texts: [
-      'Rendering each panel at true print resolution — far larger than your screen.',
-      'Composing production files from your seed. These are print-sized; patience.',
-      'Rendering print files. Every panel, full resolution, no shortcuts.'
-    ]
-  },
-  {
-    at: 25,
-    texts: [
-      'Large garments carry large print areas. The render servers are working.',
-      'Still rendering. A hoodie is measured in tens of millions of pixels.',
-      'Production files take longer than previews. This is the real thing.'
-    ]
-  },
-  {
-    at: 50,
-    texts: [
-      'Running long, but within expected parameters. Do not close this page.',
-      'Slightly behind my estimate. Your order is safe; the renders continue.',
-      'Taking longer than projected. Nothing is broken — these files are enormous.'
-    ]
-  },
-  {
-    at: 85,
-    texts: [
-      'Nearly there. The moment the last file lands, you will be sent to checkout.',
-      'Final files uploading. Secure checkout follows immediately.',
-      'Almost done. Stripe is next.'
+      'Running long. Nothing has been charged; your design is safe.',
+      'Slower than usual. Do not close this page.',
+      'Still waiting on checkout. Your order is safe.'
     ]
   }
 ];
@@ -536,10 +515,8 @@ export default function ProductPage() {
   const narrationPicksRef = useRef(new Map());
 
   // Checkout wait feedback (see CHECKOUT_TIMELINE): a per-run elapsed counter driving the
-  // narration line, plus real file progress from renderAndUploadPrintFiles' onProgress.
-  // Same picks-per-run mechanism as the mockup narration above.
+  // narration line. Same picks-per-run mechanism as the mockup narration above.
   const [checkoutElapsed, setCheckoutElapsed] = useState(0);
-  const [checkoutProgress, setCheckoutProgress] = useState(null); // { done, total } | null
   const checkoutNarrationPicksRef = useRef(new Map());
   useEffect(() => {
     if (!checkoutBusy) return undefined;
@@ -1328,15 +1305,18 @@ export default function ProductPage() {
     checkoutLeaveOkRef.current = false;
     setBuyModalStage('preparing');
     setCheckoutNotice(null);
-    setCheckoutProgress(null);
     try {
       const entries = resolvePlacementEntries(printfileSpecs, variant);
       if (!entries) throw new Error('No printfile mapping for this variant.');
       const cfg = getMockupConfigForProduct(product.id);
-      const printFileUrls = await renderAndUploadPrintFiles(entries, {
+      // Print files are rendered after payment (process-order), so nothing heavy happens here:
+      // describePrintFileStrategy turns every placement into the render request the server will
+      // run, and only the small label marks are drawn and uploaded now, from the same backdrop
+      // sample the approved mockup used.
+      const resolved = await renderAndUploadPrintFiles(entries, {
         printfileSpecs,
         design: selectedDesign,
-        renderOne: renderPrintFileStrategy,
+        renderOne: describePrintFileStrategy,
         pocketCrop: cfg.pocketCrop || null,
         geometryPlacements,
         geometryLayout: effectiveGeometryLayout,
@@ -1353,12 +1333,14 @@ export default function ProductPage() {
         mirrorPlacements: effectiveMirrorPlacements,
         // Fixed per product (the reversible hat only), never a customer choice -- see
         // PRODUCT_MOCKUP_CONFIG's hatWrap and src/render/hatWrap.js.
-        hatWrap: getHatWrap(cfg),
-        onProgress: (done, total) => setCheckoutProgress({ done, total })
+        hatWrap: getHatWrap(cfg)
       });
-      // Renders finished; the remaining wait is session creation -- null the counts so the
-      // UI stops saying "file N of M" once that's no longer what's happening.
-      setCheckoutProgress(null);
+      const printFileUrls = {};
+      const printJobs = {};
+      for (const [placement, value] of Object.entries(resolved)) {
+        if (typeof value === 'string') printFileUrls[placement] = value;
+        else printJobs[placement] = value.job;
+      }
       const { url, orderId } = await createCheckoutSession({
         productId: product.id,
         productTitle: product.title,
@@ -1377,6 +1359,7 @@ export default function ProductPage() {
         // primary alone doesn't describe half the garment.
         secondaryDesign,
         printFileUrls,
+        printJobs,
         productOptions: stitchColorProductOptions || cfg.productOptions,
         // heroImage falls back to the product's stock photo when !hasMockup (see its own
         // definition) -- shows the actual approved garment mockup on Stripe's checkout page
@@ -2329,7 +2312,6 @@ export default function ProductPage() {
             className="font-mono text-[11px] leading-4 text-text-secondary"
           />
         }
-        progress={checkoutProgress}
         elapsedSeconds={checkoutElapsed}
       />
     </PageContainer>

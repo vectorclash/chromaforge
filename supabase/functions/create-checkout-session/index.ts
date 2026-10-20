@@ -5,11 +5,14 @@
 // real Stripe payment is confirmed; a stray 'pending' row with no completed payment is
 // harmless and never surfaces in order history.
 //
-// v1 checkout ships with whatever the client already rendered+uploaded as printFileUrls
-// (the same capped-resolution browser render the mockup-preview pipeline uses, just for
-// every placement instead of only the visible ones -- see src/lib/printful.js's
-// generatePrintFileUrls). True print-resolution rendering is a later, separate phase that
-// only needs to change how printFileUrls is produced client-side, not anything here.
+// Print files are rendered AFTER payment (2026-10-19). The browser sends `printJobs` -- one render
+// request per placement, the body it used to send render-print-file itself -- which are checked
+// against Printful's printfile specs (_shared/printJobs.ts) and stored on the order item;
+// process-order renders them once Stripe confirms the money. `printFileUrls` still carries the
+// small label marks, which the browser renders and uploads itself (they take milliseconds, and
+// their ink is chosen from the same sample the approved mockup used). A tab loaded before this
+// change sends finished URLs for every placement and no jobs; that still works, process-order
+// just has nothing to render.
 //
 // Deploy with: npx supabase functions deploy create-checkout-session
 // Needs these secrets set: STRIPE_SECRET_KEY, PRINTFUL_API_KEY (already set for the other
@@ -24,6 +27,7 @@ import { isStoreEnabled } from "../_shared/storeStatus.ts";
 import { buildShippingOptions, estimateShippingCents, isSellableProduct } from "../_shared/shipping.ts";
 import { toCompactDesign } from "../_shared/compactDesign.ts";
 import { checkRateLimit } from "../_shared/rateLimit.ts";
+import { fetchPrintfileSpecs, validatePrintJobs } from "../_shared/printJobs.ts";
 
 // Checkout-session creation hits Printful's live product-price endpoint and writes a
 // pending order row per call -- a signed-in account scripting this repeatedly is real cost
@@ -123,11 +127,12 @@ Deno.serve(async req => {
     design,
     secondaryDesign,
     printFileUrls,
+    printJobs,
     productOptions,
     mockupImageUrl,
     guessedRegion
   } = body;
-  if (!productId || !variantId || !quantity || !design || !printFileUrls) {
+  if (!productId || !variantId || !quantity || !design || (!printFileUrls && !printJobs)) {
     return Response.json({ error: "Missing required fields" }, { status: 400, headers: corsHeaders });
   }
   // Only products this store sells, by numeric id. productId is also interpolated into the
@@ -147,8 +152,9 @@ Deno.serve(async req => {
     printFileUrls && typeof printFileUrls === "object" && !Array.isArray(printFileUrls)
       ? Object.entries(printFileUrls as Record<string, unknown>)
       : [];
+  // With print jobs, the files are only the label marks, and a product may have none.
   const filesValid =
-    fileEntries.length > 0 &&
+    (printJobs ? true : fileEntries.length > 0) &&
     fileEntries.length <= 20 &&
     fileEntries.every(
       ([key, url]) =>
@@ -171,10 +177,14 @@ Deno.serve(async req => {
   }
 
   // Re-price server-side -- never trust a client-supplied price for the actual Stripe
-  // charge amount. Same v1 product endpoint printful-catalog already proxies.
-  const productRes = await fetch(`${PRINTFUL_API_BASE}/products/${productId}`, {
-    headers: { Authorization: `Bearer ${printfulKey}` }
-  });
+  // charge amount. Same v1 product endpoint printful-catalog already proxies. The printfile
+  // specs (only needed to check print jobs) are fetched alongside it.
+  const [productRes, printfileSpecs] = await Promise.all([
+    fetch(`${PRINTFUL_API_BASE}/products/${productId}`, {
+      headers: { Authorization: `Bearer ${printfulKey}` }
+    }),
+    printJobs ? fetchPrintfileSpecs(productId, printfulKey) : Promise.resolve(null)
+  ]);
   if (!productRes.ok) {
     return Response.json({ error: "Could not verify product price" }, { status: 502, headers: corsHeaders });
   }
@@ -183,6 +193,28 @@ Deno.serve(async req => {
   if (!variant) {
     return Response.json({ error: "Unknown variant" }, { status: 400, headers: corsHeaders });
   }
+  // Every print job must be a render of the ordered design onto Printful's own printfile for
+  // that placement -- see _shared/printJobs.ts. A placement is either a job or a finished file,
+  // never both.
+  let validatedJobs: Record<string, unknown> | null = null;
+  if (printJobs) {
+    if (!printfileSpecs) {
+      return Response.json({ error: "Could not verify print files" }, { status: 502, headers: corsHeaders });
+    }
+    const result = validatePrintJobs(printJobs, {
+      specs: printfileSpecs,
+      variantId,
+      designs: secondaryDesign ? [design, secondaryDesign] : [design]
+    });
+    if ("error" in result) {
+      return Response.json({ error: result.error }, { status: 400, headers: corsHeaders });
+    }
+    if (Object.keys(result.jobs).length === 0 || fileEntries.some(([key]) => key in result.jobs)) {
+      return Response.json({ error: "Invalid print jobs" }, { status: 400, headers: corsHeaders });
+    }
+    validatedJobs = result.jobs;
+  }
+
   const unitPriceCents = applyMarkup(Math.round(parseFloat(variant.price) * 100));
   // A marked-up price that is not a positive whole number of cents means PRICE_MARKUP_PERCENT
   // is malformed (Number("abc") is NaN) -- refuse rather than hand Stripe a NaN charge.
@@ -265,7 +297,10 @@ Deno.serve(async req => {
       ...toCompactDesign(design),
       ...(secondaryDesign ? { secondaryDesign: toCompactDesign(secondaryDesign) } : {})
     },
-    print_file_urls: printFileUrls,
+    // Finished files (the label marks, or every placement from an older tab); process-order adds
+    // each rendered print file here as it lands.
+    print_file_urls: printFileUrls ?? {},
+    print_jobs: validatedJobs,
     product_options: productOptions ?? null
   });
   if (itemError) {

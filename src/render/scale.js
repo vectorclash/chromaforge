@@ -173,7 +173,7 @@ export function getFrameSizeScale(width, height, frame = null) {
 // What size a MOCKUP PREVIEW renders a given printfile at. Mockups are previews, not the final
 // print file, so they cap well below Printful's real dims (some 6000x6000) to stay fast and
 // under iOS Safari's ~16.7 Mpx canvas limit; real checkout renders uncapped at true print
-// resolution (renderPrintFileStrategy).
+// resolution (render-service, after payment -- see process-order).
 //
 // It lives here rather than in lib/printful.js because it is pure size math with no Supabase
 // dependency, which is what lets scripts/check-render-density.mjs import the REAL function in

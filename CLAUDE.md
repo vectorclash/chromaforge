@@ -1438,13 +1438,50 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   `render-print-file` Edge Function's `RENDER_SERVICE_KEY` secret — same value, two places,
   no code ties them together automatically if one is rotated. `RENDER_SERVICE_URL` is the
   Edge Function's only other secret (`https://chromaforge-render.fly.dev`).
-- `src/lib/printful.js`'s `renderAndUploadPrintFiles` takes an injected `renderOne(design,
-  spec, printfileId)` strategy instead of being hardcoded to one render path:
-  `capRenderStrategy(renderDesignBlob)` (mockups, `useMockup.js` — cheap, capped, client-side,
-  unchanged behavior) vs. `renderPrintFileStrategy` (checkout, `ProductPage.jsx` — true print
-  resolution via the Edge Function above). Mockup previews are untouched by design — no
-  reason to add render-service cost to something already free and good enough for picking
-  artwork/variant.
+- `src/lib/printful.js`'s `renderAndUploadPrintFiles` takes an injected `renderOne(...)`
+  strategy: `capRenderStrategy(renderDesignBlob)` for mockups (cheap, capped, client-side) and
+  `describePrintFileStrategy` for checkout, which renders NOTHING -- see the next bullet.
+- **Print files render AFTER payment (2026-10-19, branch `render-after-payment`).** Buy Now
+  used to render every placement at print resolution before Stripe opened (7s for a t-shirt,
+  15s+ for the shorts, and the nebula's CPU field adds ~5s per file on Fly). Now Buy Now reaches
+  Stripe in under a second: `describePrintFileStrategy` turns each placement into the exact
+  request body the browser used to send `render-print-file` (a "print job"), only the label marks
+  are still drawn and uploaded in the browser (milliseconds, and their ink comes from the same
+  backdrop sample the approved mockup used), and `create-checkout-session` checks the jobs
+  (`_shared/printJobs.ts`: placement exists for the variant, canvas is exactly Printful's
+  printfile, pocket source is the front's printfile, design is the order's) and stores them in
+  `order_items.print_jobs`. `stripe-webhook` marks the order paid and kicks **`process-order`**,
+  which answers 202 and, in the background, fans out one `render-print-file` call per unique job
+  (its internal mode: `X-Internal-Key` = `CLEANUP_STORAGE_KEY`, plus the owner's `userId`), writes
+  each URL into `print_file_urls`, then submits to Printful (`_shared/printfulOrder.ts`, the
+  webhook's old code). Things worth not re-deriving:
+  (1) **The browser still decides WHAT each placement is**; the server only checks plausibility.
+  Porting that logic to Deno would be a second implementation of the mockup's own pipeline.
+  (2) **One run per order**: a lease (`print_lease_until`) claimed by a conditional update on
+  `print_attempts`. Printful's draft id is written the moment it exists (`onCreated`), so a run
+  that dies before confirm is resumed by confirming that draft, never by a second order.
+  (3) **A generator-version mismatch HOLDS the order** (`print_hold`), gives its attempt back, and
+  waits; it never prints a picture the customer did not see. Other failures retry in-run with
+  backoff, then across runs, failing + alerting after `MAX_ATTEMPTS` (4).
+  (4) **`order-watchdog` runs every 5 minutes** (0020) and resumes any paid order without a live
+  lease after 2 minutes; it alerts ONCE on any order still unsubmitted 30 minutes after payment,
+  which is the only way a hold that cannot clear (render-service deployed AHEAD of the design)
+  reaches a human.
+  (5) **`render-print-file` is `verify_jwt = false` now**: the internal caller has no user JWT,
+  and the browser path never relied on the platform gate (it checks GoTrue itself). The browser
+  path is kept only for tabs loaded before this; the current frontend never calls it.
+  (6) A tab from before this sends finished URLs and no jobs; `process-order` then just submits.
+  (7) CheckoutSuccessPage shows `paid` as "Order confirmed ... preparing your print files" and
+  keeps polling (~90s) so a post-payment failure still reaches its failed screen.
+  Verified: a Deno harness running the real `process-order`/`order-watchdog` against mocked
+  PostgREST, render, Stripe and Printful (happy path, hold then release, partial render then
+  resume, exhausted retries, refused job, Printful refusing create/confirm, crash between create
+  and confirm, concurrent kicks, old-tab order, watchdog resume/skip/alert) -- each planted bug
+  (unconditional claim, hold keeping its attempt, draft id not recorded, mismatch not a hold) made
+  it fail; the validator against the real browser's jobs for all 20 products (67/67 stored
+  identical to the request, tampering rejected); and real Buy Now clicks on 257/693/388 reaching
+  the Stripe redirect in 0.6-0.8s with `render-print-file` never called. Harness lives outside
+  the repo (session scratchpad); rebuild it the same way if this path changes.
 ### MP4 export: client-side (WebCodecs), not server-side
 Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`) muxed with
 `mp4-muxer`. All in `src/components/DisplayCanvas.jsx` (`exportAnimationVideo`). **There

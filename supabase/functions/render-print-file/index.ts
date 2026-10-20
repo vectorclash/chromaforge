@@ -4,11 +4,20 @@
 // same contract as uploadMockupSourceImage's capped client-side path
 // (src/lib/printful.js), just backed by a different renderer.
 //
-// verify_jwt = true: this triggers real (billed, if scale-to-zero doesn't apply) Fly.io
-// compute, so only signed-in app users can invoke it, same rationale as
-// create-checkout-session.
+// Two callers (2026-10-19):
+// - process-order, after payment, one call per print file. It sends the X-Internal-Key header
+//   (the CLEANUP_STORAGE_KEY shared secret the cron-only functions use) and the order owner's
+//   `userId`, which only decides the Storage folder. This is how every print file is made now.
+// - a signed-in browser, which is how checkout worked until print files moved after payment.
+//   Kept so a tab loaded before that change can still check out; the current frontend never
+//   calls this. Removable once no such tab can be left open.
 //
-// Deploy with: npx supabase functions deploy render-print-file
+// verify_jwt = false (config.toml) for the internal caller, which has no user JWT. The browser
+// path never relied on the platform gate anyway -- it verifies the user with GoTrue below, and
+// the anon key passes that platform gate regardless. Real Fly.io compute is behind either the
+// shared secret or a real user.
+//
+// Deploy with: npx supabase functions deploy render-print-file --no-verify-jwt
 // Needs these secrets set: RENDER_SERVICE_URL (the Fly.io app's URL, e.g.
 // https://chromaforge-render.fly.dev), RENDER_SERVICE_KEY (the same shared secret set via
 // `flyctl secrets set RENDER_SERVICE_KEY=... --app chromaforge-render`).
@@ -51,38 +60,50 @@ Deno.serve(async req => {
     );
   }
 
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (!jwt) {
-    return Response.json({ error: { message: "Sign in required" } }, { status: 401, headers: corsHeaders });
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const body = await req.json().catch(() => ({}));
 
-  // Identify the caller by asking GoTrue directly (equivalent to supabase.auth.getUser(jwt)
-  // -- validates the user's own JWT, apikey here is just the project-level key GoTrue
-  // requires on every request, not what's being checked).
-  const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { Authorization: `Bearer ${jwt}`, apikey: serviceRoleKey }
-  });
-  if (!userRes.ok) {
-    return Response.json({ error: { message: "Sign in required" } }, { status: 401, headers: corsHeaders });
-  }
-  const userData = await userRes.json();
-  const userId = userData.id;
+  const internalKey = Deno.env.get("CLEANUP_STORAGE_KEY");
+  const internalCall = !!internalKey && req.headers.get("X-Internal-Key") === internalKey;
+  let userId: string;
+  if (internalCall) {
+    // process-order, acting for the order's owner. The id only picks the Storage folder the file
+    // lands in, the same folder the browser path would have used.
+    if (typeof body.userId !== "string" || !/^[0-9a-f-]{36}$/.test(body.userId)) {
+      return Response.json({ error: { message: "userId required" } }, { status: 400, headers: corsHeaders });
+    }
+    userId = body.userId;
+  } else {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const jwt = authHeader.replace(/^Bearer\s+/i, "");
+    if (!jwt) {
+      return Response.json({ error: { message: "Sign in required" } }, { status: 401, headers: corsHeaders });
+    }
 
-  const withinLimit = await checkRateLimit(
-    supabaseUrl, serviceRoleKey, userId, "render-print-file", RATE_LIMIT, RATE_LIMIT_WINDOW_SECONDS
-  );
-  if (!withinLimit) {
-    return Response.json(
-      { error: { message: "Too many render requests. Please wait a moment and try again." } },
-      { status: 429, headers: corsHeaders }
+    // Identify the caller by asking GoTrue directly (equivalent to supabase.auth.getUser(jwt)
+    // -- validates the user's own JWT, apikey here is just the project-level key GoTrue
+    // requires on every request, not what's being checked).
+    const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${jwt}`, apikey: serviceRoleKey }
+    });
+    if (!userRes.ok) {
+      return Response.json({ error: { message: "Sign in required" } }, { status: 401, headers: corsHeaders });
+    }
+    const userData = await userRes.json();
+    userId = userData.id;
+
+    const withinLimit = await checkRateLimit(
+      supabaseUrl, serviceRoleKey, userId, "render-print-file", RATE_LIMIT, RATE_LIMIT_WINDOW_SECONDS
     );
+    if (!withinLimit) {
+      return Response.json(
+        { error: { message: "Too many render requests. Please wait a moment and try again." } },
+        { status: 429, headers: corsHeaders }
+      );
+    }
   }
 
-  const body = await req.json();
   const { design, width, height, label, includeGeometry, geometryLayout, mirrorX, sizeFrame, legSymmetry, regions, sourceWidth, sourceHeight, hatWrap, legWrap, geometryScale } =
     body;
   if (!design?.seed || !design?.generatorVersion || !width || !height) {

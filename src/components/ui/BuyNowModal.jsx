@@ -10,9 +10,10 @@ import useScrollLock from '../../hooks/useScrollLock';
 // when a mockup already exists; two clicks (through `confirm`) when it doesn't -- that's
 // the only case that actually needs a "you haven't previewed this yet" heads-up.
 // `preparing` is the one stage that can't be dismissed (no Cancel button, and both
-// backdrop-click and Escape no-op) -- print files are already rendering/uploading and the
-// Stripe session is being created, so wandering off mid-flow is the one thing worth
-// blocking. A modal only stops *in-app* exits (link clicks) by simply covering them; it
+// backdrop-click and Escape no-op) -- the order and its Stripe session are being created, so
+// wandering off mid-flow is the one thing worth blocking. (Print files render after payment
+// since 2026-10-19, so this stage is now a second or two rather than the 30s+ it once was, and
+// its file progress bar went with the renders.) A modal only stops *in-app* exits (link clicks) by simply covering them; it
 // can't intercept the browser's own back/forward or a typed URL, so ProductPage's existing
 // beforeunload/isMountedRef guards still cover those.
 export default function BuyNowModal({
@@ -21,7 +22,6 @@ export default function BuyNowModal({
   onCancel,
   errorMessage,
   narration,
-  progress, // { done, total } | null
   elapsedSeconds
 }) {
   const dismissible = stage === 'confirm' || stage === 'error';
@@ -38,11 +38,6 @@ export default function BuyNowModal({
   }, [dismissible, onCancel]);
 
   if (!stage) return null;
-
-  // Before any real progress event, or once file rendering has finished and only session
-  // creation remains (renderAndUploadPrintFiles' onProgress stops firing, see
-  // ProductPage's onBuyNowClick), read as "almost there" rather than resetting to empty.
-  const progressPercent = progress ? Math.min(100, (progress.done / progress.total) * 100) : 100;
 
   return (
     <div
@@ -95,18 +90,7 @@ export default function BuyNowModal({
                     rather than the narration's own, so it only happened to be about right. */}
                 <div className="flex min-h-8 flex-1 items-center">{narration}</div>
               </div>
-              <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-interactive transition-[width] duration-500 ease-out"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-              <div className="mt-2 flex justify-between font-mono text-[11px] text-text-muted">
-                <span>
-                  {progress && progress.total > 0
-                    ? `print file ${Math.min(progress.done + 1, progress.total)} of ${progress.total}`
-                    : ''}
-                </span>
+              <div className="mt-3 flex justify-end font-mono text-[11px] text-text-muted">
                 <span>{elapsedSeconds}s elapsed</span>
               </div>
               <p className="mt-4 text-[11.5px] text-text-muted">

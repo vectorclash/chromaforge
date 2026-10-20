@@ -5,6 +5,22 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
+## NEXT — render print files after payment (built 2026-10-19 on `render-after-payment`, NOT deployed)
+
+Details in CLAUDE.md ("Print files render AFTER payment"). Deploy in this order -- a new frontend
+against the old `create-checkout-session` fails every product without a label (it requires
+finished files); the new backend is fine with old tabs.
+1. Apply `supabase/migrations/0020_render_after_payment.sql` (columns + watchdog every 5 min).
+2. `npx supabase functions deploy render-print-file --no-verify-jwt`, then `process-order
+   --no-verify-jwt`, `order-watchdog --no-verify-jwt`, `create-checkout-session`, `stripe-webhook
+   --no-verify-jwt`. No new secrets (`process-order` uses CLEANUP_STORAGE_KEY, STRIPE_SECRET_KEY,
+   PRINTFUL_API_KEY, all already set).
+3. One real order with `PRINTFUL_SKIP_CONFIRM=true` (draft only), checking: Buy Now fast, success
+   page "preparing" then confirmed, files in `print_file_urls`, Printful draft has every file `ok`.
+   Unset the secret afterwards. Note it applies to every order placed while it is set.
+4. Push the frontend.
+Then the nebula (on `nebula-gpu-lab`, rebased onto this) follows its own paused-store sequence.
+
 ## Deployed — leg wrap + mockups submit every placement (2026-08-29)
 
 Live as of 2026-08-29. Artwork now runs across the front of the two-leg products as one piece

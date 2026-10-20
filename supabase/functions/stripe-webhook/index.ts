@@ -1,56 +1,38 @@
-// Confirms a Stripe payment and submits the real Printful order. This is the only place
+// Confirms a Stripe payment and moves the order from 'pending' to 'paid'. This is the only place
 // orders transition past 'pending' -- see 0005_orders_schema.sql's header comment on why
 // client-side writes are blocked by RLS.
+//
+// Rendering the print files and submitting the Printful order happen in process-order, which this
+// kicks once the order is paid (2026-10-19, when print files moved after payment). Until then
+// this function submitted to Printful itself; that code now lives in _shared/printfulOrder.ts.
 //
 // verify_jwt is explicitly false for this function (set in supabase/config.toml) -- Stripe's
 // webhook caller carries no Supabase JWT at all, only a Stripe-Signature header. Auth here
 // is entirely the signature check below, not Supabase's JWT gate.
 //
-// Printful order API: this function deliberately uses the STABLE v1 orders API, not the
-// v2 beta. (The mockup pipeline followed it onto v1 on 2026-08-21, so nothing customer-facing
-// depends on the beta any more.) Ported from v2 on 2026-07-15 after live-proving that
-// v2's order pipeline fails any order containing the label_inside placement (~10-40s
-// after creation, via async file processing, placements silently emptied) while v1
-// processes the exact same product/placements/files cleanly -- verified with real draft
-// orders 166979280 and 166981022 (all 8 zip-hoodie placements incl. label_inside, files
-// all 'ok', stable). POST /orders creates a DRAFT, uncharged order by default; a separate
-// POST /orders/{id}/confirm actually confirms/fulfills it. Since the customer has already
-// paid via Stripe by the time this runs, we create + immediately confirm in one go --
-// there's no reason to leave a paid order sitting as an unconfirmed draft.
-//
 // Deploy with: npx supabase functions deploy stripe-webhook --no-verify-jwt
-// Needs: STRIPE_WEBHOOK_SECRET, PRINTFUL_API_KEY (same order-capable key the other two
-// Printful functions use). SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are auto-provided.
+// Needs: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, CLEANUP_STORAGE_KEY (to call process-order).
+// SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are auto-provided.
 //
 // Register the endpoint in Stripe's dashboard pointing at this function's URL, subscribed
 // to checkout.session.completed, checkout.session.async_payment_succeeded and
 // checkout.session.async_payment_failed (see the payment_status note in the handler).
-//
-// PRINTFUL_API_KEY is real and store-scoped -- Printful has no sandbox/test mode, so this
-// always acts against your actual store. Set PRINTFUL_SKIP_CONFIRM=true while verifying the
-// end-to-end flow (see below) so test purchases create an unconfirmed Printful draft instead
-// of a real, billed, produced order; unset it once you're ready for real customers.
 
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
-import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
 
-const PRINTFUL_API_BASE = "https://api.printful.com";
-const STORE_ID = "18363066"; // same store as printful-mockup.js -- not a secret, just an account id
-
-// Stripe minor units -> Printful's decimal strings.
-const money = (cents: number | null | undefined) => ((cents ?? 0) / 100).toFixed(2);
-
-function retailCosts(session: Stripe.Checkout.Session) {
-  const details = session.total_details;
-  return {
-    currency: (session.currency ?? "usd").toUpperCase(),
-    subtotal: money(session.amount_subtotal),
-    discount: money(details?.amount_discount),
-    shipping: money(details?.amount_shipping),
-    tax: money(details?.amount_tax),
-    total: money(session.amount_total)
-  };
+async function kickProcessOrder(orderId: string) {
+  try {
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/process-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Cleanup-Key": Deno.env.get("CLEANUP_STORAGE_KEY") ?? "" },
+      body: JSON.stringify({ orderId }),
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) console.error(`stripe-webhook: process-order answered ${res.status} for ${orderId}`);
+  } catch (err) {
+    console.error(`stripe-webhook: could not reach process-order for ${orderId}`, err);
+  }
 }
 
 Deno.serve(async req => {
@@ -60,9 +42,8 @@ Deno.serve(async req => {
 
   const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
   const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
-  const printfulKey = Deno.env.get("PRINTFUL_API_KEY");
-  if (!stripeKey || !webhookSecret || !printfulKey) {
-    console.error("stripe-webhook: missing STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET/PRINTFUL_API_KEY");
+  if (!stripeKey || !webhookSecret) {
+    console.error("stripe-webhook: missing STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET");
     return new Response("Server misconfigured", { status: 500 });
   }
 
@@ -210,196 +191,11 @@ Deno.serve(async req => {
     return new Response("ok", { status: 200 });
   }
 
-  const { data: items, error: itemsError } = await supabase
-    .from("order_items")
-    .select("*")
-    .eq("order_id", orderId);
-  if (itemsError || !items || items.length === 0) {
-    console.error("stripe-webhook: no order_items found", itemsError);
-    await supabase
-      .from("orders")
-      .update({ status: "failed", failure_reason: "No order items found" })
-      .eq("id", orderId);
-    await sendOrderFailureAlert(orderId, "No order items found");
-    return new Response("ok", { status: 200 });
-  }
-
-  const printfulHeaders = {
-    Authorization: `Bearer ${printfulKey}`,
-    "X-PF-Store-Id": STORE_ID,
-    "Content-Type": "application/json"
-  };
-
-  // All current catalog products are all-over-print cut-and-sew garments/panels (see the
-  // header comment in src/lib/printful.js) -- this is a stated, deliberate catalog-wide
-  // policy of this app, not a per-order guess.
-  // Branded packing slip -- the paper insert Printful puts in the box. Without this,
-  // Printful falls back to its own default slip (no Chromaforge branding at all).
-  // custom_order_id round-trips our own order uuid onto the slip/Printful dashboard, useful
-  // for correlating a support inquiry back to this order without asking the customer for
-  // their Printful order number. logo_url must be a publicly reachable image (not the SVG
-  // wordmark -- Printful's slip renderer wants a raster image). packing-slip-mark.png is the
-  // mark redrawn as black lines on white, made for the slip (2026-10-14, Aaron's pick of
-  // three): Printful prints slips in black and white, and the phone icon this used to point at
-  // printed as a soft grey mark on a solid dark block. It is cropped tight to the mark because
-  // Printful fits every slip logo into a 175x117 box -- measured on a draft -- and any white
-  // margin in the file comes out of the mark's size. Printful copies the image when an order is
-  // created and may reuse a copy it already fetched from the same URL, so a changed logo gets a
-  // NEW filename, and only orders placed afterwards get it.
-  //
-  // Real bug caught live (2026-07-17): a full order uuid (36 chars, dashes included) blew
-  // past Printful's 20-char cap on custom_order_id and made POST /orders 400 outright --
-  // Stripe had already charged the customer by this point, so this failed every single
-  // order, not an edge case (every order id is a uuid). Fixed by stripping dashes and
-  // truncating to 20 hex chars -- still enough of the real id for a support lookup
-  // (`orders.id::text like '<prefix>%'`) against the full uuid stored in our own DB.
-  const packingSlip = {
-    email: "support@chromaforge.app",
-    store_name: "Chromaforge",
-    logo_url: "https://chromaforge.app/packing-slip-mark.png",
-    // Same text as the store's default slip message in the Printful dashboard (which only
-    // applies to orders created there by hand) -- keep the two matching.
-    message:
-      "Thanks for supporting Chromaforge! Your piece was printed just for you. Show it off and " +
-      "tag @chromaforge.app \u2014 and make your next one at chromaforge.app",
-    custom_order_id: orderId.replace(/-/g, "").slice(0, 20)
-  };
-
-  const printfulOrderBody = {
-    recipient: {
-      name: shippingDetails?.name ?? session.customer_details?.name ?? "",
-      // Without an email, Printful has no way to send the customer shipping/tracking
-      // notifications -- they'd get nothing between the success page and the package.
-      email: session.customer_details?.email ?? undefined,
-      address1: shippingDetails?.address?.line1 ?? "",
-      address2: shippingDetails?.address?.line2 ?? undefined,
-      city: shippingDetails?.address?.city ?? "",
-      country_code: shippingDetails?.address?.country ?? "",
-      state_code: shippingDetails?.address?.state ?? "",
-      zip: shippingDetails?.address?.postal_code ?? ""
-    },
-    packing_slip: packingSlip,
-    // What the customer actually paid, for Printful's international paperwork. Printful uses
-    // retail prices on packing slips and customs documents for orders leaving the country, and
-    // without them falls back to its own (wholesale) costs, which under-declares the parcel's
-    // value. Printful applies retail_costs only when EVERY item carries a retail_price.
-    // Amounts come from the Stripe session itself (the same figures written to orders above),
-    // so they match the charge exactly; unit_price_cents is our server-side price, not the
-    // client's.
-    retail_costs: retailCosts(session),
-    items: items.map(item => ({
-      quantity: item.quantity,
-      variant_id: item.variant_id,
-      retail_price: (item.unit_price_cents / 100).toFixed(2),
-      // order_items.product_options is stored in the v2/mockup shape ({ name, value },
-      // from PRODUCT_MOCKUP_CONFIG's productOptions); v1 item options use { id, value }.
-      // Unlike v2, v1 HARD-REJECTS some products without their required option (confirmed
-      // live: the zip hoodie 400s without an explicit stitch_color), so this mapping is
-      // load-bearing, not cosmetic.
-      ...(item.product_options
-        ? {
-            options: (item.product_options as Array<{ name: string; value: string }>).map(
-              ({ name, value }) => ({ id: name, value })
-            )
-          }
-        : {}),
-      // v1 file types match our placement keys except 'front', which v1 calls 'default'.
-      files: Object.entries(item.print_file_urls as Record<string, string>).map(
-        ([placement, url]) => ({
-          type: placement === "front" ? "default" : placement,
-          url
-        })
-      )
-    }))
-  };
-
-  // Printful has no sandbox -- this account/store is real regardless of which store id we
-  // use, and confirming an order for real bills Printful's stored payment method and
-  // triggers real production/shipping, completely independent of Stripe being in test mode.
-  // PRINTFUL_SKIP_CONFIRM is a deliberate off-switch for end-to-end verification: with it
-  // set, we still create the order (so we can confirm Printful accepts our request shape,
-  // visible in the dashboard as an unconfirmed draft) but never call /confirm, so nothing is
-  // ever actually charged or produced. Unset this secret before real customers can check out.
-  const skipConfirm = Deno.env.get("PRINTFUL_SKIP_CONFIRM") === "true";
-
-  // One automatic retry before giving up, same pattern as useMockup.js's retry for
-  // Printful's occasional transient "Internal Server Error". printfulOrderId is tracked
-  // across attempts (not re-created each time) so a confirm-only failure retries just the
-  // confirm call, not a second POST /orders -- otherwise a transient confirm failure would
-  // leave an extra orphaned draft order sitting in the Printful dashboard.
-  let printfulOrderId: string | number | null = null;
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      if (!printfulOrderId) {
-        const createRes = await fetch(`${PRINTFUL_API_BASE}/orders`, {
-          method: "POST",
-          headers: printfulHeaders,
-          body: JSON.stringify(printfulOrderBody)
-        });
-        const createData = await createRes.json();
-        if (!createRes.ok) {
-          throw new Error(createData?.error?.message || `Printful order creation failed (${createRes.status})`);
-        }
-        printfulOrderId = createData.result?.id ?? createData.data?.id;
-      }
-
-      if (!skipConfirm) {
-        const confirmRes = await fetch(`${PRINTFUL_API_BASE}/orders/${printfulOrderId}/confirm`, {
-          method: "POST",
-          headers: printfulHeaders
-        });
-        const confirmData = await confirmRes.json();
-        if (!confirmRes.ok) {
-          throw new Error(confirmData?.error?.message || `Printful order confirmation failed (${confirmRes.status})`);
-        }
-      } else {
-        console.warn(
-          `stripe-webhook: PRINTFUL_SKIP_CONFIRM is set -- order ${printfulOrderId} left as an ` +
-            `unconfirmed draft, not charged or produced. Unset this secret before going live.`
-        );
-      }
-
-      lastError = null;
-      break;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error("Printful order submission failed");
-      if (attempt === 0) {
-        console.warn(`stripe-webhook: Printful submission attempt failed, retrying once: ${lastError.message}`);
-        await new Promise(resolve => setTimeout(resolve, 1500));
-      }
-    }
-  }
-
-  if (!lastError) {
-    await supabase
-      .from("orders")
-      .update({ status: "submitted", printful_order_id: String(printfulOrderId) })
-      .eq("id", orderId);
-  } else {
-    // The customer has already paid at this point -- this is a flagged manual-ops gap, not
-    // an auto-refund (see sendOrderFailureAlert's comment for why). The order-history UI
-    // must show 'failed' distinctly so it doesn't look like a normal completed order.
-    console.error(`stripe-webhook: Printful submission failed for order ${orderId}: ${lastError.message}`);
-    // Keep Printful's id when the order WAS created and only confirmation failed: it is the
-    // draft a human needs to find and confirm by hand, and printful-webhook matches later
-    // events by it -- without it every update about that order is silently dropped.
-    await supabase
-      .from("orders")
-      .update({
-        status: "failed",
-        failure_reason: lastError.message,
-        ...(printfulOrderId ? { printful_order_id: String(printfulOrderId) } : {})
-      })
-      .eq("id", orderId);
-    await sendOrderFailureAlert(
-      orderId,
-      printfulOrderId
-        ? `${lastError.message} (Printful draft order ${printfulOrderId} exists and was not confirmed)`
-        : lastError.message
-    );
-  }
+  // Payment is settled and the order claimed: rendering the print files and submitting to
+  // Printful is process-order's job (2026-10-19). It answers at once and works in the background,
+  // so Stripe gets its 200 without waiting on a render. If this kick fails or that run dies,
+  // order-watchdog resumes the order within minutes -- the order is safely 'paid' either way.
+  await kickProcessOrder(orderId);
 
   return new Response("ok", { status: 200 });
 });

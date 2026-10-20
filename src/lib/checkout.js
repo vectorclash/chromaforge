@@ -14,9 +14,10 @@ function client() {
 }
 
 // Starts a real purchase: re-prices and creates a 'pending' order server-side, returns a
-// Stripe-hosted Checkout Session URL to redirect to. `printFileUrls`/`design`/`productOptions`
-// must already be resolved client-side (see lib/printful.js's renderAndUploadPrintFiles and
-// getMockupConfigForProduct) -- this function does no rendering itself.
+// Stripe-hosted Checkout Session URL to redirect to. `printJobs` are the render requests for the
+// print files, which the server checks and renders after payment (process-order);
+// `printFileUrls` are files already uploaded (the label marks). Both come from
+// lib/printful.js's renderAndUploadPrintFiles with describePrintFileStrategy.
 export async function createCheckoutSession({
   productId,
   productTitle,
@@ -29,6 +30,7 @@ export async function createCheckoutSession({
   // Recorded in the order's audit copy; it never affects pricing.
   secondaryDesign,
   printFileUrls,
+  printJobs,
   productOptions,
   mockupImageUrl,
   guessedRegion
@@ -44,6 +46,7 @@ export async function createCheckoutSession({
       design,
       secondaryDesign,
       printFileUrls,
+      printJobs,
       productOptions,
       mockupImageUrl,
       guessedRegion

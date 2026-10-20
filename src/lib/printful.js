@@ -428,8 +428,8 @@ function includesGeometry(placementKey, frontKey, geometryPlacements) {
 // real checkout (ProductPage.jsx); `entries` comes from resolvePlacementEntries above, with
 // whatever placement filter the caller needs. `renderOne(design, spec, printfileId,
 // includeGeometry, regionsConfig)` is the actual render+upload strategy -- mockups use
-// capRenderStrategy (cheap, capped, client-side); checkout uses renderPrintFileStrategy
-// (true print resolution, via render-service). The render cache is keyed by printfileId
+// capRenderStrategy (cheap, capped, client-side); checkout uses describePrintFileStrategy
+// (true print resolution, rendered by render-service after payment). The render cache is keyed by printfileId
 // *and* includeGeometry (not just printfileId) so a placement with geometry included can
 // never be served another placement's cached (geometry-suppressed) render or vice versa,
 // even if they happened to share a printfile id.
@@ -970,13 +970,13 @@ export function capRenderStrategy(renderDesignBlob) {
   };
 }
 
-// Real checkout: true print resolution (spec.width/height ARE the print resolution already
-// -- no RENDER_CAP scaling), rendered server-side by the Fly.io render-service via the
-// render-print-file Edge Function (see supabase/functions/render-print-file/index.ts and
-// CLAUDE.md's "Server-side print rendering" section) so mobile Safari's ~16.7 Mpx canvas
-// limit never comes into play and the print file matches the approved mockup exactly
-// (GENERATOR_VERSION-checked server-side).
-export async function renderPrintFileStrategy(
+// The request body for one print file at true print resolution (spec.width/height ARE the print
+// resolution already -- no RENDER_CAP scaling), as render-print-file and render-service take it.
+// Since 2026-10-19 checkout does not send this anywhere itself: describePrintFileStrategy hands it
+// to create-checkout-session as a print job, and process-order has it rendered after payment, so
+// the print file matches the approved mockup exactly (GENERATOR_VERSION-checked server-side) and
+// the customer never waits for it.
+function printFileRequest(
   design,
   spec,
   printfileId,
@@ -990,9 +990,15 @@ export async function renderPrintFileStrategy(
   legWrap = null,
   geometryScale = 1
 ) {
-  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
   const body = {
-    design,
+    // Only what render-service reads. A live design also carries its fully resolved layers
+    // (megabytes for the star field), none of which a render needs.
+    design: {
+      generatorVersion: design.generatorVersion,
+      seed: design.seed,
+      colors: design.colors ?? [],
+      ...(design.settings ? { settings: design.settings } : {})
+    },
     // width/height are the OUTPUT canvas dims -- spec's own (the target placement's
     // printfile), same as any other placement. When regionsConfig is set, the render
     // pipeline generates the SOURCE composition at sourceWidth/sourceHeight instead (the
@@ -1028,13 +1034,14 @@ export async function renderPrintFileStrategy(
     body.sourceWidth = regionsConfig.sourceSpec.width;
     body.sourceHeight = regionsConfig.sourceSpec.height;
   }
-  const { data, error } = await supabase.functions.invoke('render-print-file', {
-    method: 'POST',
-    body
-  });
-  if (error) throw await unwrapFunctionsError(error);
-  if (data.error) throw new Error(data.error.message || 'Print file render failed');
-  return data.url;
+  return body;
+}
+
+// Checkout's strategy: describes each print file instead of rendering it. renderAndUploadPrintFiles
+// then resolves every non-label placement to `{ job }` (label marks are still rendered and uploaded
+// here, as URLs) -- see ProductPage's onBuyNowClick, which sends the two apart.
+export async function describePrintFileStrategy(...args) {
+  return { job: printFileRequest(...args) };
 }
 
 // Uploads a rendered design image so Printful's mockup-generator can fetch it. Must be a
