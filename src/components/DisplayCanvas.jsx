@@ -3547,7 +3547,18 @@ export default class DisplayCanvas extends React.Component {
     this.onSaveButtonClick();
   }
 
+  // The palette as the swatches show it right now. A swatch edit lives in its uncontrolled jscolor
+  // input and reaches state.colors only after onColorSwatchEdit's debounce, so state alone could
+  // still hold a palette the visitor has just changed.
+  liveSwatchValues() {
+    const fields = document.querySelectorAll('.row.colors .color');
+    return this.state.colors.map((c, i) => String(fields[i]?.value || c.value || c).toLowerCase());
+  }
+
   onClearColors() {
+    // Auto while already on Auto is not a change (Aaron, 2026-10-19: clicking the active palette
+    // regenerated the artwork for nothing).
+    if (this.state.colors.length === 0) return;
     this.setState({ colors: [] }, () => this.onColorsChanged());
     this.nextColorId = 0;
   }
@@ -3565,6 +3576,10 @@ export default class DisplayCanvas extends React.Component {
   // regenerate per click, no debounce, matching every other click-once control in the panel
   // (see SettingsRange for why the continuous ones are the exception, not this).
   onApplyPalette(colors) {
+    // The palette already on screen: nothing to apply, so no remount of the swatches and no
+    // regenerate of an identical artwork.
+    const live = this.liveSwatchValues();
+    if (live.length === colors.length && colors.every((hex, i) => hex.toLowerCase() === live[i])) return;
     const base = this.nextColorId;
     this.setState(
       { colors: colors.map((value, i) => ({ id: base + i, value })) },
