@@ -75,6 +75,37 @@ const smooth = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
+// ─── Compiled shaders ─────────────────────────────────────────────────────────────────
+// A nebula's compiled programs outlive its flight (2026-10-20, Aaron: Firefox on Windows paused
+// every few 3D Generates). three frees a program once no material uses it, so a design with no
+// nebula freed the previous flight's, and the next design with one compiled them all again -- the
+// bake alone is ~0.7s on Windows, and Firefox compiles on the page. So a nebula's materials are
+// kept, undisposed, until its renderer has compiled the next nebula's. Keyed weakly by renderer,
+// so they go with it.
+const RETIRED = new WeakMap();
+function retire(renderer, materials) {
+  if (!renderer) {
+    for (const m of materials) m.dispose();
+    return;
+  }
+  RETIRED.set(renderer, [...(RETIRED.get(renderer) || []), ...materials]);
+}
+function releaseRetired(renderer) {
+  const held = RETIRED.get(renderer);
+  RETIRED.delete(renderer);
+  if (held) for (const m of held) m.dispose();
+}
+// Compiles `scenes` as they are drawn, into a render target: three keys a program on whether it
+// draws to the screen or a target, so compiled with none bound it built a second variant that was
+// never used -- each nebula shader was compiled twice.
+export function compileInto(renderer, target, scenes, camera) {
+  const prev = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  const done = Promise.all(scenes.map(s => renderer.compileAsync(s, camera)));
+  renderer.setRenderTarget(prev);
+  return done;
+}
+
 
 // ─── Volume ───────────────────────────────────────────────────────────────────────────
 // Fine detail: a tiling 3D Perlin fBm texture (gradient noise, integer lattice periods, so it
@@ -236,7 +267,7 @@ const BAKE_FRAG = /* glsl */ `
   }
 `;
 
-function buildVolume({ seed, plan, L, frameH, space }) {
+function buildVolume({ seed, plan, L, frameH, space, quad }) {
   const s = UNITS_PER_SHORT_EDGE / frameH;
   const NX = NEB3D.volLateral, R = NEB3D.volRadius;
   const NZ = Math.max(32, Math.round(L / NEB3D.volStep));
@@ -290,9 +321,7 @@ function buildVolume({ seed, plan, L, frameH, space }) {
     depthWrite: false
   });
   const bakeScene = new THREE.Scene();
-  const bakeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bakeMat);
-  bakeQuad.frustumCulled = false;
-  bakeScene.add(bakeQuad);
+  bakeScene.add(quad(bakeMat));
   let next = 0;
   let fence = null;
   // Bakes slices until `budget` ms have passed (Infinity = all), returning true when complete.
@@ -377,11 +406,11 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   };
   const mat = space.passMaterial(MARCH_FRAG.replace('SPACE_GLSL_HERE', space.SPACE_GLSL), uniforms);
   const scene = new THREE.Scene();
-  scene.add(space.screenQuad(mat));
+  scene.add(quad(mat));
   let low = null;
   const upU = { uSrc: { value: null }, uTexel: { value: new THREE.Vector2() } };
   const upScene = new THREE.Scene();
-  upScene.add(space.screenQuad(space.passMaterial('varying vec2 vUv; uniform sampler2D uSrc; uniform vec2 uTexel; void main() { vec4 c = texture2D(uSrc, vUv) * 0.4; c += (texture2D(uSrc, vUv + vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv - vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv + vec2(0.0, uTexel.y)) + texture2D(uSrc, vUv - vec2(0.0, uTexel.y))) * 0.15; gl_FragColor = c; }', upU)));
+  upScene.add(quad(space.passMaterial('varying vec2 vUv; uniform sampler2D uSrc; uniform vec2 uTexel; void main() { vec4 c = texture2D(uSrc, vUv) * 0.4; c += (texture2D(uSrc, vUv + vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv - vec2(uTexel.x, 0.0)) + texture2D(uSrc, vUv + vec2(0.0, uTexel.y)) + texture2D(uSrc, vUv - vec2(0.0, uTexel.y))) * 0.15; gl_FragColor = c; }', upU)));
   return {
     bake,
     async locate() {
@@ -391,11 +420,11 @@ function buildVolume({ seed, plan, L, frameH, space }) {
         if (!located) locate(loc);
       }
     },
-    // Compiles both shaders without blocking (KHR_parallel_shader_compile, via three's
-    // compileAsync). The bake shader is the whole 2D recipe: compiled on first use it was a ~400ms
-    // stall, once per visit.
+    // Compiles the volume's shaders without blocking where the browser can (KHR_parallel_shader_compile,
+    // via three's compileAsync; Firefox cannot). The bake shader is the whole 2D recipe: compiled on
+    // first use it was a ~400ms stall, once per visit.
     compile(renderer) {
-      return Promise.all([renderer.compileAsync(bakeScene, space.orthoCam), renderer.compileAsync(scene, space.orthoCam)]);
+      return compileInto(renderer, rt, [bakeScene, scene, upScene], space.orthoCam);
     },
     update(camZ) {
       uniforms.uCamZ.value = camZ;
@@ -415,11 +444,9 @@ function buildVolume({ seed, plan, L, frameH, space }) {
       renderer.setRenderTarget(target);
       renderer.render(upScene, space.orthoCam);
     },
+    // (its materials are createNebula3d's to retire)
     dispose() {
-      mat.dispose();
       rt.dispose();
-      bakeMat.dispose();
-      bakeQuad.geometry.dispose();
       low?.dispose();
     }
   };
@@ -463,7 +490,25 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
   readOpts();
   const plan = art.nebulaConfig;
   if (!plan || !plan.strength) return null;
-  const neb = buildVolume({ seed, plan, L, frameH, space });
+  // Every material goes through quad(), so dispose() can retire them all (see RETIRED); the
+  // scene's own screenQuad would dispose them with the flight.
+  const materials = [];
+  const quadGeo = new THREE.PlaneGeometry(2, 2);
+  const quad = m => {
+    materials.push(m);
+    const mesh = new THREE.Mesh(quadGeo, m);
+    mesh.frustumCulled = false;
+    return mesh;
+  };
+  let owner = null; // the renderer this nebula compiled with
+  let settled = false; // the previous nebula's materials released
+  const settle = renderer => {
+    owner = renderer;
+    if (settled) return;
+    settled = true;
+    releaseRetired(renderer);
+  };
+  const neb = buildVolume({ seed, plan, L, frameH, space, quad });
   const own = plan.colour?.mode === 'own';
   const gu = gradientUniforms(plan.colour?.gradient || art.starFieldConfig.gradientConfig);
   gu.uView.value = space.view;
@@ -472,7 +517,7 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
   const poolB = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   const poolU = { uSrc: { value: null }, uDir: { value: new THREE.Vector2() } };
   const poolScene = new THREE.Scene();
-  poolScene.add(space.screenQuad(space.passMaterial(POOL_FRAG, poolU)));
+  poolScene.add(quad(space.passMaterial(POOL_FRAG, poolU)));
   const compU = {
     ...gu,
     uBack: { value: null },
@@ -484,21 +529,27 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
   };
   let disposed = false;
   const compScene = new THREE.Scene();
-  compScene.add(space.screenQuad(space.passMaterial(NEB_COMP_FRAG.replace('GRADIENT_FN_HERE', gradientFn), compU)));
+  compScene.add(quad(space.passMaterial(NEB_COMP_FRAG.replace('GRADIENT_FN_HERE', gradientFn), compU)));
   return {
     mode,
     debugOnly: NEB3D.debugView,
     update: neb.update,
     // Bakes the volume a few ms at a time, yielding between chunks, so building a flight never
     // holds the main thread for long. Resolves when done (or when disposed first).
+    // Every shader is compiled here, the pools' too (cheap, and kept for the next design that
+    // has them), so none compiles on the flight's first visible frame.
     async prepare(renderer) {
+      owner = renderer;
       await neb.locate();
       if (disposed) return;
-      await neb.compile(renderer);
+      await Promise.all([neb.compile(renderer), compileInto(renderer, layer, [poolScene, compScene], space.orthoCam)]);
+      if (disposed) return;
+      settle(renderer);
       while (!disposed && !neb.bake(renderer, Infinity, true)) await new Promise(r => setTimeout(r, 0));
     },
     // Draws the nebula onto `back` (the frame so far), writing the result into `out`.
     render(renderer, camera, back, out) {
+      if (!settled) owner = renderer; // a caller that never prepared settles after this draw
       if (layer.width !== back.width || layer.height !== back.height) layer.setSize(back.width, back.height);
       neb.draw(renderer, camera, layer);
       if (own) {
@@ -518,6 +569,7 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
       compU.uBack.value = back.texture;
       renderer.setRenderTarget(out);
       renderer.render(compScene, space.orthoCam);
+      if (!settled) settle(renderer);
     },
     dispose() {
       disposed = true;
@@ -525,6 +577,8 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
       layer.dispose();
       poolA.dispose();
       poolB.dispose();
+      quadGeo.dispose();
+      retire(owner, materials);
     }
   };
 }

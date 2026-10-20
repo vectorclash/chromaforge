@@ -8,7 +8,7 @@ import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape'
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
 import { LOGO_SCREEN_FRACTION, LOGO_OCTAVES, logoAlpha, logoDraw } from '../utils/logoIntro';
 import { drawLogoMark } from '../render/renderLogoMark';
-import { nebula3dMode, createNebula3d } from './nebula3d';
+import { nebula3dMode, createNebula3d, compileInto } from './nebula3d';
 import largeStarUrl from '../assets/images/star-sprite-large-3d.png';
 import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
 
@@ -2327,7 +2327,13 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   setTime(0);
   // The nebula volume bakes in chunks during `ready` when the caller hands over its renderer;
   // otherwise it bakes in full on the first render.
-  const allReady = nebula3d && bakeRenderer ? Promise.all([ready, nebula3d.prepare(bakeRenderer)]) : ready;
+  //
+  // The rush streaks are compiled then too. A caller's hidden first draw (Animation3DPreview's)
+  // compiles what is on screen at the seam, and the streaks show only mid-cycle, so by the time
+  // they were drawn the previous flight's copy was gone and every Generate compiled them again:
+  // a pause mid-flight on Firefox, which compiles on the page (2026-10-20).
+  const warm = bakeRenderer ? [compileInto(bakeRenderer, layerTargetAA, [streakScene], camera)] : [];
+  const allReady = Promise.all([ready, ...warm, ...(nebula3d && bakeRenderer ? [nebula3d.prepare(bakeRenderer)] : [])]);
   return { scene: skyScene, camera, render, setSize, setTime, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
 }
 

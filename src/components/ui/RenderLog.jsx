@@ -5,8 +5,11 @@ import { renderLogEnabled, renderWorkerStatus, subscribeRenderLog } from '../../
 // Aaron's iPhone and desktop browser stuttered on things headless Chromium and WebKit render
 // smoothly). Off unless turned on: add ?renderlog=1 to any URL once (it is remembered), and
 // ?renderlog=0 to turn it off. Shows each render -- size, queue priority, worker or page, how
-// long it waited, where its time went -- and every frame over 50ms, all as times from the last
+// long it waited, where its time went -- and every frame over STALL_MS, all as times from the last
 // tap, so a screenshot says what happened.
+// Two dropped frames at 60Hz. It was 50ms, which missed a hitch Aaron could just see (2026-10-20).
+const STALL_MS = 34;
+
 function readFlag() {
   try {
     const q = new URLSearchParams(window.location.search).get('renderlog');
@@ -35,7 +38,7 @@ export default function RenderLog() {
     let last = 0;
     let raf = 0;
     const loop = t => {
-      if (last && t - last > 50) {
+      if (last && t - last > STALL_MS) {
         const at = performance.timeOrigin + t;
         const gap = Math.round(t - last);
         setStalls(s => [...s.slice(-11), { at, gap }]);
@@ -65,7 +68,7 @@ export default function RenderLog() {
         </div>
       ))}
       <div className="text-red-300">
-        stalls &gt;50ms: {stalls.length ? stalls.map(s => `${rel(s.at)}:${s.gap}`).join(' ') : 'none'}
+        stalls &gt;{STALL_MS}ms: {stalls.length ? stalls.map(s => `${rel(s.at)}:${s.gap}`).join(' ') : 'none'}
       </div>
     </div>
   );

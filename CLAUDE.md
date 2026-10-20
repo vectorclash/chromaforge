@@ -865,7 +865,7 @@ the actual print, generated the same deterministic way.
   each on a desktop GPU, drawing 2-8ms). Measured at displayed size over 6 seeds: mean 0.0-0.7/255,
   worst pixels 32 on the 1440px footer (grain). Never on the hero, mockups, prints, saved
   thumbnails or the gallery modal. **`?renderlog=1`** (remembered; `=0` off) shows every render's
-  queue wait, phase times, worker/page path and frames over 50ms, timed from the last tap — for a
+  queue wait, phase times, worker/page path and frames over 34ms, timed from the last tap — for a
   device that misbehaves where Playwright does not.
   **Every noise call in the nebula GLSL goes through a LOOP, never a repeated call (2026-10-20,
   Aaron, testing Firefox on Windows: the homepage unresponsive on first load, the 3D flight frozen
@@ -903,6 +903,26 @@ the actual print, generated the same deterministic way.
   database, which Claude reads directly, so a run on another machine needs no copying. Its shader
   sources are embedded at publish time, so regenerate it before reusing it. Rebuild the same way if
   a shader change is ever suspected of slow compiles on a machine Claude cannot run.
+  **A compiled program must never be freed between two flights that both need it (same day:
+  Firefox on Windows paused ~0.5s "every few" 3D Generates; Chrome there did not).** three frees
+  a program the moment no material uses it, and Chrome hides a recompile behind its background
+  compile and program cache while Firefox pays it on the page every time. Counted by wrapping
+  `linkProgram`/`deleteProgram` across 3D Generates, three faults, all fixed:
+  (1) a design with NO nebula freed the previous flight's nebula programs, so the next design with
+  one compiled all of them again (the bake is ~0.7s on Windows). `nebula3d.js` now RETIRES a
+  torn-down nebula's materials, undisposed, until its renderer has compiled the next nebula's
+  (`RETIRED`, a WeakMap keyed by renderer, so they go with it); for that its materials no longer go
+  through the scene's `screenQuad`, which would dispose them with the flight.
+  (2) every nebula shader was compiled TWICE: `compileAsync` ran with no render target bound, and
+  three keys a program on screen-vs-target (`outputColorSpace`), so it built a screen variant
+  nothing draws. `compileInto` binds a target first; use it for anything drawn into a target.
+  (3) the rush streaks were recompiled on EVERY Generate, at the reveal: Animation3DPreview's
+  hidden first draw compiles what is on screen at the seam, the streaks only show mid-cycle, so
+  the old flight's copy was gone by the time they were drawn. They are compiled in `ready` now.
+  After: entering 3D compiles each shader once, and 20 Generates (two of them nebula-free)
+  compiled and freed nothing. Rendering is untouched: 16 exact `render3DStillPixels` frames (4
+  designs x 4 points in the loop) are pixel-identical to the previous commit. A new flight layer
+  that is hidden at the seam needs the same treatment as the streaks.
   Firefox's other console lines from that report are not bugs: "WebGL context was lost" is our own
   `forceContextLoss()` on teardown, "scroll-linked positioning effect" is the parallax fallback for
   browsers without `animation-timeline`, and the "clientWaitSync ... 100 times" warning was the
