@@ -881,6 +881,12 @@ the actual print, generated the same deterministic way.
   `compileAsync`, so a Generate no longer freezes (~500ms -> no worse than with it off); and the
   studio no longer builds a full-size still it would discard when a 3D Generate is adopted in
   Animation mode (`adoptInitialDesign`).
+  **Depth warp on the volume: tried and REJECTED (2026-10-19, Aaron: "it's fine the way it was").**
+  Bending each march ray by the scene's `warpW` works mechanically (mipmapped volume, haze fade,
+  no added cost), but at full strength the gas reads as a zoom blur: the warp shrinks far points to
+  ~1/6 by depth 150, so a cloud spanning depth is drawn as a stack of shrinking copies -- geometry,
+  not sampling, so mipmaps cannot remove it. Partial strengths only soften it. Built in 15c75a2,
+  reverted in the commit after it. Don't re-propose.
 - **Generators are now ratio-aware** (this was the `GENERATOR_VERSION = 3` bump — the
   constant has since advanced to 7, `src/render/scale.js`):
   sizes scale off `min(width, height)` instead of `width` alone (a tall/narrow print was
