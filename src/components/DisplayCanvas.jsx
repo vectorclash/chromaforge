@@ -2778,6 +2778,11 @@ export default class DisplayCanvas extends React.Component {
     );
   }
 
+  // The panel's palette (live swatch values) and geometry settings, as one comparable string.
+  panelStyleKey() {
+    return JSON.stringify([this.liveSwatchValues(), this.state.geometrySettings]);
+  }
+
   // Color-list edit (add/remove/clear/rainbow/reorder) -- syncs the 3D scene (unchanged)
   // and queues the 2D live regenerate above.
   onColorsChanged() {
@@ -2991,7 +2996,9 @@ export default class DisplayCanvas extends React.Component {
         config: this.mainConfig,
         isSaved,
         shareUrl: this.shareUrl,
-        shareDesignId: this.shareDesignId
+        shareDesignId: this.shareDesignId,
+        // What the panel said when this still was left -- see the restore below
+        panel: this.panelStyleKey()
       };
 
       // 3D mode: entering animation mode needs no frame build -- just make sure a 3D
@@ -3086,8 +3093,14 @@ export default class DisplayCanvas extends React.Component {
 
       // Restore previous image state if available
       if (this.imageModeState && this.imageModeState.blobUrl) {
-        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl, shareDesignId } =
+        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl, shareDesignId, panel } =
           this.imageModeState;
+        // The palette and geometry sliders are one studio-wide choice: an edit on the Image tab
+        // already reaches the waiting flight (syncThreeDColors), and an edit made in Animation has
+        // to reach this still the same way, or the Image tab came back on the old palette with the
+        // new one lit in the panel (Aaron, 2026-10-19). Restored first, then reshaped in place by
+        // the same regenerate a palette change runs.
+        const restyle = panel !== this.panelStyleKey();
         this.imageModeState = null;
         this.blob = blob;
         this.blobConfig = config;
@@ -3121,9 +3134,11 @@ export default class DisplayCanvas extends React.Component {
           animationFrames: [],
           animationStarFrames: [],
           animationProgress: 0,
-          isSaved: wasSaved || false,
+          isSaved: restyle ? false : wasSaved || false,
           generateDisabled: false,
           isLoading: false,
+        }, () => {
+          if (restyle) this.regenerateCurrentSeed();
         });
       } else {
         this.shareUrl = null;
