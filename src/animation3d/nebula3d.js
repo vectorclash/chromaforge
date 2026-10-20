@@ -224,8 +224,14 @@ const BAKE_FRAG = /* glsl */ `
   }
   void main() {
     vec2 q = (gl_FragCoord.xy - uRes * 0.5) * (uSpan / uRes);
-    float v = nebulaLum(vec3(q.x, 1.0 + uDepthA, q.y));
-    if (uSeamW > 0.0) v = mix(v, nebulaLum(vec3(q.x, 1.0 + uDepthB, q.y)), uSeamW);
+    // This slice, then (near the seam) the same slice one loop earlier, through ONE nebulaLum call:
+    // two calls put two copies of the recipe in the shader (see nebulaGpu.js's note on loops).
+    float v = 0.0, earlier = 0.0;
+    for (int k = 0; k < (uSeamW > 0.0 ? 2 : 1); k++) {
+      float l = nebulaLum(vec3(q.x, 1.0 + (k == 0 ? uDepthA : uDepthB), q.y));
+      if (k == 0) v = l; else earlier = l;
+    }
+    if (uSeamW > 0.0) v = mix(v, earlier, uSeamW);
     gl_FragColor = vec4(curve(v), 0.0, 0.0, 1.0);
   }
 `;

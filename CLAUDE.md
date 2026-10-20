@@ -867,6 +867,42 @@ the actual print, generated the same deterministic way.
   thumbnails or the gallery modal. **`?renderlog=1`** (remembered; `=0` off) shows every render's
   queue wait, phase times, worker/page path and frames over 50ms, timed from the last tap — for a
   device that misbehaves where Playwright does not.
+  **Every noise call in the nebula GLSL goes through a LOOP, never a repeated call (2026-10-20,
+  Aaron, testing Firefox on Windows: the homepage unresponsive on first load, the 3D flight frozen
+  for "a very long time").** Shader compilers paste a full copy of a function at each call site, and
+  Windows' Direct3D compiler (which every Windows browser's WebGL goes through) slows down faster
+  than the code grows. Written as plain calls the recipe held 37 copies of the noise; measured in
+  Firefox on a GTX 980, the 2D field took **7.7s** to compile and the 3D bake (two `nebulaLum`
+  calls) **28.9s**, and Firefox has no `KHR_parallel_shader_compile`, so the page waited for both.
+  Now the three clouds, each cloud's five fbm steps, the warp's three noises, the fine grain's
+  three channels and the bake's seam pair are loops: 4 copies. Same machine: **0.59s and 0.73s**,
+  draw time unchanged. Five things worth not re-deriving:
+  (1) **The loops count to `N + uZero`**, a uniform nothing ever sets (WebGL starts every uniform at
+  0), so no compiler can know the count and paste the copies back out. A constant bound may get
+  unrolled into the same code size this exists to avoid.
+  (2) **Unrolling was NOT the problem and fixing it alone does nothing.** Bounding fbm's own loop by
+  `oct` instead of `16` + `break` was tried first: 7.3s -> 6.9s and 27.7s -> 25.5s. Call-site count
+  is the cost, not loop shape. Reading `PERM` from a texture instead of a const array DOUBLED
+  SwiftShader's compile time.
+  (3) **SwiftShader is a good local stand-in for this, the Mac is not.** macOS keeps a system-wide
+  Metal shader cache, so a shader this Mac has compiled before comes back in ~3ms and hides the cost
+  entirely. SwiftShader (headless Chromium WITHOUT GPU flags) has no persistent cache and scaled
+  the same way Direct3D did: 5.1s / 17.7s before, 0.9s / 1.2s after.
+  (4) **Output: the 3D bake is identical on SwiftShader and within 1/255 on 6 of 16,384 pixels on
+  Metal; the 2D field moves at most 68/65535 (0.27/255), and its distance from the CPU field (what
+  prints use) is unchanged at max 206/65535.** Placement is always picked on the CPU, so nothing
+  about which nebula a design gets can move. No `GENERATOR_VERSION` bump, no backfill, and no Fly
+  deploy: render-service has no WebGL and always runs the CPU field (its bundle changed only in the
+  GLSL text).
+  (5) **The instrument is a timer page** (https://claude.ai/artifact/UBXvdc9FNAP6Ha6HDr7tWo): it
+  compiles the shaders in a worker in a fresh context per test and saves each run to its own
+  database, which Claude reads directly, so a run on another machine needs no copying. Its shader
+  sources are embedded at publish time, so regenerate it before reusing it. Rebuild the same way if
+  a shader change is ever suspected of slow compiles on a machine Claude cannot run.
+  Firefox's other console lines from that report are not bugs: "WebGL context was lost" is our own
+  `forceContextLoss()` on teardown, "scroll-linked positioning effect" is the parallax fallback for
+  browsers without `animation-timeline`, and the "clientWaitSync ... 100 times" warning was the
+  long compile showing through the fence polls (both sites already flush).
   **Nebula colour is a user setting, not a roll** (`settings.geometry.nebulaLinked`, default
   false = own gradient + colour pools; true = the star field's gradient). It is the last row of
   the studio's Color tab. A renamed "Layers" tab grouping it with Stars in front was built and

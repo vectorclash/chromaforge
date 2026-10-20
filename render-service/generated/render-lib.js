@@ -837,19 +837,42 @@ float fbm(vec3 p, int oct) {
   }
   return 0.5 * sum / maxamp + 0.5;
 }
+const vec3 WARP_OFF[3] = vec3[3](${NOISE_OFFSETS.slice(0, 3).map(f3).join(", ")});
+// The colour channels' offsets; channel 0 has none (adding zero changes nothing)
+const vec3 CHAN_OFF[3] = vec3[3](vec3(0.0), ${f3(NOISE_OFFSETS[3])}, ${f3(NOISE_OFFSETS[4])});
+vec3 lane(int i) { return vec3(i == 0, i == 1, i == 2); }
 vec3 warped(vec3 v, float scale, float distortion) {
   vec3 p = v * scale;
-  if (distortion != 0.0) p += vec3(snoise(p + ${f3(NOISE_OFFSETS[0])}), snoise(p + ${f3(NOISE_OFFSETS[1])}), snoise(p + ${f3(NOISE_OFFSETS[2])})) * distortion;
+  if (distortion != 0.0) {
+    vec3 n = vec3(0.0);
+    for (int i = 0; i < 3 + uZero; i++) n += snoise(p + WARP_OFF[i]) * lane(i);
+    p += n * distortion;
+  }
   return p;
 }
 `;
 var RECIPE_GLSL = `#define WOCT min(uOct, 6)
+// Five fbm steps through one fbm call and one warp: 0 the overlay that sets the warp amount m,
+// 1-3 the three channels of the vector offset c (step 1 also warps p), 4 the cloud itself.
 float cloud(vec3 v, float scale, float distortion, float ovScale, float ovDist) {
-  float m = distortion + fbm(warped(v, ovScale, ovDist * 0.5), WOCT);
-  vec3 p = warped(v, scale, m * 0.5);
-  vec3 c = vec3(fbm(p, WOCT), fbm(p + ${f3(NOISE_OFFSETS[3])}, WOCT), fbm(p + ${f3(NOISE_OFFSETS[4])}, WOCT));
-  return fbm(warped(v + (c - 0.5), scale, m * 0.5), uOct);
+  float m = 0.0, r = 0.0;
+  vec3 p = vec3(0.0), c = vec3(0.0), w = vec3(0.0);
+  for (int s = 0; s < 5 + uZero; s++) {
+    if (s < 2 || s == 4) w = warped(s == 4 ? v + (c - 0.5) : v, s == 0 ? ovScale : scale, s == 0 ? ovDist * 0.5 : m * 0.5);
+    if (s == 1) p = w;
+    float f = fbm(s == 0 || s == 4 ? w : p + CHAN_OFF[clamp(s - 1, 0, 2)], s == 4 ? uOct : WOCT);
+    if (s == 0) m = distortion + f;
+    else if (s == 4) r = f;
+    else c += f * lane(s - 1);
+  }
+  return r;
 }
+// The three clouds, in the order they are screened together
+const vec3 CLOUD_SHIFT[3] = vec3[3](vec3(0.0), vec3(0.0), vec3(0.0, 0.0, -0.08));
+const float CLOUD_SCALE[3] = float[3](1.64, 0.82, 1.09), CLOUD_DIST[3] = float[3](0.18, 0.33, 0.0);
+const float CLOUD_OV_SCALE[3] = float[3](0.76, 3.18, 1.9), CLOUD_OV_DIST[3] = float[3](-2.88, 0.36, 11.0);
+const float CLOUD_LO[3] = float[3](0.535, 0.49, 0.474), CLOUD_SPAN[3] = float[3](0.704 - 0.535, 0.533 - 0.49, 0.689 - 0.474);
+const vec3 CLOUD_TINT[3] = vec3[3](vec3(0.019, 0.047, 0.107), vec3(0.103, 0.19, 0.265), vec3(0.161, 0.011, 0.0));
 float band(float t, float p0, float p1, float p2) {
   if (t <= p0 || t >= p2) return 0.0;
   return t < p1 ? (t - p0) / (p1 - p0) : 1.0 - (t - p1) / (p2 - p1);
@@ -877,14 +900,16 @@ float curveS(float x) {
 float srgb(float c) { c = clamp(c, 0.0, 1.0); return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
 float nebulaLum(vec3 dir) {
   vec3 base = uLoc + dir;
-  float t1 = clamp((cloud(base, 1.64, 0.18, 0.76, -2.88) - 0.535) / (0.704 - 0.535), 0.0, 1.0);
-  float t2 = clamp((cloud(base, 0.82, 0.33, 3.18, 0.36) - 0.49) / (0.533 - 0.49), 0.0, 1.0);
-  float t3 = clamp((cloud(base + vec3(0.0, 0.0, -0.08), 1.09, 0.0, 1.9, 11.0) - 0.474) / (0.689 - 0.474), 0.0, 1.0);
-  vec3 neb = screen(screen(screen(vec3(0.0), vec3(0.019, 0.047, 0.107) * t1), vec3(0.103, 0.19, 0.265) * t2), vec3(0.161, 0.011, 0.0) * t3);
+  vec3 neb = vec3(0.0);
+  for (int k = 0; k < 3 + uZero; k++) {
+    float t = clamp((cloud(base + CLOUD_SHIFT[k], CLOUD_SCALE[k], CLOUD_DIST[k], CLOUD_OV_SCALE[k], CLOUD_OV_DIST[k]) - CLOUD_LO[k]) / CLOUD_SPAN[k], 0.0, 1.0);
+    neb = screen(neb, CLOUD_TINT[k] * t);
+  }
   float ambT = clamp((fbm(warped(dir + uViewOff + vec3(0.0, 0.0, -0.3), 1.96, 0.0), 1) - 0.125) / (0.792 - 0.125), 0.0, 1.0);
   vec3 m7 = dodge(neb, vec3(ambT), band(gray(neb), 0.005, 0.167, 0.257));
   vec3 g = (dir + uViewOff) * 5.0;
-  vec3 nc = vec3(fbm(g, WOCT), fbm(g + ${f3(NOISE_OFFSETS[3])}, WOCT), fbm(g + ${f3(NOISE_OFFSETS[4])}, WOCT));
+  vec3 nc = vec3(0.0);
+  for (int i = 0; i < 3 + uZero; i++) nc += fbm(g + CHAN_OFF[i], WOCT) * lane(i);
   vec3 fine = vec3(0.692, 0.173, 0.007) * clamp((gray(nc) - 0.148) / (0.816 - 0.148), 0.0, 1.0);
   vec3 m5 = dodge(m7, fine, band(gray(m7), 0.002, 0.264, 0.68));
   return srgb(gray(vec3(curveS(m5.r), curveS(m5.g), curveS(m5.b))));
@@ -896,6 +921,8 @@ var NEBULA_UNIFORMS_GLSL = `uniform vec3 uLoc; uniform int uOct;
 // volume passes each slice's depth, or those terms are identical in every slice and stack into a
 // solid tube along the whole flight.
 uniform vec3 uViewOff;
+// Never set, so always 0: the recipe's loops count to N + uZero (see the note above NOISE_GLSL).
+uniform int uZero;
 `;
 var NEBULA_LIB_GLSL = NOISE_GLSL + RECIPE_GLSL;
 var FS = `#version 300 es
