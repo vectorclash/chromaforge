@@ -33,6 +33,7 @@ import { generateArtwork } from './generateArtwork';
 import renderArtwork from './renderArtwork';
 import { drawLegWrap, legWrapSourceSize } from './legWrap';
 import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from './hatWrap';
+import { prepareNebula, NEBULA_PIXELS_LITE } from './nebula';
 
 // Long edge of the sampling render. Small on purpose -- this runs before every label upload, and a
 // mean luminance over a patch that is at minimum 4% of the sheet is stable well below this.
@@ -52,7 +53,15 @@ export function relativeLuminance(r, g, b) {
 }
 
 // Renders the front sheet small, with whatever wrap the product uses, and returns its canvas.
-function renderFrontSample(design, spec, opts) {
+//
+// ASYNC since the nebula (v15): every render now carries a nebula field, and computing it inline
+// here froze the page for seconds on a label product's mockup and Buy Now (measured 9.8s to reach
+// Stripe on the shorts, headless, against 0.6s without it). So the configs are generated first,
+// their nebula fields made in the nebula worker (prepareNebula, like every other user-triggered
+// render), and only then drawn. The field is the quarter-area LITE one: placement does not depend
+// on it, a mean over a patch cannot see the difference, and the mockup and the print's label both
+// come from this one function, so they still reach the identical decision.
+async function renderFrontSample(design, spec, opts) {
   const {
     includeGeometry = true,
     geometryLayout = null,
@@ -65,12 +74,17 @@ function renderFrontSample(design, spec, opts) {
   const scale = SAMPLE_LONG_EDGE / Math.max(spec.width, spec.height);
   const width = Math.max(2, Math.round(spec.width * scale));
   const height = Math.max(2, Math.round(spec.height * scale));
-  const ctx = { includeGeometry, geometryLayout, sizeFrame, legSymmetry, geometryScale };
+  const ctx = { includeGeometry, geometryLayout, sizeFrame, legSymmetry, geometryScale, nebulaPixels: NEBULA_PIXELS_LITE };
+  const render = async (w, h) => {
+    const config = generateArtwork(design.seed, w, h, design.colors, design.settings, ctx);
+    await prepareNebula(config);
+    return renderArtwork(config);
+  };
   // mirrorX is deliberately never applied: the front placement is the unmirrored one, and it is the
   // front the label is printed over.
   if (legWrap) {
     const src = legWrapSourceSize(legWrap, width, height);
-    const comp = renderArtwork(generateArtwork(design.seed, src.width, src.height, design.colors, design.settings, ctx));
+    const comp = await render(src.width, src.height);
     const out = document.createElement('canvas');
     out.width = width;
     out.height = height;
@@ -80,23 +94,22 @@ function renderFrontSample(design, spec, opts) {
   if (hatWrap) {
     const src = hatWrapSourceSize(hatWrap, width);
     const disc = hatWrapDiscSourceSize(hatWrap, width);
-    const unrolled = renderArtwork(generateArtwork(design.seed, src.width, src.height, design.colors, design.settings, ctx));
-    const discCanvas = renderArtwork(generateArtwork(design.seed, disc.width, disc.height, design.colors, design.settings, ctx));
+    const [unrolled, discCanvas] = await Promise.all([render(src.width, src.height), render(disc.width, disc.height)]);
     const out = document.createElement('canvas');
     out.width = width;
     out.height = height;
     drawHatWrap(out.getContext('2d'), unrolled, discCanvas, hatWrap, width, height, {});
     return out;
   }
-  return renderArtwork(generateArtwork(design.seed, width, height, design.colors, design.settings, ctx));
+  return render(width, height);
 }
 
 // Mean sRGB relative luminance of the artwork under this product's outside label, or null when the
 // product declares no region (every product but the five that carry a visible label_outside).
-export function sampleLabelBackdrop(design, frontSpec, region, opts = {}) {
+export async function sampleLabelBackdrop(design, frontSpec, region, opts = {}) {
   if (!region || !frontSpec || !design?.seed) return null;
   try {
-    const canvas = renderFrontSample(design, frontSpec, opts);
+    const canvas = await renderFrontSample(design, frontSpec, opts);
     const w = canvas.width;
     const h = canvas.height;
     // Clamped so a region measured slightly generously can never sample outside the sheet.

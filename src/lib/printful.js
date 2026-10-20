@@ -557,26 +557,27 @@ export async function renderAndUploadPrintFiles(
           labelInsideRegion
         });
         rendered[cacheKey] = spec
-          ? renderLabelMarkBlob(choice.backdropDesign, spec, {
-              transparent: choice.transparent,
-              // Null region (every product without a visible label of this kind) or a failed sample
-              // keeps the dark ink that shipped before this existed.
-              lightInk:
-                choice.transparent &&
-                wantsLightInk(
-                  sampleLabelBackdrop(choice.backdropDesign, choice.backdropSpec, choice.region, {
-                    includeGeometry: includesGeometry(choice.backdropKey, frontKey, geometryPlacements),
-                    geometryLayout,
-                    sizeFrame,
-                    legSymmetry,
-                    geometryScale,
-                    legWrap: legWrap?.placements?.includes(choice.backdropKey) ? legWrap : null,
-                    hatWrap: hatWrap?.placements?.includes(choice.backdropKey) ? hatWrap : null
-                  })
-                )
-            }).then(blob =>
-              uploadMockupSourceImage(blob, `${printfileId}-label`)
+          ? (choice.transparent
+              ? sampleLabelBackdrop(choice.backdropDesign, choice.backdropSpec, choice.region, {
+                  includeGeometry: includesGeometry(choice.backdropKey, frontKey, geometryPlacements),
+                  geometryLayout,
+                  sizeFrame,
+                  legSymmetry,
+                  geometryScale,
+                  legWrap: legWrap?.placements?.includes(choice.backdropKey) ? legWrap : null,
+                  hatWrap: hatWrap?.placements?.includes(choice.backdropKey) ? hatWrap : null
+                })
+              : Promise.resolve(null)
             )
+              .then(luminance =>
+                renderLabelMarkBlob(choice.backdropDesign, spec, {
+                  transparent: choice.transparent,
+                  // Null region (every product without a visible label of this kind) or a failed
+                  // sample keeps the dark ink that shipped before this existed.
+                  lightInk: choice.transparent && wantsLightInk(luminance)
+                })
+              )
+              .then(blob => uploadMockupSourceImage(blob, `${printfileId}-label`))
           : Promise.resolve(null);
       }
       return [placementKey, rendered[cacheKey]];
