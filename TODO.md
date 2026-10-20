@@ -23,6 +23,64 @@ stripe-webhook, then the frontend.
 - Next: the nebula (`nebula-gpu-lab`), rebased onto this master, in its own paused-store
   sequence -- see that branch's TODO.
 
+## NEXT — nebula ship plan (agreed with Aaron 2026-10-19, in this order)
+
+State: the nebula (`GENERATOR_VERSION` 15) and everything that makes Generate smooth are
+committed on branch **`nebula-gpu-lab`** (latest `64cde9d`), not merged, not deployed. Master is
+untouched and is what's live. Details of all of it are in CLAUDE.md's nebula section.
+
+**1. Aaron's 3D-scene edits — first, on `nebula-gpu-lab`.** He has edits for the 3D flight before
+anything else continues. Open item from earlier: the volume nebula in the flight is still a
+dev-only lab (`?nebula3d=volume` on /studio); the real flight still builds its colour volumes from
+the old radial field. Making the volume the default (and measuring its ~1s bake on a phone) is
+part of finishing 3D. He judges 3D in the running studio, not on comparison pages.
+
+**2. Render print files AFTER payment — a new branch from MASTER, shipped before the nebula.**
+Why: measured on a temporary Fly app (same performance-2x, destroyed), the nebula's CPU field adds
+~5s to every print file even split across both cores (t-shirt checkout 7.1s on master -> 13.2s;
+sleeve 1.5 -> 6.1; shorts 9.0 -> 15.6). A 4-core machine bought only ~2s more, and WebAssembly is
+expected at ~1.3-2x (table lookups defeat SIMD, and no wasm toolchain is installed). Aaron did not
+want the browser's own nebula used in checkout ("the user's machine handling part of the checkout
+process feels weird"). Rendering after payment makes render time invisible: Buy Now goes straight
+to Stripe, faster than the live site today, and the browser stops sending print-file URLs at all.
+Ship it on master FIRST, with today's fast v14 renders, so any problem is clearly the new flow; the
+nebula then lands on top of it.
+Build:
+- `create-checkout-session` stores per-placement RENDER SETTINGS with the order (design, size,
+  mirrorX, legWrap, pocket regions, hatWrap, includeGeometry, sizeFrame, geometryScale, label
+  marks...), validated server-side against Printful's printfile specs the way `render-print-file`
+  validates requests today. The browser sends the customer's choices, never files. Store the
+  `generatorVersion` the customer saw.
+- `stripe-webhook` acknowledges Stripe at once and renders + uploads + submits in the background
+  (`EdgeRuntime.waitUntil`), each placement retried with backoff. Print files are already named by
+  content, so re-renders are idempotent; Printful submission is already guarded against doubles.
+- Durable pickup: extend `order-watchdog` (cron) to resume orders "paid, print files pending" for
+  more than a few minutes, skipping placements already rendered; alert (existing failure email)
+  only after the last attempt.
+- If the server's generator version differs from the one the customer saw, HOLD the order (never
+  print a different picture) and render once versions match.
+- Label marks are rendered in the browser today (`generateLabelMark`); they need a server-side
+  path too.
+- CheckoutSuccessPage: confirmation now arrives later (Printful is told after rendering) -- check
+  its wording/timeout still reads right.
+Test: force each failure (kill a render midway, a version mismatch, Printful refusing), then one
+real order with `PRINTFUL_SKIP_CONFIRM` set (draft only, nothing produced), then deploy.
+
+**3. Then the nebula, on `nebula-gpu-lab` rebased onto that master:** render-service
+(`nebulaThreads.js` is already in) deploys FIRST, the full paused-store version-bump sequence
+(CLAUDE.md, "PAUSE THE STORE"), thumbnail backfill with NO `--generator-version` filter;
+`check-render-regression.mjs` fails by design (every saved design's look changes, as with v14).
+Then merge to master.
+
+Smaller open items, not blocking:
+- Rotating a phone with a modal open can still replay the homepage reveals:
+  `useScrollTriggerReveal` rebuilds its tweens during the lock (ShopCarousel re-measures), and a
+  new tween starts hidden. Fix = postpone the rebuild until unlock. Aaron undecided.
+- `check-route-intro-once.mjs` has failed intermittently on reduced-motion /gallery and /shop/257,
+  committed code included; passed fully on the last run.
+- The mobile nav's glass fix (a composited layer only while crossfading) is inferred, not
+  reproduced; Aaron confirmed it on his phone.
+
 ## Deployed — leg wrap + mockups submit every placement (2026-08-29)
 
 Live as of 2026-08-29. Artwork now runs across the front of the two-leg products as one piece
