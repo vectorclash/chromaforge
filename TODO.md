@@ -20,8 +20,8 @@ stripe-webhook, then the frontend.
       files `ok` at true print size (front/sleeves/hood share one render, mirrored back, pocket
       cropped from the front, label_panel, label_inside). Secret unset straight after.
 - [x] Printful draft 181874339 canceled, order `489f90c5` marked canceled.
-- [ ] **Aaron: refund the test order in Stripe** (`pi_3USTOrRGdn8L7uMg0yTmh56c`, $89.66) -- no
-      Stripe key exists outside the Supabase secrets, so it can't be done from here.
+- [x] Refunded in Stripe by Aaron (`pi_3USTOrRGdn8L7uMg0yTmh56c`, $89.66); order row set to
+      `refunded`.
 
 ## Deployed — the nebula, GENERATOR_VERSION 15 (2026-10-19)
 
