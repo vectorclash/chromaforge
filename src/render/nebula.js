@@ -219,13 +219,34 @@ export function nebulaMask(config, { gpu = true, info = null } = {}) {
 
 /** nebulaMask with the GPU field drawn in bands (nebulaGpu.js), for the worker. Same result. */
 export async function nebulaMaskBanded(config, { gpu = true, info = null } = {}) {
+  return nebulaMaskWith(config, async (loc, w, h, oct) => {
+    const field = gpu ? await nebulaFieldGpuBanded(loc, w, h, oct, undefined, undefined, info) : null;
+    if (info) info.gpu = !!field;
+    return field;
+  });
+}
+
+// The mask from a field computed however the caller likes -- `fieldFn(loc, w, h, octaves)`
+// resolving with nebula2dRows' output (or null to fall back to the CPU here). Everything else,
+// the placement, the size and the post-processing, is the shared code, so every caller makes the
+// same mask.
+async function nebulaMaskWith(config, fieldFn) {
   const plan = config.nebulaConfig;
   const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
   const loc = placement(config.seed, plan.cover);
-  let field = gpu ? await nebulaFieldGpuBanded(loc, w, h, NEBULA_OCTAVES, undefined, undefined, info) : null;
-  if (info) info.gpu = !!field;
-  if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  const field = (await fieldFn(loc, w, h, NEBULA_OCTAVES)) || fieldCpu(loc, w, h, NEBULA_OCTAVES);
   return maskFromField(field, w, h, plan);
+}
+
+/** Caches `config`'s mask from a field computed by `fieldFn` (see nebulaMaskWith) -- for
+ * render-service, which splits the CPU field across threads (render-service/nebulaThreads.js). */
+export async function prepareNebulaWithField(config, fieldFn) {
+  const plan = config?.nebulaConfig;
+  if (!plan || !plan.strength) return;
+  const key = maskKey(config);
+  if (MASKS.has(key)) return;
+  const { rgba, w, h } = maskToRGBA(await nebulaMaskWith(config, fieldFn));
+  if (!MASKS.has(key)) storeMask(key, rgba, w, h);
 }
 
 function maskFromField(field, w, h, plan) {

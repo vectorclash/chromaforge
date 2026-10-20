@@ -22,7 +22,7 @@ WORKDIR /app
 COPY render-service/package.json render-service/package-lock.json ./render-service/
 RUN cd render-service && npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/render-service/generated ./render-service/generated
-COPY render-service/server.js render-service/render.js render-service/shim.js ./render-service/
+COPY render-service/server.js render-service/render.js render-service/shim.js render-service/nebulaThreads.js ./render-service/
 COPY public/createjs.min.js ./public/createjs.min.js
 
 ENV PORT=8080

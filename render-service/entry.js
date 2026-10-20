@@ -7,3 +7,7 @@ export { default as renderArtwork } from '../src/render/renderArtwork.js';
 export { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../src/render/hatWrap.js';
 // Same reasoning for the leg wrap -- one implementation, bundled, never mirrored by hand.
 export { drawLegWrap, legWrapSourceSize } from '../src/render/legWrap.js';
+// The nebula's CPU field and the hook that takes a field computed elsewhere, so render-service
+// can split the field across threads (nebulaThreads.js) with the same code the browser runs.
+export { prepareNebulaWithField } from '../src/render/nebula.js';
+export { nebula2dRows } from '../src/render/nebula2dCpu.js';

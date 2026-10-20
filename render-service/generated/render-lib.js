@@ -1207,6 +1207,21 @@ function nebulaMask(config, { gpu = true, info = null } = {}) {
   if (!field) field = fieldCpu(loc, w, h, NEBULA_OCTAVES);
   return maskFromField(field, w, h, plan);
 }
+async function nebulaMaskWith(config, fieldFn) {
+  const plan = config.nebulaConfig;
+  const { w, h } = nebulaRenderSize(config.width, config.height, config.nebulaConfig?.pixels);
+  const loc = placement(config.seed, plan.cover);
+  const field = await fieldFn(loc, w, h, NEBULA_OCTAVES) || fieldCpu(loc, w, h, NEBULA_OCTAVES);
+  return maskFromField(field, w, h, plan);
+}
+async function prepareNebulaWithField(config, fieldFn) {
+  const plan = config?.nebulaConfig;
+  if (!plan || !plan.strength) return;
+  const key = maskKey(config);
+  if (MASKS.has(key)) return;
+  const { rgba, w, h } = maskToRGBA(await nebulaMaskWith(config, fieldFn));
+  if (!MASKS.has(key)) storeMask(key, rgba, w, h);
+}
 function maskFromField(field, w, h, plan) {
   const a = toHisCurve(field);
   if (plan.colour.mode === "own") {
@@ -1983,5 +1998,7 @@ export {
   hatWrapDiscSourceSize,
   hatWrapSourceSize,
   legWrapSourceSize,
+  nebula2dRows,
+  prepareNebulaWithField,
   renderArtwork
 };

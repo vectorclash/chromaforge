@@ -14,8 +14,18 @@ import {
   hatWrapSourceSize,
   hatWrapDiscSourceSize,
   drawLegWrap,
-  legWrapSourceSize
+  legWrapSourceSize,
+  prepareNebulaWithField
 } from './generated/render-lib.js';
+import { nebulaFieldThreaded } from './nebulaThreads.js';
+
+// Every render goes through here: its nebula is made first with the field split across the
+// machine's cores (nebulaThreads.js), then renderArtwork finds the mask cached and draws.
+// Without it renderArtwork would make the same mask itself, on one thread (~8s on Fly).
+async function draw(config) {
+  await prepareNebulaWithField(config, nebulaFieldThreaded);
+  return renderArtwork(config);
+}
 
 // This used to load the two star sprite PNGs off disk and hand renderArtwork a { getResult }
 // shim standing in for StudioContext's createjs LoadQueue. Both star shapes are drawn from
@@ -73,7 +83,7 @@ export async function renderDesign({
   // front, so element sizes are measured against what the customer sees.
   if (legWrap) {
     const src = legWrapSourceSize(legWrap, width, height);
-    const comp = renderArtwork(
+    const comp = await draw(
       generateArtwork(seed, src.width, src.height, colors, settings, {
         includeGeometry,
         geometryLayout,
@@ -98,7 +108,7 @@ export async function renderDesign({
   if (hatWrap) {
     const src = hatWrapSourceSize(hatWrap, width);
     const disc = hatWrapDiscSourceSize(hatWrap, width);
-    const unrolled = renderArtwork(
+    const unrolled = await draw(
       generateArtwork(seed, src.width, src.height, colors, settings, {
         includeGeometry,
         geometryLayout,
@@ -107,7 +117,7 @@ export async function renderDesign({
         geometryScale
       })
     );
-    const discCanvas = renderArtwork(
+    const discCanvas = await draw(
       generateArtwork(seed, disc.width, disc.height, colors, settings, {
         includeGeometry,
         geometryLayout,
@@ -131,7 +141,7 @@ export async function renderDesign({
       legSymmetry,
       geometryScale
     });
-    const canvas = renderArtwork(config);
+    const canvas = await draw(config);
     return canvas.toBuffer('image/png');
   }
   // includeGeometry/geometryLayout here are already resolved against the FRONT placement's
@@ -145,7 +155,7 @@ export async function renderDesign({
     legSymmetry,
     geometryScale
   });
-  const sourceCanvas = renderArtwork(sourceConfig);
+  const sourceCanvas = await draw(sourceConfig);
   const output = createCanvas(width, height);
   drawRegionsComposite(output.getContext('2d'), sourceCanvas, sourceWidth, sourceHeight, width, height, regions);
   return output.toBuffer('image/png');

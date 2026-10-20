@@ -757,7 +757,15 @@ the actual print, generated the same deterministic way.
   moved, which proves the rng discipline, not the look; (4) the nebula keeps ONE WebGL context
   for the visit (`data-nebula` on its canvas), which `check-leaks.mjs` counts separately.
   Cost: ~35-230ms per render on the GPU (placement included), ~2.5s on the CPU, so render-service
-  checkouts get ~2.5s slower per placement -- unmeasured on Fly. Deploy needs the full v14-style
+  checkouts get ~2.5s slower per placement -- unmeasured on Fly.
+  **Measured on Fly 2026-10-19** (a temporary app, same performance-2x, destroyed after; the live
+  app untouched): the CPU nebula added ~8s to EVERY print file -- sleeve 1.5s -> 9.7s, t-shirt
+  front 4.9 -> 11.9, shorts sheet 9.0 -> 19.4, a t-shirt checkout's four placements 7.1 -> 19.1s.
+  `render-service/nebulaThreads.js` now splits the field's rows across worker threads into one
+  SharedArrayBuffer (bit-identical to one thread; a dead thread falls back to the main thread):
+  sleeve 6.1s, front 9.0, shorts 15.6, checkout 13.2s on 2 cores. A 4-core machine bought only
+  ~2s more (sleeve 4.1, front 7.2) -- part of the cost does not split, and Fly's shared hosts are
+  noisy -- so machine size is not the lever. Still ~+5s per print file: NOT shippable as is. Deploy needs the full v14-style
   sequence: paused store, render-service first, thumbnail backfill with no filter. The 3D flight
   still builds its colour volumes from the radial field.
   **The nebula is built OFF THE MAIN THREAD** (`prepareNebula`, `render/nebulaWorker.js`), because
