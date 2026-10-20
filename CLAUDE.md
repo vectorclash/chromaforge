@@ -872,8 +872,12 @@ the actual print, generated the same deterministic way.
   for "a very long time").** Shader compilers paste a full copy of a function at each call site, and
   Windows' Direct3D compiler (which every Windows browser's WebGL goes through) slows down faster
   than the code grows. Written as plain calls the recipe held 37 copies of the noise; measured in
-  Firefox on a GTX 980, the 2D field took **7.7s** to compile and the 3D bake (two `nebulaLum`
-  calls) **28.9s**, and Firefox has no `KHR_parallel_shader_compile`, so the page waited for both.
+  Firefox on Aaron's RTX 4070, the 2D field took **7.7s** to compile and the 3D bake (two
+  `nebulaLum` calls) **28.9s**, and Firefox has no `KHR_parallel_shader_compile`, so the page
+  waited for both. Compiling is CPU work, so a fast GPU does not help. **Firefox reports a generic
+  GPU to pages** (it said "GTX 980, or similar" -- the ", or similar" is the tell, an
+  anti-fingerprinting stand-in, and the commit that shipped this repeats the wrong name); only
+  `about:support` shows the real one.
   Now the three clouds, each cloud's five fbm steps, the warp's three noises, the fine grain's
   three channels and the bake's seam pair are loops: 4 copies. Same machine: **0.59s and 0.73s**,
   draw time unchanged. Five things worth not re-deriving:

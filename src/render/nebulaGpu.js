@@ -27,8 +27,8 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 // compiler pastes a whole copy of a function at each place it is called, and Windows' Direct3D
 // compiler slows down faster than the code grows: written as plain calls the recipe held 37 copies
 // of the noise, and Direct3D took 7s to compile the 2D field and 28s for the 3D bake (twice the
-// recipe), measured in Firefox on a GTX 980. Firefox cannot compile in the background, so the page
-// waited. Looped, it holds four copies. The loops count up to `N + uZero`, a uniform nothing sets
+// recipe), measured in Firefox on an RTX 4070 -- compiling is CPU work, so a fast GPU does not help.
+// Firefox cannot compile in the background, so the page waited. Looped, it holds four copies. The loops count up to `N + uZero`, a uniform nothing sets
 // (WebGL starts every uniform at 0), so the compiler cannot know the count and paste the copies
 // back out. The arithmetic is the same, statement for statement.
 const NOISE_GLSL = `const int PERM[256] = int[256](${PERM.join(',')});
