@@ -21,6 +21,22 @@ function patchCanvas(canvas) {
   canvas.style = {};
   return canvas;
 }
+// Every 2D canvas here draws on the CPU, in this worker (2026-10-20, Aaron: Chrome on Windows
+// dropped frames of the loader on most Generates). A GPU-backed canvas only RECORDS its draw calls
+// and runs them when its pixels are read, to encode the image: ~100k star stamps and every layer at
+// 4K, run on the GPU process's main thread, which also draws the page's frames. On his PC that was
+// 100-300ms of `encode` per 4K render, with the page stalling 125-208ms inside it. willReadFrequently
+// asks for a CPU canvas; the nebula's WebGL canvas is untouched.
+// Chromium only: the shared GPU thread is Chromium's design, and Safari (the iPhone this worker was
+// built for) and Firefox were not seen to stutter here, so they keep what they had. It costs ~200ms
+// more per 4K render in this worker, measured on an M4 Max, inside the hero's reveal beat.
+// The pixels match the GPU canvas's to a mean 0.5-1.0/255 (shape edges antialias differently).
+if (scope.navigator?.userAgentData?.brands?.some(b => b.brand === 'Chromium')) {
+  const getContext = OffscreenCanvas.prototype.getContext;
+  OffscreenCanvas.prototype.getContext = function (type, options) {
+    return getContext.call(this, type, type === '2d' ? { ...options, willReadFrequently: true } : options);
+  };
+}
 scope.window = scope;
 scope.document = {
   createElement: tag => (tag === 'canvas' ? patchCanvas(new OffscreenCanvas(1, 1)) : { style: {} }),

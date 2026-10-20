@@ -830,6 +830,21 @@ the actual print, generated the same deterministic way.
   logo-ink probe. None run on a Generate; move them the same way if one ever stutters.
   `check-route-intro-once.mjs` fails on reduced-motion /gallery and /shop/257 on the committed code
   too — pre-existing, not this.
+  (6) **In Chromium the worker's 2D canvases draw on the CPU** (`willReadFrequently`, patched onto
+  `OffscreenCanvas.prototype.getContext` in renderWorker.js; 2026-10-20, Aaron: Chrome on Windows
+  dropped frames of the loader on ~80% of Generates). Off the page is not off Chrome's GPU process:
+  a GPU canvas only RECORDS its draw calls, and they run when the pixels are read for the JPEG --
+  ~100k star stamps and every layer at 4K, on the GPU process's main thread, which also draws the
+  page. The render log showed it plainly on his PC: `encode` 100-300ms per 4K render with the
+  page's 125-208ms stall INSIDE it, and `draw` only 13-16ms (the recording). Measured here, CPU
+  costs ~200ms more `draw` per 4K render (208-348ms) but click-to-reveal is unchanged (1.37-1.43s
+  against 1.40-1.44s), since the reveal waits for the ripple beat; a slower CPU may occasionally
+  add a ring. Pixels: mean 0.5-1.0/255 from the GPU canvas, only shape edges antialiasing
+  differently. **Chromium only**, by `userAgentData` brand: Safari (the iPhone the worker exists
+  for) and Firefox were not seen to stutter and keep their GPU canvases (verified: WebKit's draw
+  stays 21-35ms). The screenshot came over from Windows through a drop page
+  (https://claude.ai/artifact/FmGWEpETgdP13vSZNJ29dL: paste an image, it is stored as an asset
+  Claude reads with Artifact `read` + the asset id).
   **The ambient surfaces then fell out of sync, and the fix is a rule worth keeping** (same day,
   Aaron: "these need to stay exactly in sync as they were before... the loading/generating state
   needs to start immediately on all surfaces"). The mini generator (StudioContext's preview), the
