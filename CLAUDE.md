@@ -768,8 +768,8 @@ the actual print, generated the same deterministic way.
   noisy -- so machine size is not the lever. Still ~+5s per print file, which is why print files
   moved AFTER payment first (see "Print files render AFTER payment"): the customer never waits for
   it. Shipped through the full v14-style sequence (paused store, render-service first, thumbnail
-  backfill with no filter). The 3D flight
-  still builds its colour volumes from the radial field.
+  backfill with no filter). The 3D flight's colour volumes are the nebula VOLUME since the same
+  day (nebula3dMode returns 'volume' in every build; ?nebula3d=off in dev shows the old blobs).
   **The nebula is built OFF THE MAIN THREAD** (`prepareNebula`, `render/nebulaWorker.js`), because
   renderArtwork is synchronous and computing a mask inline froze the page, loader included, on
   every Generate -- measured at phone-ish speed (4x CPU, mobile viewport): 450-1150ms single long
@@ -874,7 +874,7 @@ the actual print, generated the same deterministic way.
   Color tab only scrolls there with all six palette colours (13px).
   Amount tiers: faint strength 0.35-0.55, medium 0.60-0.85 (raised so they don't vanish under
   geometry).
-  **3D flight, LAB (dev only, `?nebula3d=volume` on the studio URL):** `animation3d/nebula3d.js`
+  **3D flight (default in every build since 2026-10-19; dev `?nebula3d=off` shows the old blobs):** `animation3d/nebula3d.js`
   replaces the flight's radial blobs with the same nebula as a ray-marched volume. Things worth not
   re-deriving: the 2D nebula is already a slice of a 3D field, so 3D samples the same recipe with
   depth (`NEBULA_LIB_GLSL`, shared with the 2D shader); the recipe's two VIEW-anchored terms must be

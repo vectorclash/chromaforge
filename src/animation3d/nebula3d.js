@@ -1,6 +1,6 @@
-// LAB (branch nebula-gpu-lab, dev only): the 2D nebula, given depth in the 3D flight. It takes the
-// radial field's slot, as the nebula does in 2D. On with localStorage 'cf-lab:nebula3d' = 'volume'
-// (?nebula3d=volume on the studio URL; ?nebula3d=off for the old radial blobs).
+// The 2D nebula, given depth in the 3D flight. It takes the radial field's slot, as the nebula does
+// in 2D. On in every build since 2026-10-19; a dev build can switch it off with ?nebula3d=off to
+// compare against the old radial blobs (see nebula3dMode).
 //
 // The premise both share: the 2D nebula is already a flat SLICE through a 3D noise field (the
 // recipe samples loc + (x, 1, y) -- noise x = screen right, noise y = depth, noise z = screen up).
@@ -22,16 +22,19 @@ import { detailNoiseData, DETAIL_SIZE } from '../render/nebulaDetail';
 import { makeRng } from '../render/prng';
 
 export function nebula3dMode() {
-  if (typeof window === 'undefined' || !import.meta.env?.DEV) return null;
-  try {
-    const q = new URLSearchParams(window.location.search).get('nebula3d');
-    if (q) localStorage.setItem('cf-lab:nebula3d', q);
-    const m = localStorage.getItem('cf-lab:nebula3d');
-    // 'sheets' was the other technique; Aaron picked the volume (2026-10-19) and it was removed
-    return m === 'volume' || m === 'on' || m === 'sheets' ? 'volume' : null;
-  } catch {
-    return null;
+  // The volume IS the flight's colour volumes, in every build (2026-10-19; Aaron approved it in the
+  // studio, and shipping the 2D nebula without it left the flight on the old radial blobs). A dev
+  // build can still switch it off -- ?nebula3d=off, remembered -- to compare against those blobs.
+  if (typeof window !== 'undefined' && import.meta.env?.DEV) {
+    try {
+      const q = new URLSearchParams(window.location.search).get('nebula3d');
+      if (q) localStorage.setItem('cf-lab:nebula3d', q);
+      if (localStorage.getItem('cf-lab:nebula3d') === 'off') return null;
+    } catch {
+      /* storage blocked: the default */
+    }
   }
+  return 'volume';
 }
 // Lab tuning without a rebuild: localStorage 'cf-lab:nebula3d-opts' = JSON over these.
 export const NEB3D = {

@@ -2018,8 +2018,9 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   const blendOf = mode => BLEND_INDEX[mode] ?? 0;
   const radialBlend = blendOf(art.firstBlend);
 
-  // LAB (nebula-gpu-lab, dev only): the nebula in the radial field's slot. The blobs above are
-  // still built (their rng draws are upstream of the plates), just not drawn.
+  // The nebula volume in the radial field's slot, as in 2D. The blobs above are still built (their
+  // rng draws are upstream of the plates) and are drawn only when a dev build switches the volume
+  // off (nebula3dMode). A design with no nebula gets neither, matching 2D.
   const nebulaLab = nebula3dMode();
   let nebula3d = null;
   if (nebulaLab) {
@@ -2324,7 +2325,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   }
 
   setTime(0);
-  // The nebula lab's volume bakes in chunks during `ready` when the caller hands over its renderer;
+  // The nebula volume bakes in chunks during `ready` when the caller hands over its renderer;
   // otherwise it bakes in full on the first render.
   const allReady = nebula3d && bakeRenderer ? Promise.all([ready, nebula3d.prepare(bakeRenderer)]) : ready;
   return { scene: skyScene, camera, render, setSize, setTime, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
