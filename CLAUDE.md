@@ -743,7 +743,7 @@ the actual print, generated the same deterministic way.
   ordering fails live checkout until both sides match).
 
 - **The NEBULA replaces the radial field on every design -- `GENERATOR_VERSION = 15`
-  (built 2026-10-19 on branch `nebula-gpu-lab`, NOT merged or deployed).** `render/nebula.js`
+  (LIVE since 2026-10-19 -- see TODO.md's deploy record).** `render/nebula.js`
   owns it; `nebulaGpu.js` (WebGL2, studio) and `nebula2dCpu.js` (CPU: render-service and any
   browser without WebGL2) are the same field to within 1/255. The radial field is still
   GENERATED (its rng draws sit upstream of the geometry coin) and just never drawn.
@@ -765,8 +765,10 @@ the actual print, generated the same deterministic way.
   SharedArrayBuffer (bit-identical to one thread; a dead thread falls back to the main thread):
   sleeve 6.1s, front 9.0, shorts 15.6, checkout 13.2s on 2 cores. A 4-core machine bought only
   ~2s more (sleeve 4.1, front 7.2) -- part of the cost does not split, and Fly's shared hosts are
-  noisy -- so machine size is not the lever. Still ~+5s per print file: NOT shippable as is. Deploy needs the full v14-style
-  sequence: paused store, render-service first, thumbnail backfill with no filter. The 3D flight
+  noisy -- so machine size is not the lever. Still ~+5s per print file, which is why print files
+  moved AFTER payment first (see "Print files render AFTER payment"): the customer never waits for
+  it. Shipped through the full v14-style sequence (paused store, render-service first, thumbnail
+  backfill with no filter). The 3D flight
   still builds its colour volumes from the radial field.
   **The nebula is built OFF THE MAIN THREAD** (`prepareNebula`, `render/nebulaWorker.js`), because
   renderArtwork is synchronous and computing a mask inline froze the page, loader included, on

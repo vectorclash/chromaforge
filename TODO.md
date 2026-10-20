@@ -19,58 +19,31 @@ stripe-webhook, then the frontend.
       later, submitted ~45s after payment (Fly cold); Printful draft **181874339** with all 8
       files `ok` at true print size (front/sleeves/hood share one render, mirrored back, pocket
       cropped from the front, label_panel, label_inside). Secret unset straight after.
-- [ ] Refund the test order in Stripe, cancel draft 181874339, mark `489f90c5` canceled.
-- Next: the nebula (`nebula-gpu-lab`), rebased onto this master, in its own paused-store
-  sequence -- see that branch's TODO.
+- [x] Printful draft 181874339 canceled, order `489f90c5` marked canceled.
+- [ ] **Aaron: refund the test order in Stripe** (`pi_3USTOrRGdn8L7uMg0yTmh56c`, $89.66) -- no
+      Stripe key exists outside the Supabase secrets, so it can't be done from here.
 
-## NEXT — nebula ship plan (agreed with Aaron 2026-10-19, in this order)
+## Deployed — the nebula, GENERATOR_VERSION 15 (2026-10-19)
 
-State: the nebula (`GENERATOR_VERSION` 15) and everything that makes Generate smooth are
-committed on branch **`nebula-gpu-lab`** (latest `64cde9d`), not merged, not deployed. Master is
-untouched and is what's live. Details of all of it are in CLAUDE.md's nebula section.
-
-**1. 3D scene — CLOSED 2026-10-19, no changes (Aaron: "the 3d scene is good as it is").** The
-depth-warp test was reverted and nothing else was pending. The volume nebula stays a dev-only lab
-(`?nebula3d=volume` on /studio); the shipping flight keeps building its colour volumes from the
-radial field, which the nebula branch still generates. Don't make the volume the default without
-a new ask.
-
-**2. Render print files AFTER payment — a new branch from MASTER, shipped before the nebula.**
-Why: measured on a temporary Fly app (same performance-2x, destroyed), the nebula's CPU field adds
-~5s to every print file even split across both cores (t-shirt checkout 7.1s on master -> 13.2s;
-sleeve 1.5 -> 6.1; shorts 9.0 -> 15.6). A 4-core machine bought only ~2s more, and WebAssembly is
-expected at ~1.3-2x (table lookups defeat SIMD, and no wasm toolchain is installed). Aaron did not
-want the browser's own nebula used in checkout ("the user's machine handling part of the checkout
-process feels weird"). Rendering after payment makes render time invisible: Buy Now goes straight
-to Stripe, faster than the live site today, and the browser stops sending print-file URLs at all.
-Ship it on master FIRST, with today's fast v14 renders, so any problem is clearly the new flow; the
-nebula then lands on top of it.
-Build:
-- `create-checkout-session` stores per-placement RENDER SETTINGS with the order (design, size,
-  mirrorX, legWrap, pocket regions, hatWrap, includeGeometry, sizeFrame, geometryScale, label
-  marks...), validated server-side against Printful's printfile specs the way `render-print-file`
-  validates requests today. The browser sends the customer's choices, never files. Store the
-  `generatorVersion` the customer saw.
-- `stripe-webhook` acknowledges Stripe at once and renders + uploads + submits in the background
-  (`EdgeRuntime.waitUntil`), each placement retried with backoff. Print files are already named by
-  content, so re-renders are idempotent; Printful submission is already guarded against doubles.
-- Durable pickup: extend `order-watchdog` (cron) to resume orders "paid, print files pending" for
-  more than a few minutes, skipping placements already rendered; alert (existing failure email)
-  only after the last attempt.
-- If the server's generator version differs from the one the customer saw, HOLD the order (never
-  print a different picture) and render once versions match.
-- Label marks are rendered in the browser today (`generateLabelMark`); they need a server-side
-  path too.
-- CheckoutSuccessPage: confirmation now arrives later (Printful is told after rendering) -- check
-  its wording/timeout still reads right.
-Test: force each failure (kill a render midway, a version mismatch, Printful refusing), then one
-real order with `PRINTFUL_SKIP_CONFIRM` set (draft only, nothing produced), then deploy.
-
-**3. Then the nebula, on `nebula-gpu-lab` rebased onto that master:** render-service
-(`nebulaThreads.js` is already in) deploys FIRST, the full paused-store version-bump sequence
-(CLAUDE.md, "PAUSE THE STORE"), thumbnail backfill with NO `--generator-version` filter;
-`check-render-regression.mjs` fails by design (every saved design's look changes, as with v14).
-Then merge to master.
+Live as of 2026-10-19 (`4cba591`, `nebula-gpu-lab` fast-forwarded onto master after the
+render-after-payment deploy). The 3D flight was left as it is (Aaron: "good as it is"); the volume
+nebula stays a dev-only lab. Shipped through the paused-store sequence, store paused ~15 min:
+- [x] `STORE_ENABLED=false`, confirmed via printful-catalog's `storeEnabled`.
+- [x] render-service: Fly release 40 on BOTH machines, the machine itself reports v15.
+- [x] Real v15 print renders through render-print-file on Fly: t-shirt sleeve 3000x1800 in 8.4s
+      (cold), front 4200x5400 in 11.8s; a v14 design refused with the mismatch message
+      process-order treats as a hold.
+- [x] Frontend pushed, live bundle carries generatorVersion 15 and the nebula.
+- [x] `STORE_ENABLED=true`, confirmed.
+- [x] Thumbnail backfill with NO filter: 135 ok, 9 skipped (3D rows), 0 failed.
+- [x] Before deploy: check-render-regression 144/144 composition unchanged (it cannot see the
+      nebula's pixels), check-leaks 12/12, routes 9/10 (`/account` fails on Turnstile's own
+      console errors, identically on the previous master).
+- Found during the deploy and fixed: the label-ink backdrop sample computed the nebula inline on
+  the page during mockups and Buy Now; it now uses the worker at the lite size (`4cba591`).
+- Known edge, not built: a tab still on v14 that checks out now pays and is HELD (process-order
+  never prints a different picture); order-watchdog emails after 30 minutes and it needs a human
+  (refund or re-render). The old flow failed that Buy Now instead.
 
 Smaller open items, not blocking:
 - Rotating a phone with a modal open can still replay the homepage reveals:
