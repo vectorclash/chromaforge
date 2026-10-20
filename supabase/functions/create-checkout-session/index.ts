@@ -50,6 +50,26 @@ const ALLOWED_SHIPPING_COUNTRIES = [
   "DE", "FR", "ES", "IT", "NL", "BE", "AT", "SE", "DK", "FI", "PT", "PL"
 ];
 
+// The live site's generator version, from the /version.json every build publishes (vite.config.mjs).
+// It is the version render-service runs whenever the store is open: a generator bump deploys
+// render-service and the site together inside a paused-store window. Read from the site rather
+// than from render-service so a Buy Now never waits on a cold Fly machine. Fails OPEN -- an
+// unreachable or malformed file means no check, and process-order's version hold is still there.
+const STALE_PAGE_MESSAGE =
+  "Chromaforge has been updated since this page loaded. Reload the page, check your preview, then buy again.";
+async function fetchLiveGeneratorVersion(): Promise<number | null> {
+  try {
+    const res = await fetch(`https://chromaforge.app/version.json?t=${Date.now()}`, {
+      signal: AbortSignal.timeout(2500)
+    });
+    if (!res.ok) return null;
+    const { generatorVersion } = await res.json();
+    return Number.isInteger(generatorVersion) ? generatorVersion : null;
+  } catch {
+    return null;
+  }
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -213,6 +233,13 @@ Deno.serve(async req => {
       return Response.json({ error: "Invalid print jobs" }, { status: 400, headers: corsHeaders });
     }
     validatedJobs = result.jobs;
+    // A tab loaded before a generator bump describes its designs with code render-service no
+    // longer runs. Taking its money would only end in a held order (process-order never prints a
+    // picture the customer did not see), so refuse here, before Stripe, and ask for a reload.
+    const liveVersion = await fetchLiveGeneratorVersion();
+    if (liveVersion !== null && Object.values(result.jobs).some(job => job.design.generatorVersion !== liveVersion)) {
+      return Response.json({ error: STALE_PAGE_MESSAGE }, { status: 409, headers: corsHeaders });
+    }
   }
 
   const unitPriceCents = applyMarkup(Math.round(parseFloat(variant.price) * 100));

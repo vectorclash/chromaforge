@@ -29,7 +29,9 @@
 const PASSTHROUGH = [
   /^you must be signed in/i,
   /^the size guide could not be loaded/i,
-  /^an account with this email already exists/i
+  /^an account with this email already exists/i,
+  // create-checkout-session refusing a tab loaded before a generator update
+  /^chromaforge has been updated since this page loaded/i
 ];
 
 const RULES = [
