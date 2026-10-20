@@ -10,8 +10,7 @@ import {
   mockupPlacementEntries,
   renderAndUploadPrintFiles,
   getHatWrap,
-  capRenderStrategy,
-  warmRenderService
+  capRenderStrategy
 } from '../lib/printful';
 import {
   chooseOptionGroups,
@@ -287,12 +286,6 @@ export function useMockup() {
         setError('No printfile mapping for this variant.');
         return;
       }
-
-      // A mockup request is the strongest pre-purchase signal there is -- start waking
-      // the scale-to-zero render-service now so a later Buy Now doesn't pay its cold
-      // start. Before the cache check on purpose: a returning visitor whose mockup is
-      // cached is just as likely to buy.
-      warmRenderService();
 
       const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width }, geometryScale);
       currentKeyRef.current = key;

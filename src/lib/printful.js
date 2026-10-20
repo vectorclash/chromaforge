@@ -373,31 +373,6 @@ export function getLabelInsideRegion(cfg) {
 // check-render-density.mjs imports the function straight from scale.js rather than through here.
 export { RENDER_CAP, capMockupRenderSize };
 
-// Pre-warm the Fly.io render-service the moment purchase intent appears (first mockup
-// render on a product page), so its scale-to-zero cold start is already paid by the time
-// Buy Now actually needs a print-resolution render. Fly wakes a stopped machine on ANY
-// incoming request; the service's GET /warmup does zero work and needs no auth (see
-// render-service/server.js). Fire-and-forget with mode:'no-cors' -- we don't need to read
-// the response, just cause the request. Throttled: repeat pings inside the window are
-// dropped so browsing many products doesn't spam wake-ups, while a ping every couple of
-// minutes keeps the machine warm through an active shopping session (Fly's idle
-// auto-stop kicks in after a few quiet minutes). The URL is not a secret -- only
-// RENDER_SERVICE_KEY is, and /warmup never touches it.
-const RENDER_SERVICE_WARMUP_URL = 'https://chromaforge-render.fly.dev/warmup';
-const WARMUP_INTERVAL_MS = 2 * 60 * 1000;
-let lastWarmupAt = 0;
-export function warmRenderService() {
-  const now = Date.now();
-  if (now - lastWarmupAt < WARMUP_INTERVAL_MS) return;
-  lastWarmupAt = now;
-  try {
-    fetch(RENDER_SERVICE_WARMUP_URL, { method: 'GET', mode: 'no-cors' }).catch(() => {});
-  } catch {
-    /* never let a warmup hiccup surface anywhere */
-  }
-}
-
-
 // Whether a placement should include the geometry layer. `geometryPlacements` (a Set of
 // placement keys, or null) is the customer's choice from ProductPage.jsx's per-placement
 // checkboxes -- null (no selection made, e.g. any caller that predates that UI) means
