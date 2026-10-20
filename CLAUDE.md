@@ -4257,6 +4257,16 @@ path. Verified to fail 4/11 checks on the pre-fix commit and pass on the fix. **
 the production build** — dev StrictMode double-mounts DisplayCanvas, so two builds exist at
 load for an unrelated reason and every count is meaningless.
 
+**The waiting 3D flight never publishes itself from the Image tab** (2026-10-19, Aaron: change a
+palette in Animation, go back to Image, change it again -- the artwork popped to the new palette,
+then faded out under the loader and came back as a different picture, with the swatches gone).
+A palette edit on the Image tab also updates the waiting flight (`syncThreeDColors`), and
+componentDidUpdate published every flight change to StudioContext; the canvas then saw a design
+it had not made and ADOPTED it -- a second full-size build of the flight's seed, after the
+palette's own. The flight now reaches StudioContext only while it is showing, and on entering
+Animation. Separately, `adoptDesignColors` now runs the swatch entrance: swatches mount at
+opacity 0 (ColorField) and every adopt with the settings panel open left them invisible.
+
 **Adopting a design never hands a copy back** (2026-09-25, `buildAdoptedDesign`). When the canvas
 builds the design StudioContext already holds -- a mini-generator Generate, any mount -- it builds
 at its own size with the mirror off. It used to mirror its full-size copy back, and that copy was a

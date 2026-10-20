@@ -661,7 +661,20 @@ export default class DisplayCanvas extends React.Component {
     // without this the homepage, footer and mini-generator stayed on whatever design was there
     // before 3D -- with the old palette. Built at the same 1080 square generateRandom uses, with
     // the panel's odds stamped the way buildConfig stamps them.
-    if (prevState && this.state.threeDDesign && this.state.threeDDesign !== prevState.threeDDesign) {
+    //
+    // Only while the flight is what is SHOWING (Animation tab, 3D on), and again on entering it. On
+    // the Image tab the still is the live work: a palette edit there also updates the waiting flight
+    // (syncThreeDColors, so it is current when you switch), and publishing THAT made StudioContext
+    // hand the flight's design back to the canvas as a new design -- which adopted it, rebuilt the
+    // still as the flight's seed under a fresh loader right after the palette's own render, and left
+    // the swatches invisible (Aaron, 2026-10-19: change a palette in Animation, go back to Image,
+    // change it again).
+    const flightShowing = s => !!(s.animationMode && s.threeDMode && s.threeDDesign);
+    if (
+      prevState &&
+      flightShowing(this.state) &&
+      (this.state.threeDDesign !== prevState.threeDDesign || !flightShowing(prevState))
+    ) {
       const { seed, colors, settings } = this.state.threeDDesign;
       const config = generateArtwork(seed, 1080, 1080, colors, settings);
       config.geometryChance = this.state.geometrySettings.chance;
@@ -1609,6 +1622,10 @@ export default class DisplayCanvas extends React.Component {
     this.setState({
       colors: (colors || []).map(value => ({ id: this.nextColorId++, value }))
     });
+    // Fresh ids mean fresh swatches, and a swatch mounts at opacity 0 (ColorField) until its
+    // entrance runs. The palette and Add buttons run it; this path never did, so a design adopted
+    // with the settings panel open (a Recent pick, a load) left the Color tab's swatches invisible.
+    gsap.delayedCall(0.05, () => this.animateColors());
   }
 
   // A build that can't produce a usable image: put the artwork that's already on screen back
