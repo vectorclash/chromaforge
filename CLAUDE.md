@@ -3032,6 +3032,16 @@ made, 0 released; now 3 of 4 released), and `antialias: true` only multisampled 
 own framebuffer, which receives nothing but a full-screen quad — pixel-identical without it,
 ~10MB of GPU memory per context saved at a phone's pixel ratio. Found while chasing the parallax
 jank above; neither was its cause.
+**The antialiasing lives on the composer's scene target instead (`samples: 4`, 2026-10-20,
+Aaron: the shirt "feels a bit low res" on a desktop).** Nothing had ever antialiased the garment,
+so its outline was stair-stepped at the collar, shoulders and sleeves, worst at 1x beside an
+artwork downscaled from 4K; only the outline changed (1.6% of the canvas at 1x, 0.8% at 2x, with
+the same design pinned). The last pass has `needsSwap = false`, so the composer's cloned second
+buffer is never drawn into and never allocated: the scene target always holds the frame. Two
+things checked rather than assumed: the sparks' depth texture still resolves from the
+multisampled depth (three does it by default; a test read back identical depths with and
+without MSAA), and anisotropic filtering on the shirt texture was tried and made no visible
+difference at this size, so it is not set.
 (7) **A Playwright `click()` starts ~1s after the call** while it waits for the hovered button
 to settle — it looked exactly like the effect starting late. Time from an in-page
 `pointerdown`: the effect starts 145–170ms after the real click, every generate.

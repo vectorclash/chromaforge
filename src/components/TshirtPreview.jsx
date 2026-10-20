@@ -548,10 +548,10 @@ export default function TshirtPreview({
         // catch below hides the preview instead of leaving a dead canvas.
         //
         // No `antialias`: it multisamples only the CANVAS's own framebuffer, and nothing drawn
-        // there has an edge -- the shirt renders into the composer's non-multisampled target
-        // and only the aberration pass's full-screen quad reaches the canvas. So it bought
-        // nothing (verified pixel-identical without it) while costing ~10MB of GPU memory per
-        // context at a phone's pixel ratio.
+        // there has an edge -- the shirt renders into the composer's target (multisampled
+        // itself, see below) and only the aberration pass's full-screen quad reaches the
+        // canvas. So it bought nothing (verified pixel-identical without it) while costing
+        // ~10MB of GPU memory per context at a phone's pixel ratio.
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         // An even margin on each side, so the canvas sits on the pixel grid: an odd difference
@@ -941,12 +941,20 @@ export default function TshirtPreview({
         // composer/direct rendering per state isn't worth the branching at this size.
         //
         // The scene target carries a depth texture so the spark layer can test itself against
-        // the garment (the composer clones it for its second buffer, depth texture included).
+        // the garment (resolved from the multisampled depth, which three does by default).
+        //
+        // It is MULTISAMPLED (2026-10-20, Aaron: the shirt "feels a bit low res" next to the
+        // rest of the site on a desktop). Nothing else antialiases the garment, so its outline
+        // was stair-stepped -- collar, shoulders, sleeves -- most visibly at 1x, beside an
+        // artwork downscaled from 4K. Only this one target ever holds the scene: the last pass
+        // below does not swap, so the composer's second buffer (a clone) is never drawn into,
+        // and three never allocates GPU memory for it.
         const targetPx = canvasSize * renderer.getPixelRatio();
         const composer = new EffectComposer(
           renderer,
           new THREE.WebGLRenderTarget(targetPx, targetPx, {
             type: THREE.HalfFloatType,
+            samples: 4,
             depthTexture: new THREE.DepthTexture(targetPx, targetPx)
           })
         );
@@ -955,6 +963,8 @@ export default function TshirtPreview({
         composer.addPass(new RenderPass(scene, camera));
         composer.addPass(swirl.pass);
         const aberrationPass = new ShaderPass(AberrationShader);
+        // It draws to the screen, so there is nothing to swap (see the scene target above).
+        aberrationPass.needsSwap = false;
         aberrationPass.uniforms.uScale.value = canvasSize / size;
         aberrationPass.uniforms.tSparks.value = swirl.texture;
         composer.addPass(aberrationPass);
