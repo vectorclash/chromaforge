@@ -5,21 +5,23 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
-## NEXT — render print files after payment (built 2026-10-19 on `render-after-payment`, NOT deployed)
+## Deployed — print files render after payment (2026-10-19)
 
-Details in CLAUDE.md ("Print files render AFTER payment"). Deploy in this order -- a new frontend
-against the old `create-checkout-session` fails every product without a label (it requires
-finished files); the new backend is fine with old tabs.
-1. Apply `supabase/migrations/0020_render_after_payment.sql` (columns + watchdog every 5 min).
-2. `npx supabase functions deploy render-print-file --no-verify-jwt`, then `process-order
-   --no-verify-jwt`, `order-watchdog --no-verify-jwt`, `create-checkout-session`, `stripe-webhook
-   --no-verify-jwt`. No new secrets (`process-order` uses CLEANUP_STORAGE_KEY, STRIPE_SECRET_KEY,
-   PRINTFUL_API_KEY, all already set).
-3. One real order with `PRINTFUL_SKIP_CONFIRM=true` (draft only), checking: Buy Now fast, success
-   page "preparing" then confirmed, files in `print_file_urls`, Printful draft has every file `ok`.
-   Unset the secret afterwards. Note it applies to every order placed while it is set.
-4. Push the frontend.
-Then the nebula (on `nebula-gpu-lab`, rebased onto this) follows its own paused-store sequence.
+Live as of 2026-10-19 (commits `991dcff`, `dd9faa1`). Details in CLAUDE.md ("Print files render
+AFTER payment"). Deployed backend-first: migration 0020 (run through the management API with the
+CLI's login; it is NOT recorded in `supabase_migrations`, like the other hand-applied ones), then
+render-print-file / process-order / order-watchdog (all `--no-verify-jwt`), create-checkout-session,
+stripe-webhook, then the frontend.
+- [x] Live probes: the three internal functions 401 without the key, a forged internal key falls
+      back to the user check, the webhook rejects an unsigned request.
+- [x] **Real test order** (Aaron, Apple Pay, zip hoodie L, order `489f90c5`, $89.66) with
+      `PRINTFUL_SKIP_CONFIRM` set: Buy Now straight to Stripe; paid 03:07:46, claimed one second
+      later, submitted ~45s after payment (Fly cold); Printful draft **181874339** with all 8
+      files `ok` at true print size (front/sleeves/hood share one render, mirrored back, pocket
+      cropped from the front, label_panel, label_inside). Secret unset straight after.
+- [ ] Refund the test order in Stripe, cancel draft 181874339, mark `489f90c5` canceled.
+- Next: the nebula (`nebula-gpu-lab`), rebased onto this master, in its own paused-store
+  sequence -- see that branch's TODO.
 
 ## Deployed — leg wrap + mockups submit every placement (2026-08-29)
 
