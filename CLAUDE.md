@@ -4427,6 +4427,20 @@ by the shared design as the odds the panel last published.
   flat gradient shapes it used to carry. Verified against the 2000px render resampled to a real
   518px card: RMSE 8.22/7.27/5.48 → 5.42/4.73/3.67 across three seeds. Thumbnails for the whole
   table go from roughly 0.7MB to 1.7MB.
+- **Black gallery thumbnails were Storage 429s plus a WebKit event gap (2026-10-19, Aaron: some
+  saved designs showed black, fine after a refresh).** Storage's edge logs show 13 thumbnail
+  requests answered `429 Too Many Requests` inside a ~125-request burst from his Safari: My designs
+  rendered every card (~140) at once, so every thumbnail started downloading at once. Two fixes:
+  (1) My designs is still ONE query but shows its cards a page (`PAGE_SIZE`) at a time, revealed
+  by the public feed's scroll sentinel -- 20 requests up front instead of ~140; (2) `FadeImage`
+  takes `retries` (gallery cards and the homepage gallery pass `THUMBNAIL_RETRIES`, 3, at 1.5/4/9s,
+  with a `?retry=n` cache-buster). The part worth not re-deriving: **WebKit fires no `error` event
+  for an image whose request had already failed before the element existed** (the cached failure of
+  FadeImage's own probe and the gallery preload), so the `<img>` mounts `complete` with no pixels and
+  neither a retry nor the card's fallback ever ran -- the card sat at opacity 0 over its dark
+  background. Chromium fires the event. FadeImage now checks the element's own state after every
+  source change. Verified with injected 429s: WebKit 2/2 runs recover every refused card (it failed
+  5/5 before), Chromium recovers too.
 - **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
   egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
   `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every

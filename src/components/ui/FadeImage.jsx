@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 // Drop-in replacement for a plain <img> wherever the src comes from a network fetch
 // (thumbnails, mockups, catalog photos) instead of the JS bundle -- shows a pulsing
@@ -25,7 +25,22 @@ function isAlreadyDecoded(src) {
   return probe.complete && probe.naturalWidth > 0;
 }
 
-export default function FadeImage({ src, alt = '', className = '', onLoad, onError, ...props }) {
+// How many times a thumbnail is re-requested before its card gives up on it. Supabase Storage
+// answers a burst of requests with 429 Too Many Requests (seen in its edge logs, 2026-10-19), and
+// the cards treat any error as "no thumbnail" and hide the image -- a black square until a reload.
+// A refused request is worth asking again shortly; a genuinely missing thumbnail (a design saved
+// before thumbnails existed) just costs a few extra 404s before it hides.
+export const THUMBNAIL_RETRIES = 3;
+const RETRY_DELAYS_MS = [1500, 4000, 9000];
+
+export default function FadeImage({ src, alt = '', className = '', onLoad, onError, retries = 0, ...props }) {
+  // Which retry is showing. A retry re-requests with a query string, so neither the browser nor a
+  // cache can hand back the refused response; the image is the same object either way.
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => setAttempt(0), [src]);
+  const shownSrc = attempt && src ? `${src}${src.includes('?') ? '&' : '?'}retry=${attempt}` : src;
+  const retryTimer = useRef(null);
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
   // Same check for the initial value, so a cached image is never blank even on first mount.
   const [loaded, setLoaded] = useState(() => isAlreadyDecoded(src));
   // Whether this image actually had to be fetched, i.e. whether there was a blank state for
@@ -58,20 +73,47 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
     );
   };
 
+  const handleError = e => {
+    if (attempt < retries) {
+      const next = attempt + 1;
+      clearTimeout(retryTimer.current);
+      retryTimer.current = setTimeout(() => setAttempt(next), RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]);
+      return;
+    }
+    reveal();
+    onError?.(e);
+  };
+
+  // WebKit does not fire `error` for an image whose request already failed before the element
+  // existed -- the URL's failure is cached (here: the probe above and the gallery's preload both
+  // got a 429 first), so the <img> mounts already `complete` with no pixels and React never hears
+  // about it. Neither the retry nor the caller's own fallback then ran, and the card sat at
+  // opacity 0 over its dark background: the "black thumbnail" (Aaron, Safari, 2026-10-19;
+  // reproduced in Playwright's WebKit, not Chromium). So the element's own state is checked after
+  // every render that changes its source, and an already-failed or already-loaded image is
+  // handled as if its event had arrived.
+  const imgRef = useRef(null);
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || !img.complete || !img.getAttribute('src')) return;
+    if (img.naturalWidth > 0) reveal();
+    else handleError({ target: img, currentTarget: img });
+    // Deliberately keyed on the source alone: this stands in for one load/error event per source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownSrc]);
+
   return (
     <>
       {!loaded && <div className="absolute inset-0 animate-pulse bg-ink-700" />}
       <img
-        src={src}
+        ref={imgRef}
+        src={shownSrc}
         alt={alt}
         onLoad={e => {
           reveal();
           onLoad?.(e);
         }}
-        onError={e => {
-          reveal();
-          onError?.(e);
-        }}
+        onError={handleError}
         // No `transition-opacity` here: it collided with call sites that pass their own
         // `transition-*` (see --animate-image-reveal in tailwind.css). The reveal is an
         // animation, and it is applied ONLY when the image really had to load -- an

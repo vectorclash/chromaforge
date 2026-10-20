@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Card from '../ui/Card';
-import FadeImage from '../ui/FadeImage';
+import FadeImage, { THUMBNAIL_RETRIES } from '../ui/FadeImage';
 import GalleryModal from '../ui/GalleryModal';
 import HeartIcon from '../buttons/HeartIcon';
 import AnimationIcon from '../buttons/AnimationIcon';
@@ -158,6 +158,7 @@ export default function GallerySection() {
                   <FadeImage
                     src={getThumbnailUrl(design.user_id, design.id)}
                     alt={design.title || 'Untitled design'}
+                    retries={THUMBNAIL_RETRIES}
                     onError={e => {
                       e.target.style.visibility = 'hidden';
                     }}

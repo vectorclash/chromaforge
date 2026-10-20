@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
-import FadeImage from '../components/ui/FadeImage';
+import FadeImage, { THUMBNAIL_RETRIES } from '../components/ui/FadeImage';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import {
   GALLERY_GRID_CLASS,
@@ -91,6 +91,12 @@ export default function GalleryPage() {
   const loadTokenRef = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  // My designs arrives in one query (every design you own -- a few hundred bytes a row), but its
+  // cards are SHOWN a page at a time, revealed by the same scroll sentinel as the public feed.
+  // Rendering them all at once started every thumbnail download at once: ~140 simultaneous
+  // requests, and Supabase Storage answered some with 429 Too Many Requests, which a card shows
+  // as a black square (Aaron, 2026-10-19; the 429s are in Storage's edge logs).
+  const [mineShown, setMineShown] = useState(PAGE_SIZE);
   const [error, setError] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -100,7 +106,12 @@ export default function GalleryPage() {
   const openDesign = designs.find(d => d.id === openDesignId) || null;
   // Exact as soon as the rows are in hand -- the guess only covers the query itself, so the
   // tile count never visibly corrects underneath the reveal.
-  const skeletonCount = designs.length || lastCountRef.current[tab] || INITIAL_SKELETON_COUNT[tab];
+  const skeletonCount = Math.min(
+    designs.length || lastCountRef.current[tab] || INITIAL_SKELETON_COUNT[tab],
+    tab === 'mine' ? PAGE_SIZE : Infinity
+  );
+  const visibleDesigns = tab === 'mine' ? designs.slice(0, mineShown) : designs;
+  const moreToShow = tab === 'mine' ? mineShown < designs.length : hasMore;
 
   // Signed in, the Public tab excludes your own designs -- they already have their own
   // My Designs tab, and the same design appearing under both read as a duplicate.
@@ -116,6 +127,7 @@ export default function GalleryPage() {
       setSkeletonMounted(true);
       setError(null);
       setHasMore(false);
+      setMineShown(PAGE_SIZE);
       try {
         const rows =
           which === 'mine'
@@ -158,6 +170,10 @@ export default function GalleryPage() {
   }, [revealed]);
 
   const onLoadMore = async () => {
+    if (tab === 'mine') {
+      setMineShown(n => n + PAGE_SIZE);
+      return;
+    }
     const cursor = designs[designs.length - 1]?.created_at;
     if (!cursor) return;
     setLoadingMore(true);
@@ -178,14 +194,15 @@ export default function GalleryPage() {
   const onLoadMoreRef = useRef(onLoadMore);
   onLoadMoreRef.current = onLoadMore;
 
-  // Infinite scroll for the public feed: keyset (cursor) pagination already avoids the
+  // Infinite scroll for the public feed (and the next page of My designs, which is only revealed,
+  // never fetched): keyset (cursor) pagination already avoids the
   // "page 2 shifts under you" problem a live, growing feed has with offset-based numbered
   // pages, so auto-loading near the bottom is a more natural fit than page controls. The
   // sentinel sits just past the grid; while a fetch is in flight the effect skips attaching
   // an observer at all, so a slow request can't trigger a second overlapping one.
   const sentinelRef = useRef(null);
   useEffect(() => {
-    if (tab !== 'public' || !hasMore || loadingMore) return;
+    if (!moreToShow || loadingMore) return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     // Root is the viewport (null): the document scrolls site-wide, see tailwind.css. This
@@ -199,7 +216,9 @@ export default function GalleryPage() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [tab, hasMore, loadingMore, designs.length]);
+    // mineShown: revealing a page of My designs fetches nothing, so the sentinel may still be in
+    // range afterwards -- re-observing is what lets it reveal the next page.
+  }, [tab, moreToShow, loadingMore, designs.length, mineShown, revealed]);
 
   // `e` is only passed when this fires from a card's own hover-pill button (desktop only --
   // see the card markup) -- it needs stopPropagation so the click doesn't also bubble up to
@@ -384,7 +403,7 @@ export default function GalleryPage() {
 
       {revealed && designs.length > 0 && (
         <div className={`intro-skip ${GRID_CLASS}`}>
-          {designs.map((design, i) => (
+          {visibleDesigns.map((design, i) => (
             <Card
               key={design.id}
               className="group cursor-pointer intro-item"
@@ -395,6 +414,7 @@ export default function GalleryPage() {
                 <FadeImage
                   src={getThumbnailUrl(design.user_id, design.id)}
                   alt={design.title || 'Untitled design'}
+                  retries={THUMBNAIL_RETRIES}
                   onError={e => {
                     e.target.style.visibility = 'hidden';
                   }}
@@ -492,7 +512,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {tab === 'public' && hasMore && (
+      {moreToShow && (tab === 'public' || revealed) && (
         <div ref={sentinelRef} className="flex justify-center py-10">
           {loadingMore && <p className="text-sm text-text-muted">Loading more…</p>}
         </div>
