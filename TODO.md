@@ -39,6 +39,13 @@ nebula stays a dev-only lab. Shipped through the paused-store sequence, store pa
 - [x] Before deploy: check-render-regression 144/144 composition unchanged (it cannot see the
       nebula's pixels), check-leaks 12/12, routes 9/10 (`/account` fails on Turnstile's own
       console errors, identically on the previous master).
+- [x] **Follow-up, same day (Aaron caught it):** the 3D flight was still drawing the old radial
+      blobs -- the nebula volume had shipped behind its dev-only switch, from a misread of "the 3D
+      scene is good as it is". It is now the default in every build (`42abd0e`); check-leaks 12/12
+      with it on, including a real 3D export.
+- [x] **Stale-tab guard (`/version.json` + create-checkout-session):** a Buy Now whose designs
+      were made by another generator version is refused with a reload message before Stripe.
+      Live-tested: a v14 request got 409 and created no order.
 - Found during the deploy and fixed: the label-ink backdrop sample computed the nebula inline on
   the page during mockups and Buy Now; it now uses the worker at the lite size (`4cba591`).
 - Known edge, not built: a tab still on v14 that checks out now pays and is HELD (process-order
