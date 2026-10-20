@@ -29,11 +29,11 @@ State: the nebula (`GENERATOR_VERSION` 15) and everything that makes Generate sm
 committed on branch **`nebula-gpu-lab`** (latest `64cde9d`), not merged, not deployed. Master is
 untouched and is what's live. Details of all of it are in CLAUDE.md's nebula section.
 
-**1. Aaron's 3D-scene edits — first, on `nebula-gpu-lab`.** He has edits for the 3D flight before
-anything else continues. Open item from earlier: the volume nebula in the flight is still a
-dev-only lab (`?nebula3d=volume` on /studio); the real flight still builds its colour volumes from
-the old radial field. Making the volume the default (and measuring its ~1s bake on a phone) is
-part of finishing 3D. He judges 3D in the running studio, not on comparison pages.
+**1. 3D scene — CLOSED 2026-10-19, no changes (Aaron: "the 3d scene is good as it is").** The
+depth-warp test was reverted and nothing else was pending. The volume nebula stays a dev-only lab
+(`?nebula3d=volume` on /studio); the shipping flight keeps building its colour volumes from the
+radial field, which the nebula branch still generates. Don't make the volume the default without
+a new ask.
 
 **2. Render print files AFTER payment — a new branch from MASTER, shipped before the nebula.**
 Why: measured on a temporary Fly app (same performance-2x, destroyed), the nebula's CPU field adds
