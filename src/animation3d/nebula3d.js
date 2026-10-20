@@ -26,6 +26,8 @@ export function nebula3dMode() {
   try {
     const q = new URLSearchParams(window.location.search).get('nebula3d');
     if (q) localStorage.setItem('cf-lab:nebula3d', q);
+    const w = new URLSearchParams(window.location.search).get('nebula3dwarp');
+    if (w) localStorage.setItem('cf-lab:nebula3d-warp', w);
     const m = localStorage.getItem('cf-lab:nebula3d');
     // 'sheets' was the other technique; Aaron picked the volume (2026-10-19) and it was removed
     return m === 'volume' || m === 'on' || m === 'sheets' ? 'volume' : null;
@@ -42,7 +44,19 @@ export const NEB3D = {
   volSigma: 1.5, // extinction per world unit at full density
   volEnvSwing: 0.5, // how far the amount envelope moves the gas threshold (0 = uniform)
   volDrift: 55, // how far the corridor's centre wanders, world units
-  volFarFade: [110, 400], // gas fades in from afar over this range (the volume takes no warp)
+  volFarFade: [110, 400], // gas fades in from afar over this range (when the volume takes no warp)
+  // LAB (2026-10-19, Aaron: can the nebula warp "to match the rest of the content"?): bend each ray
+  // the way the scene's depth warp bends everything else (tunnelScene's warpW), so far gas gathers at
+  // the vanishing point like the plates, stars and cage, and fade it with the scene's own haze. The
+  // first volume took no warp because a grid stretched over a huge lateral extent smeared into
+  // streaks; the corridor now bounds that extent, and the volume is MIPMAPPED (sampled blurrier
+  // where one march pixel spans more than a voxel), which is what undersampling needs. Toggle with
+  // ?nebula3dwarp=<0..1> on the studio URL: a STRENGTH, 1 = exactly the scene's warp, 0 = none.
+  // At full strength the gas reads as a zoom blur (2026-10-19): the warp shrinks a far point to a
+  // sixth of its size by depth 150, which a flat plate takes in its stride but a cloud spanning
+  // depth turns into a stack of shrinking copies -- radial streaks. That is geometry, not sampling,
+  // so the mipmaps do not remove it; a partial strength trades convergence against streaking.
+  volWarp: 0,
   volLightStep: 6,
   volShadow: 0.8,
   volAmbient: 0.25,
@@ -62,6 +76,8 @@ export const NEB3D = {
 function readOpts() {
   try {
     Object.assign(NEB3D, JSON.parse(localStorage.getItem('cf-lab:nebula3d-opts') || '{}'));
+    const w = parseFloat(localStorage.getItem('cf-lab:nebula3d-warp'));
+    if (Number.isFinite(w)) NEB3D.volWarp = Math.min(1, Math.max(0, w));
   } catch {
     /* ignore */
   }
@@ -135,6 +151,10 @@ const MARCH_FRAG = /* glsl */ `
   uniform float uFar;
   uniform vec2 uNear;     // gas fades in over this range of distance from the camera
   uniform vec2 uFarFade;  // and fades out (in from afar) over this range
+  uniform float uWarp;    // 0..1: how strongly rays bend with the scene's depth warp (above 0, the scene's haze fades them)
+  uniform float uPix;     // one march pixel, in tan units (for the mip level)
+  uniform float uVoxel;   // one voxel across, world units
+  uniform float uDetailCell; // one detail texel, world units
   // Along the loop: how much gas (three harmonics, whole cycles per loop) and where the corridor's
   // centre sits (two drifts). All periodic in L, so the loop still closes.
   uniform vec3 uEnvK; uniform vec3 uEnvP; uniform vec3 uEnvA; uniform float uEnvSwing;
@@ -149,16 +169,19 @@ const MARCH_FRAG = /* glsl */ `
   uniform float uDetailAmt;
   uniform vec3 uDetailFreq; // tiles per world unit: lateral, lateral, along the loop (whole tiles per L)
   SPACE_GLSL_HERE
-  float dens(vec2 lat, float zw) {
+  // foot: how many world units one march pixel spans at this sample (0 = not mip-aware).
+  float dens(vec2 lat, float zw, float foot) {
     float x = zw / uL * TAU;
     lat -= uDriftA * vec2(sin(uDriftK.x * x + uDriftP.x), sin(uDriftK.y * x + uDriftP.y));
     float wall = 1.0 - smoothstep(0.7, 1.0, length(lat) / uR);
     if (wall <= 0.0) return 0.0;
     vec3 g = vec3(0.5 + 0.5 * lat.x / uR, 0.5 + 0.5 * lat.y / uR, mod(zw, uL) / uL);
-    float b = texture(uVol, g).r * wall;
+    float b = textureLod(uVol, g, log2(max(1.0, foot / uVoxel))).r * wall;
     float det = texture(uDetail, vec3(lat, mod(zw, uL)) * uDetailFreq).r;
-    // erode: detail pushes the field up and down around its own value, most at the edges
-    b += uDetailAmt * (det - 0.5) * (1.0 - 0.6 * b);
+    // erode: detail pushes the field up and down around its own value, most at the edges -- and not
+    // at all where a pixel spans several of its texels (it would only add noise there)
+    float detW = 1.0 - smoothstep(0.5, 2.0, foot / uDetailCell);
+    b += detW * uDetailAmt * (det - 0.5) * (1.0 - 0.6 * b);
     // thin stretches raise the threshold (sparse, open), dense ones lower it
     float shift = (0.5 - envelope(zw)) * uEnvSwing;
     return smoothstep(uContrast.x + shift, uContrast.y + shift, b);
@@ -173,17 +196,21 @@ const MARCH_FRAG = /* glsl */ `
       if (i >= uSteps || T < 0.01) break;
       float t = 2.0 * pow(uFar / 2.0, (float(i) + jit) / float(uSteps));
       float dt = t - tPrev; tPrev = t;
-      vec2 lat = ray * t;
+      // The scene's warp draws a point at depth t, distance r from the axis, at r * warpW(t) -- so
+      // the gas this pixel shows at depth t lies at ray * t / warpW(t).
+      float ww = uWarp > 0.0 ? pow(warpW(t), uWarp) : 1.0;
+      vec2 lat = ray * t / ww;
+      float foot = uWarp > 0.0 ? uPix * t / ww : 0.0;
       float zw = uCamZ + t;
-      float d = dens(lat, zw);
+      float d = dens(lat, zw, foot);
       if (d <= 0.003) continue;
       float far = 1.0 - smoothstep(uFarFade.x, uFarFade.y, t);
-      d *= smoothstep(uNear.x, uNear.y, t) * far * far;
+      d *= smoothstep(uNear.x, uNear.y, t) * (uWarp > 0.0 ? haze(t) : far * far);
       float a = 1.0 - exp(-d * uSigma * dt);
       // two looks toward the light
       vec3 l1 = vec3(lat, zw) + uLight * uLightStep;
       vec3 l2 = vec3(lat, zw) + uLight * uLightStep * 3.0;
-      float occ = dens(l1.xy, l1.z) + 2.0 * dens(l2.xy, l2.z);
+      float occ = dens(l1.xy, l1.z, foot) + 2.0 * dens(l2.xy, l2.z, foot);
       float lit = exp(-uShadow * occ);
       A += T * a * mix(uAmbient, 1.0, lit);
       T *= 1.0 - a;
@@ -259,9 +286,25 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   }
 
   const rt = new THREE.WebGL3DRenderTarget(NX, NX, NZ, { format: THREE.RedFormat, type: THREE.UnsignedByteType, depthBuffer: false });
-  rt.texture.minFilter = THREE.LinearFilter;
+  // Mipmapped, for the warped march (NEB3D.volWarp): far samples span many voxels. The chain is
+  // allocated at setup (three sizes the storage from generateMipmaps), then generateMipmaps is
+  // switched off for the bake -- three would otherwise rebuild the whole chain after every one of
+  // the ~170 slice renders -- and built once when the last slice lands (finishMips).
+  rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
   rt.texture.magFilter = THREE.LinearFilter;
   rt.texture.wrapR = THREE.RepeatWrapping;
+  rt.texture.generateMipmaps = true;
+  let mipsDone = false;
+  function finishMips(renderer) {
+    if (mipsDone) return;
+    mipsDone = true;
+    const gl = renderer.getContext();
+    const glTex = renderer.properties.get(rt.texture).__webglTexture;
+    if (!glTex) return;
+    renderer.state.bindTexture(gl.TEXTURE_3D, glTex);
+    gl.generateMipmap(gl.TEXTURE_3D);
+    renderer.state.unbindTexture();
+  }
   const bakeU = {
     uLoc: { value: new THREE.Vector3() },
     uOct: { value: NEB3D.volOct },
@@ -291,7 +334,10 @@ function buildVolume({ seed, plan, L, frameH, space }) {
   // queues another only once that fence has signalled -- so the main thread is never blocked
   // waiting for slices to finish. The synchronous form (a caller that never prepared) waits.
   function bake(renderer, budget = Infinity, async = false) {
-    if (next >= NZ && !fence) return true;
+    if (next >= NZ && !fence) {
+      finishMips(renderer);
+      return true;
+    }
     if (!located) locate(placement(seed, plan.cover)); // an unprepared caller: inline
     if (!detailFilled) fillDetail(detailNoiseData());
     const gl = renderer.getContext();
@@ -299,11 +345,20 @@ function buildVolume({ seed, plan, L, frameH, space }) {
       if (async && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) return false;
       gl.deleteSync(fence);
       fence = null;
-      if (next >= NZ) return true;
+      if (next >= NZ) {
+        finishMips(renderer);
+        return true;
+      }
     }
     const t0 = performance.now();
     const prev = renderer.getRenderTarget();
     const px = new Uint8Array(4);
+    if (next === 0) {
+      // allocate the target (and its mip chain) on the first slice, then stop three rebuilding
+      // the chain per slice
+      renderer.setRenderTarget(rt, 0);
+      rt.texture.generateMipmaps = false;
+    }
     while (next < NZ) {
       for (let c = 0; c < 16 && next < NZ; c++, next++) {
         const z = (next / NZ) * L;
@@ -322,7 +377,9 @@ function buildVolume({ seed, plan, L, frameH, space }) {
       if (performance.now() - t0 > budget) break;
     }
     renderer.setRenderTarget(prev);
-    return next >= NZ && !fence;
+    const done = next >= NZ && !fence;
+    if (done) finishMips(renderer);
+    return done;
   }
   const tex = rt.texture;
 
@@ -360,6 +417,10 @@ function buildVolume({ seed, plan, L, frameH, space }) {
     uFar: { value: NEB3D.volFar },
     uNear: { value: new THREE.Vector2(...NEB3D.volNear) },
     uFarFade: { value: new THREE.Vector2(...NEB3D.volFarFade) },
+    uWarp: { value: +NEB3D.volWarp || 0 },
+    uPix: { value: 0.001 },
+    uVoxel: { value: (2 * R) / NX },
+    uDetailCell: { value: NEB3D.volDetailSize / DETAIL_SIZE },
     uEnvK: variation.uEnvK, uEnvP: variation.uEnvP, uEnvA: variation.uEnvA, uEnvSwing: variation.uEnvSwing,
     uDriftK: variation.uDriftK, uDriftP: variation.uDriftP, uDriftA: variation.uDriftA,
     uDetail: { value: detailTexture() },
@@ -399,6 +460,7 @@ function buildVolume({ seed, plan, L, frameH, space }) {
       const w = Math.max(1, Math.round(target.width * NEB3D.volRes)), h = Math.max(1, Math.round(target.height * NEB3D.volRes));
       if (!low) low = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
       if (low.width !== w || low.height !== h) low.setSize(w, h);
+      uniforms.uPix.value = (2 * tan) / h; // one march pixel, in tan units
       renderer.setRenderTarget(low);
       renderer.render(scene, space.orthoCam);
       upU.uSrc.value = low.texture;
