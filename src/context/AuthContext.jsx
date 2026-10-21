@@ -49,6 +49,12 @@ export function AuthProvider({ children }) {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState(null);
   const avatarJob = useRef(null); // { userId, promise } while one is in flight
+  // The avatar being made right now, published the moment its design exists -- long before the
+  // upload lands -- so the Account page can build it on screen instead of waiting on a URL
+  // (AvatarBuild). { key, config, url, failed }: `url` arrives with the upload, `failed` if the
+  // upload does not, and the page then lets the build go and keeps the old avatar.
+  const [freshAvatar, setFreshAvatar] = useState(null);
+  const freshAvatarKey = useRef(0);
   // Whose avatar a result that lands late may still be shown as -- nobody's after a sign-out.
   const signedInId = useRef(null);
   // profiles.is_admin. A UI-only flag -- `profiles` is world-readable, so this conceals
@@ -74,13 +80,17 @@ export function AuthProvider({ children }) {
   // and leave it registered as in flight, with the button disabled, for the rest of the visit.
   const makeAvatar = useCallback(userId => {
     if (avatarJob.current?.userId === userId) return avatarJob.current.promise;
-    const job = { userId, promise: null };
+    const job = { userId, promise: null, key: 0 };
     avatarJob.current = job;
     setAvatarBusy(true);
     setAvatarError(null);
     job.promise = (async () => {
       try {
-        const canvas = renderAvatar(generateAvatar(randomSeed(), AVATAR_SIZE));
+        const config = generateAvatar(randomSeed(), AVATAR_SIZE);
+        const key = ++freshAvatarKey.current;
+        job.key = key;
+        if (signedInId.current === userId) setFreshAvatar({ key, config, url: null, failed: false });
+        const canvas = renderAvatar(config);
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
         canvas.width = 0;
         canvas.height = 0;
@@ -89,8 +99,12 @@ export function AuthProvider({ children }) {
         // error that says nothing about why.
         if (!blob) throw new Error('The avatar canvas produced no image.');
         const url = await uploadMyAvatar(blob);
-        if (signedInId.current === userId) setAvatarUrl(url);
+        if (signedInId.current === userId) {
+          setAvatarUrl(url);
+          setFreshAvatar(f => (f?.key === key ? { ...f, url } : f));
+        }
       } catch (err) {
+        setFreshAvatar(f => (f?.key === job.key ? { ...f, failed: true } : f));
         if (signedInId.current === userId) {
           setAvatarError(humanError(err, "We couldn't generate your avatar. Try again."));
         }
@@ -126,6 +140,7 @@ export function AuthProvider({ children }) {
     if (!userId) {
       setAvatarUrl(null);
       setAvatarError(null);
+      setFreshAvatar(null);
       setIsAdmin(false);
       return;
     }
@@ -210,6 +225,7 @@ export function AuthProvider({ children }) {
         avatarUrl,
         avatarBusy,
         avatarError,
+        freshAvatar,
         regenerateAvatar,
         recoveryMode,
         clearRecoveryMode: () => setRecoveryMode(false),

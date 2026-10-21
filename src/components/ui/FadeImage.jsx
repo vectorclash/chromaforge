@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 // Drop-in replacement for a plain <img> wherever the src comes from a network fetch
 // (thumbnails, mockups, catalog photos) instead of the JS bundle -- shows a pulsing
@@ -41,19 +41,26 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
   const shownSrc = attempt && src ? `${src}${src.includes('?') ? '&' : '?'}retry=${attempt}` : src;
   const retryTimer = useRef(null);
   useEffect(() => () => clearTimeout(retryTimer.current), []);
-  // Same check for the initial value, so a cached image is never blank even on first mount.
-  const [loaded, setLoaded] = useState(() => isAlreadyDecoded(src));
+  // Loaded and revealed are recorded PER SOURCE, never as plain booleans. As booleans, the first
+  // render after `src` changed still carried the previous image's `loaded: true` until an effect
+  // cleared it, and a new image that finished loading inside that gap had its load ignored by the
+  // guard in reveal() below -- the image then sat at opacity 0 for good. Seen on the Account page
+  // (2026-10-21): in WebKit a regenerated avatar's upload landed while the avatar build was
+  // drawing every frame, the load beat the effect 2 times in 3, and the avatar went blank.
+  // Keyed on the source, a new `src` is unloaded from its very first render.
+  //
+  // An image the browser already has decoded counts as loaded straight away, so a cached image is
+  // never blank, on first mount or on a swap.
+  const decodedNow = useMemo(() => isAlreadyDecoded(src), [src]);
+  const [loadedSrc, setLoadedSrc] = useState(null);
+  const loaded = decodedNow || loadedSrc === src;
   // Whether this image actually had to be fetched, i.e. whether there was a blank state for
   // the reveal to play out of. An image that was already decoded appears at full opacity with
   // no animation at all -- same instant-swap rule as the skeleton above, and the reason the
   // reveal is keyed on this rather than on `loaded`, which is true immediately for a cached
   // image and would animate a swap that should be instant.
-  const [revealing, setRevealing] = useState(false);
-
-  useEffect(() => {
-    setLoaded(isAlreadyDecoded(src));
-    setRevealing(false);
-  }, [src]);
+  const [revealingSrc, setRevealingSrc] = useState(null);
+  const revealing = !decodedNow && revealingSrc === src;
 
   // A same-origin/cached/blob src (e.g. the studio's own canvas-render preview) can fire
   // onLoad before the browser ever paints the opacity-0 frame, so React batches both
@@ -65,10 +72,11 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
   // bug described above, in a new place.
   const reveal = () => {
     if (loaded) return;
+    const target = src;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        setLoaded(true);
-        setRevealing(true);
+        setLoadedSrc(target);
+        setRevealingSrc(target);
       })
     );
   };

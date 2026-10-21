@@ -4,6 +4,7 @@ import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import GoogleIcon from '../components/buttons/GoogleIcon';
 import FadeImage from '../components/ui/FadeImage';
+import AvatarBuild from '../components/ui/AvatarBuild';
 import { Field, Input } from '../components/ui/Field';
 import Turnstile from '../components/ui/Turnstile';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -227,6 +228,7 @@ export default function AccountPage() {
     avatarUrl,
     avatarBusy,
     avatarError,
+    freshAvatar,
     regenerateAvatar,
     recoveryMode,
     clearRecoveryMode,
@@ -527,6 +529,7 @@ export default function AccountPage() {
                     {avatarUrl && (
                       <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
                     )}
+                    <AvatarBuild fresh={freshAvatar} />
                   </div>
                   <div>
                     <Button

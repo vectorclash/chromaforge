@@ -4798,6 +4798,25 @@ by the shared design as the odds the panel last published.
   `AuthorBadge`; the artwork picker uses its `authorName` helper but deliberately shows no
   avatar (its tiles are ~70px and the byline is already hidden on phones). No new queries —
   `listPublicDesigns` already embedded `avatar_url`.
+- **The avatar look, and regenerating builds it on screen (2026-10-21, Aaron's picks).**
+  `AVATAR_GENERATOR_VERSION = 4`: today's gradient + pinwheel, with slice colours from a palette
+  opposite the background's hue and five to eight four-point stars tinted by the background
+  gradient's complement (side streams `${seed}-avatar` / `-avatar-stars`). Rejected first, from
+  rendered options: a full-coherence lattice, a real studio piece, a lone star, a hexagon facet
+  mark (https://claude.ai/artifact/2hEYS4gXMhupePjZ97Yjg5). Stored avatars are JPEGs, so
+  existing users keep theirs unless backfilled. Three things worth not re-deriving:
+  (1) **AuthContext publishes `freshAvatar` (the design) BEFORE the upload**, and
+  `components/ui/AvatarBuild.jsx` plays it over the Account page's avatar from the click:
+  collapse the old one (FacetSwap's facets run backwards), spark, stars, slices, glint, then the
+  real render. It holds that last frame until the uploaded `<img>` is fully showing (same
+  pixels, so the handover is invisible); a failed upload fades it off the untouched old avatar.
+  (2) **`FadeImage` records loaded/revealed PER SOURCE.** As booleans, the first render after a
+  `src` change still said `loaded` for the old image, and a new image that loaded before the
+  clearing effect ran was ignored and stayed at opacity 0. The build animation made WebKit hit
+  it 2 times in 3 (master 0 of 3, after the fix 5 of 5); it can hit any in-place `src` swap.
+  (3) **Testing it needs a mocked Supabase** (a fake session in localStorage, every request
+  answered in Playwright). In WebKit, Playwright exposes only the form fields of the multipart
+  upload, not the file, so a mock cannot serve the uploaded bytes back there.
 - **Gotcha:** Supabase's confirmation email links hit Supabase's own verify endpoint
   first (not the app directly), which consumes the one-time token and *then* redirects to
   the app's redirect URL with the session in the hash. If that redirect URL is unreachable
