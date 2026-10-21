@@ -3851,11 +3851,16 @@ sees.
 (3) **Network failures are reported but never fail the run.** These routes call live Supabase and
 Printful, so a flaky remote would otherwise make the check untrustworthy noise. Rendering
 essentially nothing DOES fail, whatever the console says.
-(4) **`IGNORED_CONSOLE` must stay tiny and exact.** Its only entry is Cloudflare Turnstile's
-deliberately-invisible `font-size:0;color:transparent` log on /account — confirmed as theirs
-(the page's only third-party hosts are `challenges.cloudflare.com` and `hagen.challenges.
-cloudflare.com`) rather than assumed. A broad pattern here turns the whole check into a rubber
-stamp, which is the one way it can be worse than useless.
+(4) **Third-party console noise is ignored by the FRAME it was logged in (`IGNORED_FRAME`),
+never by its text** (2026-10-21; it was a text pattern before). The only entry is Cloudflare
+Turnstile's challenge frame on /account, which logs by design: an invisible
+`font-size:0;color:transparent` line, and since October 2026 a `fetch('data:,')` probe that the
+frame's OWN Content Security Policy blocks. That made /account fail on master and every commit
+until the filter moved to the frame. It is Cloudflare's policy on their iframe — chromaforge.app
+sends only `upgrade-insecure-requests` — and the widget works: a headless browser is shown the
+"Verify you are human" checkbox, as `interaction-only` intends for an automated visitor. Keyed
+on the frame, an error from our own code cannot be waved through; verified by planting a
+`console.error` in AccountPage, which still fails the route.
 **Verified to FAIL before being trusted**: with the hook put back below the early return it
 reports all three product routes red with React #310 and the boundary text, and 10/10 clean with
 it fixed.

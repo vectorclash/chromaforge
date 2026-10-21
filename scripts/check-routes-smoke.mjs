@@ -53,17 +53,20 @@ const ROUTES = [
 const FATAL_PAGE_TEXT = ['Something went wrong', 'Rendered more hooks', 'Rendered fewer hooks'];
 
 /*
- * Console output from a third party that is noise by design, not a symptom. Keep this list
- * tiny and keyed on an exact shape -- a broad pattern here turns the whole check into a
- * rubber stamp, which is the one way it can be worse than useless.
+ * Console output from code we do not ship is not a symptom of ours. It is ignored by WHERE it was
+ * logged -- the frame's own URL -- never by matching its text, so an error from our own code can
+ * never be waved through by a pattern that happens to fit it. Keep the list to frames we embed
+ * and cannot change.
  *
- * The only entry today is Cloudflare Turnstile's, on /account: its widget script logs a
- * `%c%d`-formatted line styled `font-size:0;color:transparent` (i.e. deliberately invisible in
- * a real console) whose substitutions resolve to NaN. Confirmed as theirs rather than assumed --
- * the page's only non-local hosts are challenges.cloudflare.com and hagen.challenges.
- * cloudflare.com, and the sign-in form renders complete underneath it.
+ * The only entry is Cloudflare Turnstile's challenge frame, on /account. It logs by design: a
+ * `%c%d` line styled `font-size:0;color:transparent` (invisible in a real console), and since
+ * October 2026 a `fetch('data:,')` probe that the frame's OWN Content Security Policy blocks
+ * ("Connecting to 'data:,' violates ... connect-src"). That policy is Cloudflare's, set on their
+ * iframe; chromaforge.app sends none beyond upgrade-insecure-requests. The widget itself works:
+ * a headless browser is shown the "Verify you are human" checkbox, which is what
+ * `appearance: 'interaction-only'` asks for when a visitor looks automated.
  */
-const IGNORED_CONSOLE = [/font-size:0;color:transparent/];
+const IGNORED_FRAME = /^https:\/\/([a-z0-9-]+\.)?challenges\.cloudflare\.com\//;
 
 const run = (cmd, cmdArgs, opts = {}) =>
   new Promise((resolve, reject) => {
@@ -109,9 +112,8 @@ const main = async () => {
 
     page.on('console', m => {
       if (m.type() !== 'error') return;
-      const text = m.text();
-      if (IGNORED_CONSOLE.some(re => re.test(text))) return;
-      consoleErrors.push(text);
+      if (IGNORED_FRAME.test(m.location()?.url || '')) return;
+      consoleErrors.push(m.text());
     });
     page.on('pageerror', e => pageErrors.push(String(e)));
     page.on('requestfailed', r => {
