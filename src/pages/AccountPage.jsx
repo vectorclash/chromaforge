@@ -22,7 +22,8 @@ import { getActiveOrderPreviews, listMyActiveOrders, listMyOrderHistory } from '
 import { useAuth } from '../context/AuthContext';
 import { hasStoredSession } from '../lib/sessionHint';
 import { usePageMeta } from '../hooks/usePageMeta';
-import { introDelay, introStyle } from '../utils/routeIntro';
+import { INTRO_STEP_ITEM, introDelay, introStyle } from '../utils/routeIntro';
+import { DURATION_SLOW } from '../utils/motionTokens';
 import { humanError } from '../lib/errorMessage';
 
 // Where the profile/stats/orders block sits among PageContainer's children: [banners, block].
@@ -34,17 +35,15 @@ const CARDS_SECTION = 1;
 // customer-visible state. 'failed' gets the same accent-color treatment as form errors
 // elsewhere on this page, so it doesn't blend in with a normal completed order.
 //
-// 'fulfilled' is the one history status that is GOOD news, so it keeps the same
-// text-secondary weight the in-flight statuses use rather than 'canceled''s muted grey --
-// a completed order should not read as the faded-out end of the list.
-//
-// Labelled "Shipped", not "Delivered": Printful's `fulfilled` means every item has left the
-// facility, which is not the same claim as arrival. The row links the carrier's tracking page
-// (orders.shipments) for that, but nothing in this app hears about delivery itself. Same
-// discipline as the Stripe checkout copy, which deliberately promises no shipping time.
+// 'fulfilled' is "Shipped" and stays in Active: every item has left Printful's facility, which is
+// not the same claim as arrival, and the row's "Track package" link (orders.shipments) is most
+// useful while the package is on its way. 'delivered' is the history status that is GOOD news,
+// set once Printful reports every package arrived (order-watchdog), so it keeps the same
+// text-secondary weight the in-flight statuses use rather than 'canceled''s muted grey -- a
+// completed order should not read as the faded-out end of the list.
 //
 // 'on_hold' is the only ACTIVE status that isn't progressing, so it takes the accent treatment
-// to stand out from the two that are -- the whole point of showing it rather than leaving it
+// to stand out from the ones that are -- the whole point of showing it rather than leaving it
 // looking like normal production. Worded as a plain statement of what is happening rather than
 // 'failed''s "Needs attention", because a hold is usually Printful's to clear (an address or
 // payment check) and not something the customer can act on.
@@ -53,6 +52,7 @@ const ORDER_STATUS_DISPLAY = {
   submitted: { label: 'In production', className: 'text-text-secondary' },
   on_hold: { label: 'On hold', className: 'text-accent' },
   fulfilled: { label: 'Shipped', className: 'text-text-secondary' },
+  delivered: { label: 'Delivered', className: 'text-text-secondary' },
   refunded: { label: 'Refunded', className: 'text-text-muted' },
   failed: { label: 'Needs attention', className: 'text-accent' },
   canceled: { label: 'Canceled', className: 'text-text-muted' }
@@ -112,11 +112,101 @@ function OrderList({ hasRows, children }) {
     <div
       ref={ref}
       className={
-        'mt-3 space-y-2 lg:max-h-[32rem] lg:pr-1 ' +
+        // `relative` for ListLoading, which sits over the arriving rows while it fades.
+        'relative mt-3 space-y-2 lg:max-h-[32rem] lg:pr-1 ' +
         (settled ? 'lg:overflow-y-auto' : 'lg:overflow-y-hidden')
       }
     >
       {children}
+    </div>
+  );
+}
+
+// While this page's data is on its way, each value it is waiting for shows as a pulsing bar
+// where the value will sit, and the bar crossfades into the real thing when it lands -- the same
+// skeleton-then-fade the shop and product pages use. It used to show placeholder CONTENT instead
+// (an input's placeholder copy, a dash in the stats, "Loading…", "Generate avatar") that the
+// real value replaced in a single frame (Aaron, 2026-10-24: "content for a flash before the data
+// is received and then it just pops into place").
+//
+// Each bar's fade and its pulse sit on two different elements, and must stay that way: both are
+// opacity, and a CSS animation overrides a transition on the same property outright, so a
+// pulsing bar told to fade out would simply carry on pulsing.
+const CARD_BAR = 'block animate-pulse rounded bg-ink-700';
+const FADE = 'transition-opacity duration-[var(--duration-slow)] ease-out';
+
+// An inline value. `children` is laid out (invisibly) from the first frame, so give it a stand-in
+// of about the right width while it has nothing real to show; it is hidden from screen readers
+// until it is real.
+function Arriving({ ready, bar, children }) {
+  return (
+    <span className="relative inline-block">
+      <span
+        className={`${FADE} ${ready ? 'opacity-100' : 'opacity-0'}`}
+        aria-hidden={ready ? undefined : true}
+      >
+        {children}
+      </span>
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-y-0 left-0 flex items-center ${FADE} ${ready ? 'opacity-0' : 'opacity-100'}`}
+      >
+        <span className={bar} />
+      </span>
+    </span>
+  );
+}
+
+// A text field whose value is on its way: the box is drawn from the first frame, its text stays
+// transparent with a bar inside, and both crossfade when the value lands. Inline colour rather
+// than a utility, because .cf-input's own colour is unlayered and would out-rank one. The
+// placeholder follows (Tailwind's preflight derives it from currentColor), and is withheld
+// outright until then for browsers where it does not.
+function ArrivingInput({ ready, placeholder, ...props }) {
+  return (
+    <div className="relative">
+      <Input
+        {...props}
+        disabled={!ready || props.disabled}
+        placeholder={ready ? placeholder : undefined}
+        style={{
+          color: ready ? undefined : 'transparent',
+          transition: 'color var(--duration-slow) ease-out'
+        }}
+      />
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-y-0 left-4 flex items-center ${FADE} ${ready ? 'opacity-0' : 'opacity-100'}`}
+      >
+        <span className={`${CARD_BAR} h-3.5 w-32`} />
+      </span>
+    </div>
+  );
+}
+
+// Stands in for an order list while it loads: one pulsing line, the height of the "No orders"
+// line most visits end on, so the common case does not move at all. When the list lands it stays
+// for DURATION_SLOW, lifted out of the flow and fading over whatever arrived (the rows' own
+// entrance, or the empty line) -- the same handover SkeletonFadeOut gives the product page. A
+// timer, not transitionend, which never fires under reduced motion.
+function ListLoading({ loading }) {
+  const [shown, setShown] = useState(loading);
+  if (loading && !shown) setShown(true);
+  useEffect(() => {
+    if (loading || !shown) return;
+    const t = setTimeout(() => setShown(false), DURATION_SLOW * 1000);
+    return () => clearTimeout(t);
+  }, [loading, shown]);
+  if (!shown) return null;
+  return (
+    <div
+      aria-hidden="true"
+      className={
+        `pointer-events-none flex h-5 items-center ${FADE} ` +
+        (loading ? 'opacity-100' : 'absolute inset-x-0 top-0 opacity-0')
+      }
+    >
+      <span className={`${CARD_BAR} h-3.5 w-40`} />
     </div>
   );
 }
@@ -134,7 +224,18 @@ function OrderList({ hasRows, children }) {
 // so it is right except when Printful itself fails to return a preview for an order that has
 // one. That case collapses the slot once the request resolves, which is the only reflow left
 // and is rare by construction.
-function OrderRow({ order, delay, previewUrl = null, previewPending = false }) {
+//
+// When a row starts its entrance: rows that land while the page is still assembling keep their
+// place in its cascade, and rows that land after it -- nearly always, since they wait on a fetch
+// -- start at once, a step apart. Pinned to the page's cascade alone, a late row sat out a delay
+// meant for an entrance that had already finished, and the card grew to its new height and stood
+// EMPTY for that long. Fixed at mount: a changed animation-delay restarts the animation.
+function OrderRow({ order, index, pageStart, previewUrl = null, previewPending = false }) {
+  const [delay] = useState(() => {
+    const step = Math.min(index, 10);
+    const inCascade = pageStart + introDelay(CARDS_SECTION, 3 + step) - performance.now();
+    return Math.round(Math.max(step * INTRO_STEP_ITEM, inCascade));
+  });
   const item = order.order_items?.[0];
   const status = ORDER_STATUS_DISPLAY[order.status] ?? ORDER_STATUS_DISPLAY.submitted;
   // A preview URL that 404s (Printful's CDN, not ours) must leave no gap behind -- same
@@ -226,6 +327,7 @@ export default function AccountPage() {
     user,
     authResolved,
     avatarUrl,
+    avatarResolved,
     avatarBusy,
     avatarError,
     freshAvatar,
@@ -288,6 +390,8 @@ export default function AccountPage() {
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyError, setHistoryError] = useState(null);
+  // When this page started its entrance, for the order rows that land after it (OrderRow).
+  const [pageStart] = useState(() => performance.now());
 
   // Everything above describes ONE account, and this page outlives the account it was loaded
   // for: signing out here swaps the sign-in form in on this same instance, and the next person
@@ -503,9 +607,23 @@ export default function AccountPage() {
     // yet, and fills in place: every card is always mounted, and the profile form waits (disabled)
     // for its values rather than being swapped in for a "Loading profile…" line. The cards used to
     // mount one at a time as their own requests landed, and each arrival pushed the page taller.
-    const pending = !user || profileLoading;
+    //
+    // The profile card fills as ONE: its fields and its avatar come from two separate profile
+    // reads (this page's and AuthContext's), and landing them a beat apart made the card change
+    // twice. Stats and orders fill on their own; they are separate cards.
+    const profileReady = Boolean(user) && !profileLoading && avatarResolved;
     return (
-      <PageContainer title="Account" subtitle={user ? `Signed in as ${user.email}` : 'Signed in'}>
+      <PageContainer
+        title="Account"
+        subtitle={
+          <>
+            Signed in as{' '}
+            <Arriving ready={Boolean(user)} bar="block h-3.5 w-44 animate-pulse rounded bg-ink-800">
+              {user?.email ?? 'you@example.com'}
+            </Arriving>
+          </>
+        }
+      >
         <>
           {/* Two columns, deliberately ASYMMETRIC rather than a uniform grid of equal
                 cards. These blocks aren't peers: stats is two numbers, the profile is a
@@ -526,6 +644,11 @@ export default function AccountPage() {
               >
                 <div className="flex items-center gap-5">
                   <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-ink-800">
+                    {/* Until the profile says whether there is an avatar, the same pulse FadeImage
+                        shows while one loads, so the slot reads as one continuous wait. */}
+                    {!avatarUrl && !avatarResolved && (
+                      <div className="absolute inset-0 animate-pulse bg-ink-700" />
+                    )}
                     {avatarUrl && (
                       <FadeImage src={avatarUrl} alt="" className="h-full w-full object-cover" />
                     )}
@@ -537,12 +660,15 @@ export default function AccountPage() {
                       variant="secondary"
                       size="sm"
                       onClick={regenerateAvatar}
-                      disabled={pending || avatarBusy}
+                      disabled={!profileReady || avatarBusy}
                       aria-busy={avatarBusy}
                     >
+                      {/* Every profile is given an avatar automatically, so "Regenerate" is the
+                          answer while that is still unknown; "Generate" only ever means the
+                          automatic one failed. */}
                       {avatarBusy
                         ? 'Generating…'
-                        : avatarUrl
+                        : avatarUrl || !avatarResolved
                           ? 'Regenerate avatar'
                           : 'Generate avatar'}
                     </Button>
@@ -552,9 +678,9 @@ export default function AccountPage() {
                   </div>
                 </div>
                 <Field label="Display name" htmlFor="display-name">
-                  <Input
+                  <ArrivingInput
                     id="display-name"
-                    disabled={pending}
+                    ready={profileReady}
                     value={displayName}
                     onChange={e => {
                       setDisplayName(e.target.value);
@@ -564,9 +690,9 @@ export default function AccountPage() {
                   />
                 </Field>
                 <Field label="Username" htmlFor="username">
-                  <Input
+                  <ArrivingInput
                     id="username"
-                    disabled={pending}
+                    ready={profileReady}
                     value={username}
                     onChange={e => {
                       setUsername(e.target.value);
@@ -579,7 +705,7 @@ export default function AccountPage() {
                   <p className="animate-pop-in text-sm text-accent">{profileError}</p>
                 )}
                 <div className="flex items-center gap-3 pt-1">
-                  <Button type="submit" disabled={pending || profileBusy} aria-busy={profileBusy}>
+                  <Button type="submit" disabled={!profileReady || profileBusy} aria-busy={profileBusy}>
                     {profileBusy ? 'Saving…' : profileSaved ? 'Saved' : 'Save profile'}
                   </Button>
                   <Button
@@ -608,15 +734,14 @@ export default function AccountPage() {
                   Your stats
                 </h2>
                 <div className="mt-3 flex gap-8 font-quicksand text-sm text-text-secondary">
-                  {/* A dash until the numbers land, so the card is its final size throughout. */}
-                  <span>
-                    <strong className="text-text">{stats ? stats.designCount : '–'}</strong>{' '}
+                  <Arriving ready={Boolean(stats)} bar={`${CARD_BAR} h-3.5 w-28`}>
+                    <strong className="text-text">{stats?.designCount ?? 0}</strong>{' '}
                     {stats?.designCount === 1 ? 'design' : 'designs'} saved
-                  </span>
-                  <span>
-                    <strong className="text-text">{stats ? stats.totalLikes : '–'}</strong>{' '}
+                  </Arriving>
+                  <Arriving ready={Boolean(stats)} bar={`${CARD_BAR} h-3.5 w-28`}>
+                    <strong className="text-text">{stats?.totalLikes ?? 0}</strong>{' '}
                     {stats?.totalLikes === 1 ? 'like' : 'likes'} received
-                  </span>
+                  </Arriving>
                 </div>
               </div>
             </div>
@@ -648,15 +773,16 @@ export default function AccountPage() {
                       worse than a long page. */}
               {orderTab === 'active' && (
                 <OrderList hasRows={activeOrders.length > 0}>
-                  {activeOrdersLoading && <p className="text-sm text-text-secondary">Loading…</p>}
+                  <ListLoading loading={activeOrdersLoading} />
                   {!activeOrdersLoading && activeOrders.length === 0 && (
-                    <p className="text-sm text-text-secondary">No orders in progress.</p>
+                    <p className="intro-item text-sm text-text-secondary">No orders in progress.</p>
                   )}
                   {activeOrders.map((order, i) => (
                     <OrderRow
                       key={order.id}
                       order={order}
-                      delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))}
+                      index={i}
+                      pageStart={pageStart}
                       previewUrl={orderPreviews[order.id] ?? null}
                       // Reserve the thumbnail slot from the first paint for any order
                       // that will have one -- same condition printful-order-preview
@@ -669,17 +795,15 @@ export default function AccountPage() {
 
               {orderTab === 'history' && (
                 <OrderList hasRows={historyOrders.length > 0}>
-                  {historyLoading && <p className="text-sm text-text-secondary">Loading…</p>}
-                  {historyError && <p className="text-sm text-accent">{historyError}</p>}
+                  {/* Not-yet-loaded counts too: the fetch starts in an effect, so the tab's
+                      first frame would otherwise be empty and the bar would pop in after it. */}
+                  <ListLoading loading={historyLoading || (!historyLoaded && !historyError)} />
+                  {historyError && <p className="animate-pop-in text-sm text-accent">{historyError}</p>}
                   {!historyLoading && historyLoaded && historyOrders.length === 0 && (
-                    <p className="text-sm text-text-secondary">No past orders.</p>
+                    <p className="intro-item text-sm text-text-secondary">No past orders.</p>
                   )}
                   {historyOrders.map((order, i) => (
-                    <OrderRow
-                      key={order.id}
-                      order={order}
-                      delay={introDelay(CARDS_SECTION, 3 + Math.min(i, 10))}
-                    />
+                    <OrderRow key={order.id} order={order} index={i} pageStart={pageStart} />
                   ))}
                   {historyHasMore && (
                     <Button

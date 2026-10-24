@@ -44,6 +44,10 @@ export function AuthProvider({ children }) {
   const [authResolved, setAuthResolved] = useState(false);
   const [notice, setNotice] = useToastNotice(); // { type: 'success'|'error', message }
   const [avatarUrl, setAvatarUrl] = useState(null);
+  // Has the signed-in profile been read yet? `avatarUrl` null means both "no avatar" and "not
+  // loaded yet", and the Account page must not claim the first ("Generate avatar") while it only
+  // knows the second.
+  const [avatarResolved, setAvatarResolved] = useState(false);
   // True while an avatar is being made, whether the automatic first one below or the Account
   // page's Regenerate button, so that button cannot start a second one on top of it.
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -137,6 +141,7 @@ export function AuthProvider({ children }) {
   const userId = user?.id ?? null;
   useEffect(() => {
     signedInId.current = userId;
+    setAvatarResolved(false);
     if (!userId) {
       setAvatarUrl(null);
       setAvatarError(null);
@@ -152,7 +157,8 @@ export function AuthProvider({ children }) {
         setIsAdmin(profile.is_admin === true);
         if (!profile.avatar_url) makeAvatar(userId);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => !cancelled && setAvatarResolved(true));
     return () => {
       cancelled = true;
     };
@@ -223,6 +229,7 @@ export function AuthProvider({ children }) {
         authResolved,
         isAdmin,
         avatarUrl,
+        avatarResolved,
         avatarBusy,
         avatarError,
         freshAvatar,

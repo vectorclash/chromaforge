@@ -3429,8 +3429,17 @@ Conventions the audit settled, worth holding:
   (1) While auth is unresolved, a stored Supabase session (`lib/sessionHint.js`, a synchronous
   localStorage check for `sb-*-auth-token`) means "draw the account layout". It is a HINT only;
   a stale session settles on the sign-in form, as it would have anyway.
-  (2) Every card is always mounted and fills in place: disabled empty inputs, "–" in the stats,
-  "Loading..." inside the orders list.
+  (2) Every card is always mounted and fills in place. **Since 2026-10-24 it fills by CROSSFADE,
+  not by swap** (Aaron: "content for a flash before the data is received and then it just pops
+  into place"): each pending value is a pulsing bar (`Arriving`, `ArrivingInput`, `ListLoading` in
+  AccountPage) that fades into the real value, where it used to be placeholder CONTENT replaced in
+  one frame (input placeholder copy, "–", "Loading…", and "Generate avatar" -- AuthContext's
+  `avatarResolved` now separates "no avatar" from "not loaded yet"). The profile card fills as one,
+  waiting on both its fields and the avatar. Order rows that land after the page's cascade start at
+  once instead of sitting out a cascade delay, which had left the card grown and empty for 200ms+.
+  The order-confirmation page got the product page's arrangement the same day
+  (`CheckoutSuccessSkeleton`): a skeleton of the confirmed layout, crossfading into the result; the
+  "Confirming" loader only when an answer says the order is not ready after 1.2s.
   (3) RouteSkeleton reserves the signed-in height for that visitor (main 941px below lg, 816px
   from lg), measured through the real page. Orders still grow the page once when they arrive,
   since their count cannot be known in advance.
@@ -4669,16 +4678,27 @@ by the shared design as the odds the panel last published.
   (3) **Migration BEFORE the function deploy.** The reverse order makes the webhook write a
   value the check constraint rejects, so every `order_updated` on a shipping order 500s and
   Printful retries it indefinitely.
-  (4) `printful-order-preview` filters `status=in.(paid,submitted)`, mirroring the active list
-  exactly, so it stopped fetching previews for fulfilled orders on its own — **keep those two
-  filters in sync.** Labelled **"Shipped"**, not "Delivered": Printful's `fulfilled` means the
-  items left the facility, and nothing in this app hears about delivery to back the stronger
-  claim (the row links carrier tracking since 2026-10-14, but arrival is not a signal we get).
+  (4) `printful-order-preview`'s status filter mirrors the active list exactly — **keep those
+  two filters in sync.** Labelled **"Shipped"**, not "Delivered": Printful's `fulfilled` means the
+  items left the facility, which is not arrival.
+  **`delivered` is the real end of the happy path (`0021`, 2026-10-24, Aaron: a shipped order had
+  already moved to history while still on its way).** `fulfilled` used to go straight to
+  history, i.e. the order left Active the day it shipped, exactly when its Track package link
+  matters most. It now stays in Active until `order-watchdog` (step 3, every 5 minutes) sees every
+  package delivered and moves it to `delivered`, with `orders.delivered_at`. Three things worth not
+  re-deriving: (a) **delivery comes from Printful's v1 order** — each shipment carries
+  `delivered_at` (unix seconds, null until the carrier reports it), checked against all four
+  shipped orders on 2026-10-24 and identical to what v2 reports. Nothing here uses v2: it is still
+  a beta (Aaron), and its shipment webhook events would also mean re-registering the webhook. (b)
+  The rule lives in `_shared/printfulShipments.ts`: delivered only when every shipment not
+  `canceled`/`returned` has a `delivered_at`; any unfamiliar status counts as in transit, so it
+  waits rather than claims. (c) A package Printful never marks delivered stays in Active, which is
+  true from the customer's side; nothing alerts on it yet.
   **The rest of the gap closed the same day (`0017`), so the enum now answers everything
   Printful can report:** `on_hold` and `refunded`. The status set is
-  `pending | paid | submitted | on_hold | fulfilled | refunded | failed | canceled`, with
-  **Active = `paid`/`submitted`/`on_hold`** and **History = `fulfilled`/`refunded`/`failed`/
-  `canceled`**. Six things worth not re-deriving:
+  `pending | paid | submitted | on_hold | fulfilled | delivered | refunded | failed | canceled`,
+  with **Active = `paid`/`submitted`/`on_hold`/`fulfilled`** and **History = `delivered`/
+  `refunded`/`failed`/`canceled`**. Six things worth not re-deriving:
   (1) **`on_hold` is ACTIVE, not history, and it is the only reversible thing Printful
   reports.** A held order really is still in flight — it just isn't progressing —
   and `order_remove_hold` returns it to `submitted`. It is the one active status carrying the
@@ -4693,9 +4713,10 @@ by the shared design as the odds the panel last published.
   (11), `fulfilled` (2), `canceled` (1), `onhold` (1). `draft`/`pending`/`inprocess`/`partial`
   are deliberately unmapped: `submitted` already means "in production", and an unmapped status
   is safe by construction (it falls through to the mirror-only branch).
-  (3) **A finished order stays finished.** `TERMINAL_STATUSES` blocks any transition out of
-  `fulfilled`/`refunded`/`failed`/`canceled`, so a late, retried or out-of-order delivery can
-  never resurrect a dead order into someone's Active list. **`refunded` is exempt as a
+  (3) **A finished order stays finished.** `printful-webhook`'s `TERMINAL_STATUSES` blocks any
+  transition out of `fulfilled`/`delivered`/`refunded`/`failed`/`canceled`, so a late, retried or
+  out-of-order delivery can never resurrect a dead order into someone's Active list, or cancel a
+  shipped one (`fulfilled` -> `delivered` is the watchdog's move, never the webhook's). **`refunded` is exempt as a
   target** — a fulfilled order can be returned and a canceled one can still be refunded, and
   money moving is the more authoritative fact.
   (4) **`sendOrderFailureAlert` now takes an `action`**, defaulting to the submission-failure

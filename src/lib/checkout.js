@@ -74,10 +74,12 @@ export async function getOrder(orderId) {
 // they're an implementation detail of create-checkout-session, not something a customer
 // should see as a phantom order.
 //
-// 'fulfilled' is excluded too, and this is the whole point of that status existing: until it
-// was added (2026-08-17) the enum only described how an order could END BADLY, so `submitted`
-// was terminal in practice and a produced-and-shipped order sat here forever reading
-// "In production". Two real completed orders were doing exactly that.
+// 'fulfilled' (shipped) IS active: the package is on its way, and its "Track package" link is
+// what the customer wants most while it is. It leaves for history as 'delivered', which
+// order-watchdog sets once Printful reports every package arrived (2026-10-24 -- shipped orders
+// used to go straight to history the day they left Printful). The step before, 2026-08-17, was
+// the reverse fault: with no status past `submitted`, a delivered order sat here forever reading
+// "In production".
 //
 // 'on_hold' IS active, deliberately: Printful has paused the order, but it is still in flight
 // and the hold can be lifted (order_remove_hold returns it to 'submitted'). It just isn't
@@ -90,7 +92,7 @@ export async function listMyActiveOrders() {
   const { data, error } = await client()
     .from('orders')
     .select('*, order_items(*)')
-    .in('status', ['paid', 'submitted', 'on_hold'])
+    .in('status', ['paid', 'submitted', 'on_hold', 'fulfilled'])
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data;
@@ -118,7 +120,7 @@ export async function getActiveOrderPreviews() {
   }
 }
 
-// Resolved orders -- fulfilled, refunded, failed or canceled, whether by our own
+// Resolved orders -- delivered, refunded, failed or canceled, whether by our own
 // checkout/Printful-submission flow or via a later printful-webhook reconciliation (see that
 // function's header comment) -- kept out of the active list so a finished order doesn't sit
 // on the main account view forever. Cursor-paginated on created_at, same keyset pattern as
@@ -129,7 +131,7 @@ export async function listMyOrderHistory({ limit = 20, before = null } = {}) {
   let query = client()
     .from('orders')
     .select('*, order_items(*)')
-    .in('status', ['fulfilled', 'refunded', 'failed', 'canceled'])
+    .in('status', ['delivered', 'refunded', 'failed', 'canceled'])
     // Only orders that were actually PAID for. 'canceled' covers two very different things:
     // a real order Printful later canceled (printful-webhook's order_canceled), which the
     // customer paid for and absolutely belongs here -- and a checkout that was started and

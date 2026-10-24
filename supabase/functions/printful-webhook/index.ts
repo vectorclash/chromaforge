@@ -17,6 +17,8 @@
 //     the v1 order and stores them in orders.shipments for the account page's "Track package"
 //     link. Subscribing to shipment events instead would mean re-registering the webhook,
 //     which rotates PRINTFUL_WEBHOOK_SECRET_KEY.
+//   - Delivery is NOT heard here. A shipped order stays 'fulfilled' (Active, "Shipped") until
+//     order-watchdog sees Printful's delivered_at on its shipments and moves it to 'delivered'.
 //   - Payload shape: { type, occurred_at, retries, store_id, data: { order: { id, external_id,
 //     status, created, updated, dashboard_url } } }.
 //   - Auth headers: `x-pf-webhook-signature` (hex HMAC-SHA256 of the raw request body) and
@@ -33,6 +35,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
+import { fetchShipments } from "../_shared/printfulShipments.ts";
 
 // Both event *type* and reported *status value* can carry the same real-world change --
 // confirmed live: deleting an unconfirmed draft in the Printful dashboard delivers an
@@ -43,7 +46,14 @@ import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
 // to close). Both target values already exist in the orders.status enum and already mean
 // "this order did not end up produced," so this is a legitimate transition into an existing
 // value, not a new concept.
-type OrderStatus = "submitted" | "on_hold" | "fulfilled" | "refunded" | "failed" | "canceled";
+type OrderStatus =
+  | "submitted"
+  | "on_hold"
+  | "fulfilled"
+  | "delivered"
+  | "refunded"
+  | "failed"
+  | "canceled";
 
 // Events whose meaning is unambiguous from the TYPE alone -- no status string needed, which
 // is what makes the hold/refund mappings evidence-based rather than a guess at Printful's
@@ -81,12 +91,19 @@ const PRINTFUL_STATUS_STATUS: Record<string, OrderStatus> = {
   fulfilled: "fulfilled"
 };
 
-// Once an order reaches one of these, Printful has nothing left to tell us that should move
-// it -- so a late or out-of-order delivery can never resurrect a finished order into the
-// customer's Active list. `refunded` is exempt as a TARGET (see canTransition): a fulfilled
-// order can be returned and a canceled one can still be refunded, and money moving is the
-// more authoritative fact.
-const TERMINAL_STATUSES = new Set<OrderStatus>(["fulfilled", "refunded", "failed", "canceled"]);
+// Once an order reaches one of these, Printful's ORDER status has nothing left to tell us that
+// should move it -- so a late or out-of-order delivery can never resurrect a finished order, or
+// cancel a shipped one (an "archived" update on a fulfilled order would otherwise map to
+// canceled). `refunded` is exempt as a TARGET (see targetStatus below): a shipped order can be
+// returned and a canceled one can still be refunded, and money moving is the more authoritative
+// fact. `fulfilled` -> `delivered` is not this function's to make: order-watchdog makes it.
+const TERMINAL_STATUSES = new Set<OrderStatus>([
+  "fulfilled",
+  "delivered",
+  "refunded",
+  "failed",
+  "canceled"
+]);
 
 // Not every terminal status is a failure, and conflating the two would stamp a perfectly good
 // order with "Failed via Printful" and page a human about a successful delivery. Only these
@@ -127,42 +144,6 @@ const RECOGNIZED_EVENTS = new Set([
 // deliberately unmapped in PRINTFUL_STATUS_STATUS (the order is still in production), but a
 // shipped part of it already has tracking worth showing.
 const SHIPPED_PRINTFUL_STATUSES = new Set(["fulfilled", "partial"]);
-
-const PRINTFUL_API_BASE = "https://api.printful.com";
-const STORE_ID = "18363066"; // same store as stripe-webhook -- an account id, not a secret
-
-type Shipment = {
-  carrier: string | null;
-  service: string | null;
-  tracking_number: string | null;
-  tracking_url: string | null;
-  shipped_at: string | null;
-};
-
-// The v2 webhook payload carries no shipment data, so read the order back from v1 (the same
-// endpoint printful-order-preview uses). Throws on any failure so the caller can ask Printful
-// to retry the delivery.
-async function fetchShipments(printfulOrderId: string | number): Promise<Shipment[]> {
-  const apiKey = Deno.env.get("PRINTFUL_API_KEY");
-  if (!apiKey) throw new Error("PRINTFUL_API_KEY is not set");
-  const res = await fetch(`${PRINTFUL_API_BASE}/orders/${printfulOrderId}`, {
-    headers: { Authorization: `Bearer ${apiKey}`, "X-PF-Store-Id": STORE_ID }
-  });
-  if (!res.ok) throw new Error(`GET /orders/${printfulOrderId} -> ${res.status}`);
-  const body = await res.json();
-  return ((body.result?.shipments ?? []) as Array<Record<string, unknown>>).map(s => ({
-    carrier: (s.carrier as string) ?? null,
-    service: (s.service as string) ?? null,
-    tracking_number: s.tracking_number != null ? String(s.tracking_number) : null,
-    // Only an https link is ever stored: the account page renders it as an href.
-    tracking_url:
-      typeof s.tracking_url === "string" && s.tracking_url.startsWith("https://")
-        ? s.tracking_url
-        : null,
-    shipped_at:
-      typeof s.shipped_at === "number" ? new Date(s.shipped_at * 1000).toISOString() : null
-  }));
-}
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
@@ -277,7 +258,7 @@ Deno.serve(async req => {
   let shipmentsFailed = false;
   if (printfulStatus && SHIPPED_PRINTFUL_STATUSES.has(printfulStatus)) {
     try {
-      const shipments = await fetchShipments(printfulOrderId);
+      const { shipments } = await fetchShipments(printfulOrderId);
       if (shipments.length > 0) {
         const { error: shipmentsError } = await supabase
           .from("orders")

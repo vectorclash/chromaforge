@@ -70,6 +70,8 @@ const ENTRANCE = [
  * TWO is correct for the product route and is not a defect: its skeleton is unlabelled
  * placeholder bars, so the real page arriving IS new content and must enter. Shop and gallery
  * are ONE, because their skeleton renders the real header and the handover is invisible.
+ * Checkout success has the product route's arrangement since 2026-10-24 (a placeholder
+ * skeleton, then whichever result the order turns out to be), so it is TWO for the same reason.
  *
  * TWO is also correct for the legal pages, for an unrelated reason: they NEST the mechanism
  * (their section list is `intro-skip intro-stagger`, so it opts out of being one item in the
@@ -86,7 +88,7 @@ const ROUTES = [
   { path: '/account', name: 'account (signed out)', roots: 1 },
   { path: '/terms', name: 'terms (nested)', roots: 2 },
   { path: '/privacy', name: 'privacy (nested)', roots: 2 },
-  { path: '/checkout/success', name: 'checkout success', roots: 1 },
+  { path: '/checkout/success', name: 'checkout success', roots: 2 },
   { path: '/no-such-page', name: '404', roots: 1 }
 ];
 

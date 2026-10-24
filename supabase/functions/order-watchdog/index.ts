@@ -14,6 +14,13 @@
 // 2. ALERT. Any order still 'paid' 30 minutes after payment is emailed about ONCE
 //    (watchdog_alerted_at), with its hold reason and attempt count. A hold that will not clear on
 //    its own (render-service deployed AHEAD of the design's version) only ever surfaces here.
+// 3. DELIVERIES (2026-10-24). A shipped order ('fulfilled') stays in the customer's Active list
+//    until it arrives; this moves it to 'delivered' once Printful's v1 order shows every package
+//    delivered (see _shared/printfulShipments.ts). Polled because printful-webhook never hears
+//    about delivery: Printful's shipment events exist only on the v2 beta, and subscribing to
+//    them would mean re-registering the webhook. One Printful read per in-transit order per run,
+//    which is a handful. A package Printful never marks delivered stays in Active, which is
+//    true: from the customer's side it has not arrived.
 //
 // Invoked every 5 minutes by pg_cron (migration 0020; it was every 30 when this only alerted).
 //
@@ -25,6 +32,7 @@
 // Deploy with: npx supabase functions deploy order-watchdog --no-verify-jwt
 
 import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
+import { fetchShipments } from "../_shared/printfulShipments.ts";
 
 // stripe-webhook kicks process-order straight away, so give that run time to start before a
 // resume would only find it already leased.
@@ -105,11 +113,52 @@ Deno.serve(async req => {
     });
   }
 
+  // 3. Last, so a slow Printful can never hold up a resume or an alert. Never fails the run: an
+  // order missed now is simply checked again in five minutes.
+  const delivered = await recordDeliveries(supabaseUrl, headers);
+
   const summary = {
     resumed: resumed.filter(r => r.status === "fulfilled" && r.value?.started).length,
     resumable: resumable.length,
-    alerted: stuck.length
+    alerted: stuck.length,
+    delivered
   };
   console.log("order-watchdog", JSON.stringify(summary));
   return Response.json(summary);
 });
+
+// Moves every shipped order whose packages have all arrived to 'delivered', refreshing its stored
+// shipments on the way so each carries its delivered_at. Returns how many it moved.
+async function recordDeliveries(supabaseUrl: string, headers: Record<string, string>): Promise<number> {
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/orders?select=id,printful_order_id&status=eq.fulfilled&printful_order_id=not.is.null`,
+    { headers }
+  );
+  if (!res.ok) {
+    console.error(`order-watchdog: shipped orders query failed (${res.status})`);
+    return 0;
+  }
+  const shipped: { id: string; printful_order_id: string }[] = await res.json();
+
+  const results = await Promise.allSettled(
+    shipped.map(async order => {
+      const { shipments, deliveredAt } = await fetchShipments(
+        order.printful_order_id,
+        AbortSignal.timeout(10000)
+      );
+      if (!deliveredAt) return false;
+      // status=eq.fulfilled on the write too: a refund that landed since the query wins.
+      const up = await fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${order.id}&status=eq.fulfilled`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json", Prefer: "return=representation" },
+        body: JSON.stringify({ status: "delivered", delivered_at: deliveredAt, shipments })
+      });
+      if (!up.ok) throw new Error(`PATCH order ${order.id} -> ${up.status} ${await up.text()}`);
+      return (await up.json()).length > 0;
+    })
+  );
+  for (const r of results) {
+    if (r.status === "rejected") console.error("order-watchdog: delivery check failed", r.reason);
+  }
+  return results.filter(r => r.status === "fulfilled" && r.value).length;
+}

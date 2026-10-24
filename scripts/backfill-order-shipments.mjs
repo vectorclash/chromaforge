@@ -38,7 +38,7 @@ const db = (path, init = {}) =>
     }
   });
 
-// Same normalisation as printful-webhook's fetchShipments -- keep the two in step.
+// Same normalisation as supabase/functions/_shared/printfulShipments.ts -- keep the two in step.
 function normalise(s) {
   return {
     carrier: s.carrier ?? null,
@@ -48,13 +48,15 @@ function normalise(s) {
       typeof s.tracking_url === 'string' && s.tracking_url.startsWith('https://')
         ? s.tracking_url
         : null,
-    shipped_at: typeof s.shipped_at === 'number' ? new Date(s.shipped_at * 1000).toISOString() : null
+    shipped_at: typeof s.shipped_at === 'number' ? new Date(s.shipped_at * 1000).toISOString() : null,
+    delivered_at:
+      typeof s.delivered_at === 'number' ? new Date(s.delivered_at * 1000).toISOString() : null
   };
 }
 
 const res = await db(
   'orders?select=id,printful_order_id,status&printful_order_id=not.is.null&shipments=is.null' +
-    '&status=in.(submitted,on_hold,fulfilled,refunded)&order=created_at.asc'
+    '&status=in.(submitted,on_hold,fulfilled,delivered,refunded)&order=created_at.asc'
 );
 if (!res.ok) {
   console.error(`orders query failed: ${res.status} ${await res.text()}`);

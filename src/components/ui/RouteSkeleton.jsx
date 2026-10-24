@@ -200,6 +200,57 @@ export function ProductPageSkeleton() {
   );
 }
 
+// The order-confirmation page while its order is fetched, and before that while its chunk
+// downloads -- the product page's arrangement, for the same reasons: the page renders this same
+// component for its own wait, it claims the route's entrance as a `placeholder` so its second and
+// third mounts (the page's own, and the copy inside SkeletonFadeOut) do not replay it, and the
+// real page still enters in full. Its geometry is the CONFIRMED page's, block for block (header,
+// the one-item card, the two buttons: 318px of main body either way), because that is where
+// nearly every visit lands; a visit that has to wait for its order sees the loader instead.
+//
+// It replaced the "Confirming your order" loader screen as the first thing shown: that showed
+// for the length of one request on almost every visit and was then swapped for the confirmed
+// page in one frame (Aaron, 2026-10-24).
+export function CheckoutSuccessSkeleton() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    claimRouteIntro(pathname, 'placeholder');
+    return () => releaseRouteIntro(pathname, 'placeholder');
+  }, [pathname]);
+
+  return (
+    <PageContainer introKind="placeholder">
+      <div aria-hidden="true">
+        <header className="mb-10">
+          <div className="flex h-10 items-center">
+            <div className={`${SKEL} h-7 w-64 max-w-full`} />
+          </div>
+          <div className="mt-2 flex h-6 items-center">
+            <div className={`${SKEL} h-3.5 w-80 max-w-full`} />
+          </div>
+        </header>
+        {/* The item card: product line, quantity, total. Outlined rather than filled, since the
+            bars are the card's own fill colour. */}
+        <div className="max-w-sm rounded-xl border border-hairline p-5">
+          <div className="flex h-5 items-center">
+            <div className={`${SKEL} h-3.5 w-52 max-w-full`} />
+          </div>
+          <div className="mt-1 flex h-5 items-center">
+            <div className={`${SKEL} h-3 w-12`} />
+          </div>
+          <div className="mt-3 flex h-7 items-center">
+            <div className={`${SKEL} h-5 w-20`} />
+          </div>
+        </div>
+        <div className="mt-6 flex gap-3">
+          <div className={`${SKEL} h-14 w-56`} />
+          <div className={`${SKEL} h-14 w-44`} />
+        </div>
+      </div>
+    </PageContainer>
+  );
+}
+
 // Wraps a skeleton that is being replaced by real content, so it fades out ON TOP of it
 // rather than being cut away -- which would leave a frame where neither is painted, since a
 // page's own entrance animations start from opacity 0. Same beat and shape as the crossfade
@@ -262,7 +313,7 @@ function GridRouteSkeleton({ pathname, header, gridClass, count, extra = null, a
 // real content lands, which is the same jolt in reverse. So the rule is: reserve past the fold
 // wherever the real page is reliably taller than a viewport, and reserve little where it
 // isn't. Measured mains at 1280x800: terms 3075, privacy 2977, account 846 signed out (more
-// signed in), checkout success and 404 both exactly 403.
+// signed in), 404 exactly 403. (Checkout success has its own skeleton now, above.)
 const GENERIC_BODY_MIN = {
   // Walls of text. Anything up to a screenful is a safe under-estimate here.
   '/terms': 1000,
@@ -325,6 +376,7 @@ export default function RouteSkeleton({ pathname }) {
   // above the router's route matching -- by the time a <Route> element could choose its own
   // fallback, its chunk has already loaded and there is nothing left to show.
   if (/^\/shop\/[^/]+/.test(pathname)) return <ProductPageSkeleton />;
+  if (pathname === '/checkout/success') return <CheckoutSuccessSkeleton />;
   if (pathname === '/shop') return <ShopRouteSkeleton pathname={pathname} />;
   if (pathname === '/gallery') {
     return (
