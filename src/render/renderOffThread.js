@@ -33,7 +33,22 @@ export function subscribeRenderLog(fn) {
   return () => LOG_LISTENERS.delete(fn);
 }
 export function renderWorkerStatus() {
-  return failed ? `worker OFF (${failReason || 'unsupported'})` : WORKER ? 'worker on' : 'worker not started';
+  const base = failed ? `worker OFF (${failReason || 'unsupported'})` : WORKER ? 'worker on' : 'worker not started';
+  return geometryInPieces() ? `${base} · geo in pieces` : base;
+}
+
+// Whether the worker draws a big geometry layer in pieces (GeometricShape's drawGeometryInBatches).
+// Behind a flag until it is confirmed on an iPhone (2026-10-25): ?geobatch=1 on any URL turns it on
+// and is remembered, ?geobatch=0 turns it off. Read on every render, so it takes effect at once.
+export function geometryInPieces() {
+  try {
+    const q = new URLSearchParams(location.search).get('geobatch');
+    if (q === '1') localStorage.setItem('cf-debug:geobatch', '1');
+    if (q === '0') localStorage.removeItem('cf-debug:geobatch');
+    return localStorage.getItem('cf-debug:geobatch') === '1';
+  } catch {
+    return false;
+  }
 }
 let failReason = '';
 
@@ -114,7 +129,7 @@ export function renderOffThread(args, out, priority = PRIORITY_DEFAULT) {
         priority,
         path: msg.error ? 'worker FAILED' : 'worker',
         wait: t ? Math.round(t.startAt - sentAt) : null,
-        phases: t ? `ld${t.load} gen${t.gen} neb${t.nebula} draw${t.draw} enc${t.encode}` : '',
+        phases: t ? `ld${t.load} gen${t.gen} neb${t.nebula} geo${t.geometry ?? 0} draw${t.draw} enc${t.encode}` : '',
         total: Math.round(performance.timeOrigin + performance.now() - sentAt)
       });
       if (msg.error) {
@@ -127,7 +142,7 @@ export function renderOffThread(args, out, priority = PRIORITY_DEFAULT) {
       if (import.meta.env?.DEV) console.info(`[render] ${out.width}x${out.height} in the worker, ${msg.ms}ms`);
       resolve(msg.blob);
     });
-    w.postMessage({ id, args, out, priority, createjsUrl: new URL('/createjs.min.js', location.href).href });
+    w.postMessage({ id, args, out, priority, geoBatch: geometryInPieces(), createjsUrl: new URL('/createjs.min.js', location.href).href });
   });
 }
 

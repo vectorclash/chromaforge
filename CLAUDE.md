@@ -826,6 +826,21 @@ the actual print, generated the same deterministic way.
   failed worker job → page render with the nebula worker, for the rest of the visit.
   `check-hero-build-race.mjs` now runs every scenario in BOTH modes ('page' hides OffscreenCanvas;
   'worker' holds the worker's replies instead of toBlob callbacks).
+  (5b) **The worker draws a big geometry layer in PIECES** (`drawGeometryInBatches` in
+  GeometricShape.js, 2026-10-25, Aaron: homepage Generate stutters on his iPhone with every Geometry
+  slider at max, never at the defaults). The layer's cost is the area it blends hard-light: ~1.5
+  canvases' worth at the studio defaults, ~60 (up to ~200) at full coherence + Size max (200-600
+  lattice cells mostly reaching past the canvas), measured over 30 seeds; Spread is inert there.
+  Safari keeps the worker's canvases on the GPU it shares with the page, and a GPU canvas runs its
+  recorded draws as one job at read-back. Now: a budget of shapes (adaptive, ~8ms a piece, never
+  under one canvas of area), a 1px read-back to make the GPU finish it, a yield, repeat, onto the
+  same uncleared canvas. Pixel-identical to one `stage.update()` (24 renders incl. leg-mirror, GPU
+  and CPU canvases, 0 differing values); defaults fit in one or two pieces. Worker only -- the page
+  fallback and render-service draw in one pass, unchanged. The render log shows it as `geo`.
+  **Shipped OFF, behind `?geobatch=1`** (remembered in `cf-debug:geobatch`, `=0` turns it off;
+  `geometryInPieces` in renderOffThread.js), until Aaron confirms it on the iPhone -- then make it
+  the default and remove the flag. Test: `/?geobatch=1&renderlog=1` vs `/?geobatch=0&renderlog=1`
+  with every Geometry slider at max; the log's status line says "geo in pieces" when on.
   (5) Still on the page: 2D animation frames, downloads, Recent thumbnails, label backdrops, the
   logo-ink probe. None run on a Generate; move them the same way if one ever stutters.
   `check-route-intro-once.mjs` fails on reduced-motion /gallery and /shop/257 on the committed code
