@@ -114,7 +114,7 @@ export function renderOffThread(args, out, priority = PRIORITY_DEFAULT) {
         priority,
         path: msg.error ? 'worker FAILED' : 'worker',
         wait: t ? Math.round(t.startAt - sentAt) : null,
-        phases: t ? `ld${t.load} gen${t.gen} neb${t.nebula} draw${t.draw} enc${t.encode}` : '',
+        phases: t ? `ld${t.load} gen${t.gen} neb${t.nebula} geo${t.geometry ?? 0} draw${t.draw} enc${t.encode}` : '',
         total: Math.round(performance.timeOrigin + performance.now() - sentAt)
       });
       if (msg.error) {

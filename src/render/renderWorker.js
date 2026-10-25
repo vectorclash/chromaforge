@@ -55,12 +55,13 @@ function load(createjsUrl) {
       const src = await (await fetch(createjsUrl)).text();
       (0, eval)(src); // global scope, as a <script> tag would run it
       // Imported only after the shim and createjs are in place.
-      const [{ generateArtwork }, { default: renderArtwork }, { prepareNebulaHere }] = await Promise.all([
+      const [{ generateArtwork }, { default: renderArtwork }, { prepareNebulaHere }, { drawGeometryInBatches }] = await Promise.all([
         import('./generateArtwork'),
         import('./renderArtwork'),
-        import('./nebula')
+        import('./nebula'),
+        import('../components/Canvas/GeometricShape')
       ]);
-      return { generateArtwork, renderArtwork, prepareNebulaHere };
+      return { generateArtwork, renderArtwork, prepareNebulaHere, drawGeometryInBatches };
     })();
   return ready;
 }
@@ -96,11 +97,14 @@ async function pump() {
 async function handle({ id, createjsUrl, args, out, recvAt }) {
   try {
     const startAt = now();
-    const { generateArtwork, renderArtwork, prepareNebulaHere } = await load(createjsUrl);
+    const { generateArtwork, renderArtwork, prepareNebulaHere, drawGeometryInBatches } = await load(createjsUrl);
     const t1 = now();
     const config = generateArtwork(...args);
     const t2 = now();
     await prepareNebulaHere(config);
+    const t2b = now();
+    // big geometry layers in pieces, so the GPU this canvas shares with the page is never held long
+    await drawGeometryInBatches(config.geometryConfig);
     const t3 = now();
     let canvas = renderArtwork(config);
     if (out.width !== canvas.width || out.height !== canvas.height) {
@@ -122,7 +126,7 @@ async function handle({ id, createjsUrl, args, out, recvAt }) {
       blob,
       ms: r(t5 - startAt),
       // for the on-page render log (components/ui/RenderLog.jsx)
-      timing: { recvAt, startAt, load: r(t1 - startAt), gen: r(t2 - t1), nebula: r(t3 - t2), draw: r(t4 - t3), encode: r(t5 - t4) }
+      timing: { recvAt, startAt, load: r(t1 - startAt), gen: r(t2 - t1), nebula: r(t2b - t2), geometry: r(t3 - t2b), draw: r(t4 - t3), encode: r(t5 - t4) }
     });
   } catch (err) {
     scope.postMessage({ id, error: String(err && err.stack ? err.stack : err) });
