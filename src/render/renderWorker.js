@@ -94,7 +94,7 @@ async function pump() {
   running = false;
 }
 
-async function handle({ id, createjsUrl, args, out, recvAt, geoBatch }) {
+async function handle({ id, createjsUrl, args, out, recvAt }) {
   try {
     const startAt = now();
     const { generateArtwork, renderArtwork, prepareNebulaHere, drawGeometryInBatches } = await load(createjsUrl);
@@ -104,8 +104,7 @@ async function handle({ id, createjsUrl, args, out, recvAt, geoBatch }) {
     await prepareNebulaHere(config);
     const t2b = now();
     // big geometry layers in pieces, so the GPU this canvas shares with the page is never held long
-    // (behind ?geobatch=1 until confirmed on an iPhone -- renderOffThread's geometryInPieces)
-    if (geoBatch) await drawGeometryInBatches(config.geometryConfig);
+    await drawGeometryInBatches(config.geometryConfig);
     const t3 = now();
     let canvas = renderArtwork(config);
     if (out.width !== canvas.width || out.height !== canvas.height) {

@@ -837,10 +837,8 @@ the actual print, generated the same deterministic way.
   same uncleared canvas. Pixel-identical to one `stage.update()` (24 renders incl. leg-mirror, GPU
   and CPU canvases, 0 differing values); defaults fit in one or two pieces. Worker only -- the page
   fallback and render-service draw in one pass, unchanged. The render log shows it as `geo`.
-  **Shipped OFF, behind `?geobatch=1`** (remembered in `cf-debug:geobatch`, `=0` turns it off;
-  `geometryInPieces` in renderOffThread.js), until Aaron confirms it on the iPhone -- then make it
-  the default and remove the flag. Test: `/?geobatch=1&renderlog=1` vs `/?geobatch=0&renderlog=1`
-  with every Geometry slider at max; the log's status line says "geo in pieces" when on.
+  **Confirmed on the iPhone 2026-10-25** (Aaron, comparing on and off behind a temporary
+  `?geobatch=1` flag: "the update is smooth and the old one still crunchy"); on for everyone since.
   (5) Still on the page: 2D animation frames, downloads, Recent thumbnails, label backdrops, the
   logo-ink probe. None run on a Generate; move them the same way if one ever stutters.
   `check-route-intro-once.mjs` fails on reduced-motion /gallery and /shop/257 on the committed code
