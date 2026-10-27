@@ -25,22 +25,31 @@ import { createTshirtSwirl } from './tshirtSwirl';
 // src/assets). license.txt ships alongside it and is a licence obligation, not optional.
 //
 // The .glb here is an OPTIMIZED build of the Sketchfab download, not the download itself:
-// 4717KB across 5 requests (scene.gltf + scene.bin + 3 textures) -> 708KB in one. The
-// source asset is scan-density -- 154,048 triangles for something drawn at 190 CSS px --
-// so it is welded, simplified to 10% (22,624 tris, still well past what that size can
-// resolve), quantized, and pruned, with the textures embedded. Rebuild with:
+// 4717KB across 5 requests (scene.gltf + scene.bin + 3 textures) -> 713KB in one. The
+// source asset is scan-density -- 154,048 triangles -- so it is welded, simplified to 30%
+// (46,211 tris), and meshopt-compressed (which quantizes too), with the textures embedded.
+// Rebuild with:
 //   gltf-transform dedup  in.gltf p1.glb   &&  gltf-transform weld     p1.glb p2.glb
-//   gltf-transform simplify p2.glb p3.glb --ratio 0.1 --error 0.001
-//   gltf-transform quantize p3.glb p4.glb  &&  gltf-transform prune    p4.glb tshirt.glb
-// The unmodified original is kept at src/assets/models/tshirt/ as the archival source.
+//   gltf-transform simplify p2.glb p3.glb --ratio 0.3 --error 0.001
+//   gltf-transform meshopt  p3.glb tshirt.glb --level medium
+// NO prune after meshopt: prune decodes the compression and writes the file back out at full
+// size. The unmodified original is kept at src/assets/models/tshirt/ as the archival source.
+//
+// It was simplified to 10% until 2026-10-26, which looked fine at a glance and broke the
+// SLEEVE OPENINGS and HEM into sharp fragments (Aaron: "visibly broken with sharp bits"). The
+// shards are the inside of the cuff seen through the opening, not the edge itself, so locking
+// the mesh border does not help (tried at 10%, 15% and 20%); they are gone from 30% up,
+// compared against full detail. Meshopt is what pays for it: 30% compressed is smaller than
+// 10% was uncompressed (713KB against 726KB).
 //
 // Two properties this pipeline had to preserve, since everything below depends on them:
 // the UV LAYOUT (island rects are measured in atlas space -- simplification must not move
 // them; verified identical bounds before/after, modulo ~0.0002 of int16 quantization
 // rounding, i.e. sub-pixel on a 2048 sheet) and the MATERIAL NAMES/mesh split, which the
-// traverse below relies on. It needs no loader plugin: KHR_mesh_quantization is the only
-// required extension and three.js supports it natively. Deliberately NOT meshopt/Draco --
-// both would shave another ~270KB but drag in a decoder for one small model.
+// traverse below relies on. Both checked on the 30% build: the same two meshes and material,
+// and the texture lands where it did. EXT_meshopt_compression needs three's decoder
+// (setMeshoptDecoder, ~8KB gzipped, loaded in the same lazy chunk as three itself) -- skipped
+// for the 10% build as not worth it for one small model, worth it once it bought the edges.
 //
 // Texture spec (from the model's own baseColor atlas): a single square 2048x2048 sheet
 // holding the front/back body panels, two sleeves, and hem-strip UV islands as flat
@@ -649,15 +658,23 @@ export default function TshirtPreview({
 
     (async () => {
       try {
-        const [THREE, { GLTFLoader }, { EffectComposer }, { RenderPass }, { ShaderPass }, { Pass }] =
-          await Promise.all([
-            import('three'),
-            import('three/examples/jsm/loaders/GLTFLoader.js'),
-            import('three/examples/jsm/postprocessing/EffectComposer.js'),
-            import('three/examples/jsm/postprocessing/RenderPass.js'),
-            import('three/examples/jsm/postprocessing/ShaderPass.js'),
-            import('three/examples/jsm/postprocessing/Pass.js')
-          ]);
+        const [
+          THREE,
+          { GLTFLoader },
+          { MeshoptDecoder },
+          { EffectComposer },
+          { RenderPass },
+          { ShaderPass },
+          { Pass }
+        ] = await Promise.all([
+          import('three'),
+          import('three/examples/jsm/loaders/GLTFLoader.js'),
+          import('three/examples/jsm/libs/meshopt_decoder.module.js'),
+          import('three/examples/jsm/postprocessing/EffectComposer.js'),
+          import('three/examples/jsm/postprocessing/RenderPass.js'),
+          import('three/examples/jsm/postprocessing/ShaderPass.js'),
+          import('three/examples/jsm/postprocessing/Pass.js')
+        ]);
         if (disposed) return;
 
         // WebGL context creation can genuinely fail (GPU blocklists, headless) -- the
@@ -752,7 +769,8 @@ export default function TshirtPreview({
 
         const scene = new THREE.Scene();
         // 28deg across the shirt's own box, widened to the whole canvas (see SWIRL_ROOM).
-        const fov = (2 * Math.atan((canvasSize / size) * Math.tan((14 * Math.PI) / 180)) * 180) / Math.PI;
+        const fov =
+          (2 * Math.atan((canvasSize / size) * Math.tan((14 * Math.PI) / 180)) * 180) / Math.PI;
         const camera = new THREE.PerspectiveCamera(fov, 1, 0.05, 50);
         scene.add(new THREE.AmbientLight(0xffffff, AMBIENT));
         const key = new THREE.DirectionalLight(0xffffff, KEY_INTENSITY);
@@ -799,7 +817,9 @@ export default function TshirtPreview({
         const envMap = makeGradientEnv();
         scene.environment = envMap; // lights the garment; never scene.background (transparent)
 
-        const gltf = await new GLTFLoader().loadAsync('/models/tshirt/tshirt.glb');
+        const gltf = await new GLTFLoader()
+          .setMeshoptDecoder(MeshoptDecoder)
+          .loadAsync('/models/tshirt/tshirt.glb');
         if (disposed) {
           renderer.dispose();
           renderer.forceContextLoss();
@@ -1043,7 +1063,9 @@ export default function TshirtPreview({
             // called from a tap -- tried and user-rejected: the natural first tap is the
             // shirt itself, so the prompt appeared after navigating away to the shop.
             // A permission dialog isn't worth a decorative tilt; iOS gets a static shirt.
-            if (typeof /** @type {any} */ (DeviceOrientationEvent).requestPermission !== 'function') {
+            if (
+              typeof (/** @type {any} */ (DeviceOrientationEvent).requestPermission) !== 'function'
+            ) {
               startOrientation();
             }
           } else {
