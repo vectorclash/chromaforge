@@ -31,7 +31,9 @@ import {
 } from './feedPost';
 import { DEFAULT_POST, fullCaption } from './postText';
 import { createAdComposer } from './adComposer';
-import { adTimeline, segmentAt, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
+import { createExplainComposer, explainTimeline, MOTION_BLUR } from './explainComposer';
+import { CAPTION_STYLES } from './captions';
+import { adTimeline, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
 import { keepFile, listSavedAds, loadAd, saveAd, adSlug } from './devApi';
 
@@ -114,9 +116,18 @@ export default function AdBuilder() {
   });
   const [name, setName] = useState('');
   const [post, setPost] = useState(DEFAULT_POST);
-  // 'reel' (the music ad), 'feed' (an image or carousel), or 'flight': the flight on its own,
-  // posted as a 9:16 Reel with its own length, ramp and objects (`flight`, flightOptions' shape).
+  // 'reel' (the music ad), 'feed' (an image or carousel), 'flight': the flight on its own,
+  // posted as a 9:16 Reel with its own length, ramp and objects (`flight`, flightOptions' shape),
+  // or 'explain': a Reel showing how the site works -- tap, keep, wear (see explainComposer).
   const [format, setFormat] = useState('reel');
+  // The explainer's tapped pieces are fresh designs (`salt` picks a different set), and the
+  // garment it ends on: the homepage's tee or the hoodie.
+  const [explain, setExplain] = useState({
+    salt: 0,
+    garment: 'hoodie',
+    captionStyle: 'line',
+    motionBlur: 'light'
+  });
   const [flight, setFlight] = useState({});
   const [feed, setFeed] = useState({ slides: [] });
 
@@ -204,8 +215,11 @@ export default function AdBuilder() {
     : null;
   const flightPlay = flightBars ? { ...flight, seconds: flightBars * barSec } : flight;
   const flightSeconds = flightOptions(flightPlay).seconds;
-  // How long the music must be: the Reel's timeline, or the flight's loop.
-  const adLength = format === 'flight' ? flightSeconds : timeline.total;
+  const explainTL = useMemo(() => explainTimeline(tempo), [tempo]);
+  // The timeline the preview, export and music follow: the Reel's or the explainer's.
+  const activeTimeline = format === 'explain' ? explainTL : timeline;
+  // How long the music must be: the timeline, or the flight's loop.
+  const adLength = format === 'flight' ? flightSeconds : activeTimeline.total;
   const musicStale = !!musicBuffer && Math.abs((music.duration ?? 0) - adLength) > 0.001;
 
   useEffect(() => {
@@ -247,8 +261,8 @@ export default function AdBuilder() {
   const composerRef = useRef(null);
   const scrubRef = useRef(null);
   const timeRef = useRef(null);
-  const drawState = useRef({ timeline, overlay });
-  drawState.current = { timeline, overlay };
+  const drawState = useRef({ timeline: activeTimeline, overlay, explain });
+  drawState.current = { timeline: activeTimeline, overlay, explain };
   // What playback loops over: the Reel's timeline, or the Flight mode's loop.
   const lengthRef = useRef(adLength);
   lengthRef.current = adLength;
@@ -341,6 +355,50 @@ export default function AdBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photosKey]);
 
+  // The explainer draws every layer into the one preview canvas (its shirt is a small WebGL canvas
+  // copied in), so it needs none of the Reel's layering.
+  const explainKey =
+    format === 'explain' && flightDesign
+      ? JSON.stringify([flightDesign, explain.salt, explain.garment])
+      : '';
+  useEffect(() => {
+    if (!explainKey) return;
+    let cancelled = false;
+    let built = null;
+    setPreviewState('building');
+    setPreviewError(null);
+    createExplainComposer({
+      design: flightDesign,
+      width: PREVIEW_W,
+      height: PREVIEW_H,
+      salt: explain.salt,
+      garment: explain.garment,
+      // Fewer moments per frame live than in the file, so the preview keeps its frame rate; and the
+      // flight's cached path rather than its exact one, as the Reel's preview does.
+      blurSamples: 4,
+      exact: false
+    })
+      .then(c => {
+        built = c;
+        if (cancelled) return c.dispose();
+        composerRef.current = c;
+        setPreviewState('ready');
+        drawAt(play.current.t);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        console.error('[ad builder] explainer failed', e);
+        setPreviewState('error');
+        setPreviewError(e.message);
+      });
+    return () => {
+      cancelled = true;
+      if (composerRef.current === built) composerRef.current = null;
+      built?.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explainKey]);
+
   // The Flight mode's loop changed length (or the mode changed): keep the playhead inside it and
   // the readout and scrubber honest.
   useEffect(() => {
@@ -349,9 +407,9 @@ export default function AdBuilder() {
   }, [adLength, format]);
 
   // Timing, text or tempo changed while paused: redraw where the playhead is.
-  const drawKey = JSON.stringify([timeline.total, timing, overlay]);
+  const drawKey = JSON.stringify([activeTimeline.total, timing, overlay, format, explain]);
   useEffect(() => {
-    if (play.current.t > timeline.total) play.current.t = 0;
+    if (play.current.t > activeTimeline.total) play.current.t = 0;
     if (!play.current.playing) drawAt(play.current.t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawKey]);
@@ -640,6 +698,7 @@ export default function AdBuilder() {
     overlay,
     feed: { slides: feedSlides },
     flight,
+    explain,
     post: adPost
   });
 
@@ -681,6 +740,13 @@ export default function AdBuilder() {
       setFormat(ad.format ?? 'reel');
       setFeed(ad.feed ?? { slides: [] });
       setFlight(ad.flight ?? {});
+      setExplain({
+        salt: 0,
+        garment: 'hoodie',
+        captionStyle: 'line',
+        motionBlur: 'light',
+        ...ad.explain
+      });
       setSlideIndex(0);
       takes.current.clear();
       if (savedTake && ad.music?.duration)
@@ -697,20 +763,39 @@ export default function AdBuilder() {
     }
   };
 
+  // A full-size composer for the file: the Reel's (with its photos placed) or the explainer's.
+  const fullComposer = async () => {
+    if (format === 'explain')
+      return createExplainComposer({
+        design: flightDesign,
+        width: AD_WIDTH,
+        height: AD_HEIGHT,
+        salt: explain.salt,
+        garment: explain.garment
+      });
+    const comp = await createAdComposer({
+      design: flightDesign,
+      width: AD_WIDTH,
+      height: AD_HEIGHT,
+      exact: true
+    });
+    try {
+      await comp.setPhotos(photos, photoLayout);
+    } catch (e) {
+      comp.dispose();
+      throw e;
+    }
+    return comp;
+  };
+
   // One render for both the downloaded file and an Instagram post, which differ only in bitrate.
   const buildMp4 = async ({ bitrate, audioMaxBitrate }) => {
     pause();
     const releases = [];
     setExportState({ label: 'Building the scene', progress: 0 });
     try {
-      const comp = await createAdComposer({
-        design: flightDesign,
-        width: AD_WIDTH,
-        height: AD_HEIGHT,
-        exact: true
-      });
+      const comp = await fullComposer();
       releases.push(() => comp.dispose());
-      await comp.setPhotos(photos, photoLayout);
       const canvas = document.createElement('canvas');
       canvas.width = AD_WIDTH;
       canvas.height = AD_HEIGHT;
@@ -719,8 +804,8 @@ export default function AdBuilder() {
         canvas.height = 0;
       });
       const ctx = canvas.getContext('2d');
-      const state = { timeline, overlay };
-      const totalFrames = Math.round(timeline.total * AD_FPS);
+      const state = { timeline: activeTimeline, overlay, explain };
+      const totalFrames = Math.round(activeTimeline.total * AD_FPS);
       return await encodeMp4({
         width: AD_WIDTH,
         height: AD_HEIGHT,
@@ -759,7 +844,7 @@ export default function AdBuilder() {
           width: AD_WIDTH,
           height: AD_HEIGHT,
           fps: AD_FPS,
-          durationSec: timeline.total
+          durationSec: activeTimeline.total
         })
       });
       saveAs(blob, `${fileBase()}-${AD_WIDTH}x${AD_HEIGHT}.mp4`);
@@ -775,17 +860,11 @@ export default function AdBuilder() {
     setExportState({ label: 'Rendering the cover', progress: 0 });
     let comp = null;
     try {
-      comp = await createAdComposer({
-        design: flightDesign,
-        width: AD_WIDTH,
-        height: AD_HEIGHT,
-        exact: true
-      });
-      await comp.setPhotos(photos, photoLayout);
+      comp = await fullComposer();
       const canvas = document.createElement('canvas');
       canvas.width = AD_WIDTH;
       canvas.height = AD_HEIGHT;
-      comp.draw(canvas.getContext('2d'), play.current.t, { timeline, overlay });
+      comp.draw(canvas.getContext('2d'), play.current.t, { timeline: activeTimeline, overlay, explain });
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
       if (!blob) throw new Error('The frame could not be encoded.');
       return blob;
@@ -856,12 +935,21 @@ export default function AdBuilder() {
   const canExport =
     // Never while a take is missing or the wrong length: that would export the old take, or none.
     !!flightDesign && previewState === 'ready' && !busy && !needsTake && musicBusy === null;
-  const seg = segmentAt(timeline, play.current.t);
+  // The scrubber's labelled stretches: the flight and each product, or the explainer's three beats.
+  const segments =
+    format === 'explain'
+      ? explainTL.segments
+      : [
+          { label: 'Flight', start: 0, end: timeline.flight },
+          ...timeline.products.map((p, i) => ({ label: String(i + 1), start: p.start, end: p.end }))
+        ];
+  const seg = segments.findIndex(s => play.current.t >= s.start && play.current.t < s.end);
   const productNames = photos.map(p =>
     catalog.find(c => c.id === p.productId)?.title?.replace(/^All-Over Print\s*/, '')
   );
   const isFeed = format === 'feed';
   const isFlight = format === 'flight';
+  const isExplain = format === 'explain';
   const photoLabel = url => {
     const p = photoByUrl.get(url);
     return (
@@ -941,7 +1029,7 @@ export default function AdBuilder() {
   const caption = fullCaption(
     post,
     design,
-    isFeed ? feedProductNames : isFlight ? [] : productNames
+    isFeed ? feedProductNames : isFlight || isExplain ? [] : productNames
   );
 
   // ── Layout ──────────────────────────────────────────────────────────────────
@@ -965,7 +1053,9 @@ export default function AdBuilder() {
                   ? `${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
                   : isFlight
                     ? `Reel · ${FLIGHT_W}×${FLIGHT_H} · ${Number(flightSeconds.toFixed(2))}s${music.plan ? '' : ', silent'}`
-                    : `Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
+                    : isExplain
+                      ? `Reel · how it works · ${fmt(explainTL.total)}`
+                      : `Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
               </span>
             </div>
             <Segmented
@@ -974,7 +1064,8 @@ export default function AdBuilder() {
               options={[
                 ['reel', 'Reel'],
                 ['feed', 'Feed post'],
-                ['flight', 'Flight']
+                ['flight', 'Flight'],
+                ['explain', 'Explainer']
               ]}
               onChange={switchFormat}
             />
@@ -1086,7 +1177,74 @@ export default function AdBuilder() {
           {designError && <p className="mt-2 text-xs text-red-300">{designError}</p>}
         </Section>
 
-        {!isFlight && (
+        {isExplain && (
+          <Section
+            title="2 · How it works"
+            aside={
+              <Toggle
+                on={overlay.show}
+                onClick={() => setOverlay(o => ({ ...o, show: !o.show }))}
+                aria-label="Show the brand lockup"
+              />
+            }
+          >
+            <p className="text-sm text-neutral-400">
+              Tap, keep, wear: three fresh pieces are tapped up, then your design, which is kept
+              into a grid of saved pieces and put on the{' '}
+              {explain.garment === 'hoodie' ? 'hoodie' : 'shirt'}. {Math.round(tempo)} bpm,{' '}
+              {fmt(explainTL.total)}.
+            </p>
+            <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-400">Wears it on</span>
+              <Segmented
+                label="Garment"
+                value={explain.garment}
+                options={[
+                  ['hoodie', 'Hoodie'],
+                  ['tee', 'Tee']
+                ]}
+                onChange={v => setExplain(x => ({ ...x, garment: v }))}
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-400">Captions</span>
+              <Segmented
+                label="Caption style"
+                value={explain.captionStyle}
+                options={CAPTION_STYLES}
+                onChange={v => setExplain(x => ({ ...x, captionStyle: v }))}
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-400">Motion blur</span>
+              <Segmented
+                label="Motion blur"
+                value={explain.motionBlur}
+                options={MOTION_BLUR}
+                onChange={v => setExplain(x => ({ ...x, motionBlur: v }))}
+              />
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!design || previewState === 'building'}
+                onClick={() => setExplain(x => ({ ...x, salt: x.salt + 1 }))}
+                title="A different set of fresh pieces before yours"
+              >
+                Shuffle the taps
+              </Button>
+              <input
+                value={overlay.text}
+                onChange={e => setOverlay(o => ({ ...o, text: e.target.value }))}
+                aria-label="Line under the wordmark"
+                className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
+              />
+            </div>
+          </Section>
+        )}
+
+        {!isFlight && !isExplain && (
           <Section
             title="2 · Products"
             aside={
@@ -1310,7 +1468,7 @@ export default function AdBuilder() {
           </>
         )}
 
-        <Section title={isFeed ? '4 · Export' : isFlight ? '4 · Export' : '6 · Export'}>
+        <Section title={format === 'reel' ? '6 · Export' : '4 · Export'}>
           {isFlight ? (
             <div className="flex items-center gap-3">
               <Button className="shrink-0" disabled={!canExportFlight} onClick={downloadFlight}>
@@ -1366,10 +1524,10 @@ export default function AdBuilder() {
           )}
         </Section>
 
-        <Section title={isFeed ? '5 · Post' : isFlight ? '5 · Post' : '7 · Post'}>
+        <Section title={format === 'reel' ? '7 · Post' : '5 · Post'}>
           <PostCopy
             design={design}
-            productNames={isFeed ? feedProductNames : isFlight ? [] : productNames}
+            productNames={isFeed ? feedProductNames : isFlight || isExplain ? [] : productNames}
             post={post}
             onChange={setPost}
           />
@@ -1391,7 +1549,7 @@ export default function AdBuilder() {
             }
             onPosted={recordPost}
             progress={exportState}
-            durationSec={isFlight ? flightSeconds : timeline.total}
+            durationSec={isFlight ? flightSeconds : activeTimeline.total}
           />
         </Section>
       </aside>
@@ -1504,7 +1662,7 @@ export default function AdBuilder() {
             )}
             {previewState === 'building' && (
               <p className="absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-xs text-neutral-300">
-                Building the flight…
+                {isExplain ? 'Rendering the pieces and the shirt…' : 'Building the flight…'}
               </p>
             )}
             {previewState === 'error' && (
@@ -1522,19 +1680,13 @@ export default function AdBuilder() {
           >
             <div className="relative pt-4">
               <div className="pointer-events-none absolute inset-x-0 top-0 flex text-[10px] text-neutral-500">
-                <span
-                  style={{ width: `${(timeline.flight / timeline.total) * 100}%` }}
-                  className="truncate"
-                >
-                  Flight
-                </span>
-                {timeline.products.map((p, i) => (
+                {segments.map((s, i) => (
                   <span
                     key={i}
-                    style={{ width: `${((p.end - p.start) / timeline.total) * 100}%` }}
-                    className={`truncate border-l border-white/20 pl-1 ${seg === i ? 'text-white' : ''}`}
+                    style={{ width: `${((s.end - s.start) / activeTimeline.total) * 100}%` }}
+                    className={`truncate pl-1 first:pl-0 ${i ? 'border-l border-white/20' : ''} ${seg === i ? 'text-white' : ''}`}
                   >
-                    {i + 1}
+                    {s.label}
                   </span>
                 ))}
               </div>
@@ -1542,7 +1694,7 @@ export default function AdBuilder() {
                 ref={scrubRef}
                 type="range"
                 min="0"
-                max={timeline.total}
+                max={activeTimeline.total}
                 step="0.01"
                 defaultValue="0"
                 className="w-full"

@@ -2639,6 +2639,32 @@ the app allows 20). Things worth not re-deriving:
 - The seed card mentions seeds, which Reel captions avoid; it stays in the preset because it was in
   the approved mockup. Remove the slide per post if that rule should apply.
 
+(12) **Explainer: a Reel that shows HOW the site works** (`explainComposer.js`, `explainShirt.js`,
+`captions.js`, 2026-10-26; Aaron: friends seeing the Reels didn't realise they could make and save
+their own art). The header's fourth format. Three sections on the music, no UI: **Tap** (a
+fingertip taps and fresh pieces burst out of the tap point, quickening onto the chosen design),
+**Keep** (the camera pulls back: the piece is one card in a wall whose columns slide), **Wear**
+(the wall falls onto the design's flight at constant speed, the garment rises in, the card slams
+into its chest with the hero's shockwave and sparks, the garment turns once). Captions: "Tap to
+make art." / "Keep the ones you love." / "Then wear it.", key words make/keep/wear in FORGE lime.
+Things worth not re-deriving:
+- **It is motion, not slides** (Aaron: "more motion graphics and less powerpoint presentation"):
+  one camera that never stops, every section change a physical move, real shutter MOTION BLUR
+  (each frame the mean of `blurSamples` moments, 16 in the file, 4 in the preview; Off/Light/Heavy).
+- **The tapped pieces and the wall are FRESH designs at the studio's defaults** -- what a tap
+  really gives you. Shuffle re-rolls them.
+- **The sharp artwork is only ever in one place at a time.** A version that grew the card back to
+  full frame while the garment faded in wearing it read as four copies at once.
+- **The garments are NOT lit like the hero.** The hero is calibrated so texels match the wall
+  behind them, which reads flat at video size. Here: key, fill, two rims, low ambient, sheen 0.8,
+  a jersey-knit normal map (random noise read as wall plaster), a 2048 sheet, and the tee at FULL
+  detail (`src/assets/models/tshirt-hd/`, the archival source minus `simplify`, so the UVs are
+  unchanged; imported `?url`, so it never ships with the site). The hoodie is the 9/28 trial model
+  (`components/hoodieModel.js`, rebuild notes in `scripts/hoodie-model/`), still decimated.
+- **Caption style is still a three-way choice (Line/Pop/Facet)** to settle in the builder; keep one,
+  as the lockup's entrance was settled.
+- The two 3D models are CC-BY: a posted Reel showing them should credit them in the caption.
+
 Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
 exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
 kept it suspended -- a silent preview until the next pause and play. Export was never affected.

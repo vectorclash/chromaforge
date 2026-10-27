@@ -300,6 +300,7 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   // busy, kept the render loop running at 60fps indefinitely.
   let strikeQueued = false;
   let releaseQueued = false;
+  let posed = false;
   const alive = now =>
     strikeAt !== null &&
     now - strikeAt < MAX_LIFE &&
@@ -391,6 +392,21 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
         writeColors(easeInOut(mix));
         if (mix >= 1) paletteStart = -1;
       }
+      points.visible = enabled && alive(now);
+      uniforms.uAge.value = strikeAt === null ? 0 : now - strikeAt;
+      uniforms.uRelStart.value = releaseAt === null ? -1 : releaseAt - strikeAt;
+    },
+    // For a caller that draws frames from a timeline, in any order (the ad builder's explainer):
+    // the event's times are given outright instead of being queued against the frame clock. The
+    // vortex is rolled once, on the first call, so scrubbing back and forth shows one swirl.
+    pose(now, at, releasedAt) {
+      if (!posed) {
+        rollVortex();
+        posed = true;
+      }
+      const released = releasedAt !== null && now >= releasedAt;
+      strikeAt = now >= at ? at : null;
+      releaseAt = released ? releasedAt : null;
       points.visible = enabled && alive(now);
       uniforms.uAge.value = strikeAt === null ? 0 : now - strikeAt;
       uniforms.uRelStart.value = releaseAt === null ? -1 : releaseAt - strikeAt;
