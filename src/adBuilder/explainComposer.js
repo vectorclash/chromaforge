@@ -39,6 +39,14 @@ const WEAR_BARS = 3;
 // the next for 2, then 1, and the chosen one holds into Keep.
 const TAP_BEATS = [0, 3, 5, 6];
 const TAPPED_FRESH = TAP_BEATS.length - 1;
+// Where each caption changes, in beats. Changed only on section lines, the first caption held 8
+// beats and the next two 4 each -- at 90bpm "Keep the ones you love." stood still for about a
+// second before leaving (Aaron, 2026-10-26: "the second goes away as soon as it animates in").
+// Now each holds 6: the second arrives as the chosen design lands (the last tap), so it is read
+// before the keep tap it describes, and the lockup waits half a bar longer, landing as the
+// garment finishes its turn.
+const KEEP_CAPTION_BEAT = TAP_BEATS[TAPPED_FRESH];
+const LOCKUP_BEATS_INTO_WEAR = 6;
 // More fresh pieces for the wall. They are only ever seen small, so they render small.
 const WALL_EXTRAS = 8;
 const WALL_SCALE = 0.4;
@@ -544,13 +552,14 @@ export async function createExplainComposer({
     // ── Captions and the lockup ──
     // One line of text at the top at a time: the last caption leaves as the lockup arrives in its
     // place, so nothing sits under the garment.
-    const lockupAt = wear + tl.bar;
+    const lockupAt = wear + LOCKUP_BEATS_INTO_WEAR * beat;
+    const keepCaption = KEEP_CAPTION_BEAT * beat;
     captions.draw(ctx, t, {
       style: explain?.captionStyle || 'line',
       beat,
       spans: [
-        [0, keep],
-        [keep, wear],
+        [0, keepCaption],
+        [keepCaption, wear],
         [wear, overlay.show ? lockupAt : Infinity]
       ]
     });
@@ -571,7 +580,7 @@ export async function createExplainComposer({
   const sample = canvas(width, height);
   /** Same arguments as drawFrame. */
   function draw(ctx, t, opts) {
-    const open = (SHUTTER[opts.explain?.motionBlur ?? 'light'] ?? 0) / AD_FPS;
+    const open = (SHUTTER[opts.explain?.motionBlur ?? 'heavy'] ?? 0) / AD_FPS;
     if (!open || blurSamples < 2) return drawFrame(ctx, t, opts);
     const a = accum.getContext('2d');
     const s = sample.getContext('2d');

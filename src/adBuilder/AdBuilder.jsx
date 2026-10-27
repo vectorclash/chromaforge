@@ -37,6 +37,16 @@ import { adTimeline, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTime
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
 import { keepFile, listSavedAds, loadAd, saveAd, adSlug } from './devApi';
 
+// The explainer's tapped pieces are fresh designs (`salt` picks a different set), and the
+// garment it ends on: the homepage's tee or the hoodie. Tee and heavy blur since the first post
+// (Aaron, 2026-10-26); a saved ad keeps the choices it was saved with.
+const DEFAULT_EXPLAIN = {
+  salt: 0,
+  garment: 'tee',
+  captionStyle: 'line',
+  motionBlur: 'heavy'
+};
+
 // The local ad builder: an Instagram Reel of a design flying through 3D and landing on the
 // products, cut to music from Orrery -- or a feed post of the same design and photos, as one image
 // or a carousel (see feedPost.js). See ad-builder.html for how to open it.
@@ -120,14 +130,7 @@ export default function AdBuilder() {
   // posted as a 9:16 Reel with its own length, ramp and objects (`flight`, flightOptions' shape),
   // or 'explain': a Reel showing how the site works -- tap, keep, wear (see explainComposer).
   const [format, setFormat] = useState('reel');
-  // The explainer's tapped pieces are fresh designs (`salt` picks a different set), and the
-  // garment it ends on: the homepage's tee or the hoodie.
-  const [explain, setExplain] = useState({
-    salt: 0,
-    garment: 'hoodie',
-    captionStyle: 'line',
-    motionBlur: 'light'
-  });
+  const [explain, setExplain] = useState(DEFAULT_EXPLAIN);
   const [flight, setFlight] = useState({});
   const [feed, setFeed] = useState({ slides: [] });
 
@@ -740,13 +743,7 @@ export default function AdBuilder() {
       setFormat(ad.format ?? 'reel');
       setFeed(ad.feed ?? { slides: [] });
       setFlight(ad.flight ?? {});
-      setExplain({
-        salt: 0,
-        garment: 'hoodie',
-        captionStyle: 'line',
-        motionBlur: 'light',
-        ...ad.explain
-      });
+      setExplain({ ...DEFAULT_EXPLAIN, ...ad.explain });
       setSlideIndex(0);
       takes.current.clear();
       if (savedTake && ad.music?.duration)
