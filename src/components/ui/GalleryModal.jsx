@@ -7,6 +7,7 @@ import ShirtIcon from '../buttons/ShirtIcon';
 import HeartIcon from '../buttons/HeartIcon';
 import ArrowIcon from '../buttons/ArrowIcon';
 import ShareIcon from '../buttons/ShareIcon';
+import TrashIcon from '../buttons/TrashIcon';
 import AnimationIcon from '../buttons/AnimationIcon';
 import { getThumbnailUrl } from '../../lib/designs';
 import { useStudio } from '../../context/StudioContext';
@@ -57,6 +58,19 @@ const PILL =
   'flex h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 font-quicksand text-sm font-semibold transition';
 const PILL_IDLE = ' border-hairline bg-ink-800 text-text hover:border-accent/40 hover:text-accent';
 const PILL_ACTIVE = ' border-accent/50 bg-accent/10 text-accent';
+
+// The quick actions (Like, Print, Share, Delete) are PILL on a wide panel and, below 448px of
+// panel content (every phone, and a short desktop window where the panel is height-capped),
+// equal tiles with the icon over the label, all on one row. Laid out as pills they need ~400px,
+// so a phone wrapped them and stranded the last one on a line of its own: Delete at 390-430px,
+// and Share for every visitor at 320-375px, where even three don't fit. A container query, not
+// a viewport breakpoint, because what decides it is the panel's width, which is capped by the
+// viewport's HEIGHT as well as its width (PANEL_SIZE_CLASS).
+const ACTION =
+  'flex h-14 min-w-0 cursor-pointer flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-1 font-quicksand text-xs font-semibold transition ' +
+  '@md:h-11 @md:flex-row @md:gap-2 @md:px-4 @md:text-sm';
+// The label (and Like's count) inside a tile/pill: the count sits beside the word in both layouts.
+const ACTION_LABEL = 'flex items-center gap-1 @md:gap-2';
 
 function CheckIcon({ size = 18 }) {
   return (
@@ -430,30 +444,33 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
             could strand "Open in studio" alone on its own line, still pinned to the
             right via ml-auto, which read as a stray floating button rather than a
             deliberate primary action. A dedicated full-width row below the quick actions
-            reads the same (and looks intentional) at every width instead. */}
-        <div className="flex min-h-0 flex-col overflow-y-auto p-4 sm:p-5">
+            reads the same (and looks intentional) at every width instead. The quick
+            actions themselves never wrap on a narrow panel either -- see ACTION. */}
+        <div className="@container flex min-h-0 flex-col overflow-y-auto p-4 sm:p-5">
         <div
-          className="flex animate-reveal-quick flex-wrap items-center gap-3"
+          className="grid animate-reveal-quick auto-cols-fr grid-flow-col gap-2 @md:flex @md:flex-wrap @md:items-center @md:gap-3"
           style={{ animationDelay: '280ms' }}
         >
           <button
             type="button"
             onClick={() => onToggleLike(design)}
-            className={PILL + (liked ? PILL_ACTIVE : PILL_IDLE)}
+            className={ACTION + (liked ? PILL_ACTIVE : PILL_IDLE)}
             aria-label={liked ? 'Unlike this design' : 'Like this design'}
           >
             <HeartIcon filled={liked} size={18} />
-            <span>{liked ? 'Liked' : 'Like'}</span>
-            {design.likes_count > 0 && (
-              <span className="tabular-nums text-text-muted">{design.likes_count}</span>
-            )}
+            <span className={ACTION_LABEL}>
+              <span>{liked ? 'Liked' : 'Like'}</span>
+              {design.likes_count > 0 && (
+                <span className="tabular-nums text-text-muted">{design.likes_count}</span>
+              )}
+            </span>
           </button>
 
           {printable && (
             <button
               type="button"
               onClick={() => onPrint(printable)}
-              className={PILL + PILL_IDLE}
+              className={ACTION + PILL_IDLE}
               aria-label="Print this design"
             >
               <ShirtIcon size={18} />
@@ -468,22 +485,29 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           <button
             type="button"
             onClick={handleShare}
-            className={PILL + (shareState === 'copied' ? PILL_ACTIVE : PILL_IDLE)}
+            className={ACTION + (shareState === 'copied' ? PILL_ACTIVE : PILL_IDLE)}
             aria-label="Share this design"
           >
             <span className="grid">
-              <span aria-hidden="true" className="invisible col-start-1 row-start-1 flex items-center gap-2">
+              <span aria-hidden="true" className="invisible col-start-1 row-start-1 flex flex-col items-center gap-1 @md:flex-row @md:gap-2">
                 <CheckIcon size={18} />
                 <span>Copied</span>
               </span>
               <span
                 key={shareState}
-                className="col-start-1 row-start-1 flex animate-reveal-quick items-center justify-center gap-2"
+                className="col-start-1 row-start-1 flex animate-reveal-quick flex-col items-center justify-center gap-1 @md:flex-row @md:gap-2"
               >
                 {shareState === 'copied' ? <CheckIcon size={18} /> : <ShareIcon size={18} />}
-                <span>
-                  {shareState === 'copied' ? 'Copied' : shareState === 'failed' ? 'Copy failed' : 'Share'}
-                </span>
+                {shareState === 'failed' ? (
+                  // "Copy failed" is wider than a 320px phone's tile; the live region below
+                  // still announces it in full.
+                  <span>
+                    <span className="@md:hidden">Failed</span>
+                    <span className="hidden @md:inline">Copy failed</span>
+                  </span>
+                ) : (
+                  <span>{shareState === 'copied' ? 'Copied' : 'Share'}</span>
+                )}
               </span>
             </span>
           </button>
@@ -495,9 +519,10 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
             <button
               type="button"
               onClick={() => onDelete(design)}
-              className={PILL + PILL_IDLE}
+              className={ACTION + PILL_IDLE}
               aria-label="Delete design"
             >
+              <TrashIcon size={18} />
               <span>Delete</span>
             </button>
           )}
