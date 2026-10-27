@@ -2836,6 +2836,14 @@ shirt reads more saturated while the wall reads washed. The only real lever is r
 texture at 16:9 and cover-cropping it into the island rects (the shirt would then show
 literally the same composition, cropped) — explicitly rejected, since it would stop
 depicting how the design actually prints.
+**The lighting and fabric are now the explainer Reel's (2026-10-27, `components/shirtStudio.js`,
+shared by TshirtPreview and `adBuilder/explainShirt.js`; Aaron: "the shirt just looks so good in
+the video it would be nice to match that lighting and texture").** A key, a fill, two rims, low
+ambient, a gradient environment, sheen 0.8 and a jersey-knit normal map; still no tone mapping.
+It deliberately gives up the texel-matches-the-wall calibration described next, so folds model and
+the garment no longer reads as a flat cut-out. On dark designs the sheen shows as a soft pale wash
+at the edges; that is the cloth cue, not a bug. The hero keeps its 1024 sheet and simplified model.
+The rest of this paragraph is the superseded calibration, kept as history.
 **Lighting was separately recalibrated the same day**, a real 8% fix that is NOT the above:
 the previous ambient 2.26 / key 1.04 solved for a camera-facing surface, which is the
 brightest fabric on screen rather than the typical fabric — measured over every visible

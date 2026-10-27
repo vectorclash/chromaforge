@@ -13,6 +13,7 @@ import { NEBULA_PIXELS_LITE } from '../render/nebula';
 // area (render/nebula.js NEBULA_PIXELS_LITE) -- the shirt is drawn about 190px tall.
 const SHIRT_RENDER = { priority: PRIORITY_SHIRT, nebulaPixels: NEBULA_PIXELS_LITE };
 import { createTshirtSwirl } from './tshirtSwirl';
+import { addStudioLighting, makeFabricTexture, applyFabric } from './shirtStudio';
 
 // Small live 3D garment preview for the homepage hero panel: the current design rendered
 // as the base-color texture of a t-shirt model, slowly rotating. three.js is dynamically
@@ -697,130 +698,22 @@ export default function TshirtPreview({
           top: `${(size - canvasSize) / 2}px`,
           pointerEvents: 'none'
         });
-        // LIGHTING IS CALIBRATED SO THE SHIRT REPRODUCES THE TEXTURE, NOT MERELY SO IT
-        // LOOKS LIT. The shirt sits directly beside the same design rendered flat as the
-        // page background, so any deviation reads as the two being different colours --
-        // reported live (2026-08-05) as the shirt's colours "feeling different" on bright,
-        // saturated designs.
-        //
-        // The previous setup (ambient 3.2 / key 1.6 under ACESFilmicToneMapping) had the
-        // whole garment past white before tone mapping: the diffuse term is
-        // irradiance * albedo/pi, so even the DIMMEST, ambient-only part of the shirt sat at
-        // 3.2/pi = 1.02, and the lit side at 1.53. That put every pixel of the garment inside
-        // the compressed shoulder of the ACES curve, which desaturates and hue-shifts as it
-        // rolls off. Measured against three.js's own ACES fit, front-facing fabric averaged
-        // dE 17.5 off the true texture colour and peaked at 37.5 -- cyan #00e5ff rendered as
-        // #a5e6ea, a pale grey-cyan with its red channel pushed from 0 to 165. Saturated
-        // brights were the worst hit, which is exactly the case that was reported.
-        //
-        // The fix is to keep the whole garment on the LINEAR part of the response instead:
-        // no tone mapping, and the total irradiance chosen so the fabric lands at a factor
-        // of 1.0, where a texel survives sRGB-decode -> multiply -> sRGB-encode unchanged
-        // and the garment is the same colour as the flat background beside it.
-        //
-        // WHICH PART of the garment that factor is calibrated ON is the whole game, and the
-        // first version got it wrong (reported again 2026-08-05: the shirt still "feels
-        // darker"). It solved for a surface facing the camera dead-on -- but on a t-shirt
-        // that is the BRIGHTEST fabric on screen, not the typical fabric. Measured over the
-        // real .glb (every camera-visible triangle, weighted by its projected screen area):
-        // the front-facing 0.964 sat at the top of a 0.78 -> 1.05 spread whose area-weighted
-        // MEAN was 0.921, with a THIRD of the visible garment below 0.9. So the calibration
-        // was correct at its reference point and the shirt was still genuinely darker than
-        // the background nearly everywhere -- which is exactly what the eye reports, since
-        // it judges the garment as a whole and not its brightest facet.
-        //
-        // So the target is the area-weighted mean, not the peak: ambient + key * <mean N.L>
-        // = pi. `key` then only picks how wide the spread around that mean is, and it costs
-        // clipping at the top -- holding the mean at 1.0, key 1.04 runs 0.81 -> 1.12 (any
-        // texel above 0.89 blows out on the lit shoulder, the same desaturation of saturated
-        // brights this calibration exists to prevent), while key 0.55 runs 0.89 -> 1.07.
-        // Chose the latter: the model carries no normal map, no AO and no vertex colours
-        // (verified in the .glb), so the only thing a big `key` buys is a soft gradient
-        // across a 190px shirt -- not worth spending the highlights on.
-        //
-        // DO NOT "RESTORE" A BIGGER KEY TO GET DEPTH BACK without re-running the numbers:
-        // the two values are one calibration. To retune, pick a `key` and solve
-        // ambient = pi * (1 - ENV_IRRADIANCE) - key * 0.743 (0.743 being the measured
-        // area-weighted mean of N.L over the visible garment for this model and this light
-        // direction). AMBIENT below does exactly that, so `key` and ENV_IRRADIANCE are the
-        // only two numbers to touch -- the sum is always conserved.
-        //
-        // WHY THERE IS AN ENVIRONMENT AND A SHEEN AT ALL, given flat fill is what reproduces
-        // the texture: with no env map, a roughness-1 standard material has nothing to
-        // reflect, so the garment is a printed SURFACE rather than cloth. The two additions
-        // below are the fabric cues, both chosen because they leave camera-facing colour
-        // alone (which is the whole calibration):
-        //   - a vertical sky/floor gradient environment, which replaces a slice of the flat
-        //     ambient with light that has a DIRECTION, so the shoulders read lit-from-above
-        //     and the hem falls off. Its mean radiance is normalised to ENV_IRRADIANCE
-        //     exactly (see makeGradientEnv), and a uniform-radiance environment contributes
-        //     irradiance pi*L -- i.e. a displayed factor of exactly L -- so it can be traded
-        //     against AmbientLight one-for-one with no net brightness change.
-        //   - sheen, the retroreflective fibre rim real cloth has. It peaks at GRAZING
-        //     angles and falls to ~0 head-on, so it draws the silhouette's edge without
-        //     touching the fabric facing the viewer.
-        // DELIBERATELY NOT a spotlight, which is the usual reach here: a spotlight has
-        // distance decay, so brightness would depend on where a triangle sits in space and
-        // no single factor could map a texel to the background's colour any more.
-        const KEY_INTENSITY = 0.55;
-        const ENV_IRRADIANCE = 0.25; // share of the total taken by the environment
-        const AMBIENT = Math.PI * (1 - ENV_IRRADIANCE) - KEY_INTENSITY * 0.743;
-        renderer.toneMapping = THREE.NoToneMapping;
-
         const scene = new THREE.Scene();
         // 28deg across the shirt's own box, widened to the whole canvas (see SWIRL_ROOM).
         const fov =
           (2 * Math.atan((canvasSize / size) * Math.tan((14 * Math.PI) / 180)) * 180) / Math.PI;
         const camera = new THREE.PerspectiveCamera(fov, 1, 0.05, 50);
-        scene.add(new THREE.AmbientLight(0xffffff, AMBIENT));
-        const key = new THREE.DirectionalLight(0xffffff, KEY_INTENSITY);
-        key.position.set(2, 3, 4);
-        scene.add(key);
-
-        // Equirect gradient, built here rather than loaded: an HDR/RoomEnvironment would be
-        // another request (and RoomEnvironment's coloured emissive panels would tint the
-        // garment, which is exactly what this calibration cannot afford). Rows are weighted
-        // by sin(theta) -- their real solid angle -- when normalising, so the mean radiance
-        // lands on ENV_IRRADIANCE as seen by a surface, not merely as an average of pixels.
-        const makeGradientEnv = () => {
-          const H = 64;
-          const rows = new Float32Array(H);
-          let weighted = 0;
-          let weight = 0;
-          for (let y = 0; y < H; y++) {
-            const t = (y + 0.5) / H; // 0 = up
-            const solid = Math.sin(t * Math.PI);
-            rows[y] = 1 - t; // bright sky above, dark floor below
-            weighted += rows[y] * solid;
-            weight += solid;
-          }
-          const norm = ENV_IRRADIANCE / (weighted / weight);
-          const data = new Float32Array(H * 2 * H * 4);
-          for (let y = 0; y < H; y++) {
-            const v = rows[y] * norm;
-            for (let x = 0; x < H * 2; x++) {
-              const i = (y * H * 2 + x) * 4;
-              data[i] = data[i + 1] = data[i + 2] = v;
-              data[i + 3] = 1;
-            }
-          }
-          const tex = new THREE.DataTexture(data, H * 2, H, THREE.RGBAFormat, THREE.FloatType);
-          tex.mapping = THREE.EquirectangularReflectionMapping;
-          tex.colorSpace = THREE.LinearSRGBColorSpace;
-          tex.needsUpdate = true;
-          const pmrem = new THREE.PMREMGenerator(renderer);
-          const env = pmrem.fromEquirectangular(tex).texture;
-          pmrem.dispose();
-          tex.dispose();
-          return env;
-        };
-        const envMap = makeGradientEnv();
-        scene.environment = envMap; // lights the garment; never scene.background (transparent)
+        // The explainer Reel's studio lighting and jersey fabric, shared with it (2026-10-27,
+        // Aaron: "the shirt just looks so good in the video it would be nice to match that
+        // lighting and texture"). This replaced a calibration that matched every texel to the
+        // wall behind it; see shirtStudio.js for the trade.
+        const disposeLighting = addStudioLighting(THREE, scene, renderer);
 
         const gltf = await new GLTFLoader()
           .setMeshoptDecoder(MeshoptDecoder)
           .loadAsync('/models/tshirt/tshirt.glb');
         if (disposed) {
+          disposeLighting();
           renderer.dispose();
           renderer.forceContextLoss();
           return;
@@ -848,36 +741,12 @@ export default function TshirtPreview({
           enabled: !window.matchMedia('(prefers-reduced-motion: reduce)').matches
         });
 
-        // Sheen only exists on MeshPhysicalMaterial, and the model ships one of each (a
-        // Physical body and a Standard trim mesh -- verified in the .glb), so the Standard
-        // one is promoted. The promotion borrows MeshStandardMaterial's OWN copy rather than
-        // calling `physical.copy(mat)`: MeshPhysicalMaterial.copy reads physical-only fields
-        // off its source and would throw on a Standard one (`clearcoatNormalScale.copy(
-        // undefined )`). Borrowing it carries every base + standard field across and leaves
-        // the physical extras at their constructed defaults, which is exactly what's wanted.
-        // The promoted material is written back onto the mesh and `materials` holds the live
-        // ones either way, so the texture plumbing below is unaffected.
-        //
-        // sheenRoughness is deliberately high: a tight sheen lobe reads as satin/silk, and
-        // this is a cotton tee. Low `sheen` for the same reason -- it is meant to be felt at
-        // the silhouette, not seen as a rim light.
-        const SHEEN = 0.3;
+        // The model ships a Physical body and a Standard trim mesh; applyFabric promotes the
+        // Standard one, since sheen exists only on MeshPhysicalMaterial.
+        const fabric = makeFabricTexture(THREE, renderer);
         const materials = [];
         gltf.scene.traverse(obj => {
-          if (!obj.isMesh) return;
-          let mat = obj.material;
-          if (!mat.isMeshPhysicalMaterial) {
-            const physical = new THREE.MeshPhysicalMaterial();
-            THREE.MeshStandardMaterial.prototype.copy.call(physical, mat);
-            mat.dispose();
-            obj.material = physical;
-            mat = physical;
-          }
-          mat.sheen = SHEEN;
-          mat.sheenRoughness = 0.85;
-          mat.sheenColor = new THREE.Color(0xffffff);
-          mat.needsUpdate = true;
-          materials.push(mat);
+          if (obj.isMesh) materials.push(applyFabric(THREE, obj, fabric));
         });
 
         // One persistent canvas backs the material texture for the shirt's whole life;
@@ -1243,7 +1112,8 @@ export default function TshirtPreview({
           aberrationTween?.kill();
           stateRef.current.api = null;
           texture.dispose();
-          envMap.dispose(); // PMREM render target texture -- not owned by any material
+          disposeLighting();
+          fabric.dispose();
           materials.forEach(mat => mat.dispose());
           swirl.dispose();
           composer.dispose?.();

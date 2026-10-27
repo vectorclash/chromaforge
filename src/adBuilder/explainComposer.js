@@ -3,6 +3,9 @@ import renderArtwork from '../render/renderArtwork';
 import { resolveDesignPalette } from '../render/resolvedPalette';
 import { STUDIO_DEFAULT_GEOMETRY_SETTINGS } from '../render/designSettings';
 import { makeRng } from '../render/prng';
+import { drawStarSprite } from '../render/starSprite';
+import { NEBULA_PIXELS_LITE } from '../render/nebula';
+import { PALETTE_PRESETS } from '../render/palettePresets';
 import { SAFE_TOP } from './adComposer';
 import { AD_FPS, SCENE_DURATION } from './adTimeline';
 import { createFlightLoop } from './feedPost';
@@ -33,6 +36,9 @@ import { createCaptions } from './captions';
 
 const TAP_BARS = 2;
 const KEEP_BARS = 1;
+// The wall holds one beat past its bar before Wear takes it away (Aaron, 2026-10-27: it left
+// before it could be looked at). So Wear, and everything after, sits a beat off the bar line.
+const KEEP_EXTRA_BEATS = 1;
 const WEAR_BARS = 3;
 // The beats the Tap section's taps land on; the last one lands the chosen design. They QUICKEN,
 // like a wheel slowing onto a number: the first piece holds for 3 beats so "tap, then art" reads,
@@ -42,14 +48,20 @@ const TAPPED_FRESH = TAP_BEATS.length - 1;
 // Where each caption changes, in beats. Changed only on section lines, the first caption held 8
 // beats and the next two 4 each -- at 90bpm "Keep the ones you love." stood still for about a
 // second before leaving (Aaron, 2026-10-26: "the second goes away as soon as it animates in").
-// Now each holds 6: the second arrives as the chosen design lands (the last tap), so it is read
+// Now each holds 6 (the second 7, with the wall's extra beat): the second arrives as the chosen design lands (the last tap), so it is read
 // before the keep tap it describes, and the lockup waits half a bar longer, landing as the
 // garment finishes its turn.
 const KEEP_CAPTION_BEAT = TAP_BEATS[TAPPED_FRESH];
 const LOCKUP_BEATS_INTO_WEAR = 6;
-// More fresh pieces for the wall. They are only ever seen small, so they render small.
-const WALL_EXTRAS = 8;
+// More fresh pieces for the wall. They are only ever seen small, so they render small, with the
+// decorative nebula. Enough of them that the wall (35 cards, 4 of them the tapped pieces) barely
+// repeats: with 8, its 20 outer cards drew from 8 and the same piece often sat side by side.
+const WALL_EXTRAS = 26;
 const WALL_SCALE = 0.4;
+// The wall's columns: the kept one and two either side. Seven rows, so the sliding columns never
+// run out of cards at the top or bottom of the pulled-back view, at the slowest tempo.
+const WALL_COLS = [-2, -1, 0, 1, 2];
+const WALL_ROWS = [-3, -2, -1, 0, 1, 2, 3];
 
 // Motion blur, as a camera shutter makes it: each frame is the average of several moments spread
 // across its exposure, so only what moves blurs, and by exactly how fast it moves. The open time
@@ -76,7 +88,7 @@ export function explainTimeline(tempo) {
   const beat = 60 / tempo;
   const bar = 4 * beat;
   const keep = TAP_BARS * bar;
-  const wear = keep + KEEP_BARS * bar;
+  const wear = keep + KEEP_BARS * bar + KEEP_EXTRA_BEATS * beat;
   const total = wear + WEAR_BARS * bar;
   const taps = TAP_BEATS.map(b => b * beat);
   // The card hits the garment two beats into Wear -- but never sooner than the garment can rise
@@ -112,13 +124,108 @@ const canvas = (w, h) => {
 };
 const nextTask = () => new Promise(r => setTimeout(r, 0));
 
-/** The fresh designs for this ad: the tapped ones, then the wall's. `salt` reshuffles them. */
+/**
+ * Blur a canvas in place, then saturate and brighten it -- what ctx.filter's blur/saturate/
+ * brightness do, written out because Safari ignores ctx.filter: there the hovering card's glow was
+ * a hard-edged gradient rectangle (Aaron, 2026-10-27). Three box blurs approximate a gaussian, on
+ * premultiplied colour so transparent edges do not darken. Run once per composer, never per frame.
+ */
+function blurCanvas(c, radius, { saturate = 1, brightness = 1 } = {}) {
+  const w = c.width;
+  const h = c.height;
+  const r = Math.max(1, Math.round(radius / 1.7));
+  const ctx = c.getContext('2d');
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const n = w * h;
+  let a = new Float32Array(n * 4);
+  let b = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const al = d[i * 4 + 3] / 255;
+    a[i * 4] = d[i * 4] * al;
+    a[i * 4 + 1] = d[i * 4 + 1] * al;
+    a[i * 4 + 2] = d[i * 4 + 2] * al;
+    a[i * 4 + 3] = d[i * 4 + 3];
+  }
+  // One box pass along rows (step 1) or columns (step w), edges clamped.
+  const pass = (src, dst, len, lines, step, lineStep) => {
+    const norm = 1 / (2 * r + 1);
+    for (let l = 0; l < lines; l++) {
+      const base = l * lineStep;
+      for (let ch = 0; ch < 4; ch++) {
+        const at = i => (base + Math.min(len - 1, Math.max(0, i)) * step) * 4 + ch;
+        let sum = 0;
+        for (let i = -r; i <= r; i++) sum += src[at(i)];
+        for (let i = 0; i < len; i++) {
+          dst[(base + i * step) * 4 + ch] = sum * norm;
+          sum += src[at(i + r + 1)] - src[at(i - r)];
+        }
+      }
+    }
+  };
+  for (let p = 0; p < 3; p++) {
+    pass(a, b, w, h, 1, w);
+    pass(b, a, h, w, w, 1);
+  }
+  for (let i = 0; i < n; i++) {
+    const al = a[i * 4 + 3];
+    if (al <= 0) {
+      d[i * 4 + 3] = 0;
+      continue;
+    }
+    const k = 255 / al;
+    const R = a[i * 4] * k;
+    const G = a[i * 4 + 1] * k;
+    const B = a[i * 4 + 2] * k;
+    const L = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    d[i * 4] = (L + (R - L) * saturate) * brightness;
+    d[i * 4 + 1] = (L + (G - L) * saturate) * brightness;
+    d[i * 4 + 2] = (L + (B - L) * saturate) * brightness;
+    d[i * 4 + 3] = al;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/**
+ * The fresh designs for this ad: the tapped ones, then the wall's. `salt` reshuffles them.
+ * The tapped pieces are what a tap gives you, so they stay at the studio's defaults. The wall is
+ * a collection someone has kept, made with every setting the studio has, so its pieces vary the
+ * palette and the geometry -- at the defaults alone, a wall of them read as one look repeated.
+ */
 function freshDesigns(design, salt) {
-  return Array.from({ length: TAPPED_FRESH + WALL_EXTRAS }, (_, k) => ({
-    seed: `${design.seed}-${salt}-${k}`,
-    colors: [],
-    settings: { geometry: STUDIO_DEFAULT_GEOMETRY_SETTINGS }
-  }));
+  return Array.from({ length: TAPPED_FRESH + WALL_EXTRAS }, (_, k) => {
+    const seed = `${design.seed}-${salt}-${k}`;
+    if (k < TAPPED_FRESH) return { seed, colors: [], settings: { geometry: STUDIO_DEFAULT_GEOMETRY_SETTINGS } };
+    return { seed, ...wallStyle(makeRng(`${seed}-style`)) };
+  });
+}
+
+/** A varied palette and geometry for one wall card, from its own stream. */
+function wallStyle(rng) {
+  const pick = a => a[Math.floor(rng() * a.length)];
+  // About half keep the generator's own palette; the rest take a curated one, in a shuffled order
+  // (the stops' order is the gradient's), sometimes only part of it.
+  let colors = [];
+  if (rng() < 0.5) {
+    const preset = pick(PALETTE_PRESETS).colors.slice();
+    for (let i = preset.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [preset[i], preset[j]] = [preset[j], preset[i]];
+    }
+    colors = preset.slice(0, Math.max(2, preset.length - Math.floor(rng() * 3)));
+  }
+  // Chaotic shards or a lattice, small to overflowing; sometimes the pinned hexagon.
+  const lattice = rng() < 0.5;
+  const hex = rng() < 0.25;
+  const geometry = {
+    ...STUDIO_DEFAULT_GEOMETRY_SETTINGS,
+    coherence: lattice ? 0.45 + 0.55 * rng() : 0.25 * rng(),
+    size: 0.15 + 0.7 * rng(),
+    spread: 0.45 + 0.5 * rng(),
+    density: 0.55 + 0.45 * rng(),
+    ...(hex ? { pointsMin: 6, pointsMax: 6 } : {})
+  };
+  return { colors, settings: { geometry } };
 }
 
 /**
@@ -144,21 +251,37 @@ export async function createExplainComposer({
   const arts = [];
   for (let i = 0; i < all.length; i++) {
     const d = all[i];
-    const s = i > KEPT ? WALL_SCALE : 1;
+    const small = i > KEPT;
+    const s = small ? WALL_SCALE : 1;
     const w = Math.round(width * s);
     const h = Math.round(height * s);
-    arts.push(renderArtwork(generateArtwork(d.seed, w, h, d.colors || [], d.settings ?? null)));
+    const ctx = small ? { nebulaPixels: NEBULA_PIXELS_LITE } : {};
+    arts.push(renderArtwork(generateArtwork(d.seed, w, h, d.colors || [], d.settings ?? null, ctx)));
     await nextTask();
   }
   const palettes = all.map(d => resolveDesignPalette(d));
+  // On screen at the very first frame, so the Reel opens on art rather than black: the first tap
+  // bursts the first piece out over it, the way every later tap replaces the one before -- and
+  // the way the studio itself works, which always has a piece up when you first tap (Aaron,
+  // 2026-10-27). A fresh piece at the studio's defaults, like the tapped ones.
+  const opener = renderArtwork(
+    generateArtwork(`${design.seed}-${salt}-open`, width, height, [], {
+      geometry: STUDIO_DEFAULT_GEOMETRY_SETTINGS
+    })
+  );
 
   // Behind everything once the wall appears: the kept piece, blurred and dimmed.
   const backdrop = canvas(width, height);
   {
+    // Blurred at a quarter size (a blur this wide loses nothing to it) and scaled back up.
+    const q = 4;
+    const small = canvas(width / q, height / q);
+    const over = (80 * k) / q;
+    small.getContext('2d').drawImage(arts[KEPT], -over, -over, small.width + 2 * over, small.height + 2 * over);
+    blurCanvas(small, (36 * k) / q, { saturate: 1.2, brightness: 0.42 });
     const b = backdrop.getContext('2d');
-    b.filter = `blur(${Math.round(36 * k)}px) brightness(0.42) saturate(1.2)`;
-    const over = 80 * k;
-    b.drawImage(arts[KEPT], -over, -over, width + 2 * over, height + 2 * over);
+    b.imageSmoothingQuality = 'high';
+    b.drawImage(small, 0, 0, width, height);
   }
 
   // The garment is imagery, not text, so it is not held to the safe zone: it fills the middle of
@@ -195,20 +318,61 @@ export async function createExplainComposer({
   }
   const scratch = canvas(width, height);
 
+  // The card's halo while it hovers over the garment: a soft glow in the kept design's own
+  // colours, drawn once here at the card's hover size and scaled with it, so no blur runs per
+  // frame. Without it the card read as a flat rectangle pasted over the shirt (Aaron, 2026-10-27).
+  // Where the hovering card's twinkles land, as fractions of its half-size: corners and edges.
+  const TWINKLES = [
+    [0.92, -0.9],
+    [-1, -0.35],
+    [-0.88, 0.95],
+    [1, 0.4]
+  ];
+  const HALO_W = 0.24 * width;
+  const HALO_H = 0.24 * height;
+  const HALO_PAD = 0.14 * width;
+  const halo = canvas(HALO_W + 2 * HALO_PAD, HALO_H + 2 * HALO_PAD);
+  {
+    const c = halo.getContext('2d');
+    const stops = palettes[KEPT];
+    const g = c.createLinearGradient(HALO_PAD, HALO_PAD, HALO_PAD + HALO_W, HALO_PAD + HALO_H);
+    stops.forEach((col, i) => g.addColorStop(stops.length > 1 ? i / (stops.length - 1) : 0, col));
+    c.fillStyle = g;
+    c.beginPath();
+    c.roundRect(HALO_PAD, HALO_PAD, HALO_W, HALO_H, 0.05 * width * 0.24);
+    c.fill();
+    blurCanvas(halo, HALO_PAD / 2.6, { saturate: 1.4 });
+  }
+
   // ── The wall: cards the size of the frame, in world space, the kept one at the origin ──
   const GAP = 0.09 * width;
-  const COLS = [-2, -1, 0, 1, 2];
-  const ROWS = [-2, -1, 0, 1, 2];
   const wallRng = makeRng(`${design.seed}-${salt}-wall`);
   const wall = [];
-  for (const c of COLS)
-    for (const r of ROWS) {
-      let art;
+  for (const c of WALL_COLS)
+    for (const r of WALL_ROWS) {
+      let art = null;
       if (c === 0 && r === 0) art = KEPT;
       else if (Math.abs(c) + Math.abs(r) === 1) art = [0, 1, 2, KEPT + 1][wall.filter(w => w.near).length];
-      else art = KEPT + 1 + Math.floor(wallRng() * WALL_EXTRAS);
       wall.push({ c, r, art, near: Math.abs(c) + Math.abs(r) === 1 });
     }
+  // The rest from the extras. The columns slide past each other, so any card can end up beside
+  // any card in the next column: a piece is never used twice in one column or in two neighbouring
+  // ones, and the least used piece goes first, so with this many extras a repeat is rare and
+  // always at least a column apart.
+  const uses = new Array(arts.length).fill(0);
+  for (const card of wall) if (card.art !== null) uses[card.art]++;
+  for (const card of wall) {
+    if (card.art !== null) continue;
+    const taken = new Set(wall.filter(w => w.art !== null && Math.abs(w.c - card.c) <= 1).map(w => w.art));
+    let best = [];
+    for (let a = KEPT + 1; a < arts.length; a++) {
+      if (taken.has(a)) continue;
+      if (!best.length || uses[a] < uses[best[0]]) best = [a];
+      else if (uses[a] === uses[best[0]]) best.push(a);
+    }
+    card.art = best[Math.floor(wallRng() * best.length)];
+    uses[card.art]++;
+  }
   const CARD_R = 0.05 * width;
   // Columns slide past each other once the wall is showing: alternate directions, the kept column
   // still. World units per second.
@@ -377,13 +541,14 @@ export async function createExplainComposer({
       const since = t - taps[i];
       const gap = (i + 1 < taps.length ? taps[i + 1] : keep) - taps[i];
       const open = easeOut(clamp01(since / Math.min(0.55, gap * 0.7)));
-      if (i > 0) {
-        // The outgoing piece recedes and darkens as the new one opens over it.
+      // The outgoing piece recedes and darkens as the new one opens over it (before the first
+      // tap, the opener).
+      {
         ctx.save();
         camera(ctx);
         const s = 1 - 0.08 * open;
         ctx.scale(s, s);
-        ctx.drawImage(arts[i - 1], -width / 2, -height / 2, width, height);
+        ctx.drawImage(i > 0 ? arts[i - 1] : opener, -width / 2, -height / 2, width, height);
         ctx.restore();
         ctx.save();
         ctx.globalAlpha = 0.5 * open;
@@ -507,20 +672,83 @@ export async function createExplainComposer({
         const tilt = lerp(0, -0.08, hover) * (1 - slam) + 0.02 * Math.sin(u * 5) * hover * (1 - wind);
         const w = width * scale;
         const h = height * scale;
+        // It turns in depth while it hovers, like a card held up to the light: horizontal scale
+        // by the cosine, and a slight shear so the near edge sits higher. Flat again for the slam.
+        const live = hover * (1 - wind);
+        const yaw = 0.42 * Math.sin(u * 2.4) * live;
         ctx.save();
         ctx.translate(CENTRE.x + jolt.x, cy + jolt.y);
         ctx.rotate(tilt);
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        ctx.shadowBlur = 40 * k;
-        ctx.shadowOffsetY = 20 * k;
-        drawCard(ctx, arts[KEPT], -w / 2, -h / 2, w, h, CARD_R * scale);
+        ctx.save();
+        ctx.transform(Math.cos(yaw), 0.14 * Math.sin(yaw), 0, 1, 0, 0);
+        // The halo: breathes on the beat, and swells as the card winds up to strike.
+        const pulse = 0.5 + 0.5 * Math.cos((2 * Math.PI * u) / beat);
+        const haloA = clamp01(hover * (0.7 + 0.3 * pulse) + 0.3 * wind) * (1 - slam);
+        if (haloA > 0) {
+          const hs = (w / HALO_W) * (1 + 0.06 * pulse * live + 0.25 * wind);
+          const hw = halo.width * hs;
+          const hh = halo.height * (h / HALO_H) * (1 + 0.06 * pulse * live + 0.25 * wind);
+          ctx.save();
+          ctx.globalAlpha = haloA;
+          ctx.drawImage(halo, -hw / 2, -hh / 2, hw, hh);
+          ctx.restore();
+        }
+        // Its shadow falls on the shirt below and to the side, further the higher it floats, so it
+        // reads as lifted off the garment rather than printed on it; it closes in for the slam.
+        const lift = live + 0.4 * wind;
+        ctx.shadowColor = `rgba(0, 0, 0, ${0.5 + 0.15 * lift})`;
+        ctx.shadowBlur = (40 + 30 * lift) * k;
+        ctx.shadowOffsetX = 26 * k * lift;
+        ctx.shadowOffsetY = (20 + 40 * lift) * k;
+        // Cast by a plain shape under the card: drawCard clips, and a clip cuts away the shadow of
+        // what is drawn inside it, so the card's own shadow never showed.
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.roundRect(-w / 2, -h / 2, w, h, CARD_R * scale);
+        ctx.fill();
         ctx.shadowColor = 'transparent';
+        drawCard(ctx, arts[KEPT], -w / 2, -h / 2, w, h, CARD_R * scale);
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        // A glint: a band of light across the card that follows its turn, as a reflection would.
+        if (live > 0) {
+          const g = 0.5 - 1.25 * (yaw / 0.42);
+          const shine = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
+          const at = x => clamp01(x);
+          shine.addColorStop(at(g - 0.13), 'rgba(255,255,255,0)');
+          shine.addColorStop(at(g), 'rgba(255,255,255,0.6)');
+          shine.addColorStop(at(g + 0.13), 'rgba(255,255,255,0)');
+          ctx.save();
+          ctx.globalAlpha = live;
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.beginPath();
+          ctx.roundRect(-w / 2, -h / 2, w, h, CARD_R * scale);
+          ctx.clip();
+          ctx.fillStyle = shine;
+          ctx.fillRect(-w / 2, -h / 2, w, h);
+          ctx.restore();
+        }
         ctx.lineWidth = 6 * k;
         ctx.strokeStyle = '#d1ff1a';
         ctx.globalAlpha = 1 - hover * 0.6;
         ctx.beginPath();
         ctx.roundRect(-w / 2, -h / 2, w, h, CARD_R * scale);
         ctx.stroke();
+        ctx.restore();
+        // Twinkles on its edges, one after another on the half beat: the artwork's own star.
+        // Outside the turn, so they stay round.
+        if (live > 0) {
+          const cw = (w / 2) * Math.cos(yaw);
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          TWINKLES.forEach(([fx, fy], j) => {
+            const p = (u - 0.35 - (j * beat) / 2) / 0.6;
+            if (p <= 0 || p >= 1) return;
+            ctx.globalAlpha = live;
+            drawStarSprite(ctx, fx * cw, fy * (h / 2), Math.sin(Math.PI * p) * 0.36 * w);
+          });
+          ctx.restore();
+        }
         ctx.restore();
       }
 
@@ -600,7 +828,7 @@ export async function createExplainComposer({
     dispose() {
       shirt.dispose();
       flight.dispose();
-      for (const a of arts) {
+      for (const a of [...arts, opener]) {
         a.width = 0;
         a.height = 0;
       }

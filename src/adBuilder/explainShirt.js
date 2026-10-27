@@ -1,8 +1,8 @@
 import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { resolveDesignPalette } from '../render/resolvedPalette';
-import { makeRng } from '../render/prng';
 import { createTshirtSwirl } from '../components/tshirtSwirl';
+import { addStudioLighting, makeFabricTexture, applyFabric } from '../components/shirtStudio';
 import {
   composeShirtSheet,
   AberrationShader,
@@ -30,12 +30,9 @@ import teeHdUrl from '../assets/models/tshirt-hd/tshirt-hd.glb?url';
 // mouse, so the preview and the export show the same frame for the same time. Or the hoodie
 // (components/hoodieModel.js), under the same lighting and effects.
 //
-// THE LIGHTING IS NOT THE HERO'S, deliberately. The hero is calibrated so each texel shows the
-// colour it has on the wall behind it -- nearly all ambient, a weak key -- which is right for a
-// 190px shirt beside the artwork it previews, and at the size of a video frame read as a flat
-// cut-out (Aaron, 2026-10-26: "very flat with texture and lighting"). Here there is a real key
-// light, rims from behind, a fine knit normal map and a stronger sheen, and the sheet is twice the
-// hero's resolution.
+// The lighting and fabric (a real key light, rims from behind, a fine knit normal map, sheen) are
+// shared with the hero through components/shirtStudio.js; they were made here first, and the hero
+// adopted them. The sheet is twice the hero's resolution, for video-frame sizes.
 //
 // `size` is the shirt's own box in pixels; the canvas is SWIRL_ROOM times that, as on the
 // homepage, so the sparks have room to orbit.
@@ -71,51 +68,6 @@ const GARMENTS = {
   }
 };
 
-// A tileable fabric bump as a tangent-space normal map: JERSEY KNIT, what both garments are made
-// of -- columns (wales) of small V-shaped stitches. The first version was isotropic value noise,
-// and noise the same in every direction reads as a wall, not cloth (Aaron, 2026-10-26: "like wall
-// plaster"). A stitch is STITCH texels square; at FABRIC_REPEAT over the atlas that is ~170
-// stitches across the hoodie's front, a little coarser than real jersey, so the grain survives as
-// a fine directional texture once mipmapped to frame size rather than resolving into a visible
-// pattern. Both atlases are close to one texel density throughout, and pieces are laid upright,
-// so the wales run down the garment everywhere.
-const FABRIC_SIZE = 512;
-const FABRIC_REPEAT = 8;
-const STITCH = 8;
-function fabricNormals() {
-  const n = FABRIC_SIZE;
-  const rng = makeRng('explain-fabric');
-  const h = new Float32Array(n * n);
-  const lobe = (u, c) => Math.exp(-((u - c) ** 2) / (2 * 0.11 ** 2));
-  for (let y = 0; y < n; y++) {
-    const v = (y % STITCH) / STITCH;
-    // Each stitch's two legs lean in toward the bottom of the V; the course between rows dips.
-    const lean = 0.14 * (v - 0.5);
-    const course = 0.8 + 0.2 * Math.sin(Math.PI * v);
-    for (let x = 0; x < n; x++) {
-      const u = (x % STITCH) / STITCH;
-      h[y * n + x] = (lobe(u, 0.27 + lean) + lobe(u, 0.73 - lean)) * course + (rng() - 0.5) * 0.08;
-    }
-  }
-  const data = new Uint8Array(n * n * 4);
-  const STRENGTH = 1.5;
-  for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      const dx = h[y * n + ((x + 1) % n)] - h[y * n + ((x + n - 1) % n)];
-      const dy = h[((y + 1) % n) * n + x] - h[((y + n - 1) % n) * n + x];
-      const nx = -dx * STRENGTH;
-      const ny = -dy * STRENGTH;
-      const len = Math.hypot(nx, ny, 1);
-      const i = (y * n + x) * 4;
-      data[i] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
-      data[i + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
-      data[i + 2] = Math.round(((1 / len) * 0.5 + 0.5) * 255);
-      data[i + 3] = 255;
-    }
-  }
-  return data;
-}
-
 /**
  * @param {{ design: { seed: string, colors?: string[], settings?: any }, size: number, garment?: 'tee' | 'hoodie' }} o
  */
@@ -148,57 +100,11 @@ export async function createExplainShirt({ design, size, garment = 'tee' }) {
   };
 
   try {
-    // A studio setup: a key from the upper left, a dim fill from the right, two rims from behind
-    // to pull the silhouette off the background, and little ambient, so the folds model. A surface
-    // facing the key lands near the print's own colour (ambient + env + key ~ 0.9 of pi); one
-    // turned away from it drops to about a third.
-    const ENV_IRRADIANCE = 0.15;
     const scene = new THREE.Scene();
     const fov = (2 * Math.atan((canvasSize / size) * Math.tan(halfFov)) * 180) / Math.PI;
     const camera = new THREE.PerspectiveCamera(fov, 1, 0.05, 50);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const lights = [
-      [2.4, -2.4, 3.6, 4],
-      [0.35, 3, 0.5, 3],
-      [1.5, 3.5, 1.8, -4],
-      [1.2, -3.5, 1.2, -4]
-    ];
-    for (const [intensity, x, y, z] of lights) {
-      const light = new THREE.DirectionalLight(0xffffff, intensity);
-      light.position.set(x, y, z);
-      scene.add(light);
-    }
-
-    const H = 64;
-    const rows = new Float32Array(H);
-    let weighted = 0;
-    let weight = 0;
-    for (let y = 0; y < H; y++) {
-      const t = (y + 0.5) / H;
-      const solid = Math.sin(t * Math.PI);
-      rows[y] = 1 - t;
-      weighted += rows[y] * solid;
-      weight += solid;
-    }
-    const norm = ENV_IRRADIANCE / (weighted / weight);
-    const data = new Float32Array(H * 2 * H * 4);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < H * 2; x++) {
-        const i = (y * H * 2 + x) * 4;
-        data[i] = data[i + 1] = data[i + 2] = rows[y] * norm;
-        data[i + 3] = 1;
-      }
-    }
-    const envTex = new THREE.DataTexture(data, H * 2, H, THREE.RGBAFormat, THREE.FloatType);
-    envTex.mapping = THREE.EquirectangularReflectionMapping;
-    envTex.colorSpace = THREE.LinearSRGBColorSpace;
-    envTex.needsUpdate = true;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envMap = pmrem.fromEquirectangular(envTex).texture;
-    pmrem.dispose();
-    envTex.dispose();
-    scene.environment = envMap;
-    disposers.push(() => envMap.dispose());
+    // The lighting and fabric are the homepage shirt's (components/shirtStudio.js).
+    disposers.push(addStudioLighting(THREE, scene, renderer));
 
     const gltf = await new GLTFLoader().loadAsync(g.url);
     const pivot = new THREE.Group();
@@ -219,35 +125,11 @@ export async function createExplainShirt({ design, size, garment = 'tee' }) {
     swirl.setPalette(resolveDesignPalette(design), 0);
     disposers.push(() => swirl.dispose());
 
-    const fabric = new THREE.DataTexture(fabricNormals(), FABRIC_SIZE, FABRIC_SIZE);
-    fabric.wrapS = fabric.wrapT = THREE.RepeatWrapping;
-    fabric.repeat.set(FABRIC_REPEAT, FABRIC_REPEAT);
-    fabric.generateMipmaps = true;
-    fabric.minFilter = THREE.LinearMipmapLinearFilter;
-    fabric.magFilter = THREE.LinearFilter;
-    fabric.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    fabric.needsUpdate = true;
+    const fabric = makeFabricTexture(THREE, renderer);
     disposers.push(() => fabric.dispose());
     const materials = [];
     gltf.scene.traverse(obj => {
-      if (!obj.isMesh) return;
-      let mat = obj.material;
-      if (!mat.isMeshPhysicalMaterial) {
-        const physical = new THREE.MeshPhysicalMaterial();
-        THREE.MeshStandardMaterial.prototype.copy.call(physical, mat);
-        mat.dispose();
-        obj.material = physical;
-        mat = physical;
-      }
-      mat.sheen = 0.8;
-      mat.sheenRoughness = 0.6;
-      mat.sheenColor = new THREE.Color(0xffffff);
-      mat.roughness = 0.9;
-      mat.metalness = 0;
-      mat.normalMap = fabric;
-      mat.normalScale = new THREE.Vector2(0.22, 0.22);
-      mat.needsUpdate = true;
-      materials.push(mat);
+      if (obj.isMesh) materials.push(applyFabric(THREE, obj, fabric));
     });
 
     // The blank garment (the tee's own white sheet; the hoodie ships with none), and the design's
