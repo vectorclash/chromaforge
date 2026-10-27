@@ -2,7 +2,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import renderArtwork from '../render/renderArtwork';
 import { resolveDesignPalette } from '../render/resolvedPalette';
 import { createTshirtSwirl } from '../components/tshirtSwirl';
-import { addStudioLighting, makeFabricTexture, applyFabric } from '../components/shirtStudio';
+import { addStudioLighting, makeFabricTexture, applyFabricToShells } from '../components/shirtStudio';
 import {
   composeShirtSheet,
   AberrationShader,
@@ -127,16 +127,14 @@ export async function createExplainShirt({ design, size, garment = 'tee' }) {
 
     const fabric = makeFabricTexture(THREE, renderer);
     disposers.push(() => fabric.dispose());
-    const materials = [];
-    gltf.scene.traverse(obj => {
-      if (obj.isMesh) materials.push(applyFabric(THREE, obj, fabric));
-    });
+    // Only the outside wears the design; the tee's lining keeps its blank sheet.
+    const { materials, printed } = applyFabricToShells(THREE, gltf.scene, fabric);
 
     // The blank garment (the tee's own white sheet; the hoodie ships with none), and the design's
     // sheet; the texture is a blend of the two, redrawn only when the blend changes.
     const blank = document.createElement('canvas');
     blank.width = blank.height = SHEET;
-    const original = materials.find(m => m.map?.image)?.map?.image;
+    const original = printed.find(m => m.map?.image)?.map?.image;
     const bctx = blank.getContext('2d');
     if (original) bctx.drawImage(original, 0, 0, SHEET, SHEET);
     else {
@@ -150,7 +148,7 @@ export async function createExplainShirt({ design, size, garment = 'tee' }) {
     const texture = new THREE.CanvasTexture(texCanvas);
     texture.flipY = false;
     texture.colorSpace = THREE.SRGBColorSpace;
-    for (const mat of materials) {
+    for (const mat of printed) {
       const old = mat.map;
       mat.map = texture;
       mat.needsUpdate = true;
@@ -158,7 +156,10 @@ export async function createExplainShirt({ design, size, garment = 'tee' }) {
     }
     disposers.push(() => {
       texture.dispose();
-      materials.forEach(m => m.dispose());
+      materials.forEach(m => {
+        if (m.map !== texture) m.map?.dispose(); // the lining's own sheet
+        m.dispose();
+      });
     });
     let shownMix = -1;
     const setMix = mix => {

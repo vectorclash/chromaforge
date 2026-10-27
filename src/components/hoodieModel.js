@@ -16,10 +16,12 @@ import { PRODUCT_MOCKUP_CONFIG } from '../lib/printfulMockupConfig';
 // RE-LAID in Blender so that every printed piece sits UPRIGHT and UNMIRRORED as seen from outside
 // the garment, i.e. oriented exactly like the piece on Printful's own template. That is what lets
 // every draw below be a plain rect-to-rect copy with no flip flags. The two hood linings have
-// their own atlas space, because Printful prints the lining too. Every other inside surface shows
-// its own piece's print, as the tee's do (built white first, the back panel's inside showed
-// through the neckline as a bright patch at the throat). The cords map to a white patch.
-// Served: 23,528 triangles, 404KB, no textures (the app supplies the only one).
+// their own atlas space, because Printful prints the lining too. Every other inside surface is
+// UNPRINTED, as on the real garment and the tee (2026-10-27, Aaron): build.py maps it onto its
+// piece's rect, then scripts/hoodie-model/unprint-inside.mjs moves it off the atlas to UV + (1, 1),
+// where the sheet's edge clamp samples composeHoodieSheet's white margin. That relies on the
+// texture keeping three's default ClampToEdge wrap. The cords map to a white patch.
+// Served: 23,528 triangles, 509KB (float UVs), no textures (the app supplies the only one).
 
 export const HOODIE_URL = '/models/hoodie/hoodie.glb';
 

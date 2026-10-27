@@ -2840,6 +2840,18 @@ depicting how the design actually prints.
 shared by TshirtPreview and `adBuilder/explainShirt.js`; Aaron: "the shirt just looks so good in
 the video it would be nice to match that lighting and texture").** A key, a fill, two rims, low
 ambient, a gradient environment, sheen 0.8 and a jersey-knit normal map; still no tone mapping.
+**The inside is unprinted (2026-10-27, Aaron: "in real shirts the artwork does not print on the
+inside").** The tee's "two meshes" are NOT body + trim: they are an outer shell (`material`) and
+a LINING (`material_1`) ~1/500 of the garment's size behind it, on one UV atlas. Only the outer
+shell takes the design (`applyFabricToShells`); the lining keeps the model's blank sheet. Both are
+drawn `FrontSide`, because the 30% simplification pushed the shells through each other and the
+lining poked out as white patches all over the print. A `gl_FrontFacing` shader test was tried
+first and is useless here: the lining faces inward, so it is a front face seen from inside. The
+hoodie (explainer only) is one mesh holding both layers, so its fix is in the FILE:
+`scripts/hoodie-model/unprint-inside.mjs` (build step 7) moves the inside shell of each of the
+nine body pieces to UV + (1, 1), which the sheet's edge clamp turns into its white margin. The
+hood keeps its print on both faces, since Printful prints the hood lining. A thin white line now
+shows where the body meets the hem band and cuffs, a gap in the model; accepted.
 It deliberately gives up the texel-matches-the-wall calibration described next, so folds model and
 the garment no longer reads as a flat cut-out. On dark designs the sheen shows as a soft pale wash
 at the edges; that is the cloth cue, not a bug. The hero keeps its 1024 sheet and simplified model.

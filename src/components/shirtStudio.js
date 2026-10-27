@@ -135,6 +135,40 @@ export function makeFabricTexture(THREE, renderer) {
   return fabric;
 }
 
+// The tee model is TWO shells about 1/500 of its size apart, sharing one UV atlas: `material` is
+// the outside, `material_1` the lining (measured: a ray off the outside escapes into open air, a
+// ray off the lining crosses the body cavity). An all-over print is on the outside only, so the
+// lining keeps the model's own blank sheet and never takes the design -- what shows through the
+// collar, the sleeves and up the hem is plain white fabric, as on the real garment.
+const isLining = mesh => mesh.material.name === 'material_1';
+
+/**
+ * Applies the fabric to every mesh under `root` and returns `{ materials, printed }`: all of the
+ * live materials (for disposal), and the ones that wear the design.
+ * A lined model also draws each shell from its FRONT only (the outside faces out, the lining
+ * faces in). Simplifying the homepage tee pushed the two shells through each other, so the
+ * lining poked out in white patches all over the print; front-only, the outside is all you see
+ * from outside and the lining all you see through an opening. No holes: against the
+ * double-sided render only silhouette pixels change, from six angles, on both tee builds.
+ * The hoodie is one mesh holding both layers, so none of this applies to it: its inside shells
+ * are unprinted in the model file itself (scripts/hoodie-model/unprint-inside.mjs).
+ */
+export function applyFabricToShells(THREE, root, fabric) {
+  const meshes = [];
+  root.traverse(obj => obj.isMesh && meshes.push(obj));
+  const lined = meshes.some(isLining);
+  const materials = [];
+  const printed = [];
+  for (const mesh of meshes) {
+    const lining = isLining(mesh);
+    const mat = applyFabric(THREE, mesh, fabric);
+    if (lined) mat.side = THREE.FrontSide;
+    materials.push(mat);
+    if (!lining) printed.push(mat);
+  }
+  return { materials, printed };
+}
+
 /**
  * Makes a mesh's material cotton jersey: sheen at the silhouette, matte, with the knit grain.
  * Promotes a MeshStandardMaterial to MeshPhysicalMaterial (sheen exists only there) by borrowing

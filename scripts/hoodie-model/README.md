@@ -46,6 +46,10 @@ work/
    ```
    `--keep-attributes true` is required. The material has no texture (the app supplies it), so
    plain `prune` treats the UVs as unused and silently deletes them.
+7. `node unprint-inside.mjs build/hoodie.glb build/hoodie-final.glb` makes every body piece's
+   inside shell sample white (the print is on the outside only); serve `hoodie-final.glb`. It
+   must run AFTER quantizing: it moves those UVs past 1, which normalized shorts cannot hold.
+   It checks it finds the 9 two-shell pieces and refuses a file it has already processed.
 
 ## Checks
 

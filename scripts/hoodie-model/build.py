@@ -22,8 +22,8 @@ for i,d in enumerate(isl):
     if i in piece_by_island:
         p=piece_by_island[i]; targets[key]=('piece',p['rect'],p['T'])
     elif i in INNER_OF:
-        # an inside surface shows its own piece's print, the way the tee's do: left white, the
-        # back panel's inside read as a white patch through the neckline on every design
+        # an inside surface maps onto its own piece here; unprint-inside.mjs (step 7, after
+        # quantizing) then moves it off the atlas so it samples white, as on the real garment
         p=piece_by_island[INNER_OF[i]]; targets[key]=('piece',p['rect'],p['T'])
     elif i in strip_islands:
         r=hro if d['c'][0]<0 else hlo

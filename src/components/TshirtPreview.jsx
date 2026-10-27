@@ -13,7 +13,7 @@ import { NEBULA_PIXELS_LITE } from '../render/nebula';
 // area (render/nebula.js NEBULA_PIXELS_LITE) -- the shirt is drawn about 190px tall.
 const SHIRT_RENDER = { priority: PRIORITY_SHIRT, nebulaPixels: NEBULA_PIXELS_LITE };
 import { createTshirtSwirl } from './tshirtSwirl';
-import { addStudioLighting, makeFabricTexture, applyFabric } from './shirtStudio';
+import { addStudioLighting, makeFabricTexture, applyFabricToShells } from './shirtStudio';
 
 // Small live 3D garment preview for the homepage hero panel: the current design rendered
 // as the base-color texture of a t-shirt model, slowly rotating. three.js is dynamically
@@ -741,13 +741,11 @@ export default function TshirtPreview({
           enabled: !window.matchMedia('(prefers-reduced-motion: reduce)').matches
         });
 
-        // The model ships a Physical body and a Standard trim mesh; applyFabric promotes the
-        // Standard one, since sheen exists only on MeshPhysicalMaterial.
+        // The model ships a Physical outer shell and a Standard lining; applyFabric promotes the
+        // Standard one, since sheen exists only on MeshPhysicalMaterial. Only the outer shell
+        // wears the design (`printed`); the lining keeps its own blank sheet.
         const fabric = makeFabricTexture(THREE, renderer);
-        const materials = [];
-        gltf.scene.traverse(obj => {
-          if (obj.isMesh) materials.push(applyFabric(THREE, obj, fabric));
-        });
+        const { materials, printed } = applyFabricToShells(THREE, gltf.scene, fabric);
 
         // One persistent canvas backs the material texture for the shirt's whole life;
         // setSheet either stamps a new design sheet onto it directly or crossfades to it
@@ -767,7 +765,7 @@ export default function TshirtPreview({
         initialSheet.width = TEXTURE_SIZE;
         initialSheet.height = TEXTURE_SIZE;
         const initialCtx = initialSheet.getContext('2d');
-        const originalImage = materials.find(mat => mat.map?.image)?.map?.image;
+        const originalImage = printed.find(mat => mat.map?.image)?.map?.image;
         if (originalImage) {
           initialCtx.drawImage(originalImage, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
         } else {
@@ -778,7 +776,7 @@ export default function TshirtPreview({
         const texture = new THREE.CanvasTexture(textureCanvas);
         texture.flipY = false; // glTF UV convention
         texture.colorSpace = THREE.SRGBColorSpace;
-        materials.forEach(mat => {
+        printed.forEach(mat => {
           const old = mat.map;
           mat.map = texture;
           mat.needsUpdate = true;
@@ -1114,7 +1112,10 @@ export default function TshirtPreview({
           texture.dispose();
           disposeLighting();
           fabric.dispose();
-          materials.forEach(mat => mat.dispose());
+          materials.forEach(mat => {
+            if (mat.map !== texture) mat.map?.dispose(); // the lining's own sheet
+            mat.dispose();
+          });
           swirl.dispose();
           composer.dispose?.();
           renderer.dispose();
