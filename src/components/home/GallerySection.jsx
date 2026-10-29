@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Card from '../ui/Card';
-import FadeImage, { THUMBNAIL_RETRIES } from '../ui/FadeImage';
+import GalleryThumbnail from '../ui/GalleryThumbnail';
 import GalleryModal from '../ui/GalleryModal';
 import HeartIcon from '../buttons/HeartIcon';
 import AnimationIcon from '../buttons/AnimationIcon';
-import { listTopLikedDesigns, listMyLikedIds, toggleLike, getThumbnailUrl } from '../../lib/designs';
+import { listTopLikedDesigns, listMyLikedIds, toggleLike } from '../../lib/designs';
 import { useAuth } from '../../context/AuthContext';
 import { useStudio } from '../../context/StudioContext';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
@@ -155,13 +155,8 @@ export default function GallerySection() {
                 onClick={() => setOpenDesignId(design.id)}
               >
                 <div className="relative aspect-square overflow-hidden bg-ink-800">
-                  <FadeImage
-                    src={getThumbnailUrl(design.user_id, design.id)}
-                    alt={design.title || 'Untitled design'}
-                    retries={THUMBNAIL_RETRIES}
-                    onError={e => {
-                      e.target.style.visibility = 'hidden';
-                    }}
+                  <GalleryThumbnail
+                    design={design}
                     className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                   />
                   {/* -inset-px, not inset-0: the overlay and the image are the same computed box, but

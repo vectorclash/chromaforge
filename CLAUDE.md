@@ -4602,6 +4602,23 @@ by the shared design as the odds the panel last published.
   background. Chromium fires the event. FadeImage now checks the element's own state after every
   source change. Verified with injected 429s: WebKit 2/2 runs recover every refused card (it failed
   5/5 before), Chromium recovers too.
+- **A missing thumbnail is retried, then repaired by its owner's browser (2026-10-28, Aaron: a
+  saved 3D video showed no thumbnail "no matter how many times I refresh").** A thumbnail is made in
+  the browser AFTER its row is saved, and the failure was only ever a console line, so the card
+  stayed empty for good. The same render succeeded later from a script, so it was a moment in that
+  browser (WebGL, a closed tab or a refused upload), not the code. Now: (1) Save retries a failed
+  render+upload once after 2s (`makeThumbnail` in StudioContext); (2) a gallery card whose image
+  still fails after FadeImage's retries, viewed by its OWNER, makes it again and shows it
+  (`repairThumbnail`, `components/ui/GalleryThumbnail.jsx`, used by GalleryPage and the homepage
+  GallerySection). Save and repair share one render (`thumbnailRender`) and one job per design per
+  visit, so a card that 404s mid-upload waits for that upload; repairs run one at a time. Only the
+  owner can repair, since Storage takes uploads only into the uploader's folder. Hiding
+  thumbnail-less designs from other visitors was considered and declined: the browser cannot tell
+  missing from a 429, and doing it properly needs a "has thumbnail" column -- revisit only if this
+  recurs. `scripts/backfill-3d-thumbnails.mjs --id=<design id>` redoes one 3D row by hand.
+  Verified against a mocked Supabase (dev server in Chromium, production build in WebKit): both
+  an owner's missing still and 3D thumbnail are rebuilt and shown, one upload each, another
+  user's is left alone.
 - **Real bug found and fixed (2026-07-02), traced from a Supabase egress spike**: PostgREST
   egress was 93.6% of daily egress, and `designs` rows were up to 2.3MB each — a
   `starFieldConfig` alone can be 5MB+ (the fully resolved per-star list), and every

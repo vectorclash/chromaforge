@@ -15,6 +15,7 @@
 // Usage (from the repo root; reads VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from .env.local):
 //   node scripts/backfill-3d-thumbnails.mjs --dry-run   # renders into .thumb3d-backfill/preview/
 //   node scripts/backfill-3d-thumbnails.mjs             # uploads; saves each OLD thumbnail first
+//   ... --id=<design id>                                # just that row (e.g. a save whose upload failed)
 //
 // READ-ONLY on the designs table. It overwrites only the derived thumbnail JPEG at its existing
 // path (`${user_id}/${design_id}.jpg` in design-thumbnails), and copies the previous file to
@@ -27,6 +28,7 @@ import { chromium } from 'playwright';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const DRY_RUN = process.argv.includes('--dry-run');
+const ONLY_ID = process.argv.find(a => a.startsWith('--id='))?.slice(5);
 const THUMBNAIL_SIZE = 640; // must match StudioContext's THUMBNAIL_SIZE
 const BUCKET = 'design-thumbnails';
 
@@ -45,7 +47,7 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 const auth = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
 const rowsRes = await fetch(
-  `${SUPABASE_URL}/rest/v1/designs?select=id,user_id,title,data&kind=eq.animation&data->>mode=eq.3d&order=created_at`,
+  `${SUPABASE_URL}/rest/v1/designs?select=id,user_id,title,data&kind=eq.animation&data->>mode=eq.3d${ONLY_ID ? `&id=eq.${encodeURIComponent(ONLY_ID)}` : ''}&order=created_at`,
   { headers: auth }
 );
 if (!rowsRes.ok) {

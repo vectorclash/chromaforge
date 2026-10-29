@@ -70,6 +70,57 @@ const STALE_PREVIEW_REVOKE_MS = 5000;
 // to reach existing rows; its own copy of the constant must be kept in sync.
 const THUMBNAIL_SIZE = 640;
 
+// A thumbnail is made after its row is saved, and nothing else will ever make it: if the render
+// or upload fails, the gallery card stays empty for good (2026-10-28: a 3D save came back with no
+// thumbnail; the same render succeeded later, so the failure was a moment in that browser, not
+// the code). So one failure is retried after a pause, with a fresh render, before giving up --
+// and if the owner later sees the card still empty, `repairThumbnail` makes it again.
+const THUMBNAIL_RETRY_MS = 2000;
+
+// One job per design for the whole visit, shared by Save and repair: a card that 404s while its
+// save's own upload is still running waits on that upload instead of rendering a second copy, and
+// a design whose repair failed is not re-rendered every time its card mounts. Each job resolves
+// true once the thumbnail is in Storage, false if it gave up; it never rejects.
+const THUMBNAIL_JOBS = new Map();
+
+function makeThumbnail(designId, render) {
+  const attempt = () => render().then(blob => uploadDesignThumbnail(designId, blob));
+  const job = attempt()
+    .catch(err => {
+      console.warn('Thumbnail failed, retrying once:', err);
+      return new Promise(resolve => setTimeout(resolve, THUMBNAIL_RETRY_MS)).then(attempt);
+    })
+    .then(
+      () => true,
+      err => {
+        console.error('Thumbnail upload failed:', err);
+        return false;
+      }
+    );
+  THUMBNAIL_JOBS.set(designId, job);
+  return job;
+}
+
+// How a stored (compact) row's thumbnail is drawn, or null if it has nothing to draw from. A 3D
+// flight's is a real frame of the flight (its seam frame), not the 2D artwork it is built from --
+// the card should show what opening it plays. A 2D animation's is its first frame.
+function thumbnailRender(data, renderDesignBlob) {
+  if (is3DAnimation(data)) {
+    const { cycleDuration, speedRamp } = storedVideo(data);
+    return () =>
+      import('../animation3d/renderStill').then(({ render3DStill }) =>
+        render3DStill(data.design, { duration: cycleDuration, speedRamp, width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE })
+      );
+  }
+  const source = is2DAnimation(data) ? data.frames?.[0] : data;
+  if (source?.seed === undefined) return null;
+  return () => renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE, { highDensity: true });
+}
+
+// Repairs run one at a time: an owner's gallery with several empty cards must not start several
+// full renders (and WebGL contexts) at once.
+let repairQueue = Promise.resolve();
+
 const StudioContext = createContext(null);
 
 export function StudioProvider({ children }) {
@@ -430,25 +481,28 @@ export function StudioProvider({ children }) {
         setRecent(prev => ({ ...prev, entries: markRecentSaved(prev.entries, data, row.id, row.title) }));
       }
       // Best-effort: a thumbnail failure shouldn't undo the save that already succeeded.
-      // A 3D flight's thumbnail is a real frame of the flight (its seam frame), not the 2D
-      // artwork it is built from -- the card should show what opening it plays.
-      if (is3DAnimation(compactData)) {
-        const { cycleDuration, speedRamp } = storedVideo(compactData);
-        import('../animation3d/renderStill')
-          .then(({ render3DStill }) =>
-            render3DStill(compactData.design, { duration: cycleDuration, speedRamp, width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE })
-          )
-          .then(blob => uploadDesignThumbnail(row.id, blob))
-          .catch(err => console.error('Thumbnail upload failed:', err));
-        return row;
-      }
-      const source = is2DAnimation(compactData) ? compactData.frames[0] : compactData;
-      if (source?.seed !== undefined) {
-        renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE, { highDensity: true })
-          .then(blob => uploadDesignThumbnail(row.id, blob))
-          .catch(err => console.error('Thumbnail upload failed:', err));
-      }
+      const render = thumbnailRender(compactData, renderDesignBlob);
+      if (render) makeThumbnail(row.id, render);
       return row;
+    },
+    [user, renderDesignBlob]
+  );
+
+  // Makes a missing thumbnail again, for a gallery card whose image never loaded. Only the owner's
+  // browser can: Storage takes uploads only into the uploader's own folder. Resolves true once the
+  // thumbnail exists (the card then reloads it), false if it could not be made. Covers what the
+  // save's own retry cannot -- a tab closed or left before the upload finished.
+  const repairThumbnail = useCallback(
+    design => {
+      if (!user || design.user_id !== user.id) return Promise.resolve(false);
+      const existing = THUMBNAIL_JOBS.get(design.id);
+      if (existing) return existing;
+      const render = thumbnailRender(design.data, renderDesignBlob);
+      if (!render) return Promise.resolve(false);
+      const job = repairQueue.then(() => makeThumbnail(design.id, render));
+      THUMBNAIL_JOBS.set(design.id, job);
+      repairQueue = job;
+      return job;
     },
     [user, renderDesignBlob]
   );
@@ -505,6 +559,7 @@ export function StudioProvider({ children }) {
     ambientRender,
     generateRandom,
     saveCurrentDesign,
+    repairThumbnail,
     markDesignSaved,
     markDesignDeleted,
     // Real bug, found by manual testing: this used to be reference equality

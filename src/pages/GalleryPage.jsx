@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
-import FadeImage, { THUMBNAIL_RETRIES } from '../components/ui/FadeImage';
+import GalleryThumbnail from '../components/ui/GalleryThumbnail';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import {
   GALLERY_GRID_CLASS,
@@ -411,13 +411,8 @@ export default function GalleryPage() {
               onClick={() => setOpenDesignId(design.id)}
             >
               <div className="relative aspect-square overflow-hidden bg-ink-900">
-                <FadeImage
-                  src={getThumbnailUrl(design.user_id, design.id)}
-                  alt={design.title || 'Untitled design'}
-                  retries={THUMBNAIL_RETRIES}
-                  onError={e => {
-                    e.target.style.visibility = 'hidden';
-                  }}
+                <GalleryThumbnail
+                  design={design}
                   className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                 />
                 {/* -inset-px, not inset-0: the overlay and the image are the same computed box, but
