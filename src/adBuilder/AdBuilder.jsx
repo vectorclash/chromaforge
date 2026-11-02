@@ -223,6 +223,16 @@ export default function AdBuilder() {
   const activeTimeline = format === 'explain' ? explainTL : timeline;
   // How long the music must be: the timeline, or the flight's loop.
   const adLength = format === 'flight' ? flightSeconds : activeTimeline.total;
+  // Where a song's drop (or chorus) lands: the ad's payoff, on the bar line at or before it --
+  // the first product in the Reel, Wear in the explainer (a beat off the bar), and the loop's
+  // start in the Flight mode. A loop link has no drop, and ignores it.
+  const hookAt = !music.plan?.song
+    ? 0
+    : format === 'reel'
+      ? timeline.flight
+      : format === 'explain'
+        ? Math.floor(explainTL.wear / explainTL.bar + 1e-9) * explainTL.bar
+        : 0;
   const musicStale = !!musicBuffer && Math.abs((music.duration ?? 0) - adLength) > 0.001;
 
   useEffect(() => {
@@ -624,9 +634,10 @@ export default function AdBuilder() {
   // of different lengths, and so does changing a length and changing it back; without this, each
   // of those threw the take away for a new random one -- on a saved ad, its saved take. A re-roll
   // replaces the take of its own length only.
+  // A song's take is also cut to where its drop lands (hookAt), so that is in the key too.
   const takes = useRef(new Map());
-  const takeKey = d => d.toFixed(3);
-  const renderTake = async (plan, duration) => {
+  const takeKey = (d, h) => `${d.toFixed(3)}@${h.toFixed(3)}`;
+  const renderTake = async (plan, duration, hook) => {
     const token = ++renderToken.current;
     const current = () => token === renderToken.current;
     setMusicError(null);
@@ -636,18 +647,23 @@ export default function AdBuilder() {
       // the whole builder -- ~190 renders for an 11s take, on the same main thread the render and
       // the preview share. Measured at 4x CPU, that is what made a re-roll stutter the preview.
       let shown = -1;
-      const buffer = await renderMusic(plan, duration, f => {
-        const step = Math.floor(f * 20) / 20;
-        if (step !== shown && current()) {
-          shown = step;
-          setMusicBusy(step);
-        }
-      });
+      const buffer = await renderMusic(
+        plan,
+        duration,
+        f => {
+          const step = Math.floor(f * 20) / 20;
+          if (step !== shown && current()) {
+            shown = step;
+            setMusicBusy(step);
+          }
+        },
+        hook
+      );
       if (!current()) return;
       const audioUrl = await keepFile(encodeWav(buffer));
       if (!current()) return;
-      takes.current.set(takeKey(duration), { audioUrl, buffer });
-      setMusic(m => ({ ...m, audioUrl, duration }));
+      takes.current.set(takeKey(duration, hook), { audioUrl, buffer });
+      setMusic(m => ({ ...m, audioUrl, duration, hookAt: hook }));
       setMusicBuffer(buffer);
     } catch (e) {
       if (current()) setMusicError(e.message);
@@ -662,22 +678,40 @@ export default function AdBuilder() {
   // edits renders once. A failed render is not retried until something changes.
   // The Flight mode's take is its loop's length, the Reel's the timeline's. A length that already
   // has a take this session gets that take back rather than a new one.
+  // A take saved before songs were cut to the ad has no hookAt, and is kept as it is.
   const needsTake =
-    !!music.plan && (!musicBuffer || Math.abs((music.duration ?? 0) - adLength) > 0.001);
+    !!music.plan &&
+    (!musicBuffer ||
+      Math.abs((music.duration ?? 0) - adLength) > 0.001 ||
+      (music.hookAt !== undefined && Math.abs(music.hookAt - hookAt) > 0.001));
   useEffect(() => {
     if (!needsTake || format === 'feed') return;
-    const kept = takes.current.get(takeKey(adLength));
+    const kept = takes.current.get(takeKey(adLength, hookAt));
     if (kept) {
       renderToken.current++; // a render already under way is for some other length
       setMusicBusy(null);
-      setMusic(m => ({ ...m, audioUrl: kept.audioUrl, duration: adLength }));
+      setMusic(m => ({ ...m, audioUrl: kept.audioUrl, duration: adLength, hookAt }));
       setMusicBuffer(kept.buffer);
       return;
     }
-    const id = setTimeout(() => renderTake(music.plan, adLength), 400);
+    const id = setTimeout(() => renderTake(music.plan, adLength, hookAt), 400);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsTake, music.plan, adLength, format]);
+  }, [needsTake, music.plan, adLength, hookAt, format]);
+
+  // A loop plays differently every time, so a re-roll renders it again. A song plays the same
+  // every time, so a re-roll is another song from the same settings (Orrery's NEW SONG): a new
+  // seed, kept in the plan so the other lengths' takes, and the saved ad, are that song too.
+  const reroll = () => {
+    if (!music.plan.song) return renderTake(music.plan, adLength, hookAt);
+    const plan = {
+      ...music.plan,
+      song: { ...music.plan.song, seed: Math.floor(Math.random() * 2 ** 32) }
+    };
+    takes.current.clear();
+    setMusic(m => ({ ...m, plan }));
+    renderTake(plan, adLength, hookAt);
+  };
 
   const clearMusic = () => {
     renderToken.current++;
@@ -747,7 +781,7 @@ export default function AdBuilder() {
       setSlideIndex(0);
       takes.current.clear();
       if (savedTake && ad.music?.duration)
-        takes.current.set(takeKey(ad.music.duration), {
+        takes.current.set(takeKey(ad.music.duration, ad.music.hookAt ?? 0), {
           audioUrl: ad.music.audioUrl,
           buffer: savedTake
         });
@@ -1346,7 +1380,7 @@ export default function AdBuilder() {
               <input
                 value={music.link}
                 onChange={e => setMusic(m => ({ ...m, link: e.target.value }))}
-                placeholder="Orrery share link (SHARE in Manual mode)"
+                placeholder="Orrery share link (SHARE in Edit mode)"
                 className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
               />
               <Button
@@ -1369,14 +1403,29 @@ export default function AdBuilder() {
                   {music.plan.bassStyle && (
                     <span className="text-neutral-400">, bass ({music.plan.bassStyle})</span>
                   )}
+                  {music.plan.song && (
+                    <span className="text-neutral-400">
+                      {' '}
+                      · song,{' '}
+                      {format === 'reel'
+                        ? 'its hook on the first product'
+                        : format === 'explain'
+                          ? 'its hook on Wear'
+                          : 'from its hook'}
+                    </span>
+                  )}
                 </p>
                 <div className="mt-2 flex items-center gap-3">
                   <Button
                     size="sm"
                     variant="ghost"
                     disabled={musicBusy !== null}
-                    onClick={() => renderTake(music.plan, adLength)}
-                    title="Orrery plays it differently every time"
+                    onClick={reroll}
+                    title={
+                      music.plan.song
+                        ? 'Another song from the same settings'
+                        : 'Orrery plays it differently every time'
+                    }
                   >
                     Re-roll
                   </Button>

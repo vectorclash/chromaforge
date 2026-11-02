@@ -44,15 +44,29 @@ export function planFromLink(link) {
 
 // Renders `durationSec` of the plan, with beat 0 at the very first sample so bar lines fall
 // where adTimeline puts the cuts. Orrery starts its music a moment in (exportBeatZero), so this
-// renders that much extra and drops it. Every render is a new performance: Orrery's choices
-// are random, so the same link never plays the same notes twice.
+// renders that much extra and drops it. A loop's every render is a new performance: Orrery's
+// choices are random, so the same link never plays the same notes twice.
+// A song (a link made with FORM set to SONG) plays the same every time, and not from its intro:
+// Orrery's songPlanFor starts it in the bars before its first drop (or chorus, or swell) so that
+// lands `hookAtSec` into the take -- the ad's payoff -- and makes a song too short to last the
+// take longer. It is measured first, so the take starts at the level Orrery's own export does.
 /**
  * @param {any} plan
  * @param {number} durationSec
  * @param {(fraction: number) => void} [onProgress]
+ * @param {number} [hookAtSec]
  * @returns {Promise<AudioBuffer>}
  */
-export function renderMusic(plan, durationSec, onProgress) {
+export async function renderMusic(plan, durationSec, onProgress, hookAtSec = 0) {
+  if (plan.song) {
+    plan = await withRenderer(async w => {
+      if (typeof w.songPlanFor !== 'function')
+        throw new Error('This Orrery is too old for song links. Update the orrery repo.');
+      const p = w.songPlanFor(plan, durationSec, hookAtSec);
+      const levelMs = await w.levelOfSong(p, MUSIC_SAMPLE_RATE);
+      return JSON.parse(JSON.stringify({ ...p, song: { ...p.song, levelMs } }));
+    });
+  }
   return withRenderer(async w => {
     const lead = Number(w.exportBeatZero) || 0;
     const rendered = await w.renderExport(plan, durationSec + lead, MUSIC_SAMPLE_RATE, f => onProgress?.(f));

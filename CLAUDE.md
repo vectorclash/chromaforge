@@ -2415,6 +2415,15 @@ Render click, so the preview played silent, or ran out of music partway through 
 latest request lands, and an open saved ad decodes its take before applying anything, so it is never
 replaced by a fresh render. Export waits until the take fits the ad. Orrery starts beat 0
 at `exportBeatZero` (0.12s); the builder renders that much extra and drops it.
+(3a) **A song link** (Orrery's FORM set to SONG; 2026-11-02, Aaron: "I definitely don't want to only
+get intros") plays the same every time, so it is not taken from its intro: Orrery's `songPlanFor`
+starts it in the bars before its first drop (or chorus, or swell) so that lands on the ad's payoff
+-- `hookAt`: the first product in the Reel, the bar line before Wear in the explainer, the loop's
+start in the Flight mode -- and lengthens a song whose last chord would come before the take ends.
+`levelOfSong` presets the level, as Orrery's own export does. From the drop on, a take is the song
+note for note (checked against a full render's note log). Takes are keyed by length AND `hookAt`
+(saved as `music.hookAt`; an ad saved without one keeps its take). Re-roll on a song is a new seed
+-- Orrery's NEW SONG -- kept in `music.plan`, so the other lengths and the saved ad are that song.
 (4) **Photos are copied into `.ads/media`** (gitignored) through the dev server: Printful's mockup
 URLs expire in days, and an image from another origin taints the canvas the exporter reads.
 (5) **Mockups go through `useMockup` with the product page's DEFAULT print options**
