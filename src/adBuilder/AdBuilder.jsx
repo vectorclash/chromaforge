@@ -25,15 +25,13 @@ import {
   renderFlightFrame,
   flightOptions,
   isFlightOnly,
-  FLIGHT_W,
-  FLIGHT_H,
   loadImage
 } from './feedPost';
 import { DEFAULT_POST, fullCaption } from './postText';
 import { createAdComposer } from './adComposer';
 import { createExplainComposer, explainTimeline, MOTION_BLUR } from './explainComposer';
 import { CAPTION_STYLES } from './captions';
-import { adTimeline, AD_WIDTH, AD_HEIGHT, AD_FPS, DEFAULT_TEMPO } from './adTimeline';
+import { adTimeline, AD_FPS, DEFAULT_TEMPO, AD_SIZES, adSize } from './adTimeline';
 import { planFromLink, renderMusic, encodeWav, loadWav } from './orrery';
 import { keepFile, listSavedAds, loadAd, saveAd, adSlug } from './devApi';
 
@@ -51,8 +49,19 @@ const DEFAULT_EXPLAIN = {
 // products, cut to music from Orrery -- or a feed post of the same design and photos, as one image
 // or a carousel (see feedPost.js). See ad-builder.html for how to open it.
 
-const PREVIEW_W = AD_WIDTH / 2;
-const PREVIEW_H = AD_HEIGHT / 2;
+// The preview is drawn at half the export size, in a frame of the export's shape: as tall as the
+// window allows for 9:16, 4:5 and 1:1, as wide as it allows for 16:9.
+const PREVIEW_HEIGHT = 'min(80dvh, 960px)';
+const PREVIEW_WIDTH = 'min(100%, 1120px)';
+const previewFrame = sz =>
+  sz.width > sz.height
+    ? { width: PREVIEW_WIDTH, aspectRatio: `${sz.width} / ${sz.height}` }
+    : { height: PREVIEW_HEIGHT, aspectRatio: `${sz.width} / ${sz.height}` };
+// The transport row under it, as wide as the frame (at least 360px).
+const previewRow = sz =>
+  sz.width > sz.height
+    ? { width: PREVIEW_WIDTH }
+    : { width: `max(360px, calc(${PREVIEW_HEIGHT} * ${sz.width} / ${sz.height}))` };
 const FLIGHT_BARS = [1, 2, 3, 4];
 // The Flight mode's lengths with music, in bars (those between 3s and 30s at the take's tempo).
 const FLIGHT_BAR_COUNTS = [1, 2, 3, 4, 6, 8];
@@ -130,6 +139,14 @@ export default function AdBuilder() {
   // posted as a 9:16 Reel with its own length, ramp and objects (`flight`, flightOptions' shape),
   // or 'explain': a Reel showing how the site works -- tap, keep, wear (see explainComposer).
   const [format, setFormat] = useState('reel');
+  // The size the Reel, Flight and Explainer export at (AD_SIZES). Feed posts keep their own 4:5. An
+  // ad saved before sizes has none, and is 9:16.
+  const [size, setSize] = useState(AD_SIZES[0].id);
+  const sz = adSize(size);
+  const previewW = sz.width / 2;
+  const previewH = sz.height / 2;
+  // Instagram's UI overlay and posting are for Reels, which are 9:16.
+  const isReelSize = sz.id === '9:16';
   const [explain, setExplain] = useState(DEFAULT_EXPLAIN);
   const [flight, setFlight] = useState({});
   const [feed, setFeed] = useState({ slides: [] });
@@ -314,7 +331,7 @@ export default function AdBuilder() {
     if (readout) showTime(t);
   };
 
-  const flightKey = reelDesign ? JSON.stringify(reelDesign) : '';
+  const flightKey = reelDesign ? JSON.stringify([reelDesign, size]) : '';
   useEffect(() => {
     if (!reelDesign) return;
     let cancelled = false;
@@ -324,10 +341,12 @@ export default function AdBuilder() {
     // Layered: the flight shows on its own canvas under the frame canvas -- see createAdComposer.
     createAdComposer({
       design: reelDesign,
-      width: PREVIEW_W,
-      height: PREVIEW_H,
+      width: previewW,
+      height: previewH,
       exact: false,
-      layered: true
+      layered: true,
+      exportWidth: sz.width,
+      exportHeight: sz.height
     })
       .then(async c => {
         built = c;
@@ -372,7 +391,7 @@ export default function AdBuilder() {
   // copied in), so it needs none of the Reel's layering.
   const explainKey =
     format === 'explain' && flightDesign
-      ? JSON.stringify([flightDesign, explain.salt, explain.garment])
+      ? JSON.stringify([flightDesign, explain.salt, explain.garment, size])
       : '';
   useEffect(() => {
     if (!explainKey) return;
@@ -382,8 +401,8 @@ export default function AdBuilder() {
     setPreviewError(null);
     createExplainComposer({
       design: flightDesign,
-      width: PREVIEW_W,
-      height: PREVIEW_H,
+      width: previewW,
+      height: previewH,
       salt: explain.salt,
       garment: explain.garment,
       // Fewer moments per frame live than in the file, so the preview keeps its frame rate; and the
@@ -728,6 +747,7 @@ export default function AdBuilder() {
     version: AD_FILE_VERSION,
     name: adName,
     format,
+    size,
     design,
     slots,
     music,
@@ -775,6 +795,7 @@ export default function AdBuilder() {
       setOverlay(ad.overlay);
       setPost(ad.post ?? DEFAULT_POST);
       setFormat(ad.format ?? 'reel');
+      setSize(adSize(ad.size).id);
       setFeed(ad.feed ?? { slides: [] });
       setFlight(ad.flight ?? {});
       setExplain({ ...DEFAULT_EXPLAIN, ...ad.explain });
@@ -799,15 +820,15 @@ export default function AdBuilder() {
     if (format === 'explain')
       return createExplainComposer({
         design: flightDesign,
-        width: AD_WIDTH,
-        height: AD_HEIGHT,
+        width: sz.width,
+        height: sz.height,
         salt: explain.salt,
         garment: explain.garment
       });
     const comp = await createAdComposer({
       design: flightDesign,
-      width: AD_WIDTH,
-      height: AD_HEIGHT,
+      width: sz.width,
+      height: sz.height,
       exact: true
     });
     try {
@@ -828,8 +849,8 @@ export default function AdBuilder() {
       const comp = await fullComposer();
       releases.push(() => comp.dispose());
       const canvas = document.createElement('canvas');
-      canvas.width = AD_WIDTH;
-      canvas.height = AD_HEIGHT;
+      canvas.width = sz.width;
+      canvas.height = sz.height;
       releases.push(() => {
         canvas.width = 0;
         canvas.height = 0;
@@ -838,8 +859,8 @@ export default function AdBuilder() {
       const state = { timeline: activeTimeline, overlay, explain };
       const totalFrames = Math.round(activeTimeline.total * AD_FPS);
       return await encodeMp4({
-        width: AD_WIDTH,
-        height: AD_HEIGHT,
+        width: sz.width,
+        height: sz.height,
         fps: AD_FPS,
         totalFrames,
         bitrate,
@@ -872,20 +893,20 @@ export default function AdBuilder() {
     try {
       const blob = await buildMp4({
         bitrate: exportBitrate({
-          width: AD_WIDTH,
-          height: AD_HEIGHT,
+          width: sz.width,
+          height: sz.height,
           fps: AD_FPS,
           durationSec: activeTimeline.total
         })
       });
-      saveAs(blob, `${fileBase()}-${AD_WIDTH}x${AD_HEIGHT}.mp4`);
+      saveAs(blob, `${fileBase()}-${sz.width}x${sz.height}.mp4`);
     } catch (e) {
       console.error('[ad builder] export failed', e);
       setNotice(`Export failed: ${e.message}`);
     }
   };
 
-  // The frame under the playhead as a 1080x1920 JPEG.
+  // The frame under the playhead as a JPEG at the export size.
   const buildCover = async () => {
     pause();
     setExportState({ label: 'Rendering the cover', progress: 0 });
@@ -893,8 +914,8 @@ export default function AdBuilder() {
     try {
       comp = await fullComposer();
       const canvas = document.createElement('canvas');
-      canvas.width = AD_WIDTH;
-      canvas.height = AD_HEIGHT;
+      canvas.width = sz.width;
+      canvas.height = sz.height;
       comp.draw(canvas.getContext('2d'), play.current.t, { timeline: activeTimeline, overlay, explain });
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
       if (!blob) throw new Error('The frame could not be encoded.');
@@ -1013,8 +1034,8 @@ export default function AdBuilder() {
     try {
       return await renderFlightClip(flightDesign, {
         slide: flightPlay,
-        width: FLIGHT_W,
-        height: FLIGHT_H,
+        width: sz.width,
+        height: sz.height,
         audio: music.plan ? musicBuffer : null,
         audioMaxBitrate,
         onProgress: f => setExportState({ label: 'Rendering the flight clip', progress: f })
@@ -1032,8 +1053,8 @@ export default function AdBuilder() {
         flightDesign,
         flightPlay,
         Math.min(play.current.t, flightSeconds),
-        FLIGHT_W,
-        FLIGHT_H
+        sz.width,
+        sz.height
       );
     } finally {
       setExportState(null);
@@ -1050,7 +1071,7 @@ export default function AdBuilder() {
     try {
       saveAs(
         await buildFlightClip(),
-        `${fileBase()}-flight-${FLIGHT_W}x${FLIGHT_H}-${Number(flightSeconds.toFixed(2))}s.mp4`
+        `${fileBase()}-flight-${sz.width}x${sz.height}-${Number(flightSeconds.toFixed(2))}s.mp4`
       );
     } catch (e) {
       console.error('[ad builder] flight clip failed', e);
@@ -1083,10 +1104,10 @@ export default function AdBuilder() {
                 {isFeed
                   ? `${FEED_W}×${FEED_H} · ${feedSlides.length === 1 ? 'image' : `${feedSlides.length} slides`}`
                   : isFlight
-                    ? `Reel · ${FLIGHT_W}×${FLIGHT_H} · ${Number(flightSeconds.toFixed(2))}s${music.plan ? '' : ', silent'}`
+                    ? `${isReelSize ? 'Reel' : 'Flight'} · ${sz.width}×${sz.height} · ${Number(flightSeconds.toFixed(2))}s${music.plan ? '' : ', silent'}`
                     : isExplain
-                      ? `Reel · how it works · ${fmt(explainTL.total)}`
-                      : `Reel · ${AD_WIDTH}×${AD_HEIGHT} · ${AD_FPS}fps`}
+                      ? `${isReelSize ? 'Reel' : 'Explainer'} · how it works · ${sz.width}×${sz.height} · ${fmt(explainTL.total)}`
+                      : `${isReelSize ? 'Reel' : 'Ad'} · ${sz.width}×${sz.height} · ${AD_FPS}fps`}
               </span>
             </div>
             <Segmented
@@ -1101,6 +1122,20 @@ export default function AdBuilder() {
               onChange={switchFormat}
             />
           </div>
+          {!isFeed && (
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <span className="text-xs text-neutral-500">Size</span>
+              <Segmented
+                label="Size"
+                value={size}
+                options={AD_SIZES.map(s => [s.id, s.label])}
+                onChange={v => {
+                  pause();
+                  setSize(v);
+                }}
+              />
+            </div>
+          )}
           <div className="mt-3 flex gap-2">
             <input
               value={name}
@@ -1525,12 +1560,12 @@ export default function AdBuilder() {
                 className="shrink-0"
                 disabled={!canExportFlight}
                 onClick={downloadFlightCover}
-                title={`The frame under the playhead, as a ${FLIGHT_W}×${FLIGHT_H} JPG`}
+                title={`The frame under the playhead, as a ${sz.width}×${sz.height} JPG`}
               >
                 Cover
               </Button>
               <span className="text-xs text-neutral-500">
-                {FLIGHT_W}×{FLIGHT_H} · {fmt(flightSeconds)} ·{' '}
+                {sz.width}×{sz.height} · {fmt(flightSeconds)} ·{' '}
                 {music.plan ? 'with music' : 'silent'}
               </span>
             </div>
@@ -1579,7 +1614,13 @@ export default function AdBuilder() {
           />
           <InstagramPost
             kind={isFeed ? feedKind : 'reel'}
-            blocked={isFeed ? feedBlocked : null}
+            blocked={
+              isFeed
+                ? feedBlocked
+                : isReelSize
+                  ? null
+                  : `A Reel is 9:16. Switch Size to 9:16 to post; ${sz.label} is for download.`
+            }
             canPost={isFeed ? canExportFeed : isFlight ? canExportFlight : canExport}
             caption={caption}
             posted={post.posted || []}
@@ -1604,14 +1645,14 @@ export default function AdBuilder() {
         <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
           <div
             className="relative isolate overflow-hidden rounded-xl bg-black shadow-2xl will-change-transform"
-            style={{ height: 'min(80dvh, 960px)', aspectRatio: '9 / 16' }}
+            style={previewFrame(sz)}
           >
             {flightDesign ? (
               <FlightPlayer
                 design={flightDesign}
                 options={flightOptions(flightPlay, flightDesign)}
-                width={FLIGHT_W}
-                height={FLIGHT_H}
+                width={sz.width}
+                height={sz.height}
                 // The flight follows the transport -- the take's clock with music, the wall clock
                 // without -- so it can be scrubbed, and paused on the frame the cover is taken from.
                 clock={() =>
@@ -1623,11 +1664,11 @@ export default function AdBuilder() {
                 Choose a design to start.
               </p>
             )}
-            {showIg && <InstagramOverlay />}
+            {showIg && isReelSize && <InstagramOverlay />}
           </div>
           <div
             className="flex flex-col gap-2"
-            style={{ width: 'max(360px, calc(min(80dvh, 960px) * 9 / 16))' }}
+            style={previewRow(sz)}
           >
             <input
               ref={scrubRef}
@@ -1653,14 +1694,16 @@ export default function AdBuilder() {
                 {playing ? 'Pause' : 'Play'}
               </Button>
               <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
-              <label className="ml-auto flex items-center gap-2 text-xs text-neutral-400">
-                <Toggle
-                  on={showIg}
-                  onClick={() => setShowIg(v => !v)}
-                  aria-label="Show Instagram's UI"
-                />
-                IG UI
-              </label>
+              {isReelSize && (
+                <label className="ml-auto flex items-center gap-2 text-xs text-neutral-400">
+                  <Toggle
+                    on={showIg}
+                    onClick={() => setShowIg(v => !v)}
+                    aria-label="Show Instagram's UI"
+                  />
+                  IG UI
+                </label>
+              )}
             </div>
             <p className="text-xs text-neutral-500">
               The cover is the frame under the playhead. Rendered in full when you download or post.
@@ -1690,17 +1733,17 @@ export default function AdBuilder() {
         <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-6">
           <div
             className="relative isolate overflow-hidden rounded-xl bg-black shadow-2xl will-change-transform"
-            style={{ height: 'min(80dvh, 960px)', aspectRatio: '9 / 16' }}
+            style={previewFrame(sz)}
           >
             <div ref={flightHostRef} className="absolute inset-0" />
             <canvas
               ref={canvasRef}
-              width={PREVIEW_W}
-              height={PREVIEW_H}
+              width={previewW}
+              height={previewH}
               className="absolute inset-0 h-full w-full"
             />
             <div ref={lockupHostRef} className="pointer-events-none absolute inset-0" />
-            {showIg && <InstagramOverlay />}
+            {showIg && isReelSize && <InstagramOverlay />}
             {!flightDesign && (
               <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">
                 Choose a design to start.
@@ -1722,7 +1765,7 @@ export default function AdBuilder() {
               readouts, and the segments numbered like the photos in the products list. */}
           <div
             className="flex flex-col gap-2"
-            style={{ width: 'max(360px, calc(min(80dvh, 960px) * 9 / 16))' }}
+            style={previewRow(sz)}
           >
             <div className="relative pt-4">
               <div className="pointer-events-none absolute inset-x-0 top-0 flex text-[10px] text-neutral-500">
@@ -1766,14 +1809,16 @@ export default function AdBuilder() {
                 className="ml-auto text-xs tabular-nums text-neutral-500"
                 title="Preview frame rate, and what drawing a frame costs"
               />
-              <label className="flex items-center gap-2 text-xs text-neutral-400">
-                <Toggle
-                  on={showIg}
-                  onClick={() => setShowIg(v => !v)}
-                  aria-label="Show Instagram's UI"
-                />
-                IG UI
-              </label>
+              {isReelSize && (
+                <label className="flex items-center gap-2 text-xs text-neutral-400">
+                  <Toggle
+                    on={showIg}
+                    onClick={() => setShowIg(v => !v)}
+                    aria-label="Show Instagram's UI"
+                  />
+                  IG UI
+                </label>
+              )}
             </div>
           </div>
         </main>

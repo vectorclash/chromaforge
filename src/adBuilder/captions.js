@@ -42,14 +42,16 @@ const canvas = (w, h) => {
 };
 
 /**
- * @param {{ width: number, height: number, top: number, items: Array<{ words: Array<{ text: string, key?: boolean }>, palette: string[] }> }} o
- *   `top` is the y of the caption block's top edge.
+ * @param {{ width: number, height: number, top: number, items: Array<{ words: Array<{ text: string, key?: boolean }>, palette: string[] }>, unit?: number, cx?: number, maxWidth?: number }} o
+ *   `top` is the y of the caption block's top edge. `unit` (the type's scale, 1 = as authored for a
+ *   1080-wide frame), `cx` (the lines' centre) and `maxWidth` (where they wrap) default to a 9:16
+ *   frame's; a landscape explainer sets its column's.
  */
-export async function createCaptions({ width, height, top, items }) {
-  const k = width / 1080;
+export async function createCaptions({ width, height, top, items, unit = width / 1080, cx = width / 2, maxWidth = 0.84 * width }) {
+  const k = unit;
   const SIZE = 76 * k;
   const LEAD = SIZE * 1.12;
-  const MAX_W = 0.84 * width;
+  const MAX_W = maxWidth;
   const PAD = 40 * k;
   const PLAIN = `700 ${SIZE}px Exo`;
   const KEY = `900 ${SIZE}px Exo`;
@@ -78,13 +80,13 @@ export async function createCaptions({ width, height, top, items }) {
     const placed = [];
     const lineSpans = lines.map((line, li) => {
       const total = line.reduce((a, w, i) => a + w.w + (i ? space : 0), 0);
-      let x = (width - total) / 2;
+      let x = cx - total / 2;
       const baseline = top + SIZE * 0.82 + li * LEAD;
       for (const w of line) {
         placed.push({ ...w, x, baseline, line: li });
         x += w.w + space;
       }
-      return { x0: (width - total) / 2, x1: (width + total) / 2, baseline };
+      return { x0: cx - total / 2, x1: cx + total / 2, baseline };
     });
 
     // Each word's sprite: the glyphs, their drop shadow, and for the key word a gradient fill from

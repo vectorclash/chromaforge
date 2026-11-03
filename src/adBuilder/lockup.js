@@ -1,5 +1,6 @@
 import tinycolor from 'tinycolor2';
 import logoUrl from '../assets/images/logo.svg';
+import { LOCKUP_BAND } from './adTimeline';
 
 // The ad's brand lockup, drawn on a canvas at any frame time: the site's own wordmark (the logo,
 // CHROMA in Exo 400, FORGE in Exo 900 soft lime -- Wordmark.jsx / .controls-inner h1), a
@@ -27,7 +28,8 @@ import logoUrl from '../assets/images/logo.svg';
 const TEXT = '#fafafa';
 const FORGE = '#cdf29c';
 // The lockup's height as a fraction of a 9:16 frame -- the band the composer reserves for it.
-export const LOCKUP_BAND = 0.088;
+// Defined with the other layout constants (adTimeline.js), re-exported for existing imports.
+export { LOCKUP_BAND };
 
 const WAVE_SECONDS = 0.8;
 const WAVE_STAGGER = 0.07;
@@ -124,10 +126,14 @@ function tint(into, source, color) {
 }
 
 /**
- * @param {{ width: number, height: number, palette: string[] }} o
+ * `unit` is the lockup's scale (1 = as authored for a 1080-wide frame) and `cx` where its centre
+ * sits across the frame. Both default to a 9:16 frame's: scaled with the width, centred. Other
+ * sizes pass their own (see adLayout in adTimeline.js), so the lockup keeps a sensible size on a
+ * wide frame and can sit in a landscape frame's left column.
+ * @param {{ width: number, height: number, palette: string[], unit?: number, cx?: number }} o
  */
-export async function createLockup({ width, height, palette }) {
-  const u = width / 1080;
+export async function createLockup({ width, height, palette, unit = width / 1080, cx: centre = width / 2 }) {
+  const u = unit;
   const F = 78 * u; // wordmark size
   const URL_SIZE = 33 * u;
   const WORD_FONT = `400 ${F}px Exo`;
@@ -156,7 +162,7 @@ export async function createLockup({ width, height, palette }) {
 
   // Positions in lockup coordinates: x across the frame, y down from the top of the band. Whole
   // pixels vertically, so the hairline is crisp and every piece at rest lands on the pixel grid.
-  const cx = width / 2;
+  const cx = centre;
   const markY = Math.round(48 * u);
   const lineY = Math.round(102 * u);
   const urlY = Math.round(140 * u);
@@ -429,7 +435,8 @@ export async function createLockup({ width, height, palette }) {
   // Once it has arrived and no wave is running, the lockup is a still picture -- so it is drawn
   // once into a cache and blitted.
   const margin = Math.ceil(40 * u); // room for the shadows
-  const bandHeight = Math.ceil(LOCKUP_BAND * height) + 2 * margin;
+  // LOCKUP_BAND is a fraction of a 9:16 frame's 1920px height, at the lockup's own scale.
+  const bandHeight = Math.ceil(LOCKUP_BAND * 1920 * u) + 2 * margin;
   let cache = null;
   let cacheKey = null;
   function settledImage(url) {

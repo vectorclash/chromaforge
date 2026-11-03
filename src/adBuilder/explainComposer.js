@@ -6,8 +6,7 @@ import { makeRng } from '../render/prng';
 import { drawStarSprite } from '../render/starSprite';
 import { NEBULA_PIXELS_LITE } from '../render/nebula';
 import { PALETTE_PRESETS } from '../render/palettePresets';
-import { SAFE_TOP } from './adComposer';
-import { AD_FPS, SCENE_DURATION } from './adTimeline';
+import { AD_FPS, SCENE_DURATION, SAFE_TOP, adLayout } from './adTimeline';
 import { createFlightLoop } from './feedPost';
 import { createLockup } from './lockup';
 import { createExplainShirt } from './explainShirt';
@@ -244,6 +243,20 @@ export async function createExplainComposer({
   exact = true
 }) {
   const k = width / 1080;
+  // The frame's layout (see adLayout): a 9:16 frame is laid out exactly as before sizes. On the
+  // others the text (captions, then the lockup) and the garment are placed to suit the frame:
+  //   landscape -- the text in the left column, the garment standing in the right
+  //   4:5, 1:1  -- the text at the top, the garment fitted under it to the bottom edge
+  // Tap and Keep fill the frame at every size; only Wear's garment and the text move.
+  const tall = height / width > 1.5;
+  const frame = adLayout(width, height);
+  const shirtSize = Math.round(
+    tall ? 0.9 * width : frame.landscape ? 0.95 * height : Math.min(0.9 * width, 0.8 * height)
+  );
+  const SHIRT_X = frame.landscape ? (frame.product.x0 + frame.product.x1) / 2 : width / 2;
+  const SHIRT_Y = tall || frame.landscape ? 0.5 * height : height - 0.5 * shirtSize;
+  const textTop = tall ? 0.15 * height : frame.landscape ? 0.5 * height - 76 * frame.unit * 1.12 : 0.05 * height;
+  const lockupTop = tall ? (SAFE_TOP + 0.004) * height : frame.landscape ? frame.lockup.top : 0.05 * height;
   const fresh = freshDesigns(design, salt);
   // arts: the three tapped pieces, the chosen design (KEPT), then the wall's extras (small).
   const all = [...fresh.slice(0, TAPPED_FRESH), design, ...fresh.slice(TAPPED_FRESH)];
@@ -286,12 +299,17 @@ export async function createExplainComposer({
 
   // The garment is imagery, not text, so it is not held to the safe zone: it fills the middle of
   // the frame and its hem runs on into the lower zone, still well clear of Instagram's caption row.
-  const shirtSize = Math.round(0.9 * width);
+  // (Sized with the frame's layout, above.)
   const shirt = await createExplainShirt({ design, size: shirtSize, garment });
   // One draw now, mid-effect, so its shaders compile while the composer builds rather than on the
   // first frame of Wear (a 100ms hitch in playback).
   shirt.draw(0.1, { strikeAt: 0, landAt: 0.05, land: 0.5, rise: 0.05, yaw: 0 });
-  const lockup = await createLockup({ width, height, palette: palettes[KEPT] });
+  const lockup = await createLockup({
+    width,
+    height,
+    palette: palettes[KEPT],
+    ...(tall ? {} : { unit: frame.unit, cx: frame.lockup.cx })
+  });
   // Behind the garment in Wear: the kept design's own flight, at constant speed.
   const flight = await createFlightLoop(design, width, height, {
     exact,
@@ -380,8 +398,11 @@ export async function createExplainComposer({
 
   const FINGER = { x: 0.5 * width, y: 0.6 * height };
   const CENTRE = { x: 0.5 * width, y: 0.5 * height };
-  const SHIRT_Y = 0.5 * height;
-  const CHEST_Y = SHIRT_Y - 0.05 * height;
+  // The chest, where the card lands: a tenth of the garment's size above its centre.
+  const CHEST_Y = SHIRT_Y - (tall ? 0.05 * height : 0.0988 * shirtSize);
+  // The card's size on the chest, as a share of the frame: 0.24 of a 9:16 frame, the same share of
+  // the garment on the others.
+  const CARD_ON_CHEST = tall ? 0.24 : (0.24 * shirtSize * 1080) / (972 * width);
 
   // A rounded rect path starting at the top centre and running clockwise, returning its length.
   // Written out rather than ctx.roundRect, whose starting point differs between engines -- with a
@@ -480,7 +501,18 @@ export async function createExplainComposer({
   const captions = await createCaptions({
     width,
     height,
-    top: 0.15 * height,
+    top: textTop,
+    ...(tall
+      ? {}
+      : frame.landscape
+        ? {
+            // Centred on the lockup's column and as wide as that centre allows, in slightly smaller
+            // type: at the lockup's own size "Keep the ones you love." left "love." on a line alone.
+            unit: 0.9 * frame.unit,
+            cx: frame.lockup.cx,
+            maxWidth: 2 * (frame.lockup.cx - 0.025 * width)
+          }
+        : { unit: frame.unit, cx: frame.lockup.cx, maxWidth: 0.84 * width }),
     items: EXPLAIN_CAPTIONS.map((words, i) => ({
       words,
       palette: palettes[i === 0 ? 0 : KEPT]
@@ -652,7 +684,7 @@ export async function createExplainComposer({
       const sq = t >= impact ? 0.06 * Math.exp(-(t - impact) / 0.12) * Math.cos((t - impact) * 30) : 0;
       const gy = SHIRT_Y + (1 - rise) * 0.75 * height;
       ctx.save();
-      ctx.translate(width / 2 + jolt.x, gy + jolt.y);
+      ctx.translate(SHIRT_X + jolt.x, gy + jolt.y);
       ctx.scale(1 + sq, 1 - sq);
       ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
       ctx.shadowBlur = 60 * k;
@@ -667,7 +699,7 @@ export async function createExplainComposer({
         const hover = easeInOut(clamp01(u / 0.5));
         const wind = clamp01((t - (impact - 0.32)) / 0.14);
         const slam = easeIn(clamp01((t - (impact - 0.18)) / 0.18));
-        const scale = lerp(z0, 0.24, hover) * (1 + 0.12 * wind) * lerp(1, 0.35, slam);
+        const scale = lerp(z0, CARD_ON_CHEST, hover) * (1 + 0.12 * wind) * lerp(1, 0.35, slam);
         const cy = lerp(lerp(CENTRE.y, CHEST_Y - 0.03 * height, hover), CHEST_Y, slam);
         const tilt = lerp(0, -0.08, hover) * (1 - slam) + 0.02 * Math.sin(u * 5) * hover * (1 - wind);
         const w = width * scale;
@@ -677,7 +709,7 @@ export async function createExplainComposer({
         const live = hover * (1 - wind);
         const yaw = 0.42 * Math.sin(u * 2.4) * live;
         ctx.save();
-        ctx.translate(CENTRE.x + jolt.x, cy + jolt.y);
+        ctx.translate(lerp(CENTRE.x, SHIRT_X, hover) + jolt.x, cy + jolt.y);
         ctx.rotate(tilt);
         ctx.save();
         ctx.transform(Math.cos(yaw), 0.14 * Math.sin(yaw), 0, 1, 0, 0);
@@ -762,7 +794,7 @@ export async function createExplainComposer({
         ctx.shadowColor = palettes[KEPT][0];
         ctx.shadowBlur = 40 * k;
         ctx.beginPath();
-        ctx.arc(CENTRE.x + jolt.x, CHEST_Y + jolt.y, easeOut(hitP) * 0.75 * width, 0, Math.PI * 2);
+        ctx.arc(SHIRT_X + jolt.x, CHEST_Y + jolt.y, easeOut(hitP) * (tall ? 0.75 * width : 0.833 * shirtSize), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
@@ -793,7 +825,7 @@ export async function createExplainComposer({
     });
     if (overlay.show) {
       lockup.draw(ctx, t, {
-        top: (SAFE_TOP + 0.004) * height,
+        top: lockupTop,
         appearAt: lockupAt,
         beat,
         cuts: [],

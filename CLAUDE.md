@@ -2396,7 +2396,7 @@ then each product photo assembling out of FacetSwap's facets on a bar line of th
 `npm start` already running, it is `http://localhost:5173/ad-builder.html`). Shape decided with Aaron (2026-10-06): products come AFTER the flight, never inside it (a
 cutout or model flying past is on screen too briefly and too small to sell anything, and a magnified
 bitmap goes soft -- the round-3 plate problem); Instagram only, so 1080x1920 at 30fps with no ratio
-picker; no end card (a Reel loops, and the URL rides the product shots instead). The July plan for
+picker (superseded 2026-11-03: see (13), Sizes); no end card (a Reel loops, and the URL rides the product shots instead). The July plan for
 this (shirts flying through the tunnel) was deleted by Aaron; don't revive it.
 Eight things worth not re-deriving:
 (1) **Dev-server only.** A production build bundles `index.html` alone, and the routes the page needs
@@ -2677,6 +2677,33 @@ Things worth not re-deriving:
 Also: the preview's AudioContext is created and resumed in the Play CLICK, even before a take
 exists. A take landing mid-play used to create it from an effect, outside any gesture, and Safari
 kept it suspended -- a silent preview until the next pause and play. Export was never affected.
+
+(13) **Sizes: 9:16, 4:5, 1:1 and 16:9** (2026-11-03, Aaron: other platforms, and real 16:9 ads
+for the vectorclash demo reel). A Size picker under the format picker sets the Reel's, the Flight
+mode's and the Explainer's export (`AD_SIZES`, saved on the ad as `size`; an ad without one is
+9:16). Feed posts keep their own 4:5. Instagram's UI overlay and Post are 9:16 only (Post is blocked
+with a note at the others). Things worth not re-deriving:
+- **9:16 lays out exactly as before**, proven byte-identical against master: 12 Reel frames from two
+  saved ads, and the explainer with `Math.random` seeded (unseeded, its impact frames differ run to
+  run anyway: `tshirtSwirl.js`'s sparks are random, on master too).
+- **One layout function, `adLayout(width, height, position, showText)`** in `adTimeline.js`, which
+  is also now the one home of SAFE_TOP, SAFE_BOTTOM and LOCKUP_BAND (re-exported where they used to
+  live). It gives the lockup's scale (`unit`) and centre, the products' rectangle and the facets'
+  origin. Landscape: the lockup centred in a left column, the products in the right. 4:5 and 1:1:
+  the 9:16 stack with 5% margins in place of the Reels safe zones and a smaller lockup. `createLockup`
+  and `createCaptions` take optional `unit`/`cx` (and captions `maxWidth`); their defaults are 9:16's.
+- **Full frame in landscape fits a free-standing cutout to the frame's height** in the products'
+  column: cover-cropped, a square on-model photo lost two fifths of its height (cut at chest and
+  knees). A photo whose product runs off both its sides (a close-up) still covers the frame:
+  fitted, it was a square with a hard edge through the flight (`freeStanding`).
+- **The explainer**: Tap and Keep fill the frame at every size; Wear's garment and the text move.
+  Landscape stands the garment in the right column at 0.95 of the height and puts the captions,
+  then the lockup, in the left (captions at 0.9 of the lockup's scale, so "Keep the ones you love."
+  holds one line); 4:5 and 1:1 put the text at the top and fit the garment under it. The card flies
+  to the garment's chest wherever it stands.
+- **The preview is half the export size** in a frame of its shape (as tall as the window for 9:16,
+  4:5, 1:1; as wide as it for 16:9); the layered preview's lockup layer is at the export's size
+  (`exportWidth`/`exportHeight` on `createAdComposer`).
 
 ### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)
 Aaron: "it just adds the light logo". Same decision and threshold as the printed label_outside

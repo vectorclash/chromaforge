@@ -1,8 +1,8 @@
 import { coverCanvas, layoutFacets, drawFacets } from '../components/ui/facetMosaic';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { resolveDesignPalette } from '../render/resolvedPalette';
-import { SCENE_DURATION, SEAM_LEAD, AD_WIDTH, AD_HEIGHT } from './adTimeline';
-import { createLockup, LOCKUP_BAND } from './lockup';
+import { SCENE_DURATION, SEAM_LEAD, AD_WIDTH, AD_HEIGHT, adLayout } from './adTimeline';
+import { createLockup } from './lockup';
 
 // Draws any frame of an ad from its time alone -- the preview and the MP4 export both call
 // draw(ctx, t), so the file is exactly what was previewed (the studio's rule for its own
@@ -15,8 +15,7 @@ import { createLockup, LOCKUP_BAND } from './lockup';
 
 // Meta's Reels safe zone: the top 14% and bottom 35% of the frame sit under Instagram's own UI
 // (the header, the caption and the audio line), so nothing that has to be read goes there.
-export const SAFE_TOP = 0.14;
-export const SAFE_BOTTOM = 0.35;
+export { SAFE_TOP, SAFE_BOTTOM } from './adTimeline';
 
 // How fast the flight's own clock runs behind the products, against real time. It slows on into
 // the seam, nearly stopped there, and builds again after it -- this keeps it a drift, not a rush.
@@ -37,18 +36,6 @@ const BREAK_FRACTION = 0.6;
 const FLOAT_MAX_WIDTH = 0.84;
 const CARD_MAX_WIDTH = 0.8;
 const clamp01 = x => (x < 0 ? 0 : x > 1 ? 1 : x);
-
-// The bands of the frame (fractions of its height) the lockup and the products occupy. Products
-// keep clear of the lockup, so the text never sits on a product.
-function frameBands(position, showText) {
-  const top = SAFE_TOP;
-  const bottom = 1 - SAFE_BOTTOM;
-  if (!showText) return { lockupTop: 0, product: [top + 0.01, bottom] };
-  if (position === 'bottom') {
-    return { lockupTop: bottom - LOCKUP_BAND, product: [top + 0.01, bottom - LOCKUP_BAND - 0.012] };
-  }
-  return { lockupTop: top + 0.004, product: [top + 0.004 + LOCKUP_BAND + 0.012, bottom] };
-}
 
 // The opaque bounds of an image with transparency, and whether it runs off the image's bottom
 // edge -- Printful frames its on-model shots at mid-thigh, so a person ends in a hard edge there.
@@ -96,9 +83,19 @@ export function analyseAlpha(img) {
 // is the likeliest reason the whole window crawled while the preview played. The export composites
 // into one canvas, as it must.
 /**
- * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean }} o
+ * `exportWidth`/`exportHeight`: the size the ad exports at, for the layered preview's full-size
+ * lockup layer (the preview itself draws at half that).
+ * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean, exportWidth?: number, exportHeight?: number }} o
  */
-export async function createAdComposer({ design, width, height, exact, layered = false }) {
+export async function createAdComposer({
+  design,
+  width,
+  height,
+  exact,
+  layered = false,
+  exportWidth = AD_WIDTH,
+  exportHeight = AD_HEIGHT
+}) {
   const [{ WebGLRenderer }, { createTunnelScene, warmTunnelStars }] = await Promise.all([
     import('three'),
     import('../animation3d/tunnelScene')
@@ -109,22 +106,29 @@ export async function createAdComposer({ design, width, height, exact, layered =
   // The preview draws at half size, and its frame is shown stretched to fit the window -- which
   // made the lockup's text and hairline soft. So in the preview the lockup gets a layer of its
   // own at the export's full size, covering only its band of the frame.
-  const lockupScale = layered ? AD_WIDTH / width : 1;
+  const lockupScale = layered ? exportWidth / width : 1;
+  // Where the lockup and products go at this size (adLayout); a 9:16 frame is laid out as before
+  // sizes. `U` is the frame width the shadows and corners were authored against: a 9:16 frame's
+  // own width, and the lockup's equivalent on the others.
+  const frame = adLayout(width, height);
+  const U = 1080 * frame.unit;
   const lockup = await createLockup({
     width: width * lockupScale,
     height: height * lockupScale,
+    unit: frame.unit * lockupScale,
+    cx: frame.lockup.cx * lockupScale,
     palette: resolveDesignPalette(design)
   });
   let lockupCanvas = null;
   if (layered) {
     lockupCanvas = document.createElement('canvas');
-    lockupCanvas.width = AD_WIDTH;
+    lockupCanvas.width = exportWidth;
     lockupCanvas.height = lockup.bandHeight;
     Object.assign(lockupCanvas.style, {
       position: 'absolute',
       left: '0',
       width: '100%',
-      height: `${(lockup.bandHeight / AD_HEIGHT) * 100}%`,
+      height: `${(lockup.bandHeight / exportHeight) * 100}%`,
       pointerEvents: 'none'
     });
   }
@@ -165,8 +169,8 @@ export async function createAdComposer({ design, width, height, exact, layered =
 
   // Facets assemble from the centre. The glint is FacetSwap's 1.5 CSS px, scaled as if the
   // video were shown 390px wide (a phone).
-  const layout = layoutFacets(width, height, width / 2, height / 2);
-  const glint = (1.5 * width) / 390;
+  const layout = layoutFacets(width, height, ...frame.facets);
+  const glint = (1.5 * U) / 390;
   // The glints outline whole triangles. Over a photo that fills the frame they read as light
   // catching the facets, as on the product page; around a cutout or a card most of each
   // triangle is empty sky, so they drew loose white outlines around the product. Only a photo
@@ -217,10 +221,39 @@ export async function createAdComposer({ design, width, height, exact, layered =
     return true;
   }
 
+  // Whether a photo's product stands clear of its left and right edges, so it can be placed on
+  // the flight without a straight edge showing.
+  function freeStanding(img) {
+    const b = analyseAlpha(img);
+    const w = img.naturalWidth;
+    return b.transparent && (b.x > 0.01 * w || b.x + b.w < 0.99 * w);
+  }
+
   // A product photo placed on a transparent full frame, once; every frame then draws it with
   // that frame's motion. `origin` is the point it scales and rocks about. `covers` says it hides
   // everything under it once it has landed.
-  function buildSprite(img, fit, bands) {
+  function buildSprite(img, fit, place) {
+    const { x0, x1 } = place.product;
+    const areaW = x1 - x0;
+    const areaX = (x0 + x1) / 2;
+    if (fit === 'full' && place.landscape && freeStanding(img)) {
+      // Full frame on a landscape frame, for a cutout: the photo at the frame's full height, in
+      // the products' column. Cover-cropped, a square photo would lose two fifths of its height --
+      // an on-model shot cut off at the chest and the knees. A photo that runs off its own sides
+      // (a close-up, opaque or nearly) still covers the frame: fitted, it was a square with a hard
+      // edge through the flight.
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const s = height / img.naturalHeight;
+      const w = img.naturalWidth * s;
+      const cx = Math.min(Math.max(areaX, w / 2), width - w / 2);
+      const g = canvas.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(img, cx - w / 2, 0, w, height);
+      const covers = coversFrame(canvas);
+      return { kind: 'full', canvas, origin: [cx, height / 2], floats: false, covers, visible: covers ? null : coverage(canvas) };
+    }
     if (fit === 'full') {
       const canvas = coverCanvas(img, width, height);
       const covers = coversFrame(canvas);
@@ -238,7 +271,8 @@ export async function createAdComposer({ design, width, height, exact, layered =
     c.height = height;
     const ctx = c.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
-    const [bandTop, bandBottom] = bands.product.map(f => f * height);
+    const bandTop = place.product.y0;
+    const bandBottom = place.product.y1;
     const bandH = bandBottom - bandTop;
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
@@ -246,16 +280,16 @@ export async function createAdComposer({ design, width, height, exact, layered =
     let floats = true;
 
     if (fit === 'card') {
-      const s = Math.min((width * CARD_MAX_WIDTH) / iw, bandH / ih);
+      const s = Math.min((areaW * CARD_MAX_WIDTH) / iw, bandH / ih);
       const w = iw * s;
       const h = ih * s;
-      const x = (width - w) / 2;
+      const x = areaX - w / 2;
       const y = (bandTop + bandBottom) / 2 - h / 2;
-      const r = width * 0.03;
+      const r = U * 0.03;
       ctx.save();
       ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-      ctx.shadowBlur = width * 0.05;
-      ctx.shadowOffsetY = width * 0.015;
+      ctx.shadowBlur = U * 0.05;
+      ctx.shadowOffsetY = U * 0.015;
       ctx.beginPath();
       ctx.roundRect(x, y, w, h, r);
       ctx.fillStyle = '#ffffff';
@@ -267,7 +301,7 @@ export async function createAdComposer({ design, width, height, exact, layered =
       ctx.clip();
       ctx.drawImage(img, x, y, w, h);
       ctx.restore();
-      origin = [width / 2, y + h / 2];
+      origin = [areaX, y + h / 2];
     } else {
       // Cutout: placed by its own opaque bounds, not the photo's padding.
       const b = analyseAlpha(img);
@@ -276,32 +310,32 @@ export async function createAdComposer({ design, width, height, exact, layered =
       ctx.shadowColor = 'rgba(0, 0, 0, 0.42)';
       if (anchored) {
         // An on-model shot rises out of the bottom edge, its head just under the lockup.
-        const s = Math.min((height - bandTop) / b.h, (width * 0.96) / b.w);
-        const dx = width / 2 - (b.x + b.w / 2) * s;
+        const s = Math.min((height - bandTop) / b.h, (areaW * 0.96) / b.w);
+        const dx = areaX - (b.x + b.w / 2) * s;
         const dy = height - (b.y + b.h) * s;
-        ctx.shadowBlur = width * 0.03;
+        ctx.shadowBlur = U * 0.03;
         ctx.drawImage(img, dx, dy, iw * s, ih * s);
-        origin = [width / 2, height];
+        origin = [areaX, height];
         floats = false;
       } else {
-        const s = Math.min((width * FLOAT_MAX_WIDTH) / b.w, bandH / b.h);
-        const dx = width / 2 - (b.x + b.w / 2) * s;
+        const s = Math.min((areaW * FLOAT_MAX_WIDTH) / b.w, bandH / b.h);
+        const dx = areaX - (b.x + b.w / 2) * s;
         const dy = (bandTop + bandBottom) / 2 - (b.y + b.h / 2) * s;
-        ctx.shadowBlur = width * 0.04;
-        ctx.shadowOffsetY = width * 0.022;
+        ctx.shadowBlur = U * 0.04;
+        ctx.shadowOffsetY = U * 0.022;
         if (b.transparent) {
           ctx.drawImage(img, dx, dy, iw * s, ih * s);
         } else {
           // A photo with no transparency of its own floats as a plain rounded rectangle.
           ctx.beginPath();
-          ctx.roundRect(dx, dy, iw * s, ih * s, width * 0.02);
+          ctx.roundRect(dx, dy, iw * s, ih * s, U * 0.02);
           ctx.fillStyle = '#000';
           ctx.fill();
           ctx.shadowColor = 'transparent';
           ctx.clip();
           ctx.drawImage(img, dx, dy, iw * s, ih * s);
         }
-        origin = [width / 2, (bandTop + bandBottom) / 2];
+        origin = [areaX, (bandTop + bandBottom) / 2];
       }
       ctx.restore();
     }
@@ -316,7 +350,7 @@ export async function createAdComposer({ design, width, height, exact, layered =
   /** @param {Array<{ url: string, fit?: string }>} photos */
   async function setPhotos(photos, { position = 'top', showText = true } = {}) {
     const token = ++photosToken;
-    const bands = frameBands(position, showText);
+    const place = adLayout(width, height, position, showText);
     const imgs = await Promise.all(
       photos.map(async ({ url }) => {
         if (!images.has(url)) {
@@ -329,7 +363,7 @@ export async function createAdComposer({ design, width, height, exact, layered =
       })
     );
     if (token !== photosToken) return;
-    sprites = photos.map(({ fit }, i) => buildSprite(imgs[i], fit || 'cutout', bands));
+    sprites = photos.map(({ fit }, i) => buildSprite(imgs[i], fit || 'cutout', place));
   }
 
   // The flight ends SEAM_LEAD before its loop seam, still slowing as the first product arrives,
@@ -442,14 +476,14 @@ export async function createAdComposer({ design, width, height, exact, layered =
       beat: timeline.beat,
       cuts: products.slice(1).map(p => p.start),
       url: overlay.text,
-      top: frameBands(overlay.position, true).lockupTop * height * lockupScale
+      top: adLayout(width, height, overlay.position, true).lockup.top * lockupScale
     };
     if (!lc) return lockup.draw(ctx, t, o);
     // The layer covers the band, from a margin above the lockup's top.
     const at = Math.round(o.top) - lockup.margin;
     if (at !== lockupTop) {
       lockupTop = at;
-      lockupCanvas.style.top = `${(at / AD_HEIGHT) * 100}%`;
+      lockupCanvas.style.top = `${(at / exportHeight) * 100}%`;
     }
     lockup.draw(lc, t, { ...o, top: o.top - at });
   }
