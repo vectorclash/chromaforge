@@ -27,7 +27,7 @@
     "format": "prettier --write \"src/**/*.{js,jsx,json,css,scss}\"",
     "typecheck": "tsc -p tsconfig.check.json",
     "lint": "eslint .",
-    "check": "npm run typecheck && npm run lint && node scripts/check-reexport-bindings.mjs && node scripts/check-render-density.mjs"
+    "check": "npm run typecheck && npm run lint && node scripts/check-no-secrets.mjs && node scripts/check-reexport-bindings.mjs && node scripts/check-render-density.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

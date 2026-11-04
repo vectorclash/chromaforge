@@ -6131,7 +6131,8 @@ by the shared design as the odds the panel last published.
   `CLEANUP_STORAGE_KEY` function secret together). **0014 originally held the real key in this
   public repo, live from 2026-07-19 until it was replaced on 2026-11-04. Never write a secret
   value into a migration, comment or script: GitHub's scanning did not catch this one, because a
-  plain hex string has no recognizable prefix.** Storage deletion must go through the Storage API (deleting
+  plain hex string has no recognizable prefix. `scripts/check-no-secrets.mjs` now gates every
+  deploy on exactly that, and `--ref=dabf0de` shows it failing on the real leak.** Storage deletion must go through the Storage API (deleting
   `storage.objects` rows directly orphans the underlying S3 objects), hence the
   HTTP-call-an-Edge-Function shape instead of pure SQL like 0010.
 - `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2

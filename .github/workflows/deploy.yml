@@ -51,6 +51,9 @@ jobs:
       #   re-export   the narrower static check for that same 2026-09-17 bug.
       #   density     asserts a mockup composes the same piece as the print file it stands in
       #               for, for every product placement. Needs no secrets and no network.
+      #   secrets     fails on anything secret-shaped in a tracked file. This repo is public, and
+      #               a live key sat in migration 0014 for months because plain hex has no prefix
+      #               for GitHub's own scanning to recognize.
       #
       # NOT gated here, deliberately: check-render-regression.mjs is SUPPOSED to fail whenever
       # the generator is changed on purpose (it did for v14), so gating on it would mean either
@@ -67,6 +70,7 @@ jobs:
 
       - name: Static checks
         run: |
+          node scripts/check-no-secrets.mjs
           node scripts/check-reexport-bindings.mjs
           node scripts/check-render-density.mjs
 
