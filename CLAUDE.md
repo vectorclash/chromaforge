@@ -3835,6 +3835,15 @@ probed live. The rules worth not re-breaking:
   (username, display_name, avatar_url). **A new client-written column needs a GRANT**, or the
   write fails with a permission error. Also size limits: `designs.data` <= 64KB, bucket
   file-size/type limits.
+- **Public roles hold only what the client uses (0022, 2026-11-04).** anon reads designs, likes
+  and profiles. authenticated also reads its own orders and order_items, writes designs and
+  likes, and updates the three profile columns. orders, order_items and rate_limits have no
+  client write rights at all, and TRUNCATE (which RLS does not govern) is gone from every table.
+  Supabase's default privileges still give a NEW table select/insert/update/delete for both
+  roles, so it needs RLS and policies as before (`rls_auto_enable` turns RLS on). anon reading
+  orders now gets 401, not an empty list. `net.http_post` stays executable by both roles: the
+  revoke changes nothing because supabase_admin owns the grant, so `net` must never be added to
+  the Data API's exposed schemas.
 - **The studio canvas releases replaced artwork** (`showImageUrl`), never the still stashed
   for animation mode; and a 2D animation build mirrors the design into StudioContext once,
   not per frame (measured 20 preview renders -> 1).
@@ -6503,6 +6512,12 @@ files, `public/assets/.htaccess` for the hashed bundles. Notes for anyone touchi
   transferring, breaking lazy route loads for anyone mid-session during a sync).
 - Already-stale caches heal on their own the first time a browser revalidates; no way to
   reach back and invalidate them.
+- **Security headers live here too (2026-11-04):** HSTS (no includeSubDomains or preload, one
+  year), `X-Frame-Options: DENY`, nosniff and Referrer-Policy, set bare at the end of
+  `public/.htaccess`. Check them with `curl -I` on the live site, including a file under
+  `/assets/`, for the same reason as the `env=` note above. A full Content-Security-Policy is not
+  done: `renderWorker.js` runs createjs through indirect eval, so it needs `'unsafe-eval'` or a
+  change there first.
 
 ## Current state / what's deployed
 

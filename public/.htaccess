@@ -69,3 +69,17 @@ ErrorDocument 404 /404.html
     Header always unset Expires
   </FilesMatch>
 </IfModule>
+
+# Security headers (2026-11-04 audit: the site sent none of these). "always" so error responses
+# carry them too. HSTS is deliberately without includeSubDomains or preload: this file only knows
+# about the site itself, and either one would commit other hostnames on the domain to HTTPS for a
+# year. nosniff needs correct script types, which Hostinger serves (application/x-javascript counts
+# as JavaScript in browsers; checked with a real browser after the first deploy).
+# A full Content-Security-Policy is a separate job: renderWorker.js runs createjs through indirect
+# eval, so it needs 'unsafe-eval' or a change there first.
+<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set X-Frame-Options "DENY"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
