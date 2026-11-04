@@ -3844,6 +3844,20 @@ probed live. The rules worth not re-breaking:
   orders now gets 401, not an empty list. `net.http_post` stays executable by both roles: the
   revoke changes nothing because supabase_admin owns the grant, so `net` must never be added to
   the Data API's exposed schemas.
+- **`STRIPE_SECRET_KEY` holds a limited key (2026-11-04):** the restricted key
+  `chromaforge-backend`, Checkout Sessions Write and nothing else, which covers every Stripe call
+  the backend makes (create a session, read one in process-order; webhook verification makes no
+  call). **A new Stripe call in a function needs its permission added to that key first**, or it
+  fails live with a permission error. No copy of it, or of the rolled full-access key, is in
+  `.env.local`. Proven with a real paid order through `PRINTFUL_SKIP_CONFIRM=true`, which leaves
+  the order an unconfirmed Printful draft: Stripe webhook, full-size render and Printful draft all
+  passed. That switch is site-wide, so a real customer paying while it is on gets only a draft.
+- **Uploads that save but never answer are not our code (2026-11-04, ~18:12-18:30 UTC).** Every
+  Storage POST and DELETE wrote the object in under a second, then hung to a 504 at 60s
+  (`ABORTED RES`), across buckets, protocols and the service key, while reads stayed fast and
+  Supabase's status page stayed green. The storage logs showed `[Queue Sender]` statement
+  timeouts. If it recurs, check `storage_logs` for that line first. It cleared without any change
+  on our side, and the cause is unconfirmed.
 - **The studio canvas releases replaced artwork** (`showImageUrl`), never the still stashed
   for animation mode; and a 2D animation build mirrors the design into StudioContext once,
   not per frame (measured 20 preview renders -> 1).
