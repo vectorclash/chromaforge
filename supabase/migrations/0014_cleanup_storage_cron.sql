@@ -5,6 +5,9 @@
 -- storage.objects rows directly orphans the underlying S3 objects), hence the pg_net HTTP
 -- call to an Edge Function instead of doing it in SQL like 0010's order cancellation.
 --
+-- The real X-Cleanup-Key was written here until 2026-11-04, in a public repo, so it was replaced
+-- and the jobs now read it from Vault (0023). The text below describes the original setup.
+--
 -- The X-Cleanup-Key value here must match the function's CLEANUP_STORAGE_KEY secret
 -- (npx supabase secrets set CLEANUP_STORAGE_KEY=...). It lives in this cron job's command
 -- (readable only by privileged DB roles); if it's ever rotated, update BOTH places --
@@ -22,7 +25,7 @@ select cron.schedule(
     url := 'https://fgrhbzqzadpjpbzuszpm.supabase.co/functions/v1/cleanup-storage',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'X-Cleanup-Key', '7ea971807026bc2b2b823c9c591c955ad94f38d76a51ef75b28e9e21ff4b18d6'
+      'X-Cleanup-Key', '<REMOVED, see 0023>'
     ),
     body := '{}'::jsonb,
     timeout_milliseconds := 120000

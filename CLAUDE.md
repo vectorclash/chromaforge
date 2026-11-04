@@ -6126,8 +6126,12 @@ by the shared design as the odds the panel last published.
   This deliberately supersedes migration 0010's "Storage is left untouched" stance — that
   reasoning holds for shared content-hashed files, but per-checkout print renders were
   never shared. Scheduled daily 4:41am via pg_cron + pg_net (migration
-  `0014_cleanup_storage_cron.sql`; the shared secret is embedded in the cron command —
-  rotate it in both places). Storage deletion must go through the Storage API (deleting
+  `0014_cleanup_storage_cron.sql`; the jobs read the shared secret from Supabase Vault as
+  `cron_internal_key` since 0023, so rotating means updating that and the
+  `CLEANUP_STORAGE_KEY` function secret together). **0014 originally held the real key in this
+  public repo, live from 2026-07-19 until it was replaced on 2026-11-04. Never write a secret
+  value into a migration, comment or script: GitHub's scanning did not catch this one, because a
+  plain hex string has no recognizable prefix.** Storage deletion must go through the Storage API (deleting
   `storage.objects` rows directly orphans the underlying S3 objects), hence the
   HTTP-call-an-Edge-Function shape instead of pure SQL like 0010.
 - `src/hooks/useMockup.js` — drives the *preview* pipeline (render → upload → Printful v2
