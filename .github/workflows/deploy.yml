@@ -89,7 +89,7 @@ jobs:
       # rsync over SSH replaced the old FTP deploy (2026-07-10): Hostinger's FTP endpoint
       # had repeated multi-minute outages that survived even three spaced retry attempts
       # (see git history for the FTP version and its retry ladder; the FTP_* repo secrets
-      # still exist if a rollback is ever needed). SSH host/port/user/path are fixed
+      # were deleted 2026-11-04, so going back would mean setting them up again). SSH host/port/user/path are fixed
       # account facts, not secrets -- only the key is. The pinned host key below is the
       # server's real ed25519 key (captured via ssh-keyscan 2026-07-10); if Hostinger
       # migrates the server this check fails loudly rather than trusting a new host
