@@ -2450,8 +2450,14 @@ live function against the repo, not yet by a real 2000px task). The shop never s
 previews stay at Printful's default 1000px.
 (6b) **What makes it feel alive:** the flight keeps drifting behind the products at `BG_DRIFT` of
 real time (its ramp is nearly stopped at the seam, so it stays a drift); floating products push in,
-bob and rock over two bars; a cut breaks the outgoing product apart toward the centre
-(`drawFacets` run backwards) while the next assembles. **Glints (the white triangle outlines) only
+bob and rock over two bars; a cut between products is ONE wave out of the centre (`drawFacetSwap`,
+2026-11-06, Aaron: "two transitions happening one on top of the other"), each triangle's old facet
+shrinking as its new one pops out of the same point, so the new photo sits inside a single edge and
+the old one outside it. It used to be `drawFacets` run backwards under `drawFacets` run forwards,
+which meet at the centre, where the new photo arrives first and the old leaves last. Worth not
+re-deriving: each triangle must be quick against the wave (0.18 / 0.82 of the run, not drawFacets'
+0.45 / 0.55), or most of the frame is mid-swap at once whichever way round they are drawn. A photo
+that covers the frame still assembles over the old one as it stands. **Glints (the white triangle outlines) only
 on a photo that covers the frame** (`glintOf`; `drawFacets` skips them at width 0, so FacetSwap,
 which always passes a positive width, is unchanged): around a cutout or a card most of each triangle
 is empty sky, and the outlines floated in the air around the product (Aaron, 2026-10-07: "feel odd
@@ -2482,6 +2488,18 @@ Three things worth not re-deriving:
   downbeat): on every cut it ran back to back at a fast tempo (Aaron: "pulsing the logo color wave
   back to back felt odd"). 1 bar per product = every other cut, 2 bars = every cut, at any tempo.
   A glint runs along the hairline with each wave.
+- **Everything over the flight has motion blur; the flight never does** (`shutter.js`, 2026-11-06,
+  Aaron: "motion blur anywhere that we can add it. just not the flights"): the moments across a full
+  frame's shutter (`SHUTTER` in adComposer; up to 16 in the file, 6 in the preview), averaged on a
+  transparent layer over a flight rendered once, sharp. The explainer's own whole-frame blur, which
+  does include its flight, is fine by Aaron and stays. For the lockup, a piece that has landed is drawn
+  once and stays sharp, and the wave and settled lockup are byte-identical to no blur. For the
+  products, a cut takes every moment and a landed product's slow drift only enough to move about a
+  pixel between them (`momentsFor`). Averaging a TRANSPARENT layer takes two steps per moment
+  (`destination-out`, then `lighter`, both at 1/(i+1)), which stayed within 5/255 of a floating-point
+  mean. Source-over at that alpha, enough over an opaque frame, was off by up to 202/255 with ~1.4x
+  the ink; `lighter` at a flat 1/n was off by 8 from rounding. The explainer passes no shutter:
+  it already averages whole frames (flight included), and both would blur twice.
 - **In the preview the lockup is its own layer at the EXPORT's size** (`lockupCanvas`, covering only
   its band). The preview draws at 540x960 and is shown ~1.5x larger on a retina screen, which made the
   text and hairline soft -- the "crunchy" Aaron saw. The export was always sharp. The flight and

@@ -1,8 +1,9 @@
-import { coverCanvas, layoutFacets, drawFacets } from '../components/ui/facetMosaic';
+import { coverCanvas, layoutFacets, drawFacets, drawFacetSwap } from '../components/ui/facetMosaic';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { resolveDesignPalette } from '../render/resolvedPalette';
-import { SCENE_DURATION, SEAM_LEAD, AD_WIDTH, AD_HEIGHT, adLayout } from './adTimeline';
+import { SCENE_DURATION, SEAM_LEAD, AD_FPS, AD_WIDTH, AD_HEIGHT, adLayout } from './adTimeline';
 import { createLockup } from './lockup';
+import { createShutter } from './shutter';
 
 // Draws any frame of an ad from its time alone -- the preview and the MP4 export both call
 // draw(ctx, t), so the file is exactly what was previewed (the studio's rule for its own
@@ -30,12 +31,13 @@ const PUSH = { full: 0.05, layer: 0.03 };
 // A floating product bobs and rocks once every two bars.
 const BOB = 0.006;
 const ROCK = (0.5 * Math.PI) / 180;
-// The outgoing product breaks apart over the first part of a cut while the next assembles.
-const BREAK_FRACTION = 0.6;
+// Motion blur on the products and the lockup: how long the shutter is open, as a fraction of a frame
+// (1 is a full 360 degrees, the explainer's Heavy). Never the flight: it is rendered once per frame,
+// sharp, and the rest is averaged over it (flight blur was tried and rejected, 2026-10-30).
+const SHUTTER = 1;
 
 const FLOAT_MAX_WIDTH = 0.84;
 const CARD_MAX_WIDTH = 0.8;
-const clamp01 = x => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 // The opaque bounds of an image with transparency, and whether it runs off the image's bottom
 // edge -- Printful frames its on-model shots at mid-thigh, so a person ends in a hard edge there.
@@ -84,8 +86,9 @@ export function analyseAlpha(img) {
 // into one canvas, as it must.
 /**
  * `exportWidth`/`exportHeight`: the size the ad exports at, for the layered preview's full-size
- * lockup layer (the preview itself draws at half that).
- * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean, exportWidth?: number, exportHeight?: number }} o
+ * lockup layer (the preview itself draws at half that). `blurSamples`: moments averaged per
+ * frame for motion blur, at most, fewer for the live preview; under 2 turns it off.
+ * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean, exportWidth?: number, exportHeight?: number, blurSamples?: number }} o
  */
 export async function createAdComposer({
   design,
@@ -94,7 +97,8 @@ export async function createAdComposer({
   exact,
   layered = false,
   exportWidth = AD_WIDTH,
-  exportHeight = AD_HEIGHT
+  exportHeight = AD_HEIGHT,
+  blurSamples = exact ? 16 : 6
 }) {
   const [{ WebGLRenderer }, { createTunnelScene, warmTunnelStars }] = await Promise.all([
     import('three'),
@@ -391,15 +395,22 @@ export async function createAdComposer({
 
   // A product's motion at time t: the push-in once it has landed and, for a floating one, a slow
   // bob and rock over two bars.
-  function drawProduct(ctx, i, t, timeline) {
+  function productPose(i, t, timeline) {
     const sp = sprites[i];
     const seg = timeline.products[i];
     const landed = seg.start + seg.transition;
     const kind = sp.kind === 'full' ? 'full' : 'layer';
-    const s = 1 + (PUSH[kind] * Math.max(0, t - landed)) / Math.max(0.001, seg.end - landed);
     const phase = ((t - seg.start) / (2 * timeline.bar)) * 2 * Math.PI;
-    const dy = sp.floats ? Math.sin(phase) * BOB * height : 0;
-    const rot = sp.floats ? Math.sin(phase + 1) * ROCK : 0;
+    return {
+      s: 1 + (PUSH[kind] * Math.max(0, t - landed)) / Math.max(0.001, seg.end - landed),
+      dy: sp.floats ? Math.sin(phase) * BOB * height : 0,
+      rot: sp.floats ? Math.sin(phase + 1) * ROCK : 0
+    };
+  }
+
+  function drawProduct(ctx, i, t, timeline) {
+    const sp = sprites[i];
+    const { s, dy, rot } = productPose(i, t, timeline);
     const [ox, oy] = sp.origin;
     ctx.save();
     ctx.translate(ox, oy + dy);
@@ -418,6 +429,63 @@ export async function createAdComposer({
     return c;
   }
 
+  // Which product is up at time t, or -1 during the flight.
+  function productAt(t, timeline) {
+    const products = timeline.products.slice(0, sprites.length);
+    for (let k = products.length - 1; k >= 0; k--) if (t >= products[k].start) return k;
+    return -1;
+  }
+  const isCutting = (i, t, timeline) => t - timeline.products[i].start < timeline.products[i].transition;
+
+  // The products as they stand at one moment, on whatever is on `ctx`.
+  function drawProducts(ctx, t, timeline) {
+    const i = productAt(t, timeline);
+    if (i < 0) return;
+    const seg = timeline.products[i];
+    const progress = (t - seg.start) / seg.transition;
+    const cur = sprites[i];
+    if (!isCutting(i, t, timeline)) {
+      drawProduct(ctx, i, t, timeline);
+    } else if (i > 0 && !cur.covers) {
+      // One wave: each facet turns from the outgoing product to the next as it passes, so the
+      // two never stand on top of each other.
+      const prev = sprites[i - 1];
+      drawFacetSwap(ctx, layout, layerAt(0, i - 1, t, timeline), layerAt(1, i, t, timeline), progress, glintOf(prev), prev.visible);
+    } else {
+      // An opaque frame assembles over the outgoing product as it stands -- by the end of the cut
+      // nothing of it shows, so it can simply stop being drawn.
+      if (i > 0) drawProduct(ctx, i - 1, t, timeline);
+      drawFacets(ctx, layout, layerAt(1, i, t, timeline), progress, glintOf(cur), cur.visible);
+    }
+  }
+
+  // An opaque photo that has landed covers everything, flight included.
+  function flightShowsAt(t, timeline) {
+    const i = productAt(t, timeline);
+    return i < 0 || !sprites[i].covers || isCutting(i, t, timeline);
+  }
+
+  // How many moments an exposure needs: as many as it takes for a landed product's slow drift to
+  // move about a pixel between them, so its photo is not redrawn 16 times to move one pixel, and all
+  // of them across a cut. A drift under a quarter of a pixel needs no blur at all.
+  function momentsFor(t, open, timeline) {
+    if (blurSamples < 2) return 1;
+    const t0 = t - open / 2;
+    const t1 = t + open / 2;
+    const i = productAt(t0, timeline);
+    if (i !== productAt(t1, timeline)) return blurSamples;
+    if (i < 0) return 1;
+    if (isCutting(i, t0, timeline)) return blurSamples;
+    const a = productPose(i, t0, timeline);
+    const b = productPose(i, t1, timeline);
+    const [ox, oy] = sprites[i].origin;
+    const reach = Math.hypot(Math.max(ox, width - ox), Math.max(oy, height - oy));
+    const moved = reach * (Math.abs(b.s - a.s) + Math.abs(b.rot - a.rot)) + Math.abs(b.dy - a.dy);
+    return moved < 0.25 ? 1 : Math.min(blurSamples, Math.ceil(moved) + 1);
+  }
+
+  const exposeProducts = createShutter(width, height);
+
   /**
    * @param {CanvasRenderingContext2D} ctx  a width x height canvas
    * @param {number} t  seconds into the ad
@@ -425,41 +493,16 @@ export async function createAdComposer({
    */
   function draw(ctx, t, { timeline, overlay }) {
     if (layered) ctx.clearRect(0, 0, width, height);
-    const products = timeline.products.slice(0, sprites.length);
-    let i = -1;
-    for (let k = products.length - 1; k >= 0; k--) {
-      if (t >= products[k].start) {
-        i = k;
-        break;
-      }
-    }
-
-    if (i < 0) {
-      drawFlight(ctx, t, timeline);
+    const open = SHUTTER / AD_FPS;
+    const moments = momentsFor(t, open, timeline);
+    const exposed = moments > 1 ? open : 0;
+    // Once per frame, sharp, whatever the products do over it -- and if any of the exposure shows it.
+    if (flightShowsAt(t - exposed / 2, timeline) || flightShowsAt(t + exposed / 2, timeline)) drawFlight(ctx, t, timeline);
+    if (moments > 1) {
+      ctx.drawImage(exposeProducts(t, open, moments, (moment, at) => drawProducts(moment, at, timeline)), 0, 0);
     } else {
-      const seg = products[i];
-      const local = t - seg.start;
-      const cutting = local < seg.transition;
-      const cur = sprites[i];
-      // An opaque photo that has landed covers everything; nothing else needs drawing.
-      if (!cur.covers || cutting) drawFlight(ctx, t, timeline);
-      if (cutting) {
-        if (i > 0) {
-          if (cur.covers) {
-            // An opaque frame assembles over the outgoing product as it stands -- by the end of
-            // the cut nothing of it shows, so it can simply stop being drawn.
-            drawProduct(ctx, i - 1, t, timeline);
-          } else {
-            const out = clamp01(local / (BREAK_FRACTION * seg.transition));
-            drawFacets(ctx, layout, layerAt(0, i - 1, t, timeline), 1 - out, glintOf(sprites[i - 1]), sprites[i - 1].visible);
-          }
-        }
-        drawFacets(ctx, layout, layerAt(1, i, t, timeline), local / seg.transition, glintOf(cur), cur.visible);
-      } else {
-        drawProduct(ctx, i, t, timeline);
-      }
+      drawProducts(ctx, t, timeline);
     }
-
     drawLockup(ctx, t, timeline, overlay);
   }
 
@@ -476,7 +519,8 @@ export async function createAdComposer({
       beat: timeline.beat,
       cuts: products.slice(1).map(p => p.start),
       url: overlay.text,
-      top: adLayout(width, height, overlay.position, true).lockup.top * lockupScale
+      top: adLayout(width, height, overlay.position, true).lockup.top * lockupScale,
+      shutter: blurSamples >= 2 ? { samples: blurSamples, open: SHUTTER / AD_FPS } : undefined
     };
     if (!lc) return lockup.draw(ctx, t, o);
     // The layer covers the band, from a margin above the lockup's top.

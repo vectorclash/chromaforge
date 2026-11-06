@@ -1,6 +1,7 @@
 import tinycolor from 'tinycolor2';
 import logoUrl from '../assets/images/logo.svg';
 import { LOCKUP_BAND } from './adTimeline';
+import { createShutter } from './shutter';
 
 // The ad's brand lockup, drawn on a canvas at any frame time: the site's own wordmark (the logo,
 // CHROMA in Exo 400, FORGE in Exo 900 soft lime -- Wordmark.jsx / .controls-inner h1), a
@@ -14,6 +15,9 @@ import { LOCKUP_BAND } from './adTimeline';
 // Two other entrances were built beside this one and dropped (2026-10-07): the site's
 // resolve-in (the whole lockup out of a blur, which was this one's predecessor) and a hammer
 // "strike". One entrance, the same on every ad, is what makes it recognisable.
+//
+// The entrance can carry motion blur (see drawBlurred); the hue wave and the settled lockup do not
+// move, so they stay sharp.
 //
 // Every piece (the logo, each letter, each letter of the URL) is rendered ONCE into its own small
 // sprites: the glyph, its dark drop shadow, and a white mask and glow that are tinted per frame.
@@ -404,17 +408,20 @@ export async function createLockup({ width, height, palette, unit = width / 1080
     return out;
   }
 
-  // Draws the lockup at time t, its top at y = 0 of the context.
+  // Draws the lockup at time t, its top at y = 0 of the context. `only` limits it to some of its
+  // parts: a test per piece and per URL letter, and whether to draw the hairline.
   /**
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} t
    * @param {{ appearAt: number, beat: number, cuts: number[], url: string }} o
+   * @param {{ piece: (p: any) => boolean, line: boolean, url: (p: any) => boolean } | null} [only]
    */
-  function drawLive(ctx, t, { appearAt, beat, cuts, url }) {
+  function drawLive(ctx, t, { appearAt, beat, cuts, url }, only = null) {
     const ent = entrance(t - appearAt, beat);
     const ripples = ripplesFor(appearAt, beat, cuts);
 
     for (const p of pieces) {
+      if (only && !only.piece(p)) continue;
       const pose = ent.piece(p);
       if (p.kind === 'chroma') {
         const ph = wavePhase(t, ripples, p.k);
@@ -426,10 +433,12 @@ export async function createLockup({ width, height, palette, unit = width / 1080
       drawPiece(ctx, p, pose);
     }
 
-    drawLine(ctx, lineX, ent.line.x1, 1, glintAt(t, ripples));
-    drawHead(ctx, ent.line.x1, ent.line.head);
+    if (!only || only.line) {
+      drawLine(ctx, lineX, ent.line.x1, 1, glintAt(t, ripples));
+      drawHead(ctx, ent.line.x1, ent.line.head);
+    }
 
-    if (url) for (const p of urlLetters(url)) drawPiece(ctx, p, ent.url(p));
+    if (url) for (const p of urlLetters(url)) if (!only || only.url(p)) drawPiece(ctx, p, ent.url(p));
   }
 
   // Once it has arrived and no wave is running, the lockup is a still picture -- so it is drawn
@@ -449,20 +458,44 @@ export async function createLockup({ width, height, palette, unit = width / 1080
     return cache;
   }
 
+  // The entrance with motion blur (see shutter.js). Only what is still moving goes through the
+  // average; a piece that has landed is drawn once, so it stays sharp and meets the settled picture
+  // exactly.
+  const expose = createShutter(width, bandHeight);
+  function drawBlurred(ctx, t, o, { samples, open }) {
+    const opening = entrance(t - open / 2 - o.appearAt, o.beat);
+    const movingPiece = p => opening.piece(p).dy !== undefined;
+    const movingUrl = p => opening.url(p).dy !== undefined;
+    const movingLine = opening.line.head > 0;
+    drawLive(ctx, t, o, { piece: p => !movingPiece(p), line: !movingLine, url: p => !movingUrl(p) });
+    const mean = expose(t, open, samples, (moment, at) => {
+      // Part of the exposure can fall before the lockup appears; that moment counts, but is empty.
+      if (at < o.appearAt) return;
+      moment.translate(0, margin);
+      drawLive(moment, at, o, { piece: movingPiece, line: movingLine, url: movingUrl });
+    });
+    ctx.drawImage(mean, 0, -margin);
+  }
+
   /**
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} t
-   * @param {{ top: number, appearAt: number, beat: number, cuts: number[], url: string }} o
-   *   top in px of the context; cuts are the times of the later product cuts
+   * @param {{ top: number, appearAt: number, beat: number, cuts: number[], url: string, shutter?: { samples: number, open: number } }} o
+   *   top in px of the context; cuts are the times of the later product cuts; shutter blurs the
+   *   entrance's motion: `samples` moments across `open` seconds, centred on t. Leave it out when
+   *   the caller already averages whole frames, as the explainer does.
    */
   function draw(ctx, t, o) {
-    if (t < o.appearAt) return;
+    const open = o.shutter?.open ?? 0;
+    if (t + open / 2 < o.appearAt) return;
     const top = Math.round(o.top);
     const waving = glintAt(t, ripplesFor(o.appearAt, o.beat, o.cuts)) >= 0;
-    if (t < o.appearAt + settleOf(o.beat) || waving) {
+    const arriving = t - open / 2 < o.appearAt + settleOf(o.beat);
+    if (arriving || waving) {
       ctx.save();
       ctx.translate(0, top);
-      drawLive(ctx, t, o);
+      if (arriving && o.shutter) drawBlurred(ctx, t, o, o.shutter);
+      else drawLive(ctx, t, o);
       ctx.restore();
       return;
     }
