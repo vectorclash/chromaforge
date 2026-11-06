@@ -1,9 +1,10 @@
-import { coverCanvas, layoutFacets, drawFacets, drawFacetSwap } from '../components/ui/facetMosaic';
+import { coverCanvas, layoutFacets } from '../components/ui/facetMosaic';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { resolveDesignPalette } from '../render/resolvedPalette';
 import { SCENE_DURATION, SEAM_LEAD, AD_FPS, AD_WIDTH, AD_HEIGHT, adLayout } from './adTimeline';
 import { createLockup } from './lockup';
 import { createShutter } from './shutter';
+import { createCutShader } from './cutShader';
 
 // Draws any frame of an ad from its time alone -- the preview and the MP4 export both call
 // draw(ctx, t), so the file is exactly what was previewed (the studio's rule for its own
@@ -35,6 +36,11 @@ const ROCK = (0.5 * Math.PI) / 180;
 // (1 is a full 360 degrees, the explainer's Heavy). Never the flight: it is rendered once per frame,
 // sharp, and the rest is averaged over it (flight blur was tried and rejected, 2026-10-30).
 const SHUTTER = 1;
+
+// A glass cut's shared path: the most one figure is scaled to meet the other, and how far it pushes
+// in at the middle.
+const MATCH_MAX = 1.6;
+const MATCH_PUSH = 0.05;
 
 const FLOAT_MAX_WIDTH = 0.84;
 const CARD_MAX_WIDTH = 0.8;
@@ -116,12 +122,13 @@ export async function createAdComposer({
   // own width, and the lockup's equivalent on the others.
   const frame = adLayout(width, height);
   const U = 1080 * frame.unit;
+  const palette = resolveDesignPalette(design);
   const lockup = await createLockup({
     width: width * lockupScale,
     height: height * lockupScale,
     unit: frame.unit * lockupScale,
     cx: frame.lockup.cx * lockupScale,
-    palette: resolveDesignPalette(design)
+    palette
   });
   let lockupCanvas = null;
   if (layered) {
@@ -139,11 +146,14 @@ export async function createAdComposer({
 
   const renderer = new WebGLRenderer({ antialias: true });
   let world = null;
+  let glass = null;
   let released = false;
   // Idempotent: the export releases it before flushing the encoder, and again in its finally.
   const release = () => {
     if (released) return;
     released = true;
+    glass?.dispose();
+    glass = null;
     world?.dispose();
     world = null;
     renderer.dispose();
@@ -171,40 +181,18 @@ export async function createAdComposer({
     throw e;
   }
 
-  // Facets assemble from the centre. The glint is FacetSwap's 1.5 CSS px, scaled as if the
-  // video were shown 390px wide (a phone).
+  // A cut between products: the lattice's panes, spreading from this point.
   const layout = layoutFacets(width, height, ...frame.facets);
-  const glint = (1.5 * U) / 390;
-  // The glints outline whole triangles. Over a photo that fills the frame they read as light
-  // catching the facets, as on the product page; around a cutout or a card most of each
-  // triangle is empty sky, so they drew loose white outlines around the product. Only a photo
-  // that covers the frame gets them.
-  const glintOf = sprite => (sprite.covers ? glint : 0);
-  const scratch = [0, 1].map(() => {
-    const c = document.createElement('canvas');
-    c.width = width;
-    c.height = height;
-    return c;
-  });
-
-  // Which facets of a layer have anything in them, so a cut draws no glints over empty sky.
-  function coverage(canvas) {
-    const sw = Math.ceil(width / 12);
-    const sh = Math.ceil(height / 12);
-    const c = document.createElement('canvas');
-    c.width = sw;
-    c.height = sh;
-    const ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(canvas, 0, 0, sw, sh);
-    const d = ctx.getImageData(0, 0, sw, sh).data;
-    return layout.tris.map(tr => {
-      const x0 = Math.floor(tr.bx / 12);
-      const y0 = Math.floor(tr.by / 12);
-      const x1 = Math.min(sw - 1, Math.ceil((tr.bx + tr.bw) / 12));
-      const y1 = Math.min(sh - 1, Math.ceil((tr.by + tr.bh) / 12));
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (d[(y * sw + x) * 4 + 3] > 16) return true;
-      return false;
-    });
+  try {
+    glass = createCutShader({ width, height, unit: frame.unit, layout, origin: frame.facets, palette });
+  } catch (e) {
+    release();
+    throw e;
+  }
+  if (layered) {
+    // Its own layer over the flight, for the same reason the flight has one, and out of the page
+    // between cuts: an empty full-frame layer still costs a composite every frame.
+    Object.assign(glass.canvas.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'none' });
   }
 
   // Whether a full-frame layer hides everything behind it. A Full frame fit is only that for a
@@ -255,20 +243,11 @@ export async function createAdComposer({
       const g = canvas.getContext('2d');
       g.imageSmoothingQuality = 'high';
       g.drawImage(img, cx - w / 2, 0, w, height);
-      const covers = coversFrame(canvas);
-      return { kind: 'full', canvas, origin: [cx, height / 2], floats: false, covers, visible: covers ? null : coverage(canvas) };
+      return { kind: 'full', canvas, origin: [cx, height / 2], floats: false, covers: coversFrame(canvas) };
     }
     if (fit === 'full') {
       const canvas = coverCanvas(img, width, height);
-      const covers = coversFrame(canvas);
-      return {
-        kind: 'full',
-        canvas,
-        origin: [width / 2, height / 2],
-        floats: false,
-        covers,
-        visible: covers ? null : coverage(canvas)
-      };
+      return { kind: 'full', canvas, origin: [width / 2, height / 2], floats: false, covers: coversFrame(canvas) };
     }
     const c = document.createElement('canvas');
     c.width = width;
@@ -343,7 +322,7 @@ export async function createAdComposer({
       }
       ctx.restore();
     }
-    return { kind: 'layer', canvas: c, origin, floats, covers: false, visible: coverage(c) };
+    return { kind: 'layer', canvas: c, origin, floats, covers: false };
   }
 
   const images = new Map(); // url -> decoded Image, so a layout change re-places without reloading
@@ -367,7 +346,11 @@ export async function createAdComposer({
       })
     );
     if (token !== photosToken) return;
-    sprites = photos.map(({ fit }, i) => buildSprite(imgs[i], fit || 'cutout', place));
+    sprites = photos.map(({ fit }, i) => {
+      const sprite = buildSprite(imgs[i], fit || 'cutout', place);
+      return { ...sprite, figure: figureOf(sprite.canvas) };
+    });
+    glass.setImages(sprites.map(sp => sp.canvas));
   }
 
   // The flight ends SEAM_LEAD before its loop seam, still slowing as the first product arrives,
@@ -421,12 +404,28 @@ export async function createAdComposer({
     ctx.restore();
   }
 
-  function layerAt(slot, i, t, timeline) {
-    const c = scratch[slot];
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, width, height);
-    drawProduct(ctx, i, t, timeline);
-    return c;
+  // Where a placed photo's figure is, as a centre and a size, for a glass cut to line two up.
+  function figureOf(canvas) {
+    const sw = Math.ceil(width / 8);
+    const sh = Math.ceil(height / 8);
+    const c = document.createElement('canvas');
+    c.width = sw;
+    c.height = sh;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, sw, sh);
+    const d = ctx.getImageData(0, 0, sw, sh).data;
+    let x0 = sw, y0 = sh, x1 = -1, y1 = -1;
+    for (let y = 0; y < sh; y++) {
+      for (let x = 0; x < sw; x++) {
+        if (d[(y * sw + x) * 4 + 3] < 40) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0) return { x: width / 2, y: height / 2, size: height };
+    return { x: ((x0 + x1 + 1) / 2) * 8, y: ((y0 + y1 + 1) / 2) * 8, size: Math.hypot(x1 - x0 + 1, y1 - y0 + 1) * 8 };
   }
 
   // Which product is up at time t, or -1 during the flight.
@@ -436,28 +435,6 @@ export async function createAdComposer({
     return -1;
   }
   const isCutting = (i, t, timeline) => t - timeline.products[i].start < timeline.products[i].transition;
-
-  // The products as they stand at one moment, on whatever is on `ctx`.
-  function drawProducts(ctx, t, timeline) {
-    const i = productAt(t, timeline);
-    if (i < 0) return;
-    const seg = timeline.products[i];
-    const progress = (t - seg.start) / seg.transition;
-    const cur = sprites[i];
-    if (!isCutting(i, t, timeline)) {
-      drawProduct(ctx, i, t, timeline);
-    } else if (i > 0 && !cur.covers) {
-      // One wave: each facet turns from the outgoing product to the next as it passes, so the
-      // two never stand on top of each other.
-      const prev = sprites[i - 1];
-      drawFacetSwap(ctx, layout, layerAt(0, i - 1, t, timeline), layerAt(1, i, t, timeline), progress, glintOf(prev), prev.visible);
-    } else {
-      // An opaque frame assembles over the outgoing product as it stands -- by the end of the cut
-      // nothing of it shows, so it can simply stop being drawn.
-      if (i > 0) drawProduct(ctx, i - 1, t, timeline);
-      drawFacets(ctx, layout, layerAt(1, i, t, timeline), progress, glintOf(cur), cur.visible);
-    }
-  }
 
   // An opaque photo that has landed covers everything, flight included.
   function flightShowsAt(t, timeline) {
@@ -486,6 +463,50 @@ export async function createAdComposer({
 
   const exposeProducts = createShutter(width, height);
 
+  // The cut under way at this exposure: the product arriving, whichever end of the exposure it shows
+  // at. Moments outside the cut clamp, to the whole old photo or the whole new.
+  function cutAt(t, open, moments, timeline) {
+    const exposed = moments > 1 ? open : 0;
+    for (const at of [t + exposed / 2, t - exposed / 2]) {
+      const i = productAt(at, timeline);
+      if (i >= 0 && isCutting(i, at, timeline)) return i;
+    }
+    return -1;
+  }
+
+  function drawCut(ctx, t, open, moments, i, timeline) {
+    const seg = timeline.products[i];
+    const pose = (k, at) => {
+      const { s, dy, rot } = productPose(k, at, timeline);
+      return { x: sprites[k].origin[0], y: sprites[k].origin[1], dy, s, rot };
+    };
+    const to = sprites[i].figure;
+    const from = i > 0 ? sprites[i - 1].figure : null;
+    // How far one figure is from the other's size, held so a close-up after a full figure stays a
+    // change of framing rather than a zoom through the whole cut.
+    const ratio = from ? Math.min(MATCH_MAX, Math.max(1 / MATCH_MAX, to.size / from.size)) : 1;
+    glass.draw(t, open, moments, i > 0 ? sprites[i - 1].canvas : null, sprites[i].canvas, at => {
+      const progress = Math.min(1, Math.max(0, (at - seg.start) / seg.transition));
+      const g = progress * progress * (3 - 2 * progress);
+      // Both on one path, and a slight push through the middle of it.
+      const push = 1 + MATCH_PUSH * Math.sin(Math.PI * g);
+      return {
+        progress,
+        matchAt: from ? [from.x + (to.x - from.x) * g, from.y + (to.y - from.y) * g] : [to.x, to.y],
+        from: from ? { ...pose(i - 1, at), match: [from.x, from.y, ratio ** g * push] } : null,
+        to: { ...pose(i, at), match: [to.x, to.y, ratio ** (g - 1) * push] }
+      };
+    });
+    if (!layered) ctx.drawImage(glass.canvas, 0, 0, width, height);
+  }
+
+  function showCutLayer(on) {
+    if (!layered) return;
+    const parent = renderer.domElement.parentNode;
+    if (on && glass.canvas.parentNode !== parent && parent) renderer.domElement.after(glass.canvas);
+    glass.canvas.style.display = on ? '' : 'none';
+  }
+
   /**
    * @param {CanvasRenderingContext2D} ctx  a width x height canvas
    * @param {number} t  seconds into the ad
@@ -498,10 +519,15 @@ export async function createAdComposer({
     const exposed = moments > 1 ? open : 0;
     // Once per frame, sharp, whatever the products do over it -- and if any of the exposure shows it.
     if (flightShowsAt(t - exposed / 2, timeline) || flightShowsAt(t + exposed / 2, timeline)) drawFlight(ctx, t, timeline);
-    if (moments > 1) {
-      ctx.drawImage(exposeProducts(t, open, moments, (moment, at) => drawProducts(moment, at, timeline)), 0, 0);
-    } else {
-      drawProducts(ctx, t, timeline);
+    const cut = cutAt(t, open, moments, timeline);
+    showCutLayer(cut >= 0);
+    const i = productAt(t, timeline);
+    if (cut >= 0) {
+      drawCut(ctx, t, open, moments, cut, timeline);
+    } else if (i >= 0 && moments > 1) {
+      ctx.drawImage(exposeProducts(t, open, moments, (moment, at) => drawProduct(moment, i, at, timeline)), 0, 0);
+    } else if (i >= 0) {
+      drawProduct(ctx, i, t, timeline);
     }
     drawLockup(ctx, t, timeline, overlay);
   }

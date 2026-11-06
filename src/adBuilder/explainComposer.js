@@ -11,17 +11,19 @@ import { createFlightLoop } from './feedPost';
 import { createLockup } from './lockup';
 import { createExplainShirt } from './explainShirt';
 import { createCaptions } from './captions';
+import { createRippleLens } from './rippleLens';
 
 // The explainer Reel ("How it works"), 2026-10-26: Aaron's friends were seeing the Reels and not
 // realising they could make art themselves. Three sections on the music, no UI:
-//   Tap   -- a fingertip taps, and each new piece BURSTS out of the tap point as an iris, punching
-//            in while the old one recedes under it. The taps quicken onto the chosen design.
-//   Keep  -- one more tap, and the camera pulls back: the piece was one card in a wall of them,
-//            whose columns slide past each other.
+//   Tap   -- a fingertip taps, and each new piece BURSTS out of the tap point under a wave of glass
+//            (rippleLens.js), punching in while the old one recedes. The taps quicken onto the
+//            chosen design.
+//   Keep  -- one more tap sends a gentler wave through the piece, and the camera pulls back: it was
+//            one card in a wall of them, whose columns slide past each other.
 //   Wear  -- a tap on the card; the wall falls away onto the design's own 3D flight (at constant
 //            speed, no ramp), the garment rises in, and the card SLAMS into its chest --
-//            shockwave, sparks and a camera shake on the impact -- then the garment turns once to
-//            show the print on its back.
+//            shockwave through the flight and the garment, sparks and a camera shake on the impact
+//            -- then the garment turns once to show the print on its back.
 // Then the brand lockup.
 //
 // It is built as MOTION, not slides (Aaron, same day: "more motion graphics and less powerpoint
@@ -71,6 +73,17 @@ export const MOTION_BLUR = [
   ['heavy', 'Heavy']
 ];
 const SHUTTER = { off: 0, light: 0.5, heavy: 1 };
+
+// How long a tap's wave is in charge: from the tap until the new piece has settled, or the next tap.
+const TAP_WAVE = 0.7;
+// How long it takes to cross the frame.
+const TAP_WAVE_CROSS = 0.55;
+// A wave's progress across the frame: fast at first, easing as it goes.
+const waveReach = x => 1 - (1 - Math.min(1, Math.max(0, x))) ** 1.6;
+// The keep tap's wave through the kept piece, and the impact's through the flight behind the garment.
+const KEEP_WAVE = 0.9;
+const KEEP_WAVE_STRENGTH = 0.55;
+const HIT_WAVE = 0.75;
 
 // One caption per section; the key word is set heavier, in the wordmark's lime. The three key
 // words tell the story on their own: make, keep, wear. The first line says YOU make it, which is
@@ -230,7 +243,7 @@ function wallStyle(rng) {
 /**
  * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, salt?: number, garment?: 'tee' | 'hoodie', blurSamples?: number, exact?: boolean }} o
  *   `blurSamples`: moments averaged per frame when motion blur is on -- fewer for the live preview,
- *   more for the file, where the fastest move (the iris burst) shows steps at 10.
+ *   more for the file, where the fastest move (a tap's burst) shows steps at 10.
  *   `exact`: the flight's exact path, for the file (see adComposer); the preview runs its cache.
  */
 export async function createExplainComposer({
@@ -296,6 +309,10 @@ export async function createExplainComposer({
     b.imageSmoothingQuality = 'high';
     b.drawImage(small, 0, 0, width, height);
   }
+
+  // The wave of glass under the taps and hits.
+  const lens = createRippleLens({ width, height, unit: k });
+  lens.setImages([opener, ...arts.slice(0, KEPT + 1)]);
 
   // The garment is imagery, not text, so it is not held to the safe zone: it fills the middle of
   // the frame and its hem runs on into the lower zone, still well clear of Instagram's caption row.
@@ -398,6 +415,21 @@ export async function createExplainComposer({
 
   const FINGER = { x: 0.5 * width, y: 0.6 * height };
   const CENTRE = { x: 0.5 * width, y: 0.5 * height };
+  // Where the fingertip falls on a full-frame piece, under the camera's usual overscan, for the wave
+  // to start from: the wave is drawn on the piece, and the camera then moves the piece.
+  const TAP_ON_ART = [
+    CENTRE.x + (FINGER.x - CENTRE.x) / 1.06,
+    CENTRE.y + (FINGER.y - CENTRE.y) / 1.06
+  ];
+  // Far enough past the furthest corner that the whole wave has left when it ends.
+  const WAVE_REACH =
+    Math.hypot(
+      Math.max(TAP_ON_ART[0], width - TAP_ON_ART[0]),
+      Math.max(TAP_ON_ART[1], height - TAP_ON_ART[1])
+    ) +
+    0.45 * width;
+  const SHAKE_ROOM = 36 * k;
+  let liveAt = -Infinity;
   // The chest, where the card lands: a tenth of the garment's size above its centre.
   const CHEST_Y = SHIRT_Y - (tall ? 0.05 * height : 0.0988 * shirtSize);
   // The card's size on the chest, as a share of the frame: 0.24 of a 9:16 frame, the same share of
@@ -557,9 +589,33 @@ export async function createExplainComposer({
       // Copied out of WebGL in the same task it is drawn.
       const u = t - wear;
       flight.draw(FLIGHT_FROM + u);
+      const hit = t - impact;
+      // The impact's shockwave rolls out from the chest through the flight behind the garment. The
+      // preview uploads the flight once per frame rather than per moment: copying it between WebGL
+      // contexts is slow in Safari, and the flight barely moves within one exposure.
+      const inWave = hit >= 0 && hit < HIT_WAVE;
+      const reuseLive = inWave && !exact && Math.abs(t - liveAt) < 1 / AD_FPS;
+      if (inWave && !reuseLive) liveAt = t;
+      const behind = inWave
+        ? lens.draw({
+            live: flight.canvas,
+            reuseLive,
+            centre: [SHIRT_X, CHEST_Y],
+            radius: waveReach(hit / HIT_WAVE) * WAVE_REACH,
+            strength: 1 - hit / HIT_WAVE,
+            tint: palettes[KEPT]
+          })
+        : flight.canvas;
       ctx.save();
       ctx.globalAlpha = clamp01(u / 0.4);
-      ctx.drawImage(flight.canvas, jolt.x, jolt.y, width, height);
+      // A little larger than the frame, so the camera's shake never shows its edge.
+      ctx.drawImage(
+        behind,
+        jolt.x - SHAKE_ROOM,
+        jolt.y - SHAKE_ROOM,
+        width + 2 * SHAKE_ROOM,
+        height + 2 * SHAKE_ROOM
+      );
       ctx.globalAlpha *= FLIGHT_DIM;
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
@@ -567,51 +623,35 @@ export async function createExplainComposer({
     }
 
     if (t < keep) {
-      // ── Tap: each piece bursts out of the tap as an iris over the one before ──
+      // ── Tap: each piece bursts out of the tap, under a wave of glass, over the one before ──
       let i = 0;
       for (let j = 0; j < taps.length; j++) if (t >= taps[j]) i = j;
       const since = t - taps[i];
       const gap = (i + 1 < taps.length ? taps[i + 1] : keep) - taps[i];
-      const open = easeOut(clamp01(since / Math.min(0.55, gap * 0.7)));
-      // The outgoing piece recedes and darkens as the new one opens over it (before the first
-      // tap, the opener).
-      {
-        ctx.save();
-        camera(ctx);
-        const s = 1 - 0.08 * open;
-        ctx.scale(s, s);
-        ctx.drawImage(i > 0 ? arts[i - 1] : opener, -width / 2, -height / 2, width, height);
-        ctx.restore();
-        ctx.save();
-        ctx.globalAlpha = 0.5 * open;
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, width, height);
-        ctx.restore();
-      }
-      const maxR = Math.hypot(width, height);
-      const R = open * maxR;
+      // Quick out of the tap, but long enough to see the glass: at the iris's old pace it crossed
+      // the frame in three frames.
+      const open = waveReach(since / Math.min(TAP_WAVE_CROSS, gap * 0.85));
+      // The new piece opens under the wave while the outgoing one (before the first tap, the
+      // opener) recedes and darkens ahead of it.
+      const piece =
+        since < Math.min(TAP_WAVE, gap)
+          ? lens.draw({
+              from: i > 0 ? arts[i - 1] : opener,
+              to: arts[i],
+              centre: TAP_ON_ART,
+              radius: open * WAVE_REACH,
+              // A wave leaving the frame has nothing left to bend; it eases off as it goes.
+              strength: Math.min(1, since / 0.04 + 0.2) * (1 - open ** 4),
+              fromScale: 1 - 0.08 * open,
+              toZoom: lerp(1.18, 1, easeOut(clamp01(since / TAP_WAVE))),
+              fromLight: 1 - 0.5 * open,
+              tint: palettes[i]
+            })
+          : arts[i];
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(FINGER.x, FINGER.y, Math.max(1, R), 0, Math.PI * 2);
-      ctx.clip();
       camera(ctx);
-      const s = lerp(1.18, 1, easeOut(clamp01(since / 0.7)));
-      ctx.scale(s, s);
-      ctx.drawImage(arts[i], -width / 2, -height / 2, width, height);
+      ctx.drawImage(piece, -width / 2, -height / 2, width, height);
       ctx.restore();
-      // A bright rim on the iris's edge, in the incoming piece's own colours.
-      if (open < 1) {
-        ctx.save();
-        ctx.globalAlpha = 1 - open;
-        ctx.lineWidth = 14 * k;
-        ctx.strokeStyle = palettes[i][0];
-        ctx.shadowColor = palettes[i][palettes[i].length - 1];
-        ctx.shadowBlur = 30 * k;
-        ctx.beginPath();
-        ctx.arc(FINGER.x, FINGER.y, R, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
     } else if (t < wear || t < wear + 0.6) {
       // ── Keep: pull back from the piece to the wall it is one card of ──
       const u = t - keep;
@@ -632,7 +672,19 @@ export async function createExplainComposer({
         drawCard(ctx, arts[card.art], x, y, width, height, CARD_R, clamp01(pull * 4) * (1 - fall));
       }
       if (t < wear) {
-        drawCard(ctx, arts[KEPT], -width / 2, -height / 2, width, height, CARD_R * pull);
+        // The keep tap's wave runs through the piece as the camera starts to leave it.
+        const kept =
+          u >= 0 && u < KEEP_WAVE
+            ? lens.draw({
+                from: arts[KEPT],
+                to: arts[KEPT],
+                centre: TAP_ON_ART,
+                radius: waveReach(u / KEEP_WAVE) * WAVE_REACH,
+                strength: KEEP_WAVE_STRENGTH * (1 - u / KEEP_WAVE),
+                tint: palettes[KEPT]
+              })
+            : arts[KEPT];
+        drawCard(ctx, kept, -width / 2, -height / 2, width, height, CARD_R * pull);
         // Saved: a lime outline traces round the kept card, starting at the tap.
         const trace = easeInOut(clamp01((u - 0.05) / 0.6));
         if (trace > 0) {
@@ -860,6 +912,7 @@ export async function createExplainComposer({
     dispose() {
       shirt.dispose();
       flight.dispose();
+      lens.dispose();
       for (const a of [...arts, opener]) {
         a.width = 0;
         a.height = 0;

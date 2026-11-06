@@ -1,5 +1,3 @@
-import { FACET_INTRO_MS } from '../components/ui/facetMosaic';
-
 // Where everything in an ad happens, in seconds. Pure, so the preview and the export cannot
 // disagree about it.
 //
@@ -38,6 +36,11 @@ export const SEAM_LEAD = 1.5;
 export const DEFAULT_TEMPO = 110;
 const BEATS_PER_BAR = 4;
 
+// A cut between products (cutShader.js): long enough to follow as one motion, but never more than
+// most of a short product's time on screen.
+const CUT_SECONDS = 0.72;
+const CUT_MAX_SHARE = 0.85;
+
 /**
  * @param {{ tempo: number, flightBars: number, productBars: number, productCount: number }} o
  */
@@ -49,9 +52,8 @@ export function adTimeline({ tempo, flightBars, productBars, productCount }) {
   let t = flight;
   for (let i = 0; i < productCount; i++) {
     const end = t + productBars * bar;
-    // Every cut uses the facets' longer INTRO run: a cut both breaks the outgoing product apart
-    // and assembles the next, which needs the time.
-    products.push({ start: t, end, transition: FACET_INTRO_MS / 1000 });
+    const transition = Math.min(CUT_SECONDS, CUT_MAX_SHARE * (end - t));
+    products.push({ start: t, end, transition });
     t = end;
   }
   return { beat, bar, flight, products, total: t };

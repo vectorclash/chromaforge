@@ -2450,19 +2450,25 @@ live function against the repo, not yet by a real 2000px task). The shop never s
 previews stay at Printful's default 1000px.
 (6b) **What makes it feel alive:** the flight keeps drifting behind the products at `BG_DRIFT` of
 real time (its ramp is nearly stopped at the seam, so it stays a drift); floating products push in,
-bob and rock over two bars; a cut between products is ONE wave out of the centre (`drawFacetSwap`,
-2026-11-06, Aaron: "two transitions happening one on top of the other"), each triangle's old facet
-shrinking as its new one pops out of the same point, so the new photo sits inside a single edge and
-the old one outside it. It used to be `drawFacets` run backwards under `drawFacets` run forwards,
-which meet at the centre, where the new photo arrives first and the old leaves last. Worth not
-re-deriving: each triangle must be quick against the wave (0.18 / 0.82 of the run, not drawFacets'
-0.45 / 0.55), or most of the frame is mid-swap at once whichever way round they are drawn. A photo
-that covers the frame still assembles over the old one as it stands. **Glints (the white triangle outlines) only
-on a photo that covers the frame** (`glintOf`; `drawFacets` skips them at width 0, so FacetSwap,
-which always passes a positive width, is unchanged): around a cutout or a card most of each triangle
-is empty sky, and the outlines floated in the air around the product (Aaron, 2026-10-07: "feel odd
-with the new cut out product images"). The product page keeps them -- its mockups are full JPGs, so
-every triangle is filled, and the glints were part of the FacetSwap look he picked.
+bob and rock over two bars; a cut between products is ONE sheet of glass (`cutShader.js`, 2026-11-06), the first product's
+arrival too: the facet lattice as panes in a WebGL2 canvas of their own, which never leave the frame
+while a wave crosses them, each bending and splitting what it shows. Aaron, on seeing it: "the new
+glass is perfect". Worth not re-deriving, because each was built and rejected on the way:
+- **Facets running both ways** (`drawFacets` backwards under `drawFacets` forwards, the original)
+  meet at the centre, where the new photo arrives first and the old leaves last: two people standing
+  on top of each other. Swapping per triangle as one wave ("still disconnected") and cutting the old
+  facet away by the new one's shape (rims of the old photo left standing) did not fix it either.
+- **The first glass was gorgeous but "just one replacing the other with a wipe".** Three things make
+  it one photo becoming another: both figures travel ONE path between their places and sizes
+  (`figureOf`, the composer's `match`), each refracts through the other's soft shape (mip levels as a
+  height field, read a full texel apart or the slope jumps into brushed-metal streaks), and the wave
+  is wide with panes turning in a scattered order, so there is no front to follow.
+- **Each pane's hand-over must stay narrow** (0.1 of the wave), or the two people ghost through each
+  other. The frame stopped mid-cut is deliberately unsettling, and Aaron loves that.
+Photos are uploaded in `setPhotos`, poses are uniforms, and motion blur is more moments averaged with
+constant-alpha blending, so no cut stalls on an upload or copies out of WebGL more than once a frame.
+The Glass on the site's product photos was considered and declined: a melted mid-frame is right for
+an ad and wrong on a mockup someone is deciding to buy.
 **A pulse on every beat was built and rejected on sight** (Aaron: "so very weird and creepy") -- a
 garment, and an on-model shot most of all, throbbing to the music reads as breathing. Don't re-add it;
 the music already sets every cut.
@@ -2680,6 +2686,13 @@ Things worth not re-deriving:
   (each frame the mean of `blurSamples` moments, 16 in the file, 4 in the preview; Off/Light/Heavy).
 - **The tapped pieces and the wall are FRESH designs at the studio's defaults** -- what a tap
   really gives you. Shuffle re-rolls them.
+- **Taps and hits are a wave of glass** (`rippleLens.js`, 2026-11-06, Aaron: bring the Glass cut's
+  level to the explainer, "not the facets"): no panes, but the same bending, colour split and
+  bending through the other picture's shape. It replaced the Tap iris and its flat ring, runs gently
+  through the kept piece on the keep tap, and through the flight behind the garment on the impact.
+  The wave draws one picture the size of the frame, which the existing 2D camera then moves. It needs
+  about 0.55s to cross the frame: at the iris's old pace it took three frames and the glass could
+  never be seen.
 - **The sharp artwork is only ever in one place at a time.** A version that grew the card back to
   full frame while the garment faded in wearing it read as four copies at once.
 - **The garments are NOT lit like the hero.** The hero is calibrated so texels match the wall
@@ -6421,7 +6434,8 @@ by the shared design as the odds the panel last published.
     rate and lost money everywhere, including the US; it is now measured (`pillow` class, AU/NZ
     $38.99 at Printful's real $37.59 -- Aaron kept selling it there rather than restrict it).
     Terms says UK/EU shipping covers VAT. **Re-run the sweep if Printful's prices or
-    `PRICE_MARKUP_PERCENT` (42%) change**, rather than nudging the shares. Not addressed: NZ
+    `PRICE_MARKUP_PERCENT` change** (these shares and the sweep were sized at 42%; it has been 60%
+    since 2026-11-06, ahead of a first paid ad test), rather than nudging the shares. Not addressed: NZ
     (15% GST, ~$1 average margin, shares a region with AU) and Printful's ~7% US sales tax on our
     orders, which a resale certificate in Printful's billing settings would most likely remove.
   - **Printful-failure-after-Stripe-success handling**: still not auto-refunded — a
