@@ -199,7 +199,10 @@ Deno.serve(async req => {
         // own source size, so sourceWidth/sourceHeight above play no part. Unlike hatWrap this is
         // a customer choice, absent whenever they pick one of the flat artwork scales.
         legWrap: legWrap ?? null
-      })
+      }),
+      // Under process-order's own 140s limit, so a render stuck in Fly's queue comes back as a
+      // clean, retryable 502 rather than an aborted connection. The slowest real file takes ~20s.
+      signal: AbortSignal.timeout(130_000)
     });
   } catch {
     return Response.json({ error: { message: "render-service is unreachable" } }, { status: 502, headers: corsHeaders });

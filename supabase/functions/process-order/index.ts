@@ -198,12 +198,31 @@ async function run(order: OrderRow) {
       const key = JSON.stringify(job);
       byJob.set(key, [...(byJob.get(key) ?? []), placement]);
     }
+    // Each file is saved the moment it lands, not only once they have all settled: a run cut off
+    // part-way (the platform's time limit, when renders are queueing behind other orders) then
+    // keeps what it finished, and the next run renders only the rest instead of starting over.
+    // Writes go one after another, each carrying everything so far, so an earlier write can never
+    // land on top of a later one. Best-effort: the write after the batch is the one that counts.
+    let saving: Promise<unknown> = Promise.resolve();
+    const saveProgress = () => {
+      saving = saving
+        .then(() =>
+          rest(`order_items?id=eq.${item.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ print_file_urls: urls }),
+            headers: { Prefer: "return=minimal" }
+          })
+        )
+        .catch(err => console.warn(`process-order: could not save progress for ${order.id}`, err));
+    };
     const results = await Promise.allSettled(
       [...byJob.entries()].map(async ([key, placements]) => {
         const url = await renderWithRetry(JSON.parse(key), order.user_id);
         for (const placement of placements) urls[placement] = url;
+        saveProgress();
       })
     );
+    await saving;
     for (const r of results) {
       if (r.status === "fulfilled") continue;
       if (r.reason instanceof HoldError) holdMessage = r.reason.message;

@@ -23,11 +23,12 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { applyMarkup } from "../_shared/pricing.ts";
-import { isStoreEnabled } from "../_shared/storeStatus.ts";
+import { isStoreOpen } from "../_shared/storeStatus.ts";
 import { buildShippingOptions, estimateShippingCents, isSellableProduct } from "../_shared/shipping.ts";
 import { toCompactDesign } from "../_shared/compactDesign.ts";
 import { checkRateLimit } from "../_shared/rateLimit.ts";
 import { fetchPrintfileSpecs, validatePrintJobs } from "../_shared/printJobs.ts";
+import { probeStorage } from "../_shared/storageProbe.ts";
 
 // Checkout-session creation hits Printful's live product-price endpoint and writes a
 // pending order row per call -- a signed-in account scripting this repeatedly is real cost
@@ -38,6 +39,14 @@ const RATE_LIMIT = 10;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
+const PRINTFUL_TIMEOUT_MS = 12000;
+// The Storage test every Buy Now runs (see _shared/storageProbe.ts). It is started early and only
+// waited for at the very end, so it runs alongside the price check, the order rows and the Stripe
+// session (about three seconds in all, against about half a second for a healthy test) and adds
+// no wait of its own.
+const STORAGE_TEST_TIMEOUT_MS = 6000;
+const STORAGE_DOWN_MESSAGE =
+  "We can't take orders right now. Nothing was charged. Please try again in a few minutes.";
 
 // Constrain to countries Printful can actually fulfill to. This list is a conservative
 // starting set (English-speaking + EU markets), not a verified enumeration of Printful's
@@ -86,7 +95,8 @@ Deno.serve(async req => {
   // Defense in depth: ProductPage.jsx already hides/disables Buy Now when the store is
   // flagged off, but a tab left open from before the flag was flipped could still hit this
   // endpoint directly -- reject here too rather than trusting the client-side check alone.
-  if (!isStoreEnabled()) {
+  // Both switches: the STORE_ENABLED secret and the one order-watchdog can close on its own.
+  if (!(await isStoreOpen())) {
     return Response.json(
       { error: "Store purchasing is temporarily offline. Please check back soon." },
       { status: 503, headers: corsHeaders }
@@ -199,13 +209,33 @@ Deno.serve(async req => {
   // Re-price server-side -- never trust a client-supplied price for the actual Stripe
   // charge amount. Same v1 product endpoint printful-catalog already proxies. The printfile
   // specs (only needed to check print jobs) are fetched alongside it.
+  // Bounded: the customer is waiting on this, and nothing has been charged or written yet, so a
+  // slow Printful should be a prompt "try again" rather than a request hung until the platform
+  // kills it.
+  // The Storage test starts here and is checked just before the Stripe link is handed back: a
+  // paid order's print files are uploaded to Storage and fetched from it by Printful, so if it is
+  // not answering now, this order could not be made. STORE_BREAKER=false turns the test off.
+  // (probeStorage never rejects, so leaving it unawaited on an early return is safe.)
+  const storageTest =
+    Deno.env.get("STORE_BREAKER") === "false"
+      ? Promise.resolve(null)
+      : probeStorage(`checkout-${userId}`, STORAGE_TEST_TIMEOUT_MS);
   const [productRes, printfileSpecs] = await Promise.all([
     fetch(`${PRINTFUL_API_BASE}/products/${productId}`, {
-      headers: { Authorization: `Bearer ${printfulKey}` }
+      headers: { Authorization: `Bearer ${printfulKey}` },
+      signal: AbortSignal.timeout(PRINTFUL_TIMEOUT_MS)
+    }).catch(err => {
+      console.error("create-checkout-session: Printful product lookup failed", err);
+      return null;
     }),
-    printJobs ? fetchPrintfileSpecs(productId, printfulKey) : Promise.resolve(null)
+    printJobs
+      ? fetchPrintfileSpecs(productId, printfulKey, AbortSignal.timeout(PRINTFUL_TIMEOUT_MS)).catch(err => {
+          console.error("create-checkout-session: Printful printfile lookup failed", err);
+          return null;
+        })
+      : Promise.resolve(null)
   ]);
-  if (!productRes.ok) {
+  if (!productRes || !productRes.ok) {
     return Response.json({ error: "Could not verify product price" }, { status: 502, headers: corsHeaders });
   }
   const productData = await productRes.json();
@@ -383,6 +413,16 @@ Deno.serve(async req => {
       { error: err instanceof Error ? err.message : "Could not create checkout session" },
       { status: 500, headers: corsHeaders }
     );
+  }
+
+  // The Storage test's answer. Refused here, the customer never receives the Stripe link, so
+  // nothing can be charged; the pending order is closed like any other checkout that did not
+  // start, and the unused Stripe session expires by itself.
+  const storageProblem = await storageTest;
+  if (storageProblem) {
+    console.error(`create-checkout-session: refused, Storage test failed: ${storageProblem}`);
+    await supabase.from("orders").update({ status: "canceled" }).eq("id", order.id);
+    return Response.json({ error: STORAGE_DOWN_MESSAGE }, { status: 503, headers: corsHeaders });
   }
 
   await supabase.from("orders").update({ stripe_session_id: session.id }).eq("id", order.id);

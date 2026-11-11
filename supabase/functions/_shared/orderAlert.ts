@@ -32,11 +32,19 @@ const DEFAULT_ACTION =
   "This customer is NOT auto-refunded -- check whether the order is fixable and " +
   "resubmittable, or refund via the Stripe dashboard.";
 
-export async function sendOrderFailureAlert(
-  orderId: string,
-  message: string,
-  action: string = DEFAULT_ACTION
-) {
+export function sendOrderFailureAlert(orderId: string, message: string, action: string = DEFAULT_ACTION) {
+  return sendAlertEmail(
+    `Chromaforge: order ${orderId} needs attention`,
+    `A customer has already paid for order ${orderId}, but it now needs attention.\n\n` +
+      `Details: ${message}\n\n` +
+      action
+  );
+}
+
+// Same channel, for something that is about the store rather than one order (order-watchdog
+// closing checkout). Returns whether the mail was handed to the server, so a caller that has
+// another way to make noise can use it.
+export async function sendAlertEmail(subject: string, text: string): Promise<boolean> {
   const host = Deno.env.get("ORDER_ALERT_SMTP_HOST");
   const port = Deno.env.get("ORDER_ALERT_SMTP_PORT");
   const user = Deno.env.get("ORDER_ALERT_SMTP_USER");
@@ -44,7 +52,7 @@ export async function sendOrderFailureAlert(
   const to = Deno.env.get("ORDER_ALERT_EMAIL_TO");
   if (!host || !port || !user || !pass || !to) {
     console.error("order-alert: not sent -- ORDER_ALERT_* secrets not fully configured");
-    return;
+    return false;
   }
 
   try {
@@ -52,23 +60,19 @@ export async function sendOrderFailureAlert(
       host,
       port: Number(port),
       secure: Number(port) === 465,
-      auth: { user, pass }
+      auth: { user, pass },
+      // Bounded: a mail server that accepts the connection and then says nothing must not hold
+      // up the order handling that called this.
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000
     });
     await new Promise<void>((resolve, reject) => {
-      transport.sendMail(
-        {
-          from: user,
-          to,
-          subject: `Chromaforge: order ${orderId} needs attention`,
-          text:
-            `A customer has already paid for order ${orderId}, but it now needs attention.\n\n` +
-            `Details: ${message}\n\n` +
-            action
-        },
-        err => (err ? reject(err) : resolve())
-      );
+      transport.sendMail({ from: user, to, subject, text }, (err: Error | null) => (err ? reject(err) : resolve()));
     });
+    return true;
   } catch (err) {
     console.error("order-alert: failed to send alert email", err);
+    return false;
   }
 }

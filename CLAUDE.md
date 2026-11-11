@@ -3893,6 +3893,44 @@ probed live. The rules worth not re-breaking:
   for animation mode; and a 2D animation build mirrors the design into StudioContext once,
   not per frame (measured 20 preview renders -> 1).
 
+### The store can close itself, and Buy Now tests Storage first (2026-11-11)
+Aaron, with ads running: "if things start to degrade... is there a way to shut off the store".
+Checkout now has TWO switches, either of which closes it (`_shared/storeStatus.ts`):
+`STORE_ENABLED` (the secret, manual, unchanged) and the one-row table `public.store_state`
+(migration 0024, service role only), which `order-watchdog` can close on its own. Both
+`create-checkout-session` and `printful-catalog`'s `storeEnabled` read both (`isStoreOpen`).
+- **Closed for ORDERS (`closed_by 'orders'`, watchdog step 4):** two or more orders paid in the last
+  two hours that are `failed` or still not at Printful 15 minutes after payment. One order in
+  trouble is that order's problem and only gets its own email. Emails once. **Never reopens by
+  itself**: `update public.store_state set enabled = true, reason = null, closed_by = null,
+  changed_at = now();` -- `changed_at` matters, since only trouble SINCE the last change counts, or
+  the orders that closed it would close it again on reopening.
+- **Closed for STORAGE (`closed_by 'storage'`, step 5):** `_shared/storageProbe.ts` uploads a 1x1
+  PNG to `design-mockups/_health/` and reads it back by its public URL. Written for the 2026-11-04
+  hang (uploads saved, then never answered for 60s). Two failures running close checkout; two
+  passes running reopen it and email again -- only a close this step made, never an 'orders' one.
+- **Every Buy Now runs the same test** (6s limit), started early and awaited just before the Stripe
+  link is returned, so it adds no wait; a failure cancels the pending row and answers 503 with
+  "We can't take orders right now. Nothing was charged." (in `errorMessage.js`'s PASSTHROUGH).
+  This is what covers the minutes before the watchdog closes the store, and buying without a mockup.
+- `STORE_BREAKER=false` (a function secret) turns off steps 4 and 5 and the Buy Now test.
+- Everything FAILS OPEN on an unreadable `store_state` (it must never be what closes a healthy
+  store; if the database is really down, checkout cannot write its pending order anyway).
+- **Not detected:** Printful alone being unable to fetch from Supabase (shows up as failing orders,
+  i.e. step 4), and render-service (testing it would wake Fly every five minutes; also step 4).
+  A customer already on Stripe's page when the store closes can still pay.
+- Same change: every Printful call is time-limited (checkout 12s, catalog 15s, order submit 30s);
+  `process-order` saves each print file's URL as it lands, so a run cut off mid-render keeps its
+  progress; a confirm whose answer was lost is checked against Printful's own order status before
+  the order is called failed (`CONFIRMED_STATUSES`, not yet seen against a real lost reply).
+- Verified with a Deno harness (session scratchpad, like render-after-payment's: the real watchdog
+  and process-order against in-memory PostgREST/Storage/Stripe/Printful, 25 cases; the two
+  process-order fixes fail on the previous commit), the real probe against live Storage, a live
+  flip of `store_state` read back through `printful-catalog`, and a real Buy Now on the live site
+  to the Stripe redirect. Deno is not installed here: `npx -y deno` works.
+- Render capacity is unchanged: two Fly machines, one file at a time each. `flyctl scale count 4`
+  is the lever if orders ever queue.
+
 ### The deploy is gated, and the gates are cheap on purpose (2026-09-17)
 
 ```

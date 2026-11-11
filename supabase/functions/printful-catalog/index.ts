@@ -8,7 +8,7 @@
 // Set the secret once with: npx supabase secrets set PRINTFUL_API_KEY=<key>
 
 import { applyMarkup } from "../_shared/pricing.ts";
-import { isStoreEnabled } from "../_shared/storeStatus.ts";
+import { isStoreOpen } from "../_shared/storeStatus.ts";
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 
@@ -33,7 +33,11 @@ async function fetchPrintful(printfulUrl: URL, apiKey: string): Promise<{ status
   const key = printfulUrl.href;
   const hit = responseCache.get(key);
   if (hit && hit.expires > Date.now()) return hit;
-  const res = await fetch(printfulUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
+  // Bounded, so a hung Printful is an error the page can show instead of a request left open.
+  const res = await fetch(printfulUrl, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(15000)
+  });
   const body = await res.text();
   if (res.ok) {
     if (responseCache.size >= CACHE_MAX_ENTRIES) {
@@ -113,8 +117,15 @@ Deno.serve(async req => {
     if (categoryId) printfulUrl.searchParams.set("category_id", categoryId);
   }
 
-  const printfulRes = await fetchPrintful(printfulUrl, apiKey);
-  const data = JSON.parse(printfulRes.body);
+  let printfulRes: { status: number; body: string };
+  let data;
+  try {
+    printfulRes = await fetchPrintful(printfulUrl, apiKey);
+    data = JSON.parse(printfulRes.body);
+  } catch (err) {
+    console.error("printful-catalog: Printful request failed", err);
+    return Response.json({ error: "Printful is not responding" }, { status: 502, headers: corsHeaders });
+  }
 
   // Reduce the mockup-styles payload to the distinct group names before it leaves here. The raw
   // response is hundreds of style entries repeated per variant group (358 on the hoodie), and the
@@ -142,7 +153,7 @@ Deno.serve(async req => {
     }
     // Store-wide purchasing kill switch (see _shared/storeStatus.ts) -- attached here since
     // this is the one response ProductPage.jsx's Buy Now gating actually reads.
-    data.storeEnabled = isStoreEnabled();
+    data.storeEnabled = await isStoreOpen();
   }
 
   return Response.json(data, { status: printfulRes.status, headers: corsHeaders });

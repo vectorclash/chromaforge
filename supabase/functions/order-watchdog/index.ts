@@ -22,6 +22,25 @@
 //    which is a handful. A package Printful never marks delivered stays in Active, which is
 //    true: from the customer's side it has not arrived.
 //
+// 4. SHUT-OFF (2026-11-11). If paid orders are failing or piling up -- TROUBLE_LIMIT or more of
+//    them since the store was last opened, within TROUBLE_WINDOW_MINUTES -- this closes checkout
+//    (public.store_state, see _shared/storeStatus.ts) and emails once. One order in trouble is
+//    that order's problem (a bad address, a stale variant) and only gets its own alert; two is
+//    the pipeline. Closing stops NEW checkouts only: orders already paid keep being retried
+//    above, and browsing, mockups and the studio are untouched. It never reopens by itself.
+//    STORE_BREAKER=false (a function secret) turns this step and the next off.
+// 5. STORAGE TEST (2026-11-11). Uploads a one-pixel PNG to the print-file bucket and reads it back
+//    through its public URL, every run (_shared/storageProbe.ts; create-checkout-session runs the
+//    same test on every Buy Now, which is what stops a purchase in the minutes before this closes
+//    the store). On 2026-11-04 every Storage upload saved its file and then
+//    never answered: mockups failed, and a paid order's print files could not have been made. Two
+//    failed tests running (5-10 minutes) close checkout; two passes running reopen it, but only a
+//    close this step made. That one reopens by itself because nothing was harmed and nothing needs
+//    a person's judgement -- unlike step 4, which closes on real orders.
+//    Not tested: the database and Edge Functions (if either is down checkout cannot start, so no
+//    money is taken) and render-service (testing it would wake a Fly machine every five minutes;
+//    a render outage shows up as stuck orders and closes the store through step 4).
+//
 // Invoked every 5 minutes by pg_cron (migration 0020; it was every 30 when this only alerted).
 //
 // verify_jwt = false (config.toml): the cron caller has no user JWT. Auth is the same
@@ -31,8 +50,10 @@
 //
 // Deploy with: npx supabase functions deploy order-watchdog --no-verify-jwt
 
-import { sendOrderFailureAlert } from "../_shared/orderAlert.ts";
+import { sendAlertEmail, sendOrderFailureAlert } from "../_shared/orderAlert.ts";
+import { probeStorage } from "../_shared/storageProbe.ts";
 import { fetchShipments } from "../_shared/printfulShipments.ts";
+import { closeStore, readStoreState, recordProbe, reopenStore, type StoreState } from "../_shared/storeStatus.ts";
 
 // stripe-webhook kicks process-order straight away, so give that run time to start before a
 // resume would only find it already leased.
@@ -40,6 +61,16 @@ const RESUME_AFTER_MINUTES = 2;
 // A normal order is submitted within a minute of payment; a hold during a deploy window clears in
 // minutes. Thirty is well past both.
 const ALERT_AFTER_MINUTES = 30;
+// The shut-off. An order is "in trouble" if it was paid in the window and has either been marked
+// failed or is still not at Printful STUCK_AFTER_MINUTES after payment (a normal one takes about
+// a minute; a queue of renders or a version hold is what makes it longer).
+const TROUBLE_WINDOW_MINUTES = 120;
+const STUCK_AFTER_MINUTES = 15;
+const TROUBLE_LIMIT = 2;
+// The Storage test. A healthy upload answers in well under a second; the 2026-11-04 hang took 60.
+const PROBE_TIMEOUT_MS = 15000;
+const PROBE_FAILURES_TO_CLOSE = 2;
+const PROBE_SUCCESSES_TO_REOPEN = 2;
 
 type PaidOrder = {
   id: string;
@@ -117,7 +148,25 @@ Deno.serve(async req => {
   // order missed now is simply checked again in five minutes.
   const delivered = await recordDeliveries(supabaseUrl, headers);
 
+  // 4 and 5. After everything else, and never able to fail the run.
+  let storeClosed = false;
+  let storage = "skipped";
+  if (Deno.env.get("STORE_BREAKER") !== "false") {
+    try {
+      storage = await testStorage();
+    } catch (err) {
+      console.error("order-watchdog: storage test failed to run", err);
+    }
+    try {
+      storeClosed = await closeStoreIfInTrouble(supabaseUrl, headers, paid, now);
+    } catch (err) {
+      console.error("order-watchdog: shut-off check failed", err);
+    }
+  }
+
   const summary = {
+    storeClosed,
+    storage,
     resumed: resumed.filter(r => r.status === "fulfilled" && r.value?.started).length,
     resumable: resumable.length,
     alerted: stuck.length,
@@ -161,4 +210,103 @@ async function recordDeliveries(supabaseUrl: string, headers: Record<string, str
     if (r.status === "rejected") console.error("order-watchdog: delivery check failed", r.reason);
   }
   return results.filter(r => r.status === "fulfilled" && r.value).length;
+}
+
+// Closes checkout when TROUBLE_LIMIT or more paid orders are in trouble. Returns whether THIS run
+// closed it.
+async function closeStoreIfInTrouble(
+  supabaseUrl: string,
+  headers: Record<string, string>,
+  paid: PaidOrder[],
+  now: number
+): Promise<boolean> {
+  const state = await readStoreState();
+  // Unreadable (or the table is not there yet): do nothing rather than guess. Already closed:
+  // nothing to do, and the email went out when it closed.
+  if (!state || !state.enabled) return false;
+
+  // Only trouble since the store was last opened counts, or the orders that closed it would
+  // close it again the moment a human reopened it.
+  const windowStart = Math.max(
+    now - TROUBLE_WINDOW_MINUTES * 60 * 1000,
+    state.changedAt ? Date.parse(state.changedAt) : 0
+  );
+  const since = new Date(windowStart).toISOString();
+
+  const stuck = paid.filter(
+    o => Date.parse(o.paid_at) >= windowStart && Date.parse(o.paid_at) < now - STUCK_AFTER_MINUTES * 60 * 1000
+  );
+  // Failed by our own pipeline soon after payment. An order Printful fails days later has an old
+  // paid_at and is not counted: that is one order's story, not checkout being broken now.
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/orders?select=id,failure_reason&status=eq.failed&paid_at=gte.${encodeURIComponent(since)}`,
+    { headers }
+  );
+  if (!res.ok) throw new Error(`failed orders query failed (${res.status})`);
+  const failed: { id: string; failure_reason: string | null }[] = await res.json();
+
+  if (stuck.length + failed.length < TROUBLE_LIMIT) return false;
+
+  const lines = [
+    ...failed.map(o => `- ${o.id} FAILED: ${o.failure_reason ?? "no reason recorded"}`),
+    ...stuck.map(
+      o =>
+        `- ${o.id} paid at ${o.paid_at}, still not at Printful` +
+        (o.print_hold ? ` (held: ${o.print_hold})` : ` (${o.print_attempts} attempt(s))`)
+    )
+  ];
+  const reason =
+    `${failed.length} failed and ${stuck.length} stuck paid order(s) since ${since}`;
+  if (!(await closeStore(reason, "orders"))) return false; // another run closed it first
+
+  await sendAlertEmail(
+    "Chromaforge: checkout was closed automatically",
+    `Checkout has been closed because paid orders are not getting through: ${reason}.\n\n` +
+      `${lines.join("\n")}\n\n` +
+      "New purchases are paused; the rest of the site works as usual. The orders above are still " +
+      "being retried and each failed one has its own email.\n\n" +
+      "Once the cause is fixed, reopen checkout in the Supabase SQL editor:\n" +
+      "  update public.store_state set enabled = true, reason = null, closed_by = null, changed_at = now();"
+  );
+  console.error(`order-watchdog: checkout closed automatically -- ${reason}`);
+  return true;
+}
+
+// Runs the test, keeps its running counts, and closes or reopens checkout on them. Returns a word
+// for the run's summary line.
+async function testStorage(): Promise<string> {
+  const state: StoreState | null = await readStoreState();
+  if (!state) return "skipped"; // table unreadable or not there yet
+
+  const problem = await probeStorage("watchdog", PROBE_TIMEOUT_MS);
+  if (problem) {
+    const failures = state.probeFailures + 1;
+    await recordProbe(failures, 0);
+    console.error(`order-watchdog: storage test failed (${failures} running): ${problem}`);
+    if (failures < PROBE_FAILURES_TO_CLOSE || !state.enabled) return "failing";
+    if (!(await closeStore(`Supabase Storage is not answering: ${problem}`, "storage"))) return "failing";
+    await sendAlertEmail(
+      "Chromaforge: checkout closed, Supabase Storage is not answering",
+      `The watchdog's Storage test has failed ${failures} times running: ${problem}.\n\n` +
+        "Print files and mockups cannot be uploaded while this lasts, so new purchases are paused. " +
+        "The rest of the site is untouched, and orders already paid keep being retried.\n\n" +
+        "Checkout reopens by itself once the test passes twice running (about ten minutes after " +
+        "Storage recovers), and you will get an email when it does. Supabase's status page and the " +
+        "storage logs ([Queue Sender] timeouts were the sign on 2026-11-04) are the places to look."
+    );
+    return "closed";
+  }
+
+  const successes = Math.min(state.probeSuccesses + 1, PROBE_SUCCESSES_TO_REOPEN);
+  if (state.probeFailures !== 0 || state.probeSuccesses !== successes) await recordProbe(0, successes);
+  if (state.enabled || state.closedBy !== "storage" || successes < PROBE_SUCCESSES_TO_REOPEN) return "ok";
+  if (!(await reopenStore("storage"))) return "ok";
+  await sendAlertEmail(
+    "Chromaforge: checkout reopened, Supabase Storage is answering again",
+    "The watchdog's Storage test has passed twice running, so checkout is open again. It was closed " +
+      `since ${state.changedAt}. Any order paid just before it closed is retried automatically; ` +
+      "one that could not be finished has its own email."
+  );
+  console.log("order-watchdog: checkout reopened after storage recovered");
+  return "reopened";
 }

@@ -65,9 +65,14 @@ function pickDesign(d: unknown) {
 const designKey = (d: ReturnType<typeof pickDesign>) =>
   d ? JSON.stringify([d.generatorVersion, d.seed, d.colors, d.settings ?? null]) : "";
 
-export async function fetchPrintfileSpecs(productId: number, printfulKey: string): Promise<PrintfileSpecs | null> {
+export async function fetchPrintfileSpecs(
+  productId: number,
+  printfulKey: string,
+  signal?: AbortSignal
+): Promise<PrintfileSpecs | null> {
   const res = await fetch(`https://api.printful.com/mockup-generator/printfiles/${productId}`, {
-    headers: { Authorization: `Bearer ${printfulKey}` }
+    headers: { Authorization: `Bearer ${printfulKey}` },
+    signal
   });
   if (!res.ok) return null;
   const data = await res.json();

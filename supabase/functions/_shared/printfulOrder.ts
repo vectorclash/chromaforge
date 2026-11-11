@@ -15,6 +15,27 @@
 
 const PRINTFUL_API_BASE = "https://api.printful.com";
 const STORE_ID = "18363066"; // same store as printful-mockup -- not a secret, just an account id
+// Every Printful call is bounded. Without a limit a hung call held the whole run until the
+// platform killed it, which spent one of the order's attempts and told nobody why.
+const PRINTFUL_TIMEOUT_MS = 30000;
+
+// Printful statuses that mean an order has left draft and is theirs to produce. Used only to
+// recognise a confirm that worked although its answer never reached us.
+const CONFIRMED_STATUSES = new Set(["pending", "inprocess", "onhold", "partial", "fulfilled"]);
+
+async function isAlreadyConfirmed(printfulOrderId: string, headers: Record<string, string>): Promise<boolean> {
+  try {
+    const res = await fetch(`${PRINTFUL_API_BASE}/orders/${printfulOrderId}`, {
+      headers,
+      signal: AbortSignal.timeout(PRINTFUL_TIMEOUT_MS)
+    });
+    if (!res.ok) return false;
+    const status = (await res.json())?.result?.status;
+    return typeof status === "string" && CONFIRMED_STATUSES.has(status);
+  } catch {
+    return false;
+  }
+}
 
 // The subset of a Stripe Checkout Session this reads. The same JSON whether it came from the
 // Stripe SDK or a plain REST fetch.
@@ -157,7 +178,8 @@ export async function submitPrintfulOrder({
         const createRes = await fetch(`${PRINTFUL_API_BASE}/orders`, {
           method: "POST",
           headers,
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(PRINTFUL_TIMEOUT_MS)
         });
         const createData = await createRes.json();
         if (!createRes.ok) {
@@ -172,7 +194,8 @@ export async function submitPrintfulOrder({
       if (!skipConfirm) {
         const confirmRes = await fetch(`${PRINTFUL_API_BASE}/orders/${printfulOrderId}/confirm`, {
           method: "POST",
-          headers
+          headers,
+          signal: AbortSignal.timeout(PRINTFUL_TIMEOUT_MS)
         });
         const confirmData = await confirmRes.json();
         if (!confirmRes.ok) {
@@ -187,6 +210,13 @@ export async function submitPrintfulOrder({
       return { printfulOrderId, error: null };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error("Printful order submission failed");
+      // A confirm can succeed at Printful while its answer is lost (a timeout, a dropped
+      // connection); confirming again then fails because the order is no longer a draft. Ask
+      // Printful what state the order is in before calling a paid, in-production order failed.
+      if (printfulOrderId && !skipConfirm && (await isAlreadyConfirmed(printfulOrderId, headers))) {
+        console.warn(`printfulOrder: order ${printfulOrderId} was already confirmed (${lastError.message})`);
+        return { printfulOrderId, error: null };
+      }
       if (attempt === 0) {
         console.warn(`printfulOrder: submission attempt failed, retrying once: ${lastError.message}`);
         await new Promise(resolve => setTimeout(resolve, 1500));
