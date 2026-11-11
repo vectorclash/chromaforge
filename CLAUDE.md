@@ -3914,6 +3914,9 @@ Checkout now has TWO switches, either of which closes it (`_shared/storeStatus.t
   "We can't take orders right now. Nothing was charged." (in `errorMessage.js`'s PASSTHROUGH).
   This is what covers the minutes before the watchdog closes the store, and buying without a mockup.
 - `STORE_BREAKER=false` (a function secret) turns off steps 4 and 5 and the Buy Now test.
+- **Test the alert email** with a watchdog call carrying `{"testAlert": true}`: it sends one email
+  and does nothing else. Send it from the SQL editor so the key comes from Vault (the exact
+  statement is in order-watchdog's handler). First sent 2026-11-11: SMTP accepted it.
 - Everything FAILS OPEN on an unreadable `store_state` (it must never be what closes a healthy
   store; if the database is really down, checkout cannot write its pending order anyway).
 - **Not detected:** Printful alone being unable to fetch from Supabase (shows up as failing orders,
@@ -3928,8 +3931,9 @@ Checkout now has TWO switches, either of which closes it (`_shared/storeStatus.t
   process-order fixes fail on the previous commit), the real probe against live Storage, a live
   flip of `store_state` read back through `printful-catalog`, and a real Buy Now on the live site
   to the Stripe redirect. Deno is not installed here: `npx -y deno` works.
-- Render capacity is unchanged: two Fly machines, one file at a time each. `flyctl scale count 4`
-  is the lever if orders ever queue.
+- Render capacity: FOUR Fly machines since 2026-11-11 (`flyctl scale count 4`, was two), one file
+  at a time each, all stopped when idle. "Confirm ALL machines took the release" after a
+  `flyctl deploy` now means four.
 
 ### The deploy is gated, and the gates are cheap on purpose (2026-09-17)
 

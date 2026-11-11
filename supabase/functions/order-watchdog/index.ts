@@ -91,6 +91,26 @@ Deno.serve(async req => {
     return Response.json({ error: { message: "Unauthorized" } }, { status: 401 });
   }
 
+  // Test the alert channel: every safeguard here ends in an email, so it is worth knowing the mail
+  // still goes out. A call with {"testAlert": true} sends one email and does nothing else; the
+  // cron job's own body is {} and never reaches this. Send it from the SQL editor, which reads the
+  // key from Vault without it ever being shown:
+  //   select net.http_post(
+  //     url := 'https://fgrhbzqzadpjpbzuszpm.supabase.co/functions/v1/order-watchdog',
+  //     headers := jsonb_build_object('Content-Type', 'application/json', 'X-Cleanup-Key',
+  //       (select decrypted_secret from vault.decrypted_secrets where name = 'cron_internal_key')),
+  //     body := '{"testAlert": true}'::jsonb);
+  const body = await req.json().catch(() => ({}));
+  if (body?.testAlert === true) {
+    const sent = await sendAlertEmail(
+      "Chromaforge: test alert",
+      "This is a test of the order alert email, sent on request. If you are reading it, the alerts " +
+        "for failed orders and an automatically closed store will reach you too. Nothing needs doing."
+    );
+    console.log(`order-watchdog: test alert ${sent ? "sent" : "NOT sent"}`);
+    return Response.json({ testAlert: sent ? "sent" : "failed" }, { status: sent ? 200 : 500 });
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const headers = { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey };
