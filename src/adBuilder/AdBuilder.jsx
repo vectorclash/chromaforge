@@ -1078,11 +1078,9 @@ export default function AdBuilder() {
       setNotice(`Download failed: ${e.message}`);
     }
   };
-  const caption = fullCaption(
-    post,
-    design,
-    isFeed ? feedProductNames : isFlight || isExplain ? [] : productNames
-  );
+  const captionNames = isFeed ? feedProductNames : isFlight || isExplain ? [] : productNames;
+  const captionOpts = isExplain ? { explain: explain.garment } : undefined;
+  const caption = fullCaption(post, design, captionNames, captionOpts);
 
   // ── Layout ──────────────────────────────────────────────────────────────────
   return (
@@ -1608,7 +1606,8 @@ export default function AdBuilder() {
         <Section title={format === 'reel' ? '7 · Post' : '5 · Post'}>
           <PostCopy
             design={design}
-            productNames={isFeed ? feedProductNames : isFlight || isExplain ? [] : productNames}
+            productNames={captionNames}
+            captionOpts={captionOpts}
             post={post}
             onChange={setPost}
           />

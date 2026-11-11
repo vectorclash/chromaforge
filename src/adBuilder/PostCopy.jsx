@@ -3,14 +3,14 @@ import Button from '../components/ui/Button';
 import { copyText } from '../utils/clipboard';
 import { HASHTAG_SETS, captionFor, designLink, fullCaption, tagLine } from './postText';
 
-// The caption follows the ad (design name, products) until it is typed into; from then on it is
+// The caption follows the ad (design name, products; the garment's credit in the explainer) until it is typed into; from then on it is
 // the typed text, saved with the ad, until Reset hands it back to the ad.
-export default function PostCopy({ design, productNames, post, onChange }) {
+export default function PostCopy({ design, productNames, captionOpts, post, onChange }) {
   const [copied, setCopied] = useState(null); // 'caption' | 'link' | null
   const timer = useRef(null);
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const auto = captionFor(design, productNames);
+  const auto = captionFor(design, productNames, captionOpts);
   const caption = post.caption ?? auto;
   const set = HASHTAG_SETS.find(s => s.id === post.tagSet) ?? HASHTAG_SETS[0];
   const link = designLink(design);
@@ -66,7 +66,7 @@ export default function PostCopy({ design, productNames, post, onChange }) {
       <p className="mt-1 text-xs text-neutral-500">{set.hint}</p>
 
       <div className="mt-3 flex items-center gap-2">
-        <Button size="sm" variant="ghost" onClick={() => copy('caption', fullCaption(post, design, productNames))}>
+        <Button size="sm" variant="ghost" onClick={() => copy('caption', fullCaption(post, design, productNames, captionOpts))}>
           {copied === 'caption' ? 'Copied' : 'Copy caption'}
         </Button>
         <Button

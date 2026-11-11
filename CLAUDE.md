@@ -2573,8 +2573,8 @@ limit (the account was a day old), not the file. So the export was NOT changed; 
 The web uploader also defaults to a 1:1 crop -- pick Original for 9:16.
 
 (9) **Section 7 · Post is the caption helper** (`PostCopy.jsx`, `postText.js`, 2026-10-10): a caption
-written from the ad (design name and products, then the bio's "Hit Generate. Get art. Wear
-it." and `✦ chromaforge.app`; no seed talk, no emoji) until typed into, four curated hashtag sets, Copy caption
+written from the ad (the bio's "Hit Generate. Get art. Wear
+it." FIRST, since a Reel shows only the first line, then the design and products, then plain `chromaforge.app` -- no ✦, which reads as the AI sparkle; an explainer adds its garment's CC-BY credit; no seed talk, no emoji) until typed into, four curated hashtag sets, Copy caption
 (caption + one set) and Copy link (the design's `chromaforge.app/studio?id=` page, for a Story sticker
 or bio -- Reel caption links aren't clickable). **Each set is exactly 5 tags** because Instagram caps
 a post at 5 (Dec 2025), caption and first comment together; every set leads with #chromaforge. Saved
