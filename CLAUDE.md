@@ -2420,7 +2420,7 @@ get intros") plays the same every time, so it is not taken from its intro: Orrer
 starts it in the bars before its first drop (or chorus, or swell) so that lands on the ad's payoff
 -- `hookAt`: the first product in the Reel, the bar line before Wear in the explainer, the loop's
 start in the Flight mode -- and lengthens a song whose last chord would come before the take ends.
-`levelOfSong` presets the level, as Orrery's own export does. From the drop on, a take is the song
+`songLevels` (2026-11-12; was `levelOfSong`) presets the level and turns a build down so the drop lands about 3 dB louder, as Orrery's own export does. From the drop on, a take is the song
 note for note (checked against a full render's note log). Takes are keyed by length AND `hookAt`
 (saved as `music.hookAt`; an ad saved without one keeps its take). Re-roll on a song is a new seed
 -- Orrery's NEW SONG -- kept in `music.plan`, so the other lengths and the saved ad are that song.

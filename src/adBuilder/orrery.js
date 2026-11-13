@@ -49,7 +49,8 @@ export function planFromLink(link) {
 // A song (a link made with FORM set to SONG) plays the same every time, and not from its intro:
 // Orrery's songPlanFor starts it in the bars before its first drop (or chorus, or swell) so that
 // lands `hookAtSec` into the take -- the ad's payoff -- and makes a song too short to last the
-// take longer. It is measured first, so the take starts at the level Orrery's own export does.
+// take longer. It is measured first, as Orrery's own export does: the take starts at the song's
+// level, and a build that would end louder than its drop is turned down under it.
 /**
  * @param {any} plan
  * @param {number} durationSec
@@ -63,8 +64,12 @@ export async function renderMusic(plan, durationSec, onProgress, hookAtSec = 0) 
       if (typeof w.songPlanFor !== 'function')
         throw new Error('This Orrery is too old for song links. Update the orrery repo.');
       const p = w.songPlanFor(plan, durationSec, hookAtSec);
-      const levelMs = await w.levelOfSong(p, MUSIC_SAMPLE_RATE);
-      return JSON.parse(JSON.stringify({ ...p, song: { ...p.song, levelMs } }));
+      // Its level, and how far to turn its build down so the drop lands louder than it
+      // (songLevels); an older Orrery measures the level alone.
+      const levels = typeof w.songLevels === 'function'
+        ? await w.songLevels(p, MUSIC_SAMPLE_RATE)
+        : { levelMs: await w.levelOfSong(p, MUSIC_SAMPLE_RATE) };
+      return JSON.parse(JSON.stringify({ ...p, song: { ...p.song, ...levels } }));
     });
   }
   return withRenderer(async w => {
