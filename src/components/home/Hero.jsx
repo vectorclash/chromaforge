@@ -1,5 +1,6 @@
 import React from 'react';
 import StudioPage from '../../pages/StudioPage';
+import ScrollCue from './ScrollCue';
 
 // The hero IS the studio (compact: Generate, Save, and a "Go to studio" link to the full
 // tool at /studio -- see StudioPage's `compact` prop). `relative` is what DisplayCanvas's
@@ -19,6 +20,7 @@ export default function Hero() {
     // that's needed at /studio too, where there's no wrapping section like this one.
     <section id="hero" className="relative h-screen w-full overflow-hidden [contain:layout]">
       <StudioPage />
+      <ScrollCue />
     </section>
   );
 }

@@ -2567,3 +2567,97 @@
 .display-canvas .controls-inner .download-progress.is-active {
   opacity: 1;
 }
+
+/* --- Homepage hero: the "Scroll" cue ------------------------------------------------------
+   components/home/ScrollCue.jsx. Sits at the foot of what is actually on screen: the hero is
+   100lvh tall, so on iOS Safari with its toolbar showing the section's bottom edge is BEHIND
+   the toolbar. `100lvh - 100svh` is exactly that hidden strip (0 everywhere else, including
+   Instagram's in-app browser), so adding it keeps the cue above the toolbar. */
+.hero-scroll-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 6;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 0;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45));
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--duration-slow, 0.5s) ease,
+    visibility 0s linear var(--duration-slow, 0.5s);
+}
+
+@supports (height: 100svh) {
+  .hero-scroll-cue { bottom: calc(100lvh - 100svh + 14px); }
+}
+
+.hero-scroll-cue.is-shown {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity var(--duration-slow, 0.5s) ease var(--cue-delay, 0ms),
+    visibility 0s linear var(--cue-delay, 0ms);
+}
+
+.hero-scroll-cue:focus-visible {
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.hero-scroll-cue-word {
+  font-family: var(--font-quicksand);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+/* A light running down a hairline, top to bottom, on a loop. */
+.hero-scroll-cue-track {
+  position: relative;
+  width: 2px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.hero-scroll-cue-track::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -40%;
+  width: 100%;
+  height: 40%;
+  border-radius: 2px;
+  background: #fff;
+  animation: hero-cue-drip 1.8s cubic-bezier(0.6, 0, 0.4, 1) infinite;
+}
+
+/* Short screens: the word goes and the line shortens, so it clears the controls
+   (ScrollCue measures and sets this; see `fit` there). */
+.hero-scroll-cue.is-short .hero-scroll-cue-word { display: none; }
+.hero-scroll-cue.is-short .hero-scroll-cue-track { height: 26px; }
+
+@keyframes hero-cue-drip {
+  0% { top: -40%; }
+  100% { top: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-scroll-cue-track::after {
+    animation: none;
+    top: 30%;
+  }
+}

@@ -1795,6 +1795,11 @@ export default class DisplayCanvas extends React.Component {
           // Beat zero of the hero's entrance: the artwork is on screen, so the rest of the
           // hero can land into it. No-op after the first paint, and on every non-hero mount.
           this.startHeroReveal();
+          // How long a visitor waited for the first artwork (lib/track.js): here, at the real
+          // paint, not in startHeroReveal, which a timeout or a failed build can also open.
+          if (this.props.compact) {
+            track('hero_shown', { ms: Math.round(performance.now()) }, { once: 'hero_shown' });
+          }
         });
       };
       // The studio reveals as soon as its loader has drawn (see loaderShown). The homepage hero

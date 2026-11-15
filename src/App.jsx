@@ -54,6 +54,23 @@ function TrackPageViews() {
   useEffect(() => {
     track('page_view');
   }, [pathname]);
+  // The first time the visitor leaves or switches away, and how long they had been here. Hidden
+  // is the last moment a phone reliably runs anything; Instagram's browser closing, a tab
+  // switch and locking the phone all pass through it. Sent with keepalive, so it survives the
+  // page going away. Once per page load: coming back and leaving again says nothing new.
+  useEffect(() => {
+    const leave = () => track('leave', { seconds: Math.round(performance.now() / 1000) }, { once: 'leave' });
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') leave();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    // Some browsers fire pagehide on close while the page still reports itself visible.
+    window.addEventListener('pagehide', leave);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', leave);
+    };
+  }, []);
   return null;
 }
 

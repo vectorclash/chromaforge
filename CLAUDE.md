@@ -3935,6 +3935,18 @@ Checkout now has TWO switches, either of which closes it (`_shared/storeStatus.t
   at a time each, all stopped when idle. "Confirm ALL machines took the release" after a
   `flyctl deploy` now means four.
 
+### The hero's "Scroll" cue (`components/home/ScrollCue.jsx`, 2026-11-14)
+Aaron's pick of five from https://claude.ai/artifact/393hLKbHmoT72BvXXzPNVu: "Scroll" over a
+hairline with a light running down it, at the foot of the homepage hero. Arrives last in the
+hero's entrance (`HERO_REVEAL.cue`), fades out on the first scroll and back at the top, and a
+tap glides to #about (`scroll_cue_click`). It sits `100lvh - 100svh` above the section's
+bottom so Safari's toolbar never hides it, and MEASURES before showing: full, then short (no
+word), then hidden, so it never overlaps the controls (hidden at 320x568, short at iPhone SE /
+390x664, full from 390x844 up). **A hero headline was built and removed the same day** (Aaron:
+"I really don't like the text there at all"): the plain words, then three livelier letter
+entrances (pop, paint, glitch), all rejected as not fitting the site. Don't re-propose words on
+the hero; the open idea is a buy/print button beside or instead of Save.
+
 ### Anonymous visit events (`lib/track.js`, `public.events`, 0025; 2026-11-14)
 Aaron's first Instagram ads: 40 Shop Now clicks, no sale. The logs could only show that every
 visitor reached the homepage and none opened a product page, so the site now records what a
@@ -3954,7 +3966,9 @@ visit does. Rules worth not re-deriving:
   (about/gallery/shop/footer, by a scroll check because the gallery swaps its `<section>`),
   generate / save_click (`surface`), shop_click (hero shirt), product_view, mockup_click,
   mockup_ready / mockup_failed (`seconds`), buy_click (`needs_signin` from "Sign in to buy"),
-  checkout_redirect, signup_submit / signin_submit (`result`), google_click (`webview`).
+  checkout_redirect, signup_submit / signin_submit (`result`), google_click (`webview`),
+  hero_shown (`ms` from page load to the first artwork; 0026), leave (`seconds` on page, first
+  time the tab is hidden or closed; 0026), scroll_cue_click.
   Purchases are in `orders` already.
 - Deleted after 180 days (cron `delete-old-events`).
 
