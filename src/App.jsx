@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { gsap } from 'gsap';
 
 import { AuthProvider } from './context/AuthContext';
@@ -10,6 +10,7 @@ import SiteLayout from './components/ui/SiteLayout';
 import HomePage from './pages/HomePage';
 import StudioPage from './pages/StudioPage';
 import lazyWithReload from './utils/lazyWithReload';
+import { track } from './lib/track';
 
 // Lazy: none of these are needed for the initial "/" or "/studio" load, and each pulls in
 // its own real weight (Printful catalog/mockup code, Supabase designs/checkout/profiles
@@ -46,6 +47,16 @@ const NotFoundPage = lazyWithReload(() => import('./pages/NotFoundPage'), 'NotFo
 // useNavigate itself -- needed to route a landed password-recovery link straight to
 // /account regardless of which route it happened to redirect back to (see AuthContext's
 // recoveryMode handling).
+// One page_view per route change (pathname only -- a ?id= share link and the same page without
+// it are the same page). See lib/track.js.
+function TrackPageViews() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    track('page_view');
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   // The CSS-only prefers-reduced-motion rule in tailwind.css doesn't reach GSAP -- it
   // animates inline styles from JS, not via CSS transitions/animations. gsap.matchMedia()
@@ -72,6 +83,7 @@ export default function App() {
       <BrowserRouter>
         <AuthProvider>
           <StudioProvider>
+            <TrackPageViews />
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/studio" element={<StudioPage compact={false} />} />

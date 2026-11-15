@@ -3935,6 +3935,29 @@ Checkout now has TWO switches, either of which closes it (`_shared/storeStatus.t
   at a time each, all stopped when idle. "Confirm ALL machines took the release" after a
   `flyctl deploy` now means four.
 
+### Anonymous visit events (`lib/track.js`, `public.events`, 0025; 2026-11-14)
+Aaron's first Instagram ads: 40 Shop Now clicks, no sale. The logs could only show that every
+visitor reached the homepage and none opened a product page, so the site now records what a
+visit does. Rules worth not re-deriving:
+- **Anonymous by construction**: a random id in sessionStorage (one tab), no cookie, no user
+  id, no IP; `signed_in` is a yes/no. The Privacy page describes exactly this, so a new field or
+  a longer-lived id needs a matching Privacy edit and a new date.
+- **Clients may only INSERT** (column grants, `return=minimal`); reads are service role only.
+  Names are a fixed list in the table's check constraint, so a new event needs a migration first,
+  or every insert of it fails with 400 (silently, by design).
+- **Plain `fetch` with `keepalive`**, not supabase-js, so `checkout_redirect` survives the
+  hand-off to Stripe.
+- **Off on localhost and under `navigator.webdriver`**, so dev and the Playwright checks never
+  land in the table; `?track=1` forces it on for the tab. Test rows carry
+  `utm_source=selftest`: exclude `source = 'selftest'` when reporting.
+- Events: page_view (first carries `landing`, `campaign`, `ad` from utm tags), home_section
+  (about/gallery/shop/footer, by a scroll check because the gallery swaps its `<section>`),
+  generate / save_click (`surface`), shop_click (hero shirt), product_view, mockup_click,
+  mockup_ready / mockup_failed (`seconds`), buy_click (`needs_signin` from "Sign in to buy"),
+  checkout_redirect, signup_submit / signin_submit (`result`), google_click (`webview`).
+  Purchases are in `orders` already.
+- Deleted after 180 days (cron `delete-old-events`).
+
 ### The deploy is gated, and the gates are cheap on purpose (2026-09-17)
 
 ```

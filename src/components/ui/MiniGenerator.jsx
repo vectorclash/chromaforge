@@ -9,6 +9,7 @@ import { useCrossfadeImage } from '../../hooks/useCrossfadeImage';
 import { useWidgetVisibility } from '../../hooks/useWidgetVisibility';
 import { isScrollLocked, subscribeScrollLock } from '../../hooks/useScrollLock';
 import GenerateGlow from './GenerateGlow';
+import { track } from '../../lib/track';
 
 
 // No more hover rotation -- it read as unrelated to anything since it fired on mouse
@@ -854,11 +855,13 @@ export default function MiniGenerator({ inline = false, className = '', style })
   }, [previewUrl]);
 
   const onGenerate = () => {
+    track('generate', { surface: inline ? 'mini_inline' : 'mini' });
     setGenerating(true);
     generateRandom();
   };
 
   const onSave = async () => {
+    track('save_click', { surface: inline ? 'mini_inline' : 'mini' });
     if (!user) {
       navigate('/account');
       return;

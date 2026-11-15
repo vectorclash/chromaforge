@@ -7,6 +7,7 @@ import AboutSection from '../components/home/AboutSection';
 import GallerySection from '../components/home/GallerySection';
 import ShopCarousel from '../components/home/ShopCarousel';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { track } from '../lib/track';
 import { useJsonLd } from '../hooks/useJsonLd';
 import {
   HERO_REVEAL_END,
@@ -103,6 +104,46 @@ export default function HomePage() {
     // partway down), in which case no scroll event is coming to set the initial state.
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // How far down the homepage a visit gets: one home_section event per section, the first time
+  // its top reaches the middle of the screen -- not a visible fraction, since on a phone the
+  // gallery is several screens tall and a third of it is never on screen at once. The footer
+  // ends the page, so its top may never get that high, and any of it showing counts.
+  //
+  // A scroll check rather than IntersectionObserver, and each element looked up fresh: the
+  // gallery renders a different <section> while loading and once loaded, so an observer set up
+  // at mount would be left watching a detached node. Four rect reads per frame of scrolling,
+  // and the listener removes itself once all four have been seen.
+  useEffect(() => {
+    const SECTIONS = [
+      ['about', () => document.getElementById('about'), 0.5],
+      ['gallery', () => document.getElementById('gallery'), 0.5],
+      ['shop', () => document.getElementById('shop'), 0.5],
+      ['footer', () => document.querySelector('footer'), 1]
+    ];
+    const seen = new Set();
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      for (const [name, find, line] of SECTIONS) {
+        if (seen.has(name)) continue;
+        const el = find();
+        if (el && el.getBoundingClientRect().top < window.innerHeight * line) {
+          seen.add(name);
+          track('home_section', { section: name }, { once: `home_section:${name}` });
+        }
+      }
+      if (seen.size === SECTIONS.length) window.removeEventListener('scroll', onScroll);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(check);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   return (

@@ -25,6 +25,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 import { INTRO_STEP_ITEM, introDelay, introStyle } from '../utils/routeIntro';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { humanError } from '../lib/errorMessage';
+import { track } from '../lib/track';
 
 // Where the profile/stats/orders block sits among PageContainer's children: [banners, block].
 // Its three cards continue the page's rhythm from there rather than restarting at zero.
@@ -838,6 +839,9 @@ export default function AccountPage() {
           password,
           captchaToken
         );
+        track('signup_submit', {
+          result: alreadyRegistered ? 'already_registered' : needsConfirmation ? 'confirm_email' : 'ok'
+        });
         if (alreadyRegistered) {
           setMode('signin');
           setError('An account with this email already exists. Sign in instead.');
@@ -846,8 +850,10 @@ export default function AccountPage() {
         }
       } else {
         await signInWithEmail(email, password, captchaToken);
+        track('signin_submit', { result: 'ok' });
       }
     } catch (err) {
+      track(mode === 'signup' ? 'signup_submit' : 'signin_submit', { result: 'error' });
       setError(
         humanError(
           err,
@@ -985,7 +991,12 @@ export default function AccountPage() {
             type="button"
             variant="secondary"
             className="w-full flex items-center justify-center gap-2"
-            onClick={signInWithGoogle}
+            onClick={() => {
+              // In Instagram's own browser Google refuses to sign anyone in, so `webview` says
+              // whether this click could have worked at all.
+              track('google_click', { webview: /Instagram|FBAN|FBAV/i.test(navigator.userAgent) });
+              signInWithGoogle();
+            }}
             disabled={busy}
           >
             <GoogleIcon size={18} />

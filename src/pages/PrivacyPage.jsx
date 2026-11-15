@@ -26,7 +26,7 @@ export default function PrivacyPage() {
   });
   return (
     <PageContainer title="Privacy Policy">
-      <p className="text-xs text-text-muted">Last updated: October 10, 2026</p>
+      <p className="text-xs text-text-muted">Last updated: November 14, 2026</p>
 
       {/* intro-skip AND intro-stagger: the cascade nests. This block opts out of being a
           single item in the page's own cascade (a dozen sections arriving as one slab was
@@ -39,8 +39,9 @@ export default function PrivacyPage() {
             This page explains what information Chromaforge (chromaforge.app, operated by Aaron
             Ezra Sterczewski, who is responsible for your data) collects, why, what's public, and
             who it's shared with. We collect only what's needed to run the site and fulfill
-            orders. We don't use analytics or advertising trackers, and we don't sell your
-            personal information or share it for advertising.
+            orders, plus an anonymous count of how the site is used. We don't use third-party
+            analytics or advertising trackers, and we don't sell your personal information or
+            share it for advertising.
           </p>
         </LegalSection>
 
@@ -67,6 +68,16 @@ export default function PrivacyPage() {
               prices paid, and order status. Payment card details are collected and processed
               directly by Stripe — we never see or store your full card number.
             </Item>
+            <Item label="Site usage">
+              an anonymous record of what happens during a visit: which pages are viewed, how far
+              down the homepage you scroll, and when buttons like Generate, Save, product
+              previews and Buy now are pressed. Each record carries a random visit ID that lasts
+              only until you close the tab, where the visit came from (for example Instagram or
+              a link with a campaign tag), whether you're on a phone, tablet or computer, and
+              whether you're signed in. It doesn't include your account, email, IP address or
+              designs, and it can't recognize you on a later visit. We use it only to improve the
+              site, and delete it after 180 days.
+            </Item>
             <Item label="Messages">the contents of any email you send us.</Item>
             <Item label="Technical data">
               like most websites, our hosting and service providers keep logs that include your
@@ -77,7 +88,8 @@ export default function PrivacyPage() {
           </ul>
           <p>
             Designs you haven't saved, and the images and videos you download, are made in your
-            browser and aren't sent to us — unless you save them, generate a product preview, or
+            browser and aren't sent to us (the usage record above notes that Generate was pressed,
+            never the design) — unless you save them, generate a product preview, or
             place an order.
           </p>
         </LegalSection>
@@ -88,7 +100,9 @@ export default function PrivacyPage() {
             in, to remember your studio settings (palette, generator sliders, video and download
             preferences), to keep your 9 most recent designs so you can bring one back from the
             studio's Recent panel, and to cache product details and recent product previews so
-            pages load faster. Your recent designs stay on your device and aren't sent to us. You
+            pages load faster. It also uses session storage, which your browser clears when you
+            close the tab, to hold the random visit ID described above. Your recent designs stay
+            on your device and aren't sent to us. You
             can clear any of this in your browser settings, or with the studio's Reset button for
             its settings. Stripe's checkout page and Cloudflare Turnstile run on
             those providers' own services and may set their own cookies.

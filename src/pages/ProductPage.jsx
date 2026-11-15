@@ -44,6 +44,7 @@ import TerminalText from '../components/ui/TerminalText';
 import { ProductPageSkeleton, SkeletonFadeOut } from '../components/ui/RouteSkeleton';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { humanError } from '../lib/errorMessage';
+import { track } from '../lib/track';
 
 // Where the "Choose artwork" step sits among PageContainer's children -- breadcrumb, title,
 // artwork, print options, then the gallery/purchase grid -- so its own tile cascade continues
@@ -656,6 +657,7 @@ export default function ProductPage() {
           getPrintfileSpecs(productId)
         ]);
         if (!cancelled) {
+          track('product_view', { product: Number(productId) });
           setDetail(d);
           setPrintfileSpecs(specs);
           setSelectedVariantId(d.variants[0]?.id ?? null);
@@ -821,6 +823,20 @@ export default function ProductPage() {
   const variant = variants ? variants.find(v => v.id === selectedVariantId) || variants[0] : null;
   const hasMockup = status === 'completed' && images.length > 0;
   const heroMockupUrl = hasMockup ? images[activeImageIndex]?.mockup_url : null;
+
+  // How a mockup someone ASKED for ended (lib/track.js). Armed by the click, so a preview
+  // restored from cache on page load is never counted. Above the early returns, like every hook.
+  const mockupAskedAtRef = useRef(null);
+  useEffect(() => {
+    if (mockupAskedAtRef.current == null || !detail) return;
+    if (status !== 'completed' && status !== 'failed') return;
+    const seconds = Math.round((Date.now() - mockupAskedAtRef.current) / 1000);
+    mockupAskedAtRef.current = null;
+    track(status === 'completed' ? 'mockup_ready' : 'mockup_failed', {
+      product: detail.product?.id ?? Number(productId),
+      seconds
+    });
+  }, [status, detail, productId]);
 
   // PRELOAD before swapping. Without this the hero switched to a URL the browser had not
   // fetched yet, so the scrim vanished the instant hasMockup flipped while the image was
@@ -1267,6 +1283,8 @@ export default function ProductPage() {
 
 
   const onGenerateClick = () => {
+    track('mockup_click', { product: product.id });
+    mockupAskedAtRef.current = Date.now();
     narrationPicksRef.current = new Map();
     return generate({
       product,
@@ -1378,6 +1396,8 @@ export default function ProductPage() {
       sessionStorage.setItem('chromaforge:lastOrderId', orderId);
       // Intentional page leave -- stand the beforeunload guard down for the Stripe redirect.
       checkoutLeaveOkRef.current = true;
+      // Sent with keepalive (lib/track.js), so it survives the page leaving for Stripe.
+      track('checkout_redirect', { product: product.id, qty });
       window.location.href = url;
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -1392,6 +1412,7 @@ export default function ProductPage() {
   // (used by both the confirm stage's Continue and the error stage's Try again) is this
   // exact same onBuyNowClick.
   const onBuyNowButtonClick = () => {
+    track('buy_click', { product: product.id, mockup: Boolean(hasMockup) });
     if (hasMockup) onBuyNowClick();
     else setBuyModalStage('confirm');
   };
@@ -1986,7 +2007,14 @@ export default function ProductPage() {
                     about a customer we have not identified yet. */}
                 {displayedScrimMode === 'pending' ? null : displayedScrimMode === 'signin' ? (
                   <p className="max-w-xs text-center text-sm text-text">
-                    <Link to="/account" className="text-accent underline">Sign in</Link> to generate a mockup of your design.
+                    <Link
+                      to="/account"
+                      className="text-accent underline"
+                      onClick={() => track('mockup_click', { product: product.id, needs_signin: true })}
+                    >
+                      Sign in
+                    </Link>{' '}
+                    to generate a mockup of your design.
                   </p>
                 ) : displayedScrimMode === 'busy' ? (
                   <div className="flex flex-col items-center gap-3 text-center text-text">
@@ -2240,7 +2268,12 @@ export default function ProductPage() {
                 Buy now
               </Button>
             ) : !user ? (
-              <Button as={Link} to="/account" className="mt-4 w-full">
+              <Button
+                as={Link}
+                to="/account"
+                className="mt-4 w-full"
+                onClick={() => track('buy_click', { product: product.id, needs_signin: true })}
+              >
                 Sign in to buy
               </Button>
             ) : (

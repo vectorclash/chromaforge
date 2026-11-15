@@ -77,6 +77,7 @@ import AddColorButton from './buttons/AddColorButton';
 import ShirtIcon from './buttons/ShirtIcon';
 import ArrowIcon from './buttons/ArrowIcon';
 import ColorField from './ColorField';
+import { track } from '../lib/track';
 
 import { StudioWordmark } from './ui/Wordmark';
 import {
@@ -2872,6 +2873,18 @@ export default class DisplayCanvas extends React.Component {
     this.buildImage(config);
   }
 
+  // The buttons' own click handlers: a person pressing them, as opposed to the many places that
+  // call onGenerateButtonClick/onSaveButtonClick in code. Only these are recorded (lib/track.js).
+  onGenerateTap = e => {
+    track('generate', { surface: this.props.compact ? 'hero' : 'studio' });
+    this.onGenerateButtonClick(e);
+  };
+
+  onSaveTap = e => {
+    track('save_click', { surface: this.props.compact ? 'hero' : 'studio' });
+    this.onSaveButtonClick(e);
+  };
+
   onGenerateButtonClick(e) {
     const { generateDisabled, animationMode, animationFrames } = this.state;
 
@@ -4286,7 +4299,10 @@ export default class DisplayCanvas extends React.Component {
                   waiting={isLoading}
                   revealDelay={heroPhase === 'off' ? null : HERO_REVEAL.shirt}
                   revealed={heroPhase === 'reveal' || heroPhase === 'off'}
-                  onShopClick={() => this.props.onNavigate?.('/shop')}
+                  onShopClick={() => {
+                    track('shop_click', { from: 'hero_shirt' });
+                    this.props.onNavigate?.('/shop');
+                  }}
                 />
                 <div className="flex w-[220px] flex-col gap-2.5">
                   {/* The entrance rides each BUTTON, never its .row wrapper. Save carries
@@ -4299,7 +4315,7 @@ export default class DisplayCanvas extends React.Component {
                       needed, and the same reason the rule is worth keeping. */}
                   <div className="row">
                     <button
-                      onClick={this.onGenerateButtonClick.bind(this)}
+                      onClick={this.onGenerateTap}
                       {...heroBeat(
                         'reveal',
                         HERO_REVEAL.generate,
@@ -4311,7 +4327,7 @@ export default class DisplayCanvas extends React.Component {
                   </div>
                   <div className="row">
                     <button
-                      onClick={this.onSaveButtonClick.bind(this)}
+                      onClick={this.onSaveTap}
                       className={saveBeat.className}
                       style={{ width: '100%', ...saveBeat.style }}
                     >
@@ -4364,7 +4380,7 @@ export default class DisplayCanvas extends React.Component {
               </div>
               <div className="row">
                 <button
-                  onClick={this.onGenerateButtonClick.bind(this)}
+                  onClick={this.onGenerateTap}
                   className={'button-large' + (generateDisabled || this.isBuilding3D() ? ' disabled' : ' enabled')}
                 >
                   {this.isBuilding3D()
@@ -4413,7 +4429,7 @@ export default class DisplayCanvas extends React.Component {
               )}
               <div className="row">
                 <button
-                  onClick={this.onSaveButtonClick.bind(this)}
+                  onClick={this.onSaveTap}
                   className="button-small"
                 >
                   {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
