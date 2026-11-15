@@ -684,6 +684,61 @@
 .display-canvas .controls-inner.controls-compact .row .button-small:hover {
   background: rgba(166, 224, 0, 0.15);
 }
+/* Generate shares its row with Save, which is a square icon the height of Generate. */
+.display-canvas .controls-inner.controls-compact .hero-generate-row {
+  gap: 10px;
+}
+.display-canvas .controls-inner.controls-compact .hero-generate-row .button-large {
+  flex: 1;
+  min-width: 0;
+}
+.display-canvas .controls-inner.controls-compact .row .hero-save-icon {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.display-canvas .controls-inner.controls-compact .hero-save-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  transition: fill 0.25s ease-out;
+}
+.display-canvas .controls-inner.controls-compact .hero-save-icon.is-saved svg {
+  fill: currentColor;
+}
+.display-canvas .controls-inner.controls-compact .hero-save-icon.is-saving svg {
+  animation: hero-save-pulse 1s ease-in-out infinite;
+}
+@keyframes hero-save-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+/* The way to buy: a fixed accent border, never the palette stop changeGradient gives the
+   other small buttons, so it does not read as a second Save. */
+.display-canvas .controls-inner.controls-compact .row .button-wear {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-color: var(--color-accent);
+  color: var(--color-accent-soft);
+}
+.display-canvas .controls-inner.controls-compact .row .button-wear:hover {
+  border-color: var(--color-interactive);
+  color: var(--color-interactive);
+}
+.display-canvas .controls-inner.controls-compact .button-wear svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
 /* The homepage hero's parallax, driven by the page's own scroll rather than a scroll handler
    (see DisplayCanvas.componentDidMount for why -- in short, iOS Safari scrolls on its own
    thread and a handler-written transform always trails it). DisplayCanvas measures the hero

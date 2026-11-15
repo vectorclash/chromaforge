@@ -3945,7 +3945,16 @@ word), then hidden, so it never overlaps the controls (hidden at 320x568, short 
 390x664, full from 390x844 up). **A hero headline was built and removed the same day** (Aaron:
 "I really don't like the text there at all"): the plain words, then three livelier letter
 entrances (pop, paint, glitch), all rejected as not fitting the site. Don't re-propose words on
-the hero; the open idea is a buy/print button beside or instead of Save.
+the hero.
+**Save is a bookmark icon beside Generate, and "Print it" holds its row (2026-11-15, option A of
+four Aaron compared on the real hero: https://claude.ai/artifact/8e3P7TyHS4Vh6aDbbVyYGp).** Print
+it goes to /shop, NOT a product: a first version linked the tee with a "Wear it" label, and Aaron
+rejected it because it says the tee is all there is to buy. The tee icon stayed (his call). Every product page opens
+on the current design via StudioContext. Tracked as `shop_click` `{ from: 'hero_print' }`. It is
+`.button-small` for the glass and the iOS backdrop
+refresh, but excluded from changeGradient's palette border (`.button-wear`), so it never reads as a
+second Save. The hero keeps its height at every width, so the Scroll cue's measuring is unchanged.
+New beat `HERO_REVEAL.wear`; the studio link and cue moved later by 130ms.
 
 ### Anonymous visit events (`lib/track.js`, `public.events`, 0025; 2026-11-14)
 Aaron's first Instagram ads: 40 Shop Now clicks, no sale. The logs could only show that every

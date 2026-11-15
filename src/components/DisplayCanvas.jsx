@@ -1472,12 +1472,14 @@ export default class DisplayCanvas extends React.Component {
 
     let borderColor = colors[Math.floor(Math.random() * colors.length)];
 
+    // The hero's Print it button (.button-wear) keeps its fixed accent border, so the way to buy
+    // never blends into Save beside it.
     // .button-danger (the settings panel's RESET) is deliberately excluded: it is the one
     // control whose colour carries meaning rather than decoration. Tinted like the rest it
     // would take a random palette stop on every build -- occasionally the very same stop its
     // BACK sibling gets, which is precisely the confusion the warm treatment exists to
     // prevent. Its border stays what components.css sets.
-    gsap.set('.button-small:not(.button-danger), .button-medium,  input', {
+    gsap.set('.button-small:not(.button-danger):not(.button-wear), .button-medium,  input', {
       borderColor: borderColor
     });
   }
@@ -1767,12 +1769,12 @@ export default class DisplayCanvas extends React.Component {
           isLoading: false,
           loaderHeld: this.props.compact ? null : 'image'
         }, () => {
-          // The compact Save button (.controls-compact .button-small) carries its own
+          // The compact Save and Print it buttons (.controls-compact .button-small) carry its own
           // permanent backdrop-filter (components.css). Same iOS staleness bug as the studio
           // panel (see fadeArtwork): it needs a per-frame inline write to force a recomposite
           // once the artwork behind it changes, or it stays dark until the next scroll.
-          const saveBtn = this.props.compact ? document.querySelector('.controls-compact .button-small') : null;
-          if (saveBtn) {
+          const glassBtns = this.props.compact ? document.querySelectorAll('.controls-compact .button-small') : [];
+          glassBtns.forEach(saveBtn => {
             saveBtn.style.backdropFilter = 'none';
             const b = { blur: 0 };
             gsap.to(b, {
@@ -1782,7 +1784,7 @@ export default class DisplayCanvas extends React.Component {
               onUpdate: () => { saveBtn.style.backdropFilter = `blur(${b.blur}px)`; },
               onComplete: () => { saveBtn.style.backdropFilter = ''; }
             });
-          }
+          });
 
           const revealed = () => this.releaseLoader('image');
           this.fadeArtwork({
@@ -4318,7 +4320,11 @@ export default class DisplayCanvas extends React.Component {
                       appear rather than animate in with the buttons"). An element's OWN
                       opacity does not do that -- the same fix MobileNav's mini-generator
                       needed, and the same reason the rule is worth keeping. */}
-                  <div className="row">
+                  {/* Save is an icon beside Generate, so its old row can hold the way to buy
+                      the design (Aaron, 2026-11-15, option A of four compared on the real
+                      hero). The hero keeps its height, which matters on short phones where
+                      the Scroll cue measures the space under it. */}
+                  <div className="row hero-generate-row">
                     <button
                       onClick={this.onGenerateTap}
                       {...heroBeat(
@@ -4329,14 +4335,34 @@ export default class DisplayCanvas extends React.Component {
                     >
                       {generateDisabled ? 'Generating' : 'Generate'}
                     </button>
-                  </div>
-                  <div className="row">
                     <button
                       onClick={this.onSaveTap}
-                      className={saveBeat.className}
-                      style={{ width: '100%', ...saveBeat.style }}
+                      className={saveBeat.className + ' hero-save-icon' + (isSaved ? ' is-saved' : '') + (isSaving ? ' is-saving' : '')}
+                      style={saveBeat.style}
+                      aria-label={isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
+                      title={isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
                     >
-                      {isSaving ? 'Saving' : [isSaved ? 'Saved' : 'Save']}
+                      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                        <path d="M6 3h12v18l-6-4-6 4Z" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="row">
+                    {/* The whole shop, not one product: a link to the tee alone read as
+                        "the tee is all you can buy" (Aaron). Every product page opens on the
+                        current design, carried by StudioContext like the shirt's own link.
+                        Not .button-small's palette border: see changeGradient. */}
+                    <button
+                      onClick={() => {
+                        track('shop_click', { from: 'hero_print' });
+                        this.props.onNavigate?.('/shop');
+                      }}
+                      {...heroBeat('reveal', HERO_REVEAL.wear, 'button-small button-wear')}
+                    >
+                      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                        <path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3a4 4 0 0 1-8 0Z" />
+                      </svg>
+                      Print it
                     </button>
                   </div>
                   <button

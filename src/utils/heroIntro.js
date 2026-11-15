@@ -44,10 +44,11 @@ export const HERO_REVEAL = {
   shirt: 300,
   generate: 430,
   save: 560,
-  studioLink: 690,
+  wear: 690,
+  studioLink: 820,
   // The "Scroll" cue at the hero's foot (components/home/ScrollCue.jsx): last, once everything
   // it points past is in place.
-  cue: 850
+  cue: 980
 };
 
 export const HERO_REVEAL_END = HERO_REVEAL.cue + DURATION_SLOW * 1000;
