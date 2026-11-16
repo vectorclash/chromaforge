@@ -178,3 +178,12 @@ export function labelBackdropChoice(placementKey, opts) {
   };
 }
 
+
+// The labels a customer can SEE -- printed over the artwork rather than sewn inside: every
+// `label_outside`, and `label_inside` where the product prints it as a visible patch (the reversible
+// bucket hat, which has a labelInsideRegion). These are the ones the product page's Logo option
+// turns off (Aaron, 2026-11-16: the mark "feels like too much", off by default). A sewn-in tag is
+// never one of them: nobody sees it, and it stays on every order.
+export function isVisibleLogo(placementKey, labelInsideRegion = null) {
+  return placementKey === 'label_outside' || (placementKey === 'label_inside' && !!labelInsideRegion);
+}

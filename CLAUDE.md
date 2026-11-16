@@ -5785,6 +5785,26 @@ by the shared design as the odds the panel last published.
     Checked against the live DB before deciding: **zero saved designs have exactly one
     colour** (30 use the auto-palette/empty array, the rest 3/5/6), so nothing existing
     changed appearance and no thumbnail backfill was needed.
+  - **The visible logo is a per-order option, OFF by default (2026-11-16, Aaron: the mark over the
+    artwork "feels like too much", especially on the bucket hat).** A **Logo** row in Print options
+    (`showLogo` in ProductPage) on the five products with a visible label: 693, 784, 801, 744, 654.
+    "Visible" is `isVisibleLogo` (printfulPlacements.js): every `label_outside`, plus `label_inside`
+    where it is a printed patch (the hat's, which has a `labelInsideRegion`). One switch covers both
+    of the hat's marks. Sewn-in neck tags are never affected. Off, `renderAndUploadPrintFiles`
+    (`logo: false`) leaves the placement out of the mockup AND the order; ProductPage passes the
+    choice everywhere it passes `labelInsideRegion`, and `mockupDefaults` starts it off so shop cards
+    and the ad builder match. Three things worth not re-deriving:
+    (1) **Printful accepts all five without it and charges nothing for it** -- free draft orders with
+    `check-printful-draft-orders.mjs --skip label_outside` (2026-11-16), every other file `ok`; the
+    catalog lists no extra price for either label. NOT yet confirmed on a real garment: whether the
+    spot comes back as print or as a blank patch (the mockups show print).
+    (2) **The instant mockup gets a fully CLEAR mark, not none** (`hiddenLogo: clearMark` in
+    instantMockupStore). With no file the compositor skips those pixels and leaves the blank garment
+    -- a white patch. A clear mark goes through the see-through-label path and shows the print
+    measured underneath (the `--underlay` calibration). Verified on every view of 693/654/801.
+    (3) It is in both cache keys (`useMockup`'s `:nologo`, the instant store's options key).
+    Verified end to end: Buy Now on the shorts sends `label_inside` only with it off, and
+    `label_inside,label_outside` with it on.
   - **A new product with a `label_outside` placement needs a CALIBRATION too**
     (`scripts/calibrate-label-outside.mjs`, 2026-08-29). The mark chooses light or dark ink by
     sampling the artwork it will be printed over, and it can only do that if the config says where

@@ -17,7 +17,7 @@ export { resolvePlacementEntries, mockupPlacementEntries, buildMockupFiles, hide
 import { RENDER_CAP, capMockupRenderSize } from '../render/scale';
 import { generateLabelMark } from '../render/generateLabelMark';
 import { sampleLabelBackdrop, wantsLightInk } from '../render/labelBackdrop';
-import { labelBackdropChoice, frontPlacementKey } from './printfulPlacements';
+import { labelBackdropChoice, frontPlacementKey, isVisibleLogo } from './printfulPlacements';
 import { drawHatWrap, hatWrapSourceSize, hatWrapDiscSourceSize } from '../render/hatWrap';
 import { drawLegWrap, legWrapSourceSize } from '../render/legWrap';
 import renderLabelMark from '../render/renderLabelMark';
@@ -500,6 +500,13 @@ export async function renderAndUploadPrintFiles(
     // its ink the same way label_outside does -- but sampled against the INSIDE face, which carries
     // the secondary design whenever the customer has chosen a different one.
     labelInsideRegion = null,
+    // Whether the visible labels (isVisibleLogo) are printed. Off, they are left out of the order
+    // and the mockup altogether -- Printful accepts every one of these products without them
+    // (draft orders, 2026-11-16) -- and `hiddenLogo` says what stands in for one instead: nothing,
+    // except in the instant mockup, which needs a fully clear mark to show the print beneath it.
+    // On by default so every caller that does not ask keeps the labels it always had.
+    logo = true,
+    hiddenLogo = (_spec) => null,
     // Optional (checkout UI feedback): called with (done, total) as each UNIQUE render
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
@@ -554,6 +561,13 @@ export async function renderAndUploadPrintFiles(
   const tasks = entries.map(([placementKey, printfileId]) => {
     if (LABEL_MARK_PLACEMENTS.has(placementKey)) {
       const cacheKey = `label:${placementKey}`;
+      if (!logo && isVisibleLogo(placementKey, labelInsideRegion)) {
+        if (!rendered[cacheKey]) {
+          const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
+          rendered[cacheKey] = Promise.resolve(spec ? hiddenLogo(spec) : null);
+        }
+        return [placementKey, rendered[cacheKey]];
+      }
       if (!rendered[cacheKey]) {
         const spec = printfileSpecs.printfiles.find(f => f.printfile_id === printfileId);
         const choice = labelBackdropChoice(placementKey, {

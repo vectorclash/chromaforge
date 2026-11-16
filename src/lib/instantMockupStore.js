@@ -177,6 +177,7 @@ function optionsKey(o) {
     opts.mirrorPlacements ?? null,
     opts.labelOutsideRegion ?? null,
     opts.labelInsideRegion ?? null,
+    opts.logo ?? true,
     opts.secondaryDesign ? designKey(opts.secondaryDesign) : null
   ]);
 }
@@ -263,6 +264,10 @@ function placementSources(productId, config, design, options, keys, renderDesign
         renderOptions: { priority, nebulaPixels: NEBULA_PIXELS_LITE }
       }),
       labelSink: keep,
+      // A hidden logo is a fully CLEAR mark here rather than none: the compositor draws a label
+      // pixel as the mark over the measured print beneath it, so a clear mark shows just the print.
+      // With no file at all those pixels would be left as the blank garment -- a white patch.
+      hiddenLogo: clearMark,
       allEntries: all,
       ...options
     });
@@ -283,6 +288,16 @@ function placementSources(productId, config, design, options, keys, renderDesign
     }
   }
   return Promise.all(keys.map(k => set.get(slot(k))));
+}
+
+let clearMarkBlob = null;
+function clearMark() {
+  if (!clearMarkBlob) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 8;
+    clearMarkBlob = new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }
+  return clearMarkBlob;
 }
 
 function encode(width, height, data, type = 'image/jpeg') {

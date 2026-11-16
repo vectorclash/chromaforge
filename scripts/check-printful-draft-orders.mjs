@@ -34,6 +34,8 @@
 //        --file <url>      stand-in image (default: the deployed og-image.jpg)
 //        --wait <seconds>  async settle time before re-reading (default 45)
 //        --keep            leave the drafts in place instead of deleting them
+//        --skip <keys>     comma-separated placements to leave out (an optional placement the
+//                          customer can turn off, e.g. label_outside)
 
 import { PRODUCT_MOCKUP_CONFIG } from '../src/lib/printfulMockupConfig.js';
 
@@ -110,7 +112,8 @@ async function main() {
     // First variant is enough: placements and required options are per-PRODUCT, not per
     // variant, so whichever variant a customer picks exercises the same shape.
     const entry = pf.body.result.variant_printfiles[0];
-    const placements = Object.keys(entry.placements);
+    const skip = new Set((arg('skip', '') || '').split(',').filter(Boolean));
+    const placements = Object.keys(entry.placements).filter(p => !skip.has(p));
 
     // Every placement Printful lists, matching resolvePlacementEntries' no-filter behaviour
     // for real orders -- a placement left out prints as blank fabric on the real garment.

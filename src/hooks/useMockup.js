@@ -179,7 +179,9 @@ function cacheKey(product, variant, entries, design, geometryPlacements, geometr
   // preview rather than leaving browsers replaying a filmstrip built under the old rules.
   // The image FORMAT and size: a transparent 2000px PNG is not the same photo as the shop's JPG.
   // Appended only when not the default, so every key the shop has ever stored is unchanged.
-  const imageSignature = image.format !== 'jpg' || image.width ? `:${image.format}@${image.width || 'default'}` : '';
+  const imageSignature =
+    (image.format !== 'jpg' || image.width ? `:${image.format}@${image.width || 'default'}` : '') +
+    (image.logo === false ? ':nologo' : '');
   // The geometry-only scale changes the composition the customer approves, so it is part of the
   // key -- appended only when not 1, so every key a product without the option ever stored is
   // unchanged.
@@ -258,6 +260,8 @@ export function useMockup() {
       // produces varies with the DESIGN, and the design is already part of the key.
       labelOutsideRegion = null,
       labelInsideRegion = null,
+      // The Logo option (see renderAndUploadPrintFiles). Part of the key: it changes the photo.
+      logo = true,
       productOptions = null,
       secondaryDesign = null,
       // The shop's JPGs unless asked otherwise -- see createMockupTask. Part of the cache key.
@@ -287,7 +291,7 @@ export function useMockup() {
         return;
       }
 
-      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width }, geometryScale);
+      const key = cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width, logo }, geometryScale);
       currentKeyRef.current = key;
       const cached = mockupCache.get(key);
       if (cached) {
@@ -338,6 +342,7 @@ export function useMockup() {
           geometryScale,
           labelOutsideRegion,
           labelInsideRegion,
+          logo,
           secondaryDesign,
           secondaryPlacements: getSecondaryDesignConfig(cfg)?.placements || null
         });
@@ -473,6 +478,8 @@ export function useMockup() {
       // produces varies with the DESIGN, and the design is already part of the key.
       labelOutsideRegion = null,
       labelInsideRegion = null,
+      // The Logo option (see renderAndUploadPrintFiles). Part of the key: it changes the photo.
+      logo = true,
       productOptions = null,
       secondaryDesign = null,
       format = 'jpg',
@@ -485,7 +492,7 @@ export function useMockup() {
       const entries = cfg && mockupPlacementEntries(printfileSpecs, variant, cfg);
       const key =
         entries
-          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width }, geometryScale)
+          ? cacheKey(product, variant, entries, design, geometryPlacements, geometryLayout, mirrorPlacements, productOptions, sizeFrame, legSymmetry, secondaryDesign, legWrap, { format, width, logo }, geometryScale)
           : null;
       currentKeyRef.current = key;
       const cached = key && mockupCache.get(key);

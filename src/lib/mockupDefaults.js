@@ -29,6 +29,8 @@ export function defaultMockupOptions(productId) {
     legWrap,
     labelOutsideRegion: getLabelOutsideRegion(cfg),
     labelInsideRegion: getLabelInsideRegion(cfg),
+    // The Logo option starts off (ProductPage's showLogo).
+    logo: false,
     // "Back panel: Flipped" is on by default.
     mirrorPlacements: getMirrorPlacements(cfg),
     productOptions: stitchColor ? [{ name: 'stitch_color', value: stitchColor }] : null,

@@ -62,8 +62,8 @@ Order of work:
       the fabric only; clicking through every thumbnail is smooth (facets).
 - [ ] Changing size / colour / stitch on the pillow, bandana, tote, windbreaker and phone case.
 - [ ] Bucket hat with a second artwork: inside views show it; removing it hides them.
-- [ ] Labels on the shorts, joggers, track jacket, crossbody, bucket hat: the mark reads, light on
-      dark prints.
+- [ ] Labels on the shorts, joggers, track jacket, crossbody, bucket hat: the new Logo option starts
+      Off (print runs through where the mark was); On brings the mark back, light on dark prints.
 - [ ] Print options (Artwork for the legs, Back panel, Geometry placement, Geometry size on the case)
       change the photos.
 - [ ] Buy Now -> the Stripe page shows the right photo (don't pay).

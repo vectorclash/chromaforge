@@ -34,6 +34,7 @@ import {
   getHatWrap,
   describePrintFileStrategy
 } from '../lib/printful';
+import { isVisibleLogo } from '../lib/printfulPlacements';
 import { waitForLinkedDesign } from '../lib/linkedDesign';
 import { getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
@@ -465,6 +466,11 @@ export default function ProductPage() {
   // visibly restarts the composition at each seam, which reads as a defect rather than a
   // style, so continuous is the better default and opting out is the deliberate act.
   const [mirrorSeams, setMirrorSeams] = useState(true);
+  // Whether the visible logo labels print (isVisibleLogo: every label_outside, and the reversible
+  // hat's see-through inside one). Off by default (Aaron, 2026-11-16: the mark over the artwork
+  // "feels like too much", especially on the bucket hat); a customer who wants it turns it on.
+  // Per order, like every choice here. Sewn-in neck tags are not affected -- nobody sees them.
+  const [showLogo, setShowLogo] = useState(false);
   const productMirrorPlacements = detail?.product
     ? getMirrorPlacements(getMockupConfigForProduct(detail.product.id))
     : null;
@@ -820,6 +826,7 @@ export default function ProductPage() {
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
       labelInsideRegion,
+      logo: showLogo,
       mirrorPlacements: effectiveMirrorPlacements,
       secondaryDesign,
       // Which placements the second design covers (the reversible hat's inside faces). Without it
@@ -836,6 +843,7 @@ export default function ProductPage() {
       effectiveLegWrap,
       labelOutsideRegion,
       labelInsideRegion,
+      showLogo,
       effectiveMirrorPlacements,
       secondaryDesign,
       secondaryDesignConfig
@@ -1091,6 +1099,7 @@ export default function ProductPage() {
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
       labelInsideRegion,
+      logo: showLogo,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1108,7 +1117,7 @@ export default function ProductPage() {
     // effectiveMirrorPlacements, not the raw mirrorSeams: while leg symmetry is on the flip is
     // a no-op, and depending on the raw flag there would throw away a still-accurate mockup and
     // charge the customer another 30-90s Printful round trip for an identical photo.
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveGeometryScale, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor, secondaryDesign, instantMode]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveGeometryScale, effectiveLegSymmetry, effectiveMirrorPlacements, showLogo, stitchColor, secondaryDesign, instantMode]);
 
   // The hero deliberately has NO animation class of its own. It used to carry
   // --animate-reveal-quick on a fresh generation and --animate-pop-in otherwise, chosen by a
@@ -1264,7 +1273,11 @@ export default function ProductPage() {
   // Which refinement sections this product actually has. Gated so a product with none of
   // them (nothing currently, but the config is per-product and this shouldn't assume)
   // doesn't render an empty disclosure.
+  // Whether this product prints a label someone can see, read off the placements it really has.
+  const hasVisibleLogo = !!printfileSpecs?.variant_printfiles?.[0] &&
+    Object.keys(printfileSpecs.variant_printfiles[0].placements).some(k => isVisibleLogo(k, labelInsideRegion));
   const hasPrintOptions =
+    hasVisibleLogo ||
     !!secondaryDesignConfig ||
     showsGeometryPlacements ||
     showsTwoLegLayout ||
@@ -1299,6 +1312,7 @@ export default function ProductPage() {
     // that changes nothing would be exactly the kind of false line this summary exists to
     // avoid. (Always shown today -- leg symmetry, the one thing that made it a no-op, is off.)
     showsMirrorSeamsChoice && (mirrorSeams ? 'Back mirrored' : 'Back same as front'),
+    hasVisibleLogo && (showLogo ? 'Logo on' : 'No logo'),
     stitchColorOption && stitchColor && `${stitchColorOption.values[stitchColor] || stitchColor} stitching`,
     // Reads "Black stitching" -- the label matters, since "Black" alone would imply a black
     // garment, which is exactly the misreading this product's override exists to prevent.
@@ -1375,6 +1389,7 @@ export default function ProductPage() {
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
       labelInsideRegion,
+      logo: showLogo,
       mirrorPlacements: effectiveMirrorPlacements,
       productOptions: stitchColorProductOptions,
       secondaryDesign
@@ -1421,6 +1436,7 @@ export default function ProductPage() {
       legWrap: effectiveLegWrap,
       labelOutsideRegion,
       labelInsideRegion,
+      logo: showLogo,
         // Null on every product but the reversible hat, and null there too unless the
         // customer actually picked a second design -- see getSecondaryDesignConfig.
         secondaryDesign,
@@ -1990,6 +2006,46 @@ export default function ProductPage() {
                     key={label}
                     type="button"
                     onClick={() => setMirrorSeams(on)}
+                    aria-pressed={checked}
+                    className={
+                      'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                      (checked
+                        ? 'border-accent bg-accent text-ink-950'
+                        : 'border-hairline text-text-secondary hover:border-text')
+                    }
+                  >
+                    <span className="text-sm font-bold">{label}</span>
+                    <span className={'text-xs ' + (checked ? 'text-ink-950/75' : 'text-text-muted')}>{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Step: the logo -- the mark printed OVER the artwork (label_outside, and the reversible
+            hat's inside label). Off by default (Aaron, 2026-11-16). Off, the label is not sent at
+            all: Printful takes all five products without it (free draft orders, 2026-11-16), and
+            the photos show the print running straight through where the patch would be. */}
+        {hasVisibleLogo && (
+          <div>
+            <h2 className="font-quicksand text-sm font-bold uppercase tracking-wide text-text-secondary">
+              Logo
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              A small printed mark, laid over the artwork.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { on: false, label: 'Off', hint: 'Artwork only' },
+                { on: true, label: 'On', hint: 'Mark printed over the artwork' }
+              ].map(({ on, label, hint }) => {
+                const checked = showLogo === on;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setShowLogo(on)}
                     aria-pressed={checked}
                     className={
                       'flex flex-col items-start gap-0.5 cursor-pointer rounded-lg border px-3 py-2 text-left font-quicksand transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
