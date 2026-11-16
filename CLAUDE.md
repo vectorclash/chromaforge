@@ -3364,7 +3364,9 @@ a now-fixed `useCrossfadeImage` gap: a url arriving during that fade-back was qu
 on 654, 2026-11-16; Aaron: with two artworks it showed 16, "way too many"). The hat is round, so its
 flat Front/Back/Right Front/Right photos are near-twins; it shows Front, the tilted close-up, Front on
 model, Back on model, then -- with a second design -- Front Inside and Front Inside on model.
-`instantViews` honours a product's pick ahead of `orderViews`. The picker note under the Inside slot
+`instantViews` honours a product's pick ahead of `orderViews`. The same was done for the beanie (458: Left/Right
+Front dropped, near-copies of Front on a round beanie, 8 -> 6) and the hoodie (388: Right on model dropped,
+a near-mirror of Left on model, 8 -> 7). Any other product keeps the automatic order. The picker note under the Inside slot
 used to tell customers the inside could not be previewed; it now says the inside photos follow.
 (7a) **A picked view is an ANGLE SWITCH (facets) only once the current content is on screen**
 (ProductPhoto's `lastChangeRef.shown`; Aaron, on the bandana: after a size change, "the model shot

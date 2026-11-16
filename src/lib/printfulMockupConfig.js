@@ -102,6 +102,9 @@ export const PRODUCT_MOCKUP_CONFIG = {
     mirrorPlacements: ['back']
   }, // men's t-shirt
   388: {
+    // The instant photo strip, picked by hand -- see the bucket hat's instantViewPick for the rule.
+    // Drops 'Right on model' (6309), a near-mirror of 'Left on model' (Aaron, 2026-11-16).
+    instantViewPick: { outside: ['11462', '11463', '32479', '6307', '6308', '31581', '6310'], inside: [] },
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     placements: ['front', 'back', 'sleeve_left', 'sleeve_right', 'hood', 'pocket'],
@@ -633,6 +636,10 @@ export const PRODUCT_MOCKUP_CONFIG = {
     legPanel: { width: 0.296, height: 0.924 }
   }, // wide-leg pants
   458: {
+    // The instant photo strip, picked by hand -- see the bucket hat's instantViewPick for the rule.
+    // Drops 'Left Front' and 'Right Front' (11619, 11618): on a round beanie they are the Front photo
+    // again, the same problem the bucket hat had (Aaron, 2026-11-16).
+    instantViewPick: { outside: ['11615', '11617', '11620', '11758', '11759', '11761'], inside: [] },
     technique: 'cut-sew',
     productOptions: [{ name: 'stitch_color', value: 'white' }],
     // A knit beanie prints from ONE square panel (printfile 236, 3900x3900) sewn into a tube and
