@@ -5,7 +5,7 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
-## Instant mockups — the plan to ship them (Aaron + Claude, written 2026-11-15)
+## Instant mockups — DEPLOYED 2026-11-16 (`adc5066`); the plan that shipped them
 
 Four commits on local `master`, NOT pushed (8017759, dbf9cfb, ea0fd9c, 7245363). Aaron's rule: they
 stay local until the phone cases are done and he has tested the shop fully; then he says "deploy".
@@ -75,11 +75,16 @@ Order of work:
 - [ ] Optional, if testing on the live site first would help: ship it DARK -- instant mockups off for
       customers, on for Aaron via a remembered `?instant=1` -- then turn it on for everyone with a
       one-line change (and off again the same way). Decide after step 4.
-- [ ] Run every check in step 3 once more, then push `master`. The first deploy uploads ~38 MB of
+- [x] DEPLOYED 2026-11-16, not dark (Aaron: "we can deploy"; his phone pass of step 4 comes after).
+      Checks rerun first (typecheck, lint, routes 10/10, leaks 12/12, route-intro-once, hero race,
+      density, label-backdrop, legwrap-taper, no-secrets, coverage). Live: all 36 case photo sets
+      served, new code in the bundle, `/shop?id=` and `/shop/654?id=` render only the linked design,
+      Buy Now on the hat reached Stripe in ~4s with the instant photo (unpaid; cancels in 24h).
+- [x] Run every check in step 3 once more, then push `master`. The first deploy uploads ~38 MB of
       calibration files (later deploys only what changed). Frontend only: no Fly, Edge Function or
       database changes, no store pause needed -- print files and orders go through the unchanged
       path.
-- [ ] Poll the live site until the new bundle serves (crawl the entry chunk's imports for a token
+- [x] Poll the live site until the new bundle serves (crawl the entry chunk's imports for a token
       from the new code), then load the shop, a product page and Buy Now on the live site.
 - [ ] Rollback if anything is wrong: revert the commits and push; it is a static site, live again in
       minutes.
