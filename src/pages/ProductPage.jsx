@@ -817,7 +817,11 @@ export default function ProductPage() {
       labelOutsideRegion,
       labelInsideRegion,
       mirrorPlacements: effectiveMirrorPlacements,
-      secondaryDesign
+      secondaryDesign,
+      // Which placements the second design covers (the reversible hat's inside faces). Without it
+      // the inside faces were rendered with the FIRST design, so every inside view was a duplicate
+      // of its outside one (Aaron, 2026-11-15).
+      secondaryPlacements: secondaryDesignConfig?.placements || null
     }),
     [
       geometryPlacements,
@@ -829,7 +833,8 @@ export default function ProductPage() {
       labelOutsideRegion,
       labelInsideRegion,
       effectiveMirrorPlacements,
-      secondaryDesign
+      secondaryDesign,
+      secondaryDesignConfig
     ]
   );
 
