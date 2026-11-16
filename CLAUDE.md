@@ -2578,7 +2578,10 @@ it." FIRST, since a Reel shows only the first line, then the design and products
 (caption + one set) and Copy link (the design's `chromaforge.app/studio?id=` page, for a Story sticker
 or bio -- Reel caption links aren't clickable). **Each set is exactly 5 tags** because Instagram caps
 a post at 5 (Dec 2025), caption and first comment together; every set leads with #chromaforge. Saved
-with the ad as `post`. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
+with the ad as `post`. **Shop link** (2026-11-16): a picker (the shop, or any product -- the ad's own first)
+builds `chromaforge.app/shop[/<id>]?id=<design>` for the paid ad's Shop Now button, landing already wearing
+the design (`lib/linkedDesign.js`); saved on `post.linkTarget`. The Explainer offers its garment (tee 257,
+hoodie 388) first. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
 filesystem resolved `./PostCopy` to the lowercase file.
 (10) **Post Reel posts straight to @chromaforge.app** (`InstagramPost.jsx`,
 `scripts/ad-builder-instagram.mjs`, 2026-10-12; first real post published the same day). Instagram

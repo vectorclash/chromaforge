@@ -42,6 +42,14 @@ export function designLink(design) {
   return design?.id ? `https://chromaforge.app/studio?id=${design.id}` : 'https://chromaforge.app';
 }
 
+// The ad's link for its own call to action: the shop, or one product page, opening already wearing
+// the ad's design (`?id=`, lib/linkedDesign.js). `target` is 'shop' or a product id. A design with no
+// saved row cannot be linked; the bare shop is the honest fallback.
+export function shopLink(design, target = 'shop') {
+  const path = target === 'shop' ? '/shop' : `/shop/${target}`;
+  return `https://chromaforge.app${path}${design?.id ? `?id=${design.id}` : ''}`;
+}
+
 const listOf = names =>
   names.length < 2
     ? names.join('')

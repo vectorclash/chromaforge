@@ -1610,6 +1610,8 @@ export default function AdBuilder() {
             captionOpts={captionOpts}
             post={post}
             onChange={setPost}
+            catalog={catalog}
+            adProductIds={[...new Set((isFeed ? feedSlides.filter(s => s.type === 'photo').map(s => photoByUrl.get(s.url)?.productId) : isFlight ? [] : isExplain ? [explain.garment === 'hoodie' ? 388 : 257] : photos.map(p => p.productId)).filter(Boolean))]}
           />
           <InstagramPost
             kind={isFeed ? feedKind : 'reel'}
