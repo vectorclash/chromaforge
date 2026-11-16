@@ -3475,9 +3475,11 @@ flat. Eight things worth not re-deriving:
 - **The compositor is ~1.8x the work it was** (mip sampling, the level-of-detail grid); the grid and
   cut thresholds depend only on the view and render sizes, so they are cached on the view.
 Measure any future change the same way (the real photos are in `.calib/<id>/<cfg>/verify/`).
-(9) **Known gaps**: the phone case's other models (Aaron wants them all -- TODO.md) and any colour x
-stitch combination not captured (a red tote with clear stitching, a 16in pillow with black) fall back to
-the Printful flow; a recalibration is needed if Printful changes a photo (re-run `verify`).
+(9) **Known gaps**: only the phone case's other models (Aaron wants them all -- TODO.md); every other
+product, variant and stitch colour Printful offers has a photo set (checked against the live catalog
+2026-11-15, after capturing the last ten: the pillow's other sizes in black, the bandana's M and L in
+black and clear, the red and yellow totes in clear). A selection with no photo set falls back to the
+Printful flow; a recalibration is needed if Printful changes a photo (re-run `verify`).
 Capture costs 9 tasks (4 shading-only, 1 verify) against the store-wide 10/60s create limit, and leaves
 files in Printful's library; `.calib/` (gitignored) keeps the downloads so `decode` reruns for free.
 

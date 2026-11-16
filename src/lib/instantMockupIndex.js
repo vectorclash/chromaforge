@@ -130,6 +130,56 @@ export const INSTANT_MOCKUPS = {
         ]
       },
       {
+        "id": "v11075-black",
+        "default": false,
+        "variants": [
+          11075
+        ],
+        "stitch": "black",
+        "placements": [
+          "front",
+          "back"
+        ],
+        "card": "7225",
+        "views": [
+          {
+            "id": "7225",
+            "name": "Front",
+            "group": "Default"
+          },
+          {
+            "id": "7226",
+            "name": "Back",
+            "group": "Default"
+          }
+        ]
+      },
+      {
+        "id": "v4532-black",
+        "default": false,
+        "variants": [
+          4532
+        ],
+        "stitch": "black",
+        "placements": [
+          "front",
+          "back"
+        ],
+        "card": "7227",
+        "views": [
+          {
+            "id": "7227",
+            "name": "Front",
+            "group": "Default"
+          },
+          {
+            "id": "7228",
+            "name": "Back",
+            "group": "Default"
+          }
+        ]
+      },
+      {
         "id": "v49853-black",
         "default": false,
         "variants": [
@@ -150,6 +200,56 @@ export const INSTANT_MOCKUPS = {
           {
             "id": "99502",
             "name": "Front",
+            "group": "Default"
+          }
+        ]
+      },
+      {
+        "id": "v49854-black",
+        "default": false,
+        "variants": [
+          49854
+        ],
+        "stitch": "black",
+        "placements": [
+          "front",
+          "back"
+        ],
+        "card": "99475",
+        "views": [
+          {
+            "id": "99475",
+            "name": "Front",
+            "group": "Default"
+          },
+          {
+            "id": "99504",
+            "name": "Back",
+            "group": "Default"
+          }
+        ]
+      },
+      {
+        "id": "v9513-black",
+        "default": false,
+        "variants": [
+          9513
+        ],
+        "stitch": "black",
+        "placements": [
+          "front",
+          "back"
+        ],
+        "card": "7229",
+        "views": [
+          {
+            "id": "7229",
+            "name": "Front",
+            "group": "Default"
+          },
+          {
+            "id": "7230",
+            "name": "Back",
             "group": "Default"
           }
         ]
@@ -485,12 +585,92 @@ export const INSTANT_MOCKUPS = {
         ]
       },
       {
+        "id": "v9040-clear",
+        "default": false,
+        "variants": [
+          9040
+        ],
+        "stitch": "clear",
+        "placements": [
+          "default",
+          "pocket"
+        ],
+        "card": "8645",
+        "views": [
+          {
+            "id": "1107",
+            "name": "Front",
+            "group": "Default"
+          },
+          {
+            "id": "1108",
+            "name": "Back",
+            "group": "Default"
+          },
+          {
+            "id": "1109",
+            "name": "Inside Pocket",
+            "group": "Default"
+          },
+          {
+            "id": "8645",
+            "name": "Front",
+            "group": "Standing"
+          },
+          {
+            "id": "8646",
+            "name": "Product Details",
+            "group": "Product details"
+          }
+        ]
+      },
+      {
         "id": "v9041-black",
         "default": false,
         "variants": [
           9041
         ],
         "stitch": "black",
+        "placements": [
+          "default",
+          "pocket"
+        ],
+        "card": "8645",
+        "views": [
+          {
+            "id": "1107",
+            "name": "Front",
+            "group": "Default"
+          },
+          {
+            "id": "1108",
+            "name": "Back",
+            "group": "Default"
+          },
+          {
+            "id": "1109",
+            "name": "Inside Pocket",
+            "group": "Default"
+          },
+          {
+            "id": "8645",
+            "name": "Front",
+            "group": "Standing"
+          },
+          {
+            "id": "8646",
+            "name": "Product Details",
+            "group": "Product details"
+          }
+        ]
+      },
+      {
+        "id": "v9041-clear",
+        "default": false,
+        "variants": [
+          9041
+        ],
+        "stitch": "clear",
         "placements": [
           "default",
           "pocket"
@@ -1653,6 +1833,126 @@ export const INSTANT_MOCKUPS = {
           },
           {
             "id": "23355",
+            "name": "Front",
+            "group": "Lifestyle 2"
+          }
+        ]
+      },
+      {
+        "id": "v16032-black",
+        "default": false,
+        "variants": [
+          16032
+        ],
+        "stitch": "black",
+        "placements": [
+          "front",
+          "label_inside"
+        ],
+        "card": "23356",
+        "views": [
+          {
+            "id": "23276",
+            "name": "Front",
+            "group": "Flat"
+          },
+          {
+            "id": "23347",
+            "name": "Product Details",
+            "group": "Product details"
+          },
+          {
+            "id": "23356",
+            "name": "Front",
+            "group": "Lifestyle 2"
+          }
+        ]
+      },
+      {
+        "id": "v16032-clear",
+        "default": false,
+        "variants": [
+          16032
+        ],
+        "stitch": "clear",
+        "placements": [
+          "front",
+          "label_inside"
+        ],
+        "card": "23356",
+        "views": [
+          {
+            "id": "23276",
+            "name": "Front",
+            "group": "Flat"
+          },
+          {
+            "id": "23347",
+            "name": "Product Details",
+            "group": "Product details"
+          },
+          {
+            "id": "23356",
+            "name": "Front",
+            "group": "Lifestyle 2"
+          }
+        ]
+      },
+      {
+        "id": "v16033-black",
+        "default": false,
+        "variants": [
+          16033
+        ],
+        "stitch": "black",
+        "placements": [
+          "front",
+          "label_inside"
+        ],
+        "card": "23357",
+        "views": [
+          {
+            "id": "23280",
+            "name": "Front",
+            "group": "Flat"
+          },
+          {
+            "id": "23348",
+            "name": "Product Details",
+            "group": "Product details"
+          },
+          {
+            "id": "23357",
+            "name": "Front",
+            "group": "Lifestyle 2"
+          }
+        ]
+      },
+      {
+        "id": "v16033-clear",
+        "default": false,
+        "variants": [
+          16033
+        ],
+        "stitch": "clear",
+        "placements": [
+          "front",
+          "label_inside"
+        ],
+        "card": "23357",
+        "views": [
+          {
+            "id": "23280",
+            "name": "Front",
+            "group": "Flat"
+          },
+          {
+            "id": "23348",
+            "name": "Product Details",
+            "group": "Product details"
+          },
+          {
+            "id": "23357",
             "name": "Front",
             "group": "Lifestyle 2"
           }
