@@ -42,3 +42,6 @@ render-service/spike-*.png
 
 # The local ad builder's photos, rendered music and saved ads (scripts/ad-builder-dev.mjs)
 /.ads/
+
+# Instant-mockup calibration captures (scripts/calibrate-instant-mockup.mjs)
+/.calib/

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PageContainer from '../components/ui/PageContainer';
 import Card from '../components/ui/Card';
-import FadeImage from '../components/ui/FadeImage';
+import ProductPhoto from '../components/ui/ProductPhoto';
 import SkeletonGrid from '../components/ui/SkeletonGrid';
 import { SHOP_GRID_CLASS, SHOP_HEADER, SHOP_TILE_COUNT } from '../components/ui/RouteSkeleton';
 import ShopFilter, { SHOP_CATEGORIES, shopCategoryFromSearch } from '../components/ui/ShopFilter';
@@ -12,6 +12,9 @@ import { preloadImages } from '../utils/preloadImages';
 import { DURATION_SLOW } from '../utils/motionTokens';
 import { introStyle } from '../utils/routeIntro';
 import { humanError } from '../lib/errorMessage';
+import { useStudio } from '../context/StudioContext';
+import { hasInstantMockup, requestInstantBlank, requestInstantMockup } from '../lib/instantMockupStore';
+import { stableDefaultMockupOptions } from '../lib/mockupDefaults';
 
 // One source of truth for the grid geometry, shared with SiteLayout's route-level fallback:
 // three placeholders hand over to each other on a cold load (chunk download -> this page's
@@ -85,6 +88,7 @@ export default function ShopPage() {
   const active = shopCategoryFromSearch(searchParams.toString());
   const shown = active ? products.filter(p => active.ids.includes(p.id)) : products;
   const selectCategory = key => setSearchParams(key ? { type: key } : {}, { replace: true });
+  const { currentDesign, renderDesignBlob } = useStudio();
 
   useEffect(() => {
     let cancelled = false;
@@ -98,8 +102,27 @@ export default function ShopPage() {
         // Hold the placeholder across the image fetch too, so the grid arrives complete.
         // Bounded and never rejecting, so a slow CDN cannot keep the shop from appearing.
         // The first cards of what will actually be SHOWN, so a filtered link preloads its own.
-        const first = active ? starter.filter(p => active.ids.includes(p.id)) : starter;
-        await preloadImages(first.slice(0, PRELOAD_COUNT).map(p => p.image).filter(Boolean));
+        const first = (active ? starter.filter(p => active.ids.includes(p.id)) : starter).slice(0, PRELOAD_COUNT);
+        // A calibrated product shows the current design rather than its stock photo, and arrives
+        // the way a new design does: blank garment first, then the print laid on (ProductPhoto).
+        // So the grid waits only for the first screenful's BLANKS -- made from the calibration
+        // alone, no render, so this is no slower than the stock photos were -- while their prints
+        // start rendering now, in grid order, and land on each card as they are ready (Aaron,
+        // 2026-11-15). Waiting for the prints themselves held the grid back a second or more.
+        // Bounded like the stock photos: a slow load must not hold the shop back.
+        const instant = first.filter(p => hasInstantMockup(p.id));
+        for (const p of instant) {
+          requestInstantMockup(p.id, currentDesign, stableDefaultMockupOptions(p.id), renderDesignBlob, { background: true });
+        }
+        await Promise.all([
+          preloadImages(first.filter(p => !hasInstantMockup(p.id)).map(p => p.image).filter(Boolean)),
+          Promise.race([
+            Promise.all(instant.map(p => requestInstantBlank(p.id))).then(blanks =>
+              preloadImages(blanks.filter(Boolean).map(b => b.blank))
+            ),
+            new Promise(resolve => setTimeout(resolve, 1500))
+          ])
+        ]);
       } catch (err) {
         if (!cancelled) setError(humanError(err, "We couldn't load the shop right now."));
       } finally {
@@ -166,10 +189,9 @@ export default function ShopPage() {
               style={introStyle(GRID_SECTION, Math.min(i, 10))}
             >
               <div className="relative isolate aspect-square overflow-hidden bg-ink-900">
-                <FadeImage
-                  src={product.image}
-                  alt={product.title}
-                  className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
+                <ProductPhoto
+                  product={product}
+                  className="transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                 />
                 {/* -inset-px, not inset-0: the overlay and the image are the same computed box, but
                     an aspect-square card resolves to a FRACTIONAL height at most widths, and on a

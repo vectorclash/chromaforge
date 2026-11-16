@@ -504,7 +504,17 @@ export async function renderAndUploadPrintFiles(
     // finishes -- total counts deduped files, not placements, so "3 of 5" matches the
     // real work (a t-shirt's front+back share one render). Never called on failure paths;
     // the caller's own error handling owns those.
-    onProgress = null
+    onProgress = null,
+    // What happens to a finished label mark: uploaded for Printful by default. The instant
+    // mockup (lib/instantMockup.js) keeps the image instead, the same way its renderOne does.
+    labelSink = uploadMockupSourceImage,
+    // Every placement of the product, when `entries` is only some of them -- the instant mockup
+    // renders in batches (by view, and by render size), and a batch holding a label but not the
+    // front still has to know where the front is: the label's ink is chosen by sampling the
+    // artwork it is printed over. Without it a label rendered on its own always took the dark ink
+    // (Aaron, 2026-11-15: "our label light/dark swap doesn't seem to be working now"). Checkout
+    // and the Printful mockup pass every placement, so for them this is `entries` itself.
+    allEntries = null
   }
 ) {
   // rendered[cacheKey] holds the in-flight PROMISE, not the resolved URL -- what makes this
@@ -527,13 +537,14 @@ export async function renderAndUploadPrintFiles(
   // identical output. isSameDesign, not ===: ProductPage builds these objects separately
   // (withCurrentGeneratorVersion returns a fresh object), so reference equality would miss.
   const hasSecondary = !!secondaryDesign && !isSameDesign(design, secondaryDesign);
-  const frontKey = frontPlacementKey(entries);
+  const known = allEntries || entries;
+  const frontKey = frontPlacementKey(known);
   const frontSpec =
-    frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === entries.find(([k]) => k === frontKey)[1]);
+    frontKey && printfileSpecs.printfiles.find(f => f.printfile_id === known.find(([k]) => k === frontKey)[1]);
   // The face a visible inside label is printed on -- the first placement the product's secondary
   // design covers (the hat's `inside_front`). Only used to sample that label's backdrop.
   const insideFaceEntry = secondaryPlacements?.length
-    ? entries.find(([k]) => secondaryPlacements.includes(k))
+    ? known.find(([k]) => secondaryPlacements.includes(k))
     : null;
   const insideFaceKey = insideFaceEntry?.[0] || null;
   const insideFaceSpec = insideFaceEntry
@@ -577,7 +588,7 @@ export async function renderAndUploadPrintFiles(
                   lightInk: choice.transparent && wantsLightInk(luminance)
                 })
               )
-              .then(blob => uploadMockupSourceImage(blob, `${printfileId}-label`))
+              .then(blob => labelSink(blob, `${printfileId}-label`))
           : Promise.resolve(null);
       }
       return [placementKey, rendered[cacheKey]];
@@ -845,7 +856,19 @@ async function makeCalibrationGridBlob(width, height) {
 
 // Mockups: cheap, capped, client-side, free -- well below Printful's real printfile dims,
 // same cap iOS Safari's canvas-area limit already forced (see RENDER_CAP above).
-export function capRenderStrategy(renderDesignBlob) {
+//
+// The options exist for the instant mockup (lib/instantMockup.js), which needs exactly the
+// renders a real mockup would upload but keeps them instead: `sink` takes each finished image
+// (uploaded for Printful by default), `cap` is the long edge (the instant photo shows a panel at
+// well under 1000px), and `renderOptions` rides along to every renderDesignBlob call (its queue
+// priority and nebula size). Defaults leave the mockup path exactly as it was.
+export function capRenderStrategy(
+  renderDesignBlob,
+  { sink = uploadMockupSourceImage, cap = RENDER_CAP, renderOptions = null } = {}
+) {
+  const render = (design, width, height, opts) =>
+    renderDesignBlob(design, width, height, renderOptions ? { ...opts, ...renderOptions } : opts);
+  const sized = (width, height) => capMockupRenderSize(width, height, cap);
   return async (
     design,
     spec,
@@ -860,7 +883,7 @@ export function capRenderStrategy(renderDesignBlob) {
     legWrap = null,
     geometryScale = 1
   ) => {
-    const { width, height } = capMockupRenderSize(spec.width, spec.height);
+    const { width, height } = sized(spec.width, spec.height);
     // Lays one composition across the assembled front (see src/render/legWrap.js). Same two
     // properties that make the hat wrap below safe: the source is sized from the geometry, so
     // its ASPECT is identical here and at true print resolution and this capped mockup shows
@@ -874,14 +897,14 @@ export function capRenderStrategy(renderDesignBlob) {
     // sends both, but the render path should not depend on that.
     if (legWrap) {
       const src = legWrapSourceSize(legWrap, width, height);
-      const sourceBlob = await renderDesignBlob(design, src.width, src.height, {
+      const sourceBlob = await render(design, src.width, src.height, {
         includeGeometry,
         geometryLayout,
         legSymmetry,
         geometryScale
       });
       const blob = await compositeLegWrapBlob(sourceBlob, legWrap, width, height, mirrorX);
-      return uploadMockupSourceImage(blob, `${printfileId}-legwrap${mirrorX ? '-mirror' : ''}`);
+      return sink(blob, `${printfileId}-legwrap${mirrorX ? '-mirror' : ''}`);
     }
     // Wraps the composition onto the product's real cut pieces (see src/render/hatWrap.js).
     // The two sources are sized from the geometry rather than from the printfile, so their
@@ -898,14 +921,14 @@ export function capRenderStrategy(renderDesignBlob) {
       const disc = hatWrapDiscSourceSize(hatWrap, width);
       const opts = { includeGeometry, geometryLayout, sizeFrame, legSymmetry, geometryScale };
       const [unrolledBlob, discBlob] = await Promise.all([
-        renderDesignBlob(design, src.width, src.height, opts),
-        renderDesignBlob(design, disc.width, disc.height, opts)
+        render(design, src.width, src.height, opts),
+        render(design, disc.width, disc.height, opts)
       ]);
       const blob = await compositeHatWrapBlob(unrolledBlob, discBlob, hatWrap, width, height, mirrorX);
-      return uploadMockupSourceImage(blob, `${printfileId}-hatwrap${mirrorX ? '-mirror' : ''}`);
+      return sink(blob, `${printfileId}-hatwrap${mirrorX ? '-mirror' : ''}`);
     }
     if (!regionsConfig) {
-      const blob = await renderDesignBlob(design, width, height, {
+      const blob = await render(design, width, height, {
         includeGeometry,
         geometryLayout,
         mirrorX,
@@ -913,11 +936,11 @@ export function capRenderStrategy(renderDesignBlob) {
         legSymmetry,
         geometryScale
       });
-      return uploadMockupSourceImage(blob, printfileId);
+      return sink(blob, printfileId);
     }
     if (POCKET_CALIBRATION_GRID) {
       const blob = await makeCalibrationGridBlob(width, height);
-      return uploadMockupSourceImage(blob, `${printfileId}-calibration-grid`);
+      return sink(blob, `${printfileId}-calibration-grid`);
     }
     // Generate the SOURCE composition at the FRONT's own aspect/resolution -- not the
     // target placement's -- so it's the literal same composition the front placement
@@ -928,12 +951,12 @@ export function capRenderStrategy(renderDesignBlob) {
     // keeps the pocket's content a true continuation of whatever the front actually shows,
     // geometry included or not, rather than assuming the front always has geometry on.
     const { regions, sourceSpec } = regionsConfig;
-    const { width: srcW, height: srcH } = capMockupRenderSize(sourceSpec.width, sourceSpec.height);
+    const { width: srcW, height: srcH } = sized(sourceSpec.width, sourceSpec.height);
     // mirrorX rides along here too, so a mirrored placement's pocket crop would be taken
     // from the same mirrored composition its own panel shows. No current product combines
     // the two (the one product with mirrorPlacements has no pocket), so this is consistency
     // for a future one, not behavior anything exercises today.
-    const sourceBlob = await renderDesignBlob(design, srcW, srcH, {
+    const sourceBlob = await render(design, srcW, srcH, {
       includeGeometry,
       geometryLayout,
       mirrorX,
@@ -942,7 +965,7 @@ export function capRenderStrategy(renderDesignBlob) {
       geometryScale
     });
     const blob = await compositeRegionsBlob(sourceBlob, width, height, regions);
-    return uploadMockupSourceImage(blob, `${printfileId}-pocket`);
+    return sink(blob, `${printfileId}-pocket`);
   };
 }
 

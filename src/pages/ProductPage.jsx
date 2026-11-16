@@ -6,6 +6,15 @@ import FadeImage from '../components/ui/FadeImage';
 import GenerateGlow from '../components/ui/GenerateGlow';
 import HexagonLoader from '../components/HexagonLoader';
 import { useCrossfadeImage } from '../hooks/useCrossfadeImage';
+import ProductPhoto from '../components/ui/ProductPhoto';
+import {
+  instantCardViewId,
+  instantConfigFor,
+  instantMockupBlob,
+  instantMockupKey,
+  instantViews
+} from '../lib/instantMockupStore';
+import { useInstantMockupSet } from '../hooks/useInstantMockup';
 import {
   getCatalogProduct,
   getPrintfileSpecs,
@@ -19,6 +28,7 @@ import {
   getLabelOutsideRegion,
   getLabelInsideRegion,
   getLegPanel,
+  uploadMockupSourceImage,
   resolvePlacementEntries,
   renderAndUploadPrintFiles,
   getHatWrap,
@@ -793,6 +803,36 @@ export default function ProductPage() {
     [secondaryChoice, secondaryIsDuplicate]
   );
 
+  // The print options the opening photo (an instant mockup, lib/instantMockup.js) is made with:
+  // the same ones "Generate mockup" sends, so the instant photo shows what the real one will.
+  // Above the early returns, like every hook here.
+  const instantPhotoOptions = useMemo(
+    () => ({
+      geometryPlacements,
+      geometryLayout: effectiveGeometryLayout,
+      sizeFrame: effectiveSizeFrame,
+      geometryScale: effectiveGeometryScale,
+      legSymmetry: effectiveLegSymmetry,
+      legWrap: effectiveLegWrap,
+      labelOutsideRegion,
+      labelInsideRegion,
+      mirrorPlacements: effectiveMirrorPlacements,
+      secondaryDesign
+    }),
+    [
+      geometryPlacements,
+      effectiveGeometryLayout,
+      effectiveSizeFrame,
+      effectiveGeometryScale,
+      effectiveLegSymmetry,
+      effectiveLegWrap,
+      labelOutsideRegion,
+      labelInsideRegion,
+      effectiveMirrorPlacements,
+      secondaryDesign
+    ]
+  );
+
   // Collapsed by default: these all have good defaults, so the common purchase never needs
   // to open this at all. Not persisted -- a customer who opens it on one product shouldn't
   // find it open on the next, since which options even exist differs per product.
@@ -823,6 +863,33 @@ export default function ProductPage() {
   const variant = variants ? variants.find(v => v.id === selectedVariantId) || variants[0] : null;
   const hasMockup = status === 'completed' && images.length > 0;
   const heroMockupUrl = hasMockup ? images[activeImageIndex]?.mockup_url : null;
+
+  // A calibrated product needs no Printful round trip to show the design: every photo the
+  // filmstrip has always shown is made in the browser (lib/instantMockup.js), from the calibration
+  // of THIS variant and stitch colour's photos (the tote's red bag is a different photo from its
+  // black one). A selection nobody has calibrated -- and every product not calibrated at all --
+  // keeps the Printful flow below unchanged.
+  const effectiveStitch =
+    stitchColor || getMockupConfigForProduct(detail?.product?.id)?.productOptions?.find(o => o.name === 'stitch_color')?.value || null;
+  const instantConfig = detail?.product ? instantConfigFor(detail.product.id, variant?.id, effectiveStitch) : null;
+  const instantMode = !!instantConfig;
+  const instantSet = useInstantMockupSet(instantMode ? detail.product.id : null, selectedDesign, instantPhotoOptions, instantConfig);
+  // The angle the hero shows. Null is the FIRST view of the filmstrip -- the first flat, since the
+  // strip puts flats first (Aaron, 2026-11-15: opening on the shop card's view, third or so in
+  // the strip, "feels weird"). A choice another configuration does not have (a size photographed
+  // from other angles) falls back to that too.
+  const [instantViewChoice, setInstantViewChoice] = useState(null);
+  // A new print is on its way to this page's photos: from the design changing (the studio's, while
+  // its tile is the one selected) until every view of it is made. The hero and every thumbnail
+  // wait on this one signal, so the print changes on all of them together.
+  const instantPending = instantMode && ((selectedKey === 'current' && designChanging) || !instantSet.settled);
+  const instantStrip = instantMode ? instantViews(detail.product.id, instantConfig, { showsSecondary: !!secondaryDesign }) : [];
+  const instantViewId = instantMode
+    ? (instantViewChoice && instantStrip.some(v => v.id === instantViewChoice) ? instantViewChoice : instantStrip[0]?.id) ||
+      instantCardViewId(detail.product.id, instantConfig)
+    : null;
+  useEffect(() => setInstantViewChoice(null), [detail?.product?.id]);
+
 
   // How a mockup someone ASKED for ended (lib/track.js). Armed by the click, so a preview
   // restored from cache on page load is never counted. Above the early returns, like every hook.
@@ -1001,7 +1068,7 @@ export default function ProductPage() {
   // StudioContext.jsx), so adding it here is a correct, non-churning fix, not a workaround.
   const geometryPlacementsSignature = [...geometryPlacements].sort().join(',');
   useEffect(() => {
-    if (!product || !variant || !printfileSpecs) return;
+    if (!product || !variant || !printfileSpecs || instantMode) return;
     syncMockup({
       product,
       printfileSpecs,
@@ -1032,7 +1099,7 @@ export default function ProductPage() {
     // effectiveMirrorPlacements, not the raw mirrorSeams: while leg symmetry is on the flip is
     // a no-op, and depending on the raw flag there would throw away a still-accurate mockup and
     // charge the customer another 30-90s Printful round trip for an identical photo.
-  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveGeometryScale, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor, secondaryDesign]);
+  }, [selectedKey, pickedChoice?.id, selectedDesign, selectedVariantId, product, printfileSpecs, geometryPlacementsSignature, effectiveGeometryLayout, effectiveSizeFrame, effectiveGeometryScale, effectiveLegSymmetry, effectiveMirrorPlacements, stitchColor, secondaryDesign, instantMode]);
 
   // The hero deliberately has NO animation class of its own. It used to carry
   // --animate-reveal-quick on a fresh generation and --animate-pop-in otherwise, chosen by a
@@ -1382,8 +1449,9 @@ export default function ProductPage() {
         productOptions: stitchColorProductOptions || cfg.productOptions,
         // heroImage falls back to the product's stock photo when !hasMockup (see its own
         // definition) -- shows the actual approved garment mockup on Stripe's checkout page
-        // when one exists, instead of a bare text line item.
-        mockupImageUrl: heroImage,
+        // when one exists, instead of a bare text line item. A calibrated product sends the
+        // instant photo the customer is looking at, uploaded now (Stripe needs a public URL).
+        mockupImageUrl: instantMode ? await instantCheckoutImage() : heroImage,
         guessedRegion: guessShippingRegion()
       });
       // The customer navigated away (back button, a link click that slipped past the
@@ -1412,9 +1480,25 @@ export default function ProductPage() {
   // (used by both the confirm stage's Continue and the error stage's Try again) is this
   // exact same onBuyNowClick.
   const onBuyNowButtonClick = () => {
-    track('buy_click', { product: product.id, mockup: Boolean(hasMockup) });
-    if (hasMockup) onBuyNowClick();
+    track('buy_click', { product: product.id, mockup: Boolean(hasMockup || instantMode) });
+    // A calibrated product has always been previewed: the photo IS the preview.
+    if (hasMockup || instantMode) onBuyNowClick();
     else setBuyModalStage('confirm');
+  };
+
+  // The instant photo on screen, as a public URL for Stripe's line item. Never blocks checkout: a
+  // photo not made yet or an upload that fails falls back to the stock photo, as before.
+  const instantCheckoutImage = async () => {
+    const blob = instantMockupBlob(
+      instantMockupKey(product.id, selectedDesign, instantPhotoOptions, instantViewId ?? 'card', instantConfig, true)
+    );
+    if (!blob) return product.image;
+    try {
+      return await uploadMockupSourceImage(blob, `instant-${product.id}`);
+    } catch (err) {
+      console.warn('instant photo upload failed, using the stock photo', err);
+      return product.image;
+    }
   };
 
   return (
@@ -1982,9 +2066,24 @@ export default function ProductPage() {
           <div className="relative aspect-square overflow-hidden rounded-xl border border-hairline bg-ink-900">
             {/* BASE LAYER -- the product's stock photo, the scrim and the button. Static: its
                 src never changes and it never animates. It is simply covered by the mockup
-                layer below when there is one. */}
-            <FadeImage src={product?.image} alt={product.title} className="h-full w-full object-cover" />
-            {(
+                layer below when there is one.
+                A CALIBRATED product's base is instead the product already wearing the selected
+                design, made in the browser (lib/instantMockup.js): it follows the design and the
+                print options live, crossfading on the shared beat, and switches angle with the
+                facets this slot has always used. There is no scrim and no mockup layer for it. */}
+            <ProductPhoto
+              product={product}
+              design={selectedDesign}
+              options={instantPhotoOptions}
+              pending={instantPending}
+              background={false}
+              view={instantViewId ?? 'card'}
+              config={instantMode ? instantConfig : false}
+              lazy={false}
+              warm={instantSet.views ? { urls: instantSet.views.map(v => v.url), views: instantSet.views.map(v => v.id) } : null}
+              facetOrigin="[data-instant-thumb][aria-pressed='true']"
+            />
+            {!instantMode && (
               <div
                 aria-hidden={showMockup}
                 // It stays mounted while invisible and contains a real button, so without
@@ -1993,6 +2092,9 @@ export default function ProductPage() {
                 // directly) removes it from the tab order and the a11y tree together;
                 // pointer-events-none alone only handles the mouse.
                 inert={showMockup}
+                // Over an instant photo the resting states (the button, the sign-in line) sit at
+                // the foot of the image on a short shade, so the design they would otherwise dim
+                // stays in view. Busy and failed keep the full dim: there the copy IS the content.
                 className="absolute inset-0 flex items-center justify-center bg-black/50 p-6"
               >
                 <div
@@ -2167,6 +2269,46 @@ export default function ProductPage() {
                     src={m.mockup_url}
                     alt={m.display_name}
                     className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.2]"
+                  />
+                </button>
+              ))}
+            </ScrollStrip>
+          )}
+          {/* A calibrated product's filmstrip: every view, instantly, in the order Printful's
+              photos always came in. Keyed by VIEW, not URL, so a new design swaps the thumbnails'
+              pictures in place (all at once, when every view is ready) instead of replaying their
+              entrance. Picking one switches the hero's angle with the facets. A new design comes
+              from the mini generator, like everywhere else -- a Generate/Save pair on this photo
+              was built and dropped (Aaron, 2026-11-15: "We have the mini generator"). */}
+          {instantMode && instantSet.views && instantSet.views.length > 1 && (
+            <ScrollStrip className="mt-3" railClassName="px-0.5 scroll-px-0.5" itemSize={THUMB_SIZE}>
+              {instantSet.views.map((v, i) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  data-instant-thumb
+                  onClick={() => setInstantViewChoice(v.id)}
+                  aria-pressed={v.id === instantViewId}
+                  title={v.name}
+                  style={{ animationDelay: `${80 + Math.min(i, 10) * 40}ms` }}
+                  className={
+                    'group relative size-[var(--strip-item,4rem)] shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 transition animate-reveal-quick focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-interactive ' +
+                    (v.id === instantViewId ? 'border-accent' : 'border-hairline hover:border-text-muted')
+                  }
+                >
+                  {/* The same photo component as the hero, on the same signal, so the print on
+                      every thumbnail changes with the hero's instead of snapping ahead of it. */}
+                  <ProductPhoto
+                    product={product}
+                    design={selectedDesign}
+                    options={instantPhotoOptions}
+                    pending={instantPending}
+                    background={false}
+                    view={v.id}
+                    config={instantConfig}
+                    lazy={false}
+                    shimmer={false}
+                    className="transition-transform duration-300 ease-out group-hover:scale-[1.2]"
                   />
                 </button>
               ))}

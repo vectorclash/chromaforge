@@ -1,0 +1,409 @@
+{
+  "productId": 276,
+  "configs": {
+    "v9049-white": {
+      "variantId": 9049,
+      "variants": [
+        9054,
+        9052,
+        9051,
+        9050,
+        9053,
+        9049
+      ],
+      "stitch": "white",
+      "default": true,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 119,
+          "width": 4050,
+          "height": 5100
+        },
+        {
+          "key": "back",
+          "printfileId": 119,
+          "width": 4050,
+          "height": 5100
+        }
+      ],
+      "views": {
+        "1100": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            204,
+            78,
+            595,
+            836
+          ],
+          "half": [
+            298,
+            418
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9049-white-1100-place-547923c139.png",
+            "uvplace": "v9049-white-1100-uvplace-c73d55209c.png",
+            "uv": "v9049-white-1100-uv-d4f76d6b10.png",
+            "edge": "v9049-white-1100-edge-36f9a3bfde.png",
+            "base": "v9049-white-1100-base-5e12264f1c.webp",
+            "gain": "v9049-white-1100-gain-29208fec0e.webp",
+            "gamma": "v9049-white-1100-gamma-666cdadbe4.webp"
+          },
+          "need": {
+            "1": 1100
+          }
+        },
+        "1103": {
+          "name": "Back",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            203,
+            79,
+            595,
+            834
+          ],
+          "half": [
+            298,
+            417
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v9049-white-1103-place-db6c48674f.png",
+            "uvplace": "v9049-white-1103-uvplace-2613581ba9.png",
+            "uv": "v9049-white-1103-uv-d85b67ac69.png",
+            "base": "v9049-white-1103-base-18a517cd0c.webp",
+            "gain": "v9049-white-1103-gain-b3f652762c.webp",
+            "gamma": "v9049-white-1103-gamma-adce48ae20.webp"
+          }
+        },
+        "8179": {
+          "name": "Front",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            313,
+            264,
+            346,
+            621
+          ],
+          "half": [
+            173,
+            311
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9049-white-8179-place-af1f7ea525.png",
+            "uvplace": "v9049-white-8179-uvplace-5a12b886cf.png",
+            "uv": "v9049-white-8179-uv-9598f7f1fd.png",
+            "edge": "v9049-white-8179-edge-687c19154c.png",
+            "base": "v9049-white-8179-base-d5519d9a51.webp",
+            "gain": "v9049-white-8179-gain-bc2a43b4d7.webp",
+            "gamma": "v9049-white-8179-gamma-731c1139b2.webp"
+          }
+        },
+        "8180": {
+          "name": "Back",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            310,
+            277,
+            366,
+            628
+          ],
+          "half": [
+            183,
+            314
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v9049-white-8180-place-f859e0fb00.png",
+            "uvplace": "v9049-white-8180-uvplace-9b76d76c51.png",
+            "uv": "v9049-white-8180-uv-001e120c8b.png",
+            "edge": "v9049-white-8180-edge-4faa8c76c1.png",
+            "base": "v9049-white-8180-base-e30d747487.webp",
+            "gain": "v9049-white-8180-gain-595e92d544.webp",
+            "gamma": "v9049-white-8180-gamma-de5693f2a5.webp"
+          }
+        },
+        "8181": {
+          "name": "Left Front",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            358,
+            262,
+            298,
+            600
+          ],
+          "half": [
+            149,
+            300
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9049-white-8181-place-1b42a48e1a.png",
+            "uvplace": "v9049-white-8181-uvplace-cd2779e39d.png",
+            "uv": "v9049-white-8181-uv-db0076c1b1.png",
+            "edge": "v9049-white-8181-edge-a964d7b60e.png",
+            "base": "v9049-white-8181-base-0feea16847.webp",
+            "gain": "v9049-white-8181-gain-9781db9b46.webp",
+            "gamma": "v9049-white-8181-gamma-963e810a42.webp"
+          }
+        },
+        "8182": {
+          "name": "Right Front",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            328,
+            264,
+            305,
+            605
+          ],
+          "half": [
+            153,
+            303
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9049-white-8182-place-76df72cc59.png",
+            "uvplace": "v9049-white-8182-uvplace-2531abb6bf.png",
+            "uv": "v9049-white-8182-uv-fac6778dad.png",
+            "edge": "v9049-white-8182-edge-6d3b7a93b8.png",
+            "base": "v9049-white-8182-base-de23924d7e.webp",
+            "gain": "v9049-white-8182-gain-5200aee7e4.webp",
+            "gamma": "v9049-white-8182-gamma-e8bab3f354.webp"
+          }
+        }
+      }
+    },
+    "v9049-black": {
+      "variantId": 9049,
+      "variants": [
+        9054,
+        9052,
+        9051,
+        9050,
+        9053,
+        9049
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 119,
+          "width": 4050,
+          "height": 5100
+        },
+        {
+          "key": "back",
+          "printfileId": 119,
+          "width": 4050,
+          "height": 5100
+        }
+      ],
+      "views": {
+        "1100": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            204,
+            78,
+            595,
+            836
+          ],
+          "half": [
+            298,
+            418
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9049-white-1100-place-547923c139.png",
+            "uv": "v9049-white-1100-uv-d4f76d6b10.png",
+            "uvplace": "v9049-white-1100-uvplace-c73d55209c.png",
+            "edge": "v9049-white-1100-edge-36f9a3bfde.png",
+            "base": "v9049-black-1100-base-0950aa6e67.webp",
+            "gain": "v9049-black-1100-gain-7d510336d8.webp",
+            "gamma": "v9049-black-1100-gamma-8d3758a3d9.webp"
+          },
+          "need": {
+            "1": 1100
+          }
+        },
+        "1103": {
+          "name": "Back",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            203,
+            79,
+            595,
+            834
+          ],
+          "half": [
+            298,
+            417
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v9049-white-1103-place-db6c48674f.png",
+            "uv": "v9049-white-1103-uv-d85b67ac69.png",
+            "uvplace": "v9049-white-1103-uvplace-2613581ba9.png",
+            "base": "v9049-black-1103-base-f090f75358.webp",
+            "gain": "v9049-black-1103-gain-95a0c0fdee.webp",
+            "gamma": "v9049-black-1103-gamma-001d71e4b1.webp"
+          }
+        },
+        "8179": {
+          "name": "Front",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            313,
+            264,
+            346,
+            621
+          ],
+          "half": [
+            173,
+            311
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9049-white-8179-place-af1f7ea525.png",
+            "uv": "v9049-white-8179-uv-9598f7f1fd.png",
+            "uvplace": "v9049-white-8179-uvplace-5a12b886cf.png",
+            "edge": "v9049-white-8179-edge-687c19154c.png",
+            "base": "v9049-black-8179-base-af4ed46e4e.webp",
+            "gain": "v9049-black-8179-gain-d15b62cadd.webp",
+            "gamma": "v9049-black-8179-gamma-17f628cd47.webp"
+          }
+        },
+        "8180": {
+          "name": "Back",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            310,
+            277,
+            366,
+            628
+          ],
+          "half": [
+            183,
+            314
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v9049-white-8180-place-f859e0fb00.png",
+            "uv": "v9049-white-8180-uv-001e120c8b.png",
+            "uvplace": "v9049-white-8180-uvplace-9b76d76c51.png",
+            "edge": "v9049-white-8180-edge-4faa8c76c1.png",
+            "base": "v9049-black-8180-base-1343af5bc8.webp",
+            "gain": "v9049-black-8180-gain-fd4ca1641e.webp",
+            "gamma": "v9049-black-8180-gamma-c5e420d7f0.webp"
+          }
+        },
+        "8181": {
+          "name": "Left Front",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            358,
+            262,
+            298,
+            600
+          ],
+          "half": [
+            149,
+            300
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9049-white-8181-place-1b42a48e1a.png",
+            "uv": "v9049-white-8181-uv-db0076c1b1.png",
+            "uvplace": "v9049-white-8181-uvplace-cd2779e39d.png",
+            "edge": "v9049-white-8181-edge-a964d7b60e.png",
+            "base": "v9049-black-8181-base-ad7998b37e.webp",
+            "gain": "v9049-black-8181-gain-fd763d5820.webp",
+            "gamma": "v9049-black-8181-gamma-a936445759.webp"
+          }
+        },
+        "8182": {
+          "name": "Right Front",
+          "group": "Men's 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            328,
+            264,
+            305,
+            605
+          ],
+          "half": [
+            153,
+            303
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9049-white-8182-place-76df72cc59.png",
+            "uv": "v9049-white-8182-uv-fac6778dad.png",
+            "uvplace": "v9049-white-8182-uvplace-2531abb6bf.png",
+            "edge": "v9049-white-8182-edge-6d3b7a93b8.png",
+            "base": "v9049-black-8182-base-8eab11293e.webp",
+            "gain": "v9049-black-8182-gain-bad80b00da.webp",
+            "gamma": "v9049-black-8182-gamma-af61c82780.webp"
+          }
+        }
+      }
+    }
+  }
+}

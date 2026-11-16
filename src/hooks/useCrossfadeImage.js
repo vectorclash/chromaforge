@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap/all';
 import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
+import { sweepIn } from '../utils/printSweep';
 
 // Reveals a new image the same deliberate way DisplayCanvas's own artwork does: fade the
 // current image out, hold on nothing for a beat, then fade the new one in -- matching its
@@ -31,7 +32,13 @@ import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionToke
 // needs to start immediately on all surfaces that run this"). If the change ends with no new
 // url (a failed render, or a surface that skipped an identical design), the image it already
 // had fades back in.
-export function useCrossfadeImage(url, { instant = false, pending = false } = {}) {
+// `reveal` (2026-11-15) is how the new image arrives: 'fade' (everything until then) or 'sweep',
+// laid down top to bottom (utils/printSweep.js -- the incoming element must then be a
+// `.sweep-wrap` around the image). The instant product photos use it, where only the print changes
+// and a sweep reads as printing.
+export function useCrossfadeImage(url, { instant = false, pending = false, reveal = 'fade' } = {}) {
+  const revealModeRef = useRef(reveal);
+  revealModeRef.current = reveal;
   const [shownSrc, setShownSrc] = useState(null);
   const [incomingSrc, setIncomingSrc] = useState(null);
   const [holding, setHolding] = useState(false);
@@ -146,12 +153,21 @@ export function useCrossfadeImage(url, { instant = false, pending = false } = {}
     epochRef.current += 1;
     gsap.killTweensOf(shownRef.current);
     setHolding(false);
+    const restoreEpoch = epochRef.current;
     gsap.to(shownRef.current, {
       duration: DURATION_SLOW,
       opacity: 1,
       ease: 'power2.inOut',
       onComplete: () => {
+        if (restoreEpoch !== epochRef.current) return;
         busyRef.current = false;
+        // A url that arrived DURING this fade-back was queued (busy), and only a reveal's
+        // fade-out ever consumes the queue -- so without this it was dropped for good and the
+        // surface stayed on the old image. Rare where the url IS the thing that ends the change;
+        // an instant shop photo, which lands after the change ends, hit it every time.
+        const queued = queuedUrlRef.current;
+        queuedUrlRef.current = null;
+        if (queued && queued !== shownSrc) revealRef.current(queued);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,22 +223,25 @@ export function useCrossfadeImage(url, { instant = false, pending = false } = {}
   useLayoutEffect(() => {
     if (!incomingSrc || !incomingRef.current) return;
     const epoch = epochRef.current;
+    const finish = () => {
+      if (epoch !== epochRef.current) return;
+      gsap.set(shownRef.current, { opacity: 1 });
+      setShownSrc(incomingSrc);
+      setIncomingSrc(null);
+      busyRef.current = false;
+      const queued = queuedUrlRef.current;
+      queuedUrlRef.current = null;
+      if (queued) revealRef.current(queued);
+    };
+    if (revealModeRef.current === 'sweep') {
+      // The incoming element is a `.sweep-wrap` around the photo (see utils/printSweep.js): a pass
+      // across the whole photo, so longer than a fade to read as one.
+      gsap.set(incomingRef.current, { opacity: 1 });
+      return sweepIn(incomingRef.current, DURATION_SLOW * 1600, finish);
+    }
     gsap.set(incomingRef.current, { opacity: 0 });
-    gsap.to(incomingRef.current, {
-      duration: DURATION_SLOW,
-      opacity: 1,
-      ease: 'power2.inOut',
-      onComplete: () => {
-        if (epoch !== epochRef.current) return;
-        gsap.set(shownRef.current, { opacity: 1 });
-        setShownSrc(incomingSrc);
-        setIncomingSrc(null);
-        busyRef.current = false;
-        const queued = queuedUrlRef.current;
-        queuedUrlRef.current = null;
-        if (queued) revealRef.current(queued);
-      }
-    });
+    gsap.to(incomingRef.current, { duration: DURATION_SLOW, opacity: 1, ease: 'power2.inOut', onComplete: finish });
+    return undefined;
   }, [incomingSrc]);
 
   // False while a reveal started by `pending` is still waiting for its image: a loading

@@ -2716,3 +2716,77 @@
     top: 30%;
   }
 }
+
+/* ── Instant product photos: the print changing (ProductPhoto) ──────────────
+   Only the PRINT changes on a design change; the model and the background never do. Everything
+   here animates TRANSFORMS and OPACITY only, so the compositor runs it with no repaint: a shop page
+   has twenty of these at once (Aaron, 2026-11-15: "updating that many elements kind of slows
+   down"). The first versions animated a mask's stops and a background's position, both of which
+   repaint every frame, and the shimmer ran forever on every card even while hidden. */
+
+/* The print pass (utils/printSweep.js): a wrapper 20% taller than the photo, whose bottom 20% fades
+   out while it sweeps. The photo inside keeps the card's own size. */
+.sweep-wrap {
+  position: absolute;
+  inset: 0 0 -20% 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sweep-wrap > img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: calc(100% / 1.2);
+  object-fit: cover;
+}
+.sweep-wrap[data-sweeping] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 100% / 6), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 100% / 6), transparent 100%);
+}
+
+/* While a new design is being made: a band of the site's spectrum passing over the fabric -- only
+   the fabric, by a mask made from the calibration's own map. Mounted only while it is showing. */
+.fabric-shimmer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.fabric-shimmer.is-on {
+  opacity: 1;
+}
+.fabric-shimmer > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -100%;
+  width: 100%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(76, 0, 255, 0.16) 32%,
+    rgba(255, 0, 170, 0.16) 50%,
+    rgba(204, 255, 0, 0.24) 68%,
+    transparent 100%
+  );
+  will-change: transform;
+  animation: fabric-shimmer 1.1s linear infinite;
+}
+@keyframes fabric-shimmer {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(200%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fabric-shimmer {
+    display: none;
+  }
+}

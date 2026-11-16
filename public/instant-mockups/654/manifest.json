@@ -1,0 +1,2039 @@
+{
+  "productId": 654,
+  "configs": {
+    "v19255-white": {
+      "variantId": 19255,
+      "variants": [
+        16361,
+        16360,
+        19255
+      ],
+      "stitch": "white",
+      "default": true,
+      "placements": [
+        {
+          "key": "outside_front",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "outside_back",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "inside_front",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "inside_back",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "label_outside",
+          "printfileId": 411,
+          "width": 450,
+          "height": 300
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 411,
+          "width": 450,
+          "height": 300
+        }
+      ],
+      "views": {
+        "26051": {
+          "name": "Front Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            0,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26051-place-4254e7dedf.png",
+            "uvplace": "v19255-white-26051-uvplace-0914117b96.png",
+            "uv": "v19255-white-26051-uv-8cfa55e9cc.png",
+            "edge": "v19255-white-26051-edge-a461cbb29d.png",
+            "underplace": "v19255-white-26051-underplace-4dabb5a219.png",
+            "underuv": "v19255-white-26051-underuv-20f3cdd58b.png",
+            "base": "v19255-white-26051-base-73b095bd8e.webp",
+            "gain": "v19255-white-26051-gain-249d6deb04.webp",
+            "gamma": "v19255-white-26051-gamma-c3128101bb.webp"
+          },
+          "need": {
+            "0": 1600
+          }
+        },
+        "26052": {
+          "name": "Back Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19255-white-26052-place-fac2cee548.png",
+            "uvplace": "v19255-white-26052-uvplace-18ae2bead3.png",
+            "uv": "v19255-white-26052-uv-7767d33a3b.png",
+            "edge": "v19255-white-26052-edge-ab2d3535ca.png",
+            "base": "v19255-white-26052-base-73b095bd8e.webp",
+            "gain": "v19255-white-26052-gain-249d6deb04.webp",
+            "gamma": "v19255-white-26052-gamma-c3128101bb.webp"
+          },
+          "need": {
+            "1": 1600
+          }
+        },
+        "26054": {
+          "name": "Back Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            2,
+            3
+          ],
+          "files": {
+            "place": "v19255-white-26054-place-65e8da244b.png",
+            "uvplace": "v19255-white-26054-uvplace-0cff425240.png",
+            "uv": "v19255-white-26054-uv-7767d33a3b.png",
+            "edge": "v19255-white-26054-edge-8d04a1f96e.png",
+            "base": "v19255-white-26054-base-73b095bd8e.webp",
+            "gain": "v19255-white-26054-gain-249d6deb04.webp",
+            "gamma": "v19255-white-26054-gamma-c3128101bb.webp"
+          },
+          "need": {
+            "3": 1600
+          }
+        },
+        "26111": {
+          "name": "Product Details Outside",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            195,
+            760,
+            635
+          ],
+          "half": [
+            380,
+            318
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26111-place-62af2f2d7a.png",
+            "uvplace": "v19255-white-26111-uvplace-f73bad65e8.png",
+            "uv": "v19255-white-26111-uv-0b22f6e7ea.png",
+            "edge": "v19255-white-26111-edge-56b8ca1079.png",
+            "underplace": "v19255-white-26111-underplace-109412ff14.png",
+            "underuv": "v19255-white-26111-underuv-c1f8c18a6e.png",
+            "base": "v19255-white-26111-base-d819aec01c.webp",
+            "gain": "v19255-white-26111-gain-200d71a4a9.webp",
+            "gamma": "v19255-white-26111-gamma-69da87247e.webp"
+          },
+          "need": {
+            "0": 1500,
+            "1": 1200,
+            "2": 1100,
+            "3": 1200
+          }
+        },
+        "26116": {
+          "name": "Product Details Inside",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            195,
+            760,
+            635
+          ],
+          "half": [
+            380,
+            318
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26116-place-e279f0b2d7.png",
+            "uvplace": "v19255-white-26116-uvplace-732246155b.png",
+            "uv": "v19255-white-26116-uv-0b22f6e7ea.png",
+            "edge": "v19255-white-26116-edge-bebf4fba14.png",
+            "underplace": "v19255-white-26116-underplace-11acd1185c.png",
+            "underuv": "v19255-white-26116-underuv-c1f8c18a6e.png",
+            "base": "v19255-white-26116-base-d819aec01c.webp",
+            "gain": "v19255-white-26116-gain-200d71a4a9.webp",
+            "gamma": "v19255-white-26116-gamma-69da87247e.webp"
+          },
+          "need": {
+            "0": 1100,
+            "1": 1200,
+            "2": 1500,
+            "3": 1200
+          }
+        },
+        "26127": {
+          "name": "Right Front Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            116,
+            233,
+            767,
+            549
+          ],
+          "half": [
+            384,
+            275
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26127-place-c99d8f5348.png",
+            "uvplace": "v19255-white-26127-uvplace-4dd29e3e27.png",
+            "uv": "v19255-white-26127-uv-afde12cfdc.png",
+            "edge": "v19255-white-26127-edge-78b6db0143.png",
+            "underplace": "v19255-white-26127-underplace-078dcc2739.png",
+            "underuv": "v19255-white-26127-underuv-d064ddf8c1.png",
+            "base": "v19255-white-26127-base-23352e9334.webp",
+            "gain": "v19255-white-26127-gain-be4e742597.webp",
+            "gamma": "v19255-white-26127-gamma-eab3ccb1a6.webp"
+          },
+          "need": {
+            "0": 1600,
+            "1": 1300
+          }
+        },
+        "26128": {
+          "name": "Right Front Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            116,
+            233,
+            767,
+            549
+          ],
+          "half": [
+            384,
+            275
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26128-place-1c304d9b08.png",
+            "uvplace": "v19255-white-26128-uvplace-4d334891c6.png",
+            "uv": "v19255-white-26128-uv-afde12cfdc.png",
+            "edge": "v19255-white-26128-edge-73f42f2d88.png",
+            "underplace": "v19255-white-26128-underplace-a68bb2088b.png",
+            "underuv": "v19255-white-26128-underuv-d064ddf8c1.png",
+            "base": "v19255-white-26128-base-23352e9334.webp",
+            "gain": "v19255-white-26128-gain-be4e742597.webp",
+            "gamma": "v19255-white-26128-gamma-eab3ccb1a6.webp"
+          },
+          "need": {
+            "2": 1600,
+            "3": 1300
+          }
+        },
+        "26176": {
+          "name": "Front Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            257,
+            37,
+            501,
+            347
+          ],
+          "half": [
+            251,
+            174
+          ],
+          "shown": [
+            0,
+            2,
+            3,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26176-place-9e8f45cbfc.png",
+            "uvplace": "v19255-white-26176-uvplace-0d1c5d2f6c.png",
+            "uv": "v19255-white-26176-uv-d559b216cb.png",
+            "edge": "v19255-white-26176-edge-4ea9db7290.png",
+            "underplace": "v19255-white-26176-underplace-124eac6f4a.png",
+            "underuv": "v19255-white-26176-underuv-e430fda5bf.png",
+            "base": "v19255-white-26176-base-d1f6aea8b0.webp",
+            "gain": "v19255-white-26176-gain-5d0e5120be.webp",
+            "gamma": "v19255-white-26176-gamma-92069982ba.webp"
+          },
+          "need": {
+            "3": 1100
+          }
+        },
+        "26177": {
+          "name": "Back Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            289,
+            40,
+            427,
+            389
+          ],
+          "half": [
+            214,
+            195
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26177-place-0ff1510f13.png",
+            "uvplace": "v19255-white-26177-uvplace-c634f6f9db.png",
+            "uv": "v19255-white-26177-uv-8d1238a05a.png",
+            "edge": "v19255-white-26177-edge-19a19292c9.png",
+            "underplace": "v19255-white-26177-underplace-7c6fdc2346.png",
+            "underuv": "v19255-white-26177-underuv-6f4ae1abc3.png",
+            "base": "v19255-white-26177-base-113634f424.webp",
+            "gain": "v19255-white-26177-gain-350298ed60.webp",
+            "gamma": "v19255-white-26177-gamma-0d3edb8db2.webp"
+          }
+        },
+        "26178": {
+          "name": "Left Front Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            371,
+            38,
+            433,
+            316
+          ],
+          "half": [
+            217,
+            158
+          ],
+          "shown": [
+            0,
+            2,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26178-place-2c2932b20a.png",
+            "uvplace": "v19255-white-26178-uvplace-b6c1b66e8f.png",
+            "uv": "v19255-white-26178-uv-6a387850ea.png",
+            "edge": "v19255-white-26178-edge-6e9e0e11a9.png",
+            "underplace": "v19255-white-26178-underplace-7ee1b634f6.png",
+            "underuv": "v19255-white-26178-underuv-d1b9e6562b.png",
+            "base": "v19255-white-26178-base-299ebf5b32.webp",
+            "gain": "v19255-white-26178-gain-f68254813a.webp",
+            "gamma": "v19255-white-26178-gamma-cc12550d71.webp"
+          }
+        },
+        "26179": {
+          "name": "Right Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            243,
+            23,
+            491,
+            462
+          ],
+          "half": [
+            246,
+            231
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26179-place-ad154e4c4e.png",
+            "uvplace": "v19255-white-26179-uvplace-fe77dddaba.png",
+            "uv": "v19255-white-26179-uv-f47bb4264a.png",
+            "edge": "v19255-white-26179-edge-a9b269745a.png",
+            "underplace": "v19255-white-26179-underplace-5dad96fb3b.png",
+            "underuv": "v19255-white-26179-underuv-e9d44eecc2.png",
+            "base": "v19255-white-26179-base-97a26405cf.webp",
+            "gain": "v19255-white-26179-gain-a26c2e482c.webp",
+            "gamma": "v19255-white-26179-gamma-5697764d33.webp"
+          },
+          "need": {
+            "0": 1100
+          }
+        },
+        "26180": {
+          "name": "Back Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            289,
+            40,
+            427,
+            389
+          ],
+          "half": [
+            214,
+            195
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26180-place-aca5c148ee.png",
+            "uvplace": "v19255-white-26180-uvplace-8af548a438.png",
+            "uv": "v19255-white-26180-uv-8d1238a05a.png",
+            "edge": "v19255-white-26180-edge-59fd985280.png",
+            "underplace": "v19255-white-26180-underplace-e5a0ef6a2f.png",
+            "underuv": "v19255-white-26180-underuv-6f4ae1abc3.png",
+            "base": "v19255-white-26180-base-113634f424.webp",
+            "gain": "v19255-white-26180-gain-350298ed60.webp",
+            "gamma": "v19255-white-26180-gamma-0d3edb8db2.webp"
+          }
+        },
+        "26181": {
+          "name": "Front Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            257,
+            37,
+            501,
+            347
+          ],
+          "half": [
+            251,
+            174
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26181-place-b005efc086.png",
+            "uvplace": "v19255-white-26181-uvplace-b6da0bb11f.png",
+            "uv": "v19255-white-26181-uv-d559b216cb.png",
+            "edge": "v19255-white-26181-edge-a6ddaedc42.png",
+            "underplace": "v19255-white-26181-underplace-72eb08eada.png",
+            "underuv": "v19255-white-26181-underuv-e430fda5bf.png",
+            "base": "v19255-white-26181-base-d1f6aea8b0.webp",
+            "gain": "v19255-white-26181-gain-5d0e5120be.webp",
+            "gamma": "v19255-white-26181-gamma-92069982ba.webp"
+          },
+          "need": {
+            "1": 1100
+          }
+        },
+        "26182": {
+          "name": "Left Front Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            371,
+            38,
+            433,
+            316
+          ],
+          "half": [
+            217,
+            158
+          ],
+          "shown": [
+            0,
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26182-place-cfedbe720e.png",
+            "uvplace": "v19255-white-26182-uvplace-4e1d9fef09.png",
+            "uv": "v19255-white-26182-uv-6a387850ea.png",
+            "edge": "v19255-white-26182-edge-0cf2a8a000.png",
+            "underplace": "v19255-white-26182-underplace-4e963fcd52.png",
+            "underuv": "v19255-white-26182-underuv-d1b9e6562b.png",
+            "base": "v19255-white-26182-base-299ebf5b32.webp",
+            "gain": "v19255-white-26182-gain-f68254813a.webp",
+            "gamma": "v19255-white-26182-gamma-cc12550d71.webp"
+          }
+        },
+        "26183": {
+          "name": "Right Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            243,
+            23,
+            491,
+            462
+          ],
+          "half": [
+            246,
+            231
+          ],
+          "shown": [
+            0,
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26183-place-a9c7f33e25.png",
+            "uvplace": "v19255-white-26183-uvplace-95b07dd4c3.png",
+            "uv": "v19255-white-26183-uv-f47bb4264a.png",
+            "edge": "v19255-white-26183-edge-889c5d6d74.png",
+            "underplace": "v19255-white-26183-underplace-aaa7b683a4.png",
+            "underuv": "v19255-white-26183-underuv-e9d44eecc2.png",
+            "base": "v19255-white-26183-base-97a26405cf.webp",
+            "gain": "v19255-white-26183-gain-a26c2e482c.webp",
+            "gamma": "v19255-white-26183-gamma-5697764d33.webp"
+          },
+          "need": {
+            "2": 1100
+          }
+        },
+        "26200": {
+          "name": "Right Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            203,
+            759,
+            579
+          ],
+          "half": [
+            380,
+            290
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26200-place-d5ffc971ea.png",
+            "uvplace": "v19255-white-26200-uvplace-9426a7bb20.png",
+            "uv": "v19255-white-26200-uv-2b680192d2.png",
+            "edge": "v19255-white-26200-edge-e5a5056b07.png",
+            "underplace": "v19255-white-26200-underplace-f62d799e20.png",
+            "underuv": "v19255-white-26200-underuv-6e79c0d635.png",
+            "base": "v19255-white-26200-base-eb88fa36a2.webp",
+            "gain": "v19255-white-26200-gain-a9bf6476b7.webp",
+            "gamma": "v19255-white-26200-gamma-eb7ec664f7.webp"
+          },
+          "need": {
+            "2": 1600,
+            "3": 1600
+          }
+        },
+        "26201": {
+          "name": "Right Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            203,
+            759,
+            579
+          ],
+          "half": [
+            380,
+            290
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26201-place-507d26e5eb.png",
+            "uvplace": "v19255-white-26201-uvplace-7c2ca79175.png",
+            "uv": "v19255-white-26201-uv-2b680192d2.png",
+            "edge": "v19255-white-26201-edge-e096286434.png",
+            "underplace": "v19255-white-26201-underplace-dd6c7af629.png",
+            "underuv": "v19255-white-26201-underuv-6e79c0d635.png",
+            "base": "v19255-white-26201-base-eb88fa36a2.webp",
+            "gain": "v19255-white-26201-gain-a9bf6476b7.webp",
+            "gamma": "v19255-white-26201-gamma-eb7ec664f7.webp"
+          },
+          "need": {
+            "0": 1600,
+            "1": 1600
+          }
+        },
+        "26226": {
+          "name": "Front Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26226-place-aecc4623be.png",
+            "uvplace": "v19255-white-26226-uvplace-7755c72fe7.png",
+            "uv": "v19255-white-26226-uv-8cfa55e9cc.png",
+            "edge": "v19255-white-26226-edge-46236640cb.png",
+            "underplace": "v19255-white-26226-underplace-ca9564bc41.png",
+            "underuv": "v19255-white-26226-underuv-20f3cdd58b.png",
+            "base": "v19255-white-26226-base-73b095bd8e.webp",
+            "gain": "v19255-white-26226-gain-249d6deb04.webp",
+            "gamma": "v19255-white-26226-gamma-c3128101bb.webp"
+          },
+          "need": {
+            "2": 1600
+          }
+        }
+      }
+    },
+    "v19255-black": {
+      "variantId": 19255,
+      "variants": [
+        16361,
+        16360,
+        19255
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "outside_front",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "outside_back",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "inside_front",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "inside_back",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "label_outside",
+          "printfileId": 411,
+          "width": 450,
+          "height": 300
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 411,
+          "width": 450,
+          "height": 300
+        }
+      ],
+      "views": {
+        "26051": {
+          "name": "Front Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            0,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26051-place-4254e7dedf.png",
+            "uv": "v19255-white-26051-uv-8cfa55e9cc.png",
+            "uvplace": "v19255-white-26051-uvplace-0914117b96.png",
+            "underplace": "v19255-white-26051-underplace-4dabb5a219.png",
+            "underuv": "v19255-white-26051-underuv-20f3cdd58b.png",
+            "edge": "v19255-white-26051-edge-a461cbb29d.png",
+            "base": "v19255-black-26051-base-ebaf753412.webp",
+            "gain": "v19255-black-26051-gain-5d152a05df.webp",
+            "gamma": "v19255-black-26051-gamma-7926246ba2.webp"
+          },
+          "need": {
+            "0": 1600
+          }
+        },
+        "26052": {
+          "name": "Back Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19255-white-26052-place-fac2cee548.png",
+            "uv": "v19255-white-26052-uv-7767d33a3b.png",
+            "uvplace": "v19255-white-26052-uvplace-18ae2bead3.png",
+            "edge": "v19255-white-26052-edge-ab2d3535ca.png",
+            "base": "v19255-black-26052-base-ebaf753412.webp",
+            "gain": "v19255-black-26052-gain-5d152a05df.webp",
+            "gamma": "v19255-black-26052-gamma-7926246ba2.webp"
+          },
+          "need": {
+            "1": 1600
+          }
+        },
+        "26054": {
+          "name": "Back Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            2,
+            3
+          ],
+          "files": {
+            "place": "v19255-white-26054-place-65e8da244b.png",
+            "uv": "v19255-white-26054-uv-7767d33a3b.png",
+            "uvplace": "v19255-white-26054-uvplace-0cff425240.png",
+            "edge": "v19255-white-26054-edge-8d04a1f96e.png",
+            "base": "v19255-black-26054-base-ebaf753412.webp",
+            "gain": "v19255-black-26054-gain-5d152a05df.webp",
+            "gamma": "v19255-black-26054-gamma-7926246ba2.webp"
+          },
+          "need": {
+            "3": 1600
+          }
+        },
+        "26111": {
+          "name": "Product Details Outside",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            195,
+            760,
+            635
+          ],
+          "half": [
+            380,
+            318
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26111-place-62af2f2d7a.png",
+            "uv": "v19255-white-26111-uv-0b22f6e7ea.png",
+            "uvplace": "v19255-white-26111-uvplace-f73bad65e8.png",
+            "underplace": "v19255-white-26111-underplace-109412ff14.png",
+            "underuv": "v19255-white-26111-underuv-c1f8c18a6e.png",
+            "edge": "v19255-white-26111-edge-56b8ca1079.png",
+            "base": "v19255-black-26111-base-d517d39306.webp",
+            "gain": "v19255-black-26111-gain-4caa23dddd.webp",
+            "gamma": "v19255-black-26111-gamma-5242f6d59f.webp"
+          },
+          "need": {
+            "0": 1500,
+            "1": 1200,
+            "2": 1100,
+            "3": 1200
+          }
+        },
+        "26116": {
+          "name": "Product Details Inside",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            195,
+            760,
+            635
+          ],
+          "half": [
+            380,
+            318
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26116-place-e279f0b2d7.png",
+            "uv": "v19255-white-26116-uv-0b22f6e7ea.png",
+            "uvplace": "v19255-white-26116-uvplace-732246155b.png",
+            "underplace": "v19255-white-26116-underplace-11acd1185c.png",
+            "underuv": "v19255-white-26116-underuv-c1f8c18a6e.png",
+            "edge": "v19255-white-26116-edge-bebf4fba14.png",
+            "base": "v19255-black-26116-base-d517d39306.webp",
+            "gain": "v19255-black-26116-gain-4caa23dddd.webp",
+            "gamma": "v19255-black-26116-gamma-5242f6d59f.webp"
+          },
+          "need": {
+            "0": 1100,
+            "1": 1200,
+            "2": 1500,
+            "3": 1200
+          }
+        },
+        "26127": {
+          "name": "Right Front Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            116,
+            233,
+            767,
+            549
+          ],
+          "half": [
+            384,
+            275
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26127-place-c99d8f5348.png",
+            "uv": "v19255-white-26127-uv-afde12cfdc.png",
+            "uvplace": "v19255-white-26127-uvplace-4dd29e3e27.png",
+            "underplace": "v19255-white-26127-underplace-078dcc2739.png",
+            "underuv": "v19255-white-26127-underuv-d064ddf8c1.png",
+            "edge": "v19255-white-26127-edge-78b6db0143.png",
+            "base": "v19255-black-26127-base-23195d06bf.webp",
+            "gain": "v19255-black-26127-gain-f97afdbf53.webp",
+            "gamma": "v19255-black-26127-gamma-88a1882a04.webp"
+          },
+          "need": {
+            "0": 1600,
+            "1": 1300
+          }
+        },
+        "26128": {
+          "name": "Right Front Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            116,
+            233,
+            767,
+            549
+          ],
+          "half": [
+            384,
+            275
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26128-place-1c304d9b08.png",
+            "uv": "v19255-white-26128-uv-afde12cfdc.png",
+            "uvplace": "v19255-white-26128-uvplace-4d334891c6.png",
+            "underplace": "v19255-white-26128-underplace-a68bb2088b.png",
+            "underuv": "v19255-white-26128-underuv-d064ddf8c1.png",
+            "edge": "v19255-white-26128-edge-73f42f2d88.png",
+            "base": "v19255-black-26128-base-23195d06bf.webp",
+            "gain": "v19255-black-26128-gain-f97afdbf53.webp",
+            "gamma": "v19255-black-26128-gamma-88a1882a04.webp"
+          },
+          "need": {
+            "2": 1600,
+            "3": 1300
+          }
+        },
+        "26176": {
+          "name": "Front Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            257,
+            37,
+            501,
+            347
+          ],
+          "half": [
+            251,
+            174
+          ],
+          "shown": [
+            0,
+            2,
+            3,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26176-place-9e8f45cbfc.png",
+            "uv": "v19255-white-26176-uv-d559b216cb.png",
+            "uvplace": "v19255-white-26176-uvplace-0d1c5d2f6c.png",
+            "underplace": "v19255-white-26176-underplace-124eac6f4a.png",
+            "underuv": "v19255-white-26176-underuv-e430fda5bf.png",
+            "edge": "v19255-white-26176-edge-4ea9db7290.png",
+            "base": "v19255-black-26176-base-2166e088b9.webp",
+            "gain": "v19255-black-26176-gain-99836c93a9.webp",
+            "gamma": "v19255-black-26176-gamma-787cb5e725.webp"
+          },
+          "need": {
+            "3": 1100
+          }
+        },
+        "26177": {
+          "name": "Back Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            289,
+            40,
+            427,
+            389
+          ],
+          "half": [
+            214,
+            195
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26177-place-0ff1510f13.png",
+            "uv": "v19255-white-26177-uv-8d1238a05a.png",
+            "uvplace": "v19255-white-26177-uvplace-c634f6f9db.png",
+            "underplace": "v19255-white-26177-underplace-7c6fdc2346.png",
+            "underuv": "v19255-white-26177-underuv-6f4ae1abc3.png",
+            "edge": "v19255-white-26177-edge-19a19292c9.png",
+            "base": "v19255-black-26177-base-04a42601a2.webp",
+            "gain": "v19255-black-26177-gain-683983f6d9.webp",
+            "gamma": "v19255-black-26177-gamma-42f67ad419.webp"
+          }
+        },
+        "26178": {
+          "name": "Left Front Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            371,
+            38,
+            433,
+            316
+          ],
+          "half": [
+            217,
+            158
+          ],
+          "shown": [
+            0,
+            2,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26178-place-2c2932b20a.png",
+            "uv": "v19255-white-26178-uv-6a387850ea.png",
+            "uvplace": "v19255-white-26178-uvplace-b6c1b66e8f.png",
+            "underplace": "v19255-white-26178-underplace-7ee1b634f6.png",
+            "underuv": "v19255-white-26178-underuv-d1b9e6562b.png",
+            "edge": "v19255-white-26178-edge-6e9e0e11a9.png",
+            "base": "v19255-black-26178-base-5226b5bf6c.webp",
+            "gain": "v19255-black-26178-gain-9ab12f7a79.webp",
+            "gamma": "v19255-black-26178-gamma-e9763f5099.webp"
+          }
+        },
+        "26179": {
+          "name": "Right Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            243,
+            23,
+            491,
+            462
+          ],
+          "half": [
+            246,
+            231
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26179-place-ad154e4c4e.png",
+            "uv": "v19255-white-26179-uv-f47bb4264a.png",
+            "uvplace": "v19255-white-26179-uvplace-fe77dddaba.png",
+            "underplace": "v19255-white-26179-underplace-5dad96fb3b.png",
+            "underuv": "v19255-white-26179-underuv-e9d44eecc2.png",
+            "edge": "v19255-white-26179-edge-a9b269745a.png",
+            "base": "v19255-black-26179-base-4e68d4ae39.webp",
+            "gain": "v19255-black-26179-gain-29b1a2564d.webp",
+            "gamma": "v19255-black-26179-gamma-894c15c4b4.webp"
+          },
+          "need": {
+            "0": 1100
+          }
+        },
+        "26180": {
+          "name": "Back Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            289,
+            40,
+            427,
+            389
+          ],
+          "half": [
+            214,
+            195
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26180-place-aca5c148ee.png",
+            "uv": "v19255-white-26180-uv-8d1238a05a.png",
+            "uvplace": "v19255-white-26180-uvplace-8af548a438.png",
+            "underplace": "v19255-white-26180-underplace-e5a0ef6a2f.png",
+            "underuv": "v19255-white-26180-underuv-6f4ae1abc3.png",
+            "edge": "v19255-white-26180-edge-59fd985280.png",
+            "base": "v19255-black-26180-base-04a42601a2.webp",
+            "gain": "v19255-black-26180-gain-683983f6d9.webp",
+            "gamma": "v19255-black-26180-gamma-42f67ad419.webp"
+          }
+        },
+        "26181": {
+          "name": "Front Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            257,
+            37,
+            501,
+            347
+          ],
+          "half": [
+            251,
+            174
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26181-place-b005efc086.png",
+            "uv": "v19255-white-26181-uv-d559b216cb.png",
+            "uvplace": "v19255-white-26181-uvplace-b6da0bb11f.png",
+            "underplace": "v19255-white-26181-underplace-72eb08eada.png",
+            "underuv": "v19255-white-26181-underuv-e430fda5bf.png",
+            "edge": "v19255-white-26181-edge-a6ddaedc42.png",
+            "base": "v19255-black-26181-base-2166e088b9.webp",
+            "gain": "v19255-black-26181-gain-99836c93a9.webp",
+            "gamma": "v19255-black-26181-gamma-787cb5e725.webp"
+          },
+          "need": {
+            "1": 1100
+          }
+        },
+        "26182": {
+          "name": "Left Front Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            371,
+            38,
+            433,
+            316
+          ],
+          "half": [
+            217,
+            158
+          ],
+          "shown": [
+            0,
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26182-place-cfedbe720e.png",
+            "uv": "v19255-white-26182-uv-6a387850ea.png",
+            "uvplace": "v19255-white-26182-uvplace-4e1d9fef09.png",
+            "underplace": "v19255-white-26182-underplace-4e963fcd52.png",
+            "underuv": "v19255-white-26182-underuv-d1b9e6562b.png",
+            "edge": "v19255-white-26182-edge-0cf2a8a000.png",
+            "base": "v19255-black-26182-base-5226b5bf6c.webp",
+            "gain": "v19255-black-26182-gain-9ab12f7a79.webp",
+            "gamma": "v19255-black-26182-gamma-e9763f5099.webp"
+          }
+        },
+        "26183": {
+          "name": "Right Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            243,
+            23,
+            491,
+            462
+          ],
+          "half": [
+            246,
+            231
+          ],
+          "shown": [
+            0,
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26183-place-a9c7f33e25.png",
+            "uv": "v19255-white-26183-uv-f47bb4264a.png",
+            "uvplace": "v19255-white-26183-uvplace-95b07dd4c3.png",
+            "underplace": "v19255-white-26183-underplace-aaa7b683a4.png",
+            "underuv": "v19255-white-26183-underuv-e9d44eecc2.png",
+            "edge": "v19255-white-26183-edge-889c5d6d74.png",
+            "base": "v19255-black-26183-base-4e68d4ae39.webp",
+            "gain": "v19255-black-26183-gain-29b1a2564d.webp",
+            "gamma": "v19255-black-26183-gamma-894c15c4b4.webp"
+          },
+          "need": {
+            "2": 1100
+          }
+        },
+        "26200": {
+          "name": "Right Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            203,
+            759,
+            579
+          ],
+          "half": [
+            380,
+            290
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26200-place-d5ffc971ea.png",
+            "uv": "v19255-white-26200-uv-2b680192d2.png",
+            "uvplace": "v19255-white-26200-uvplace-9426a7bb20.png",
+            "underplace": "v19255-white-26200-underplace-f62d799e20.png",
+            "underuv": "v19255-white-26200-underuv-6e79c0d635.png",
+            "edge": "v19255-white-26200-edge-e5a5056b07.png",
+            "base": "v19255-black-26200-base-9c089bb9b2.webp",
+            "gain": "v19255-black-26200-gain-721dd24e9a.webp",
+            "gamma": "v19255-black-26200-gamma-8de6b7006f.webp"
+          },
+          "need": {
+            "2": 1600,
+            "3": 1600
+          }
+        },
+        "26201": {
+          "name": "Right Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            203,
+            759,
+            579
+          ],
+          "half": [
+            380,
+            290
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26201-place-507d26e5eb.png",
+            "uv": "v19255-white-26201-uv-2b680192d2.png",
+            "uvplace": "v19255-white-26201-uvplace-7c2ca79175.png",
+            "underplace": "v19255-white-26201-underplace-dd6c7af629.png",
+            "underuv": "v19255-white-26201-underuv-6e79c0d635.png",
+            "edge": "v19255-white-26201-edge-e096286434.png",
+            "base": "v19255-black-26201-base-9c089bb9b2.webp",
+            "gain": "v19255-black-26201-gain-721dd24e9a.webp",
+            "gamma": "v19255-black-26201-gamma-8de6b7006f.webp"
+          },
+          "need": {
+            "0": 1600,
+            "1": 1600
+          }
+        },
+        "26226": {
+          "name": "Front Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26226-place-aecc4623be.png",
+            "uv": "v19255-white-26226-uv-8cfa55e9cc.png",
+            "uvplace": "v19255-white-26226-uvplace-7755c72fe7.png",
+            "underplace": "v19255-white-26226-underplace-ca9564bc41.png",
+            "underuv": "v19255-white-26226-underuv-20f3cdd58b.png",
+            "edge": "v19255-white-26226-edge-46236640cb.png",
+            "base": "v19255-black-26226-base-ebaf753412.webp",
+            "gain": "v19255-black-26226-gain-5d152a05df.webp",
+            "gamma": "v19255-black-26226-gamma-7926246ba2.webp"
+          },
+          "need": {
+            "2": 1600
+          }
+        }
+      }
+    },
+    "v19255-clear": {
+      "variantId": 19255,
+      "variants": [
+        16361,
+        16360,
+        19255
+      ],
+      "stitch": "clear",
+      "default": false,
+      "placements": [
+        {
+          "key": "outside_front",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "outside_back",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "inside_front",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "inside_back",
+          "printfileId": 410,
+          "width": 2700,
+          "height": 3150
+        },
+        {
+          "key": "label_outside",
+          "printfileId": 411,
+          "width": 450,
+          "height": 300
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 411,
+          "width": 450,
+          "height": 300
+        }
+      ],
+      "views": {
+        "26051": {
+          "name": "Front Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            0,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26051-place-4254e7dedf.png",
+            "uv": "v19255-white-26051-uv-8cfa55e9cc.png",
+            "uvplace": "v19255-white-26051-uvplace-0914117b96.png",
+            "underplace": "v19255-white-26051-underplace-4dabb5a219.png",
+            "underuv": "v19255-white-26051-underuv-20f3cdd58b.png",
+            "edge": "v19255-white-26051-edge-a461cbb29d.png",
+            "base": "v19255-clear-26051-base-c9c8e479c2.webp",
+            "gain": "v19255-clear-26051-gain-328d0fb77e.webp",
+            "gamma": "v19255-clear-26051-gamma-f5e004e110.webp"
+          },
+          "need": {
+            "0": 1600
+          }
+        },
+        "26052": {
+          "name": "Back Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19255-white-26052-place-fac2cee548.png",
+            "uv": "v19255-white-26052-uv-7767d33a3b.png",
+            "uvplace": "v19255-white-26052-uvplace-18ae2bead3.png",
+            "edge": "v19255-white-26052-edge-ab2d3535ca.png",
+            "base": "v19255-clear-26052-base-c9c8e479c2.webp",
+            "gain": "v19255-clear-26052-gain-328d0fb77e.webp",
+            "gamma": "v19255-clear-26052-gamma-f5e004e110.webp"
+          },
+          "need": {
+            "1": 1600
+          }
+        },
+        "26054": {
+          "name": "Back Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            2,
+            3
+          ],
+          "files": {
+            "place": "v19255-white-26054-place-65e8da244b.png",
+            "uv": "v19255-white-26054-uv-7767d33a3b.png",
+            "uvplace": "v19255-white-26054-uvplace-0cff425240.png",
+            "edge": "v19255-white-26054-edge-8d04a1f96e.png",
+            "base": "v19255-clear-26054-base-c9c8e479c2.webp",
+            "gain": "v19255-clear-26054-gain-328d0fb77e.webp",
+            "gamma": "v19255-clear-26054-gamma-f5e004e110.webp"
+          },
+          "need": {
+            "3": 1600
+          }
+        },
+        "26111": {
+          "name": "Product Details Outside",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            195,
+            760,
+            635
+          ],
+          "half": [
+            380,
+            318
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26111-place-62af2f2d7a.png",
+            "uv": "v19255-white-26111-uv-0b22f6e7ea.png",
+            "uvplace": "v19255-white-26111-uvplace-f73bad65e8.png",
+            "underplace": "v19255-white-26111-underplace-109412ff14.png",
+            "underuv": "v19255-white-26111-underuv-c1f8c18a6e.png",
+            "edge": "v19255-white-26111-edge-56b8ca1079.png",
+            "base": "v19255-clear-26111-base-b9bd7ff5a3.webp",
+            "gain": "v19255-clear-26111-gain-ef19d55cf7.webp",
+            "gamma": "v19255-clear-26111-gamma-b540ca76b3.webp"
+          },
+          "need": {
+            "0": 1500,
+            "1": 1200,
+            "2": 1100,
+            "3": 1200
+          }
+        },
+        "26116": {
+          "name": "Product Details Inside",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            195,
+            760,
+            635
+          ],
+          "half": [
+            380,
+            318
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26116-place-e279f0b2d7.png",
+            "uv": "v19255-white-26116-uv-0b22f6e7ea.png",
+            "uvplace": "v19255-white-26116-uvplace-732246155b.png",
+            "underplace": "v19255-white-26116-underplace-11acd1185c.png",
+            "underuv": "v19255-white-26116-underuv-c1f8c18a6e.png",
+            "edge": "v19255-white-26116-edge-bebf4fba14.png",
+            "base": "v19255-clear-26116-base-b9bd7ff5a3.webp",
+            "gain": "v19255-clear-26116-gain-ef19d55cf7.webp",
+            "gamma": "v19255-clear-26116-gamma-b540ca76b3.webp"
+          },
+          "need": {
+            "0": 1100,
+            "1": 1200,
+            "2": 1500,
+            "3": 1200
+          }
+        },
+        "26127": {
+          "name": "Right Front Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            116,
+            233,
+            767,
+            549
+          ],
+          "half": [
+            384,
+            275
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26127-place-c99d8f5348.png",
+            "uv": "v19255-white-26127-uv-afde12cfdc.png",
+            "uvplace": "v19255-white-26127-uvplace-4dd29e3e27.png",
+            "underplace": "v19255-white-26127-underplace-078dcc2739.png",
+            "underuv": "v19255-white-26127-underuv-d064ddf8c1.png",
+            "edge": "v19255-white-26127-edge-78b6db0143.png",
+            "base": "v19255-clear-26127-base-dce5820ab6.webp",
+            "gain": "v19255-clear-26127-gain-9ff3c99dc4.webp",
+            "gamma": "v19255-clear-26127-gamma-95972c6edf.webp"
+          },
+          "need": {
+            "0": 1600,
+            "1": 1300
+          }
+        },
+        "26128": {
+          "name": "Right Front Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            116,
+            233,
+            767,
+            549
+          ],
+          "half": [
+            384,
+            275
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26128-place-1c304d9b08.png",
+            "uv": "v19255-white-26128-uv-afde12cfdc.png",
+            "uvplace": "v19255-white-26128-uvplace-4d334891c6.png",
+            "underplace": "v19255-white-26128-underplace-a68bb2088b.png",
+            "underuv": "v19255-white-26128-underuv-d064ddf8c1.png",
+            "edge": "v19255-white-26128-edge-73f42f2d88.png",
+            "base": "v19255-clear-26128-base-dce5820ab6.webp",
+            "gain": "v19255-clear-26128-gain-9ff3c99dc4.webp",
+            "gamma": "v19255-clear-26128-gamma-95972c6edf.webp"
+          },
+          "need": {
+            "2": 1600,
+            "3": 1300
+          }
+        },
+        "26176": {
+          "name": "Front Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            257,
+            37,
+            501,
+            347
+          ],
+          "half": [
+            251,
+            174
+          ],
+          "shown": [
+            0,
+            2,
+            3,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26176-place-9e8f45cbfc.png",
+            "uv": "v19255-white-26176-uv-d559b216cb.png",
+            "uvplace": "v19255-white-26176-uvplace-0d1c5d2f6c.png",
+            "underplace": "v19255-white-26176-underplace-124eac6f4a.png",
+            "underuv": "v19255-white-26176-underuv-e430fda5bf.png",
+            "edge": "v19255-white-26176-edge-4ea9db7290.png",
+            "base": "v19255-clear-26176-base-6cf40cbf78.webp",
+            "gain": "v19255-clear-26176-gain-d9bf0c145f.webp",
+            "gamma": "v19255-clear-26176-gamma-6d772029c2.webp"
+          },
+          "need": {
+            "3": 1100
+          }
+        },
+        "26177": {
+          "name": "Back Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            289,
+            40,
+            427,
+            389
+          ],
+          "half": [
+            214,
+            195
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26177-place-0ff1510f13.png",
+            "uv": "v19255-white-26177-uv-8d1238a05a.png",
+            "uvplace": "v19255-white-26177-uvplace-c634f6f9db.png",
+            "underplace": "v19255-white-26177-underplace-7c6fdc2346.png",
+            "underuv": "v19255-white-26177-underuv-6f4ae1abc3.png",
+            "edge": "v19255-white-26177-edge-19a19292c9.png",
+            "base": "v19255-clear-26177-base-d0a7459a57.webp",
+            "gain": "v19255-clear-26177-gain-92b191cf3c.webp",
+            "gamma": "v19255-clear-26177-gamma-4c7b082d3c.webp"
+          }
+        },
+        "26178": {
+          "name": "Left Front Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            371,
+            38,
+            433,
+            316
+          ],
+          "half": [
+            217,
+            158
+          ],
+          "shown": [
+            0,
+            2,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26178-place-2c2932b20a.png",
+            "uv": "v19255-white-26178-uv-6a387850ea.png",
+            "uvplace": "v19255-white-26178-uvplace-b6c1b66e8f.png",
+            "underplace": "v19255-white-26178-underplace-7ee1b634f6.png",
+            "underuv": "v19255-white-26178-underuv-d1b9e6562b.png",
+            "edge": "v19255-white-26178-edge-6e9e0e11a9.png",
+            "base": "v19255-clear-26178-base-e5f148192b.webp",
+            "gain": "v19255-clear-26178-gain-186e147447.webp",
+            "gamma": "v19255-clear-26178-gamma-cf86036ae1.webp"
+          }
+        },
+        "26179": {
+          "name": "Right Outside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            243,
+            23,
+            491,
+            462
+          ],
+          "half": [
+            246,
+            231
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26179-place-ad154e4c4e.png",
+            "uv": "v19255-white-26179-uv-f47bb4264a.png",
+            "uvplace": "v19255-white-26179-uvplace-fe77dddaba.png",
+            "underplace": "v19255-white-26179-underplace-5dad96fb3b.png",
+            "underuv": "v19255-white-26179-underuv-e9d44eecc2.png",
+            "edge": "v19255-white-26179-edge-a9b269745a.png",
+            "base": "v19255-clear-26179-base-497d790662.webp",
+            "gain": "v19255-clear-26179-gain-c44f0d2937.webp",
+            "gamma": "v19255-clear-26179-gamma-8b2b0d98ac.webp"
+          },
+          "need": {
+            "0": 1100
+          }
+        },
+        "26180": {
+          "name": "Back Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            289,
+            40,
+            427,
+            389
+          ],
+          "half": [
+            214,
+            195
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26180-place-aca5c148ee.png",
+            "uv": "v19255-white-26180-uv-8d1238a05a.png",
+            "uvplace": "v19255-white-26180-uvplace-8af548a438.png",
+            "underplace": "v19255-white-26180-underplace-e5a0ef6a2f.png",
+            "underuv": "v19255-white-26180-underuv-6f4ae1abc3.png",
+            "edge": "v19255-white-26180-edge-59fd985280.png",
+            "base": "v19255-clear-26180-base-d0a7459a57.webp",
+            "gain": "v19255-clear-26180-gain-92b191cf3c.webp",
+            "gamma": "v19255-clear-26180-gamma-4c7b082d3c.webp"
+          }
+        },
+        "26181": {
+          "name": "Front Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            257,
+            37,
+            501,
+            347
+          ],
+          "half": [
+            251,
+            174
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26181-place-b005efc086.png",
+            "uv": "v19255-white-26181-uv-d559b216cb.png",
+            "uvplace": "v19255-white-26181-uvplace-b6da0bb11f.png",
+            "underplace": "v19255-white-26181-underplace-72eb08eada.png",
+            "underuv": "v19255-white-26181-underuv-e430fda5bf.png",
+            "edge": "v19255-white-26181-edge-a6ddaedc42.png",
+            "base": "v19255-clear-26181-base-6cf40cbf78.webp",
+            "gain": "v19255-clear-26181-gain-d9bf0c145f.webp",
+            "gamma": "v19255-clear-26181-gamma-6d772029c2.webp"
+          },
+          "need": {
+            "1": 1100
+          }
+        },
+        "26182": {
+          "name": "Left Front Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            371,
+            38,
+            433,
+            316
+          ],
+          "half": [
+            217,
+            158
+          ],
+          "shown": [
+            0,
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26182-place-cfedbe720e.png",
+            "uv": "v19255-white-26182-uv-6a387850ea.png",
+            "uvplace": "v19255-white-26182-uvplace-4e1d9fef09.png",
+            "underplace": "v19255-white-26182-underplace-4e963fcd52.png",
+            "underuv": "v19255-white-26182-underuv-d1b9e6562b.png",
+            "edge": "v19255-white-26182-edge-0cf2a8a000.png",
+            "base": "v19255-clear-26182-base-e5f148192b.webp",
+            "gain": "v19255-clear-26182-gain-186e147447.webp",
+            "gamma": "v19255-clear-26182-gamma-cf86036ae1.webp"
+          }
+        },
+        "26183": {
+          "name": "Right Inside",
+          "group": "Women's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            243,
+            23,
+            491,
+            462
+          ],
+          "half": [
+            246,
+            231
+          ],
+          "shown": [
+            0,
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26183-place-a9c7f33e25.png",
+            "uv": "v19255-white-26183-uv-f47bb4264a.png",
+            "uvplace": "v19255-white-26183-uvplace-95b07dd4c3.png",
+            "underplace": "v19255-white-26183-underplace-aaa7b683a4.png",
+            "underuv": "v19255-white-26183-underuv-e9d44eecc2.png",
+            "edge": "v19255-white-26183-edge-889c5d6d74.png",
+            "base": "v19255-clear-26183-base-497d790662.webp",
+            "gain": "v19255-clear-26183-gain-c44f0d2937.webp",
+            "gamma": "v19255-clear-26183-gamma-8b2b0d98ac.webp"
+          },
+          "need": {
+            "2": 1100
+          }
+        },
+        "26200": {
+          "name": "Right Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            203,
+            759,
+            579
+          ],
+          "half": [
+            380,
+            290
+          ],
+          "shown": [
+            2,
+            3,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26200-place-d5ffc971ea.png",
+            "uv": "v19255-white-26200-uv-2b680192d2.png",
+            "uvplace": "v19255-white-26200-uvplace-9426a7bb20.png",
+            "underplace": "v19255-white-26200-underplace-f62d799e20.png",
+            "underuv": "v19255-white-26200-underuv-6e79c0d635.png",
+            "edge": "v19255-white-26200-edge-e5a5056b07.png",
+            "base": "v19255-clear-26200-base-5145ed79ef.webp",
+            "gain": "v19255-clear-26200-gain-ed0a432d21.webp",
+            "gamma": "v19255-clear-26200-gamma-63e49bfa96.webp"
+          },
+          "need": {
+            "2": 1600,
+            "3": 1600
+          }
+        },
+        "26201": {
+          "name": "Right Outside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            120,
+            203,
+            759,
+            579
+          ],
+          "half": [
+            380,
+            290
+          ],
+          "shown": [
+            0,
+            1,
+            4
+          ],
+          "files": {
+            "place": "v19255-white-26201-place-507d26e5eb.png",
+            "uv": "v19255-white-26201-uv-2b680192d2.png",
+            "uvplace": "v19255-white-26201-uvplace-7c2ca79175.png",
+            "underplace": "v19255-white-26201-underplace-dd6c7af629.png",
+            "underuv": "v19255-white-26201-underuv-6e79c0d635.png",
+            "edge": "v19255-white-26201-edge-e096286434.png",
+            "base": "v19255-clear-26201-base-5145ed79ef.webp",
+            "gain": "v19255-clear-26201-gain-ed0a432d21.webp",
+            "gamma": "v19255-clear-26201-gamma-63e49bfa96.webp"
+          },
+          "need": {
+            "0": 1600,
+            "1": 1600
+          }
+        },
+        "26226": {
+          "name": "Front Inside",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            61,
+            219,
+            882,
+            609
+          ],
+          "half": [
+            441,
+            305
+          ],
+          "shown": [
+            2,
+            5
+          ],
+          "files": {
+            "place": "v19255-white-26226-place-aecc4623be.png",
+            "uv": "v19255-white-26226-uv-8cfa55e9cc.png",
+            "uvplace": "v19255-white-26226-uvplace-7755c72fe7.png",
+            "underplace": "v19255-white-26226-underplace-ca9564bc41.png",
+            "underuv": "v19255-white-26226-underuv-20f3cdd58b.png",
+            "edge": "v19255-white-26226-edge-46236640cb.png",
+            "base": "v19255-clear-26226-base-c9c8e479c2.webp",
+            "gain": "v19255-clear-26226-gain-328d0fb77e.webp",
+            "gamma": "v19255-clear-26226-gamma-f5e004e110.webp"
+          },
+          "need": {
+            "2": 1600
+          }
+        }
+      }
+    }
+  }
+}

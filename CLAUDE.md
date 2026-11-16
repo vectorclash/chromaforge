@@ -3286,6 +3286,192 @@ with the "Go to studio" link directly beneath them (`.controls-compact .go-to-st
 un-absolutes the full studio's below-panel positioning); the shirt (190px) is deliberately
 larger than the button column — it's the panel's visual anchor.
 
+### Instant mockups: every product photo wears the current design, made in the browser (2026-11-15)
+Aaron: shop cards, the homepage carousel and a product page should show the active artwork without
+waiting on Printful. `src/lib/instantMockup.js` (pure compositor), `instantMockupWorker.js` (decode,
+composite and encode off the page), `instantMockupStore.js` (configurations, shared renders, cache),
+`hooks/useInstantMockup.js`, `components/ui/ProductPhoto.jsx`; calibration in
+`scripts/calibrate-instant-mockup.mjs`, assets in `public/instant-mockups/<id>/`, the generated index
+`src/lib/instantMockupIndex.js`. Products and selections not in the index keep the Printful flow.
+Things worth not re-deriving:
+(1) **It MEASURES Printful's mapping; it derives nothing.** The July 2026 compositor (branch deleted)
+fitted scale tables and guessed panel regions and never looked real. This one sends Printful 9 mockup
+tasks per photo set: white, black and grey artwork (per-pixel shading, and a per-pixel gamma, since
+folds bend mid-tones -- up to ~4 on model shots), an ID pattern (a colour per placement; mid grey is the
+8th for the eight-placement products), and phase-shifted sines, 1 and 8 periods per axis, three phases
+in R/G/B (structured light: the exact print-file coordinate of every pixel). Runtime is
+`out = base + gain * art(place, u, v)^gamma`. `verify` renders a saved design's print files, gets a REAL
+mockup of them and composes the instant photo from the same files: the tee comes out at mean error
+2.2-6.7 / 255 per view, the size of the real JPEGs' own noise. Comparison:
+https://claude.ai/artifact/8BzorhJxpSNeFZHHcgTsYf
+(2) **Configurations.** Photos differ by variant (the tote's bag colour, the pillow's size -- Printful
+photographs the pillow, bandana and phone case per variant) and by stitch colour, so each photo set is a
+configuration `v<variant>[-<stitch>]` listing the variants it covers. One that differs only in SHADING
+(a stitch colour, a bag colour) is `--shading-from` another: 4 tasks, reusing its mapping. The product
+page picks the configuration from the selected variant and stitch colour (`instantConfigFor`); none
+means that selection shows the Printful flow. The shop uses each product's default (the variant its
+page opens on). The phone case has only its default model calibrated.
+(3) **The renders go through the real mockup path**: `renderAndUploadPrintFiles` + `capRenderStrategy`
+with a `sink` that keeps the image instead of uploading it (and `labelSink`), so placements, mirroring,
+geometry choices, pocket crops, wraps and labels can never drift from a Printful mockup or the order.
+Shop cards use `lib/mockupDefaults.js` (moved from adBuilder), the product page its live options.
+Renders are shared per placement across views (`placementSources`), at 1000px long edge with the
+quarter-area nebula (measured: 685/1000/2000 give identical error), so a card and its product page
+share them. **Every photo ARRIVES the way a design change does** (Aaron, 2026-11-15): the blank
+garment first (made from the calibration alone, no render), the shimmer while the print is made, then
+the print swept on. The shop waits only for the first screenful's blanks and starts their prints at
+once, in grid order, so they land as a cascade: grid back to ~1-1.5s (it was ~2s waiting for the
+prints, ~1s with stock photos), prints landing ~0.4-1.4s later. The stock photo is never shown for a
+calibrated selection.
+(4) **Decoding has two guards needed on real data**: a fine reading with low modulation, or disagreeing
+with the coarse one by over 0.3 periods, falls back to the coarse (a strip where the shirt turns away
+decoded a whole period out), and a 3x3 per-placement median. Undecodable pixels the artwork still
+reaches take their nearest decoded neighbour.
+(5) **Size and speed.** Base and gain are lossy WebP; gamma and the coordinates are HALF resolution,
+the coordinates interpolated only between cells of the same print file and not across a jump inside
+one (the collar is cut from the front's file elsewhere), so seams stay seams. ~100-130 KB a view (was
+230-400 KB); error moved ~0.1/255. All pixel work runs in the worker (Safari < 16.4 and failures fall
+back to the page): at 4x CPU a Generate adds no long task. Shop/carousel photos are `lazy` until near
+the screen; the shop still prepares its first screenful before showing the grid. Files are
+content-hashed (`public/` has a fixed-name one-hour cache, so a browser holding an old manifest must
+find its own files or none).
+(6) **A calibrated product's page has NO Printful step (Aaron's pick, 2026-11-15).** Every view is
+instant, in printfulViewPolicy's strip order, opening on the strip's first view, the first flat (it opened on the shop card's view, third or so in the strip, and Aaron: that "feels weird"). No
+scrim, no sign-in wall for previews, no `useMockup` sync; Buy Now skips the "not previewed" step and
+Stripe's line image is the instant photo uploaded at Buy Now (`instantCheckoutImage`, stock photo on
+failure). **The photo has no buttons**: a Generate/Save pair was built (on it, then under it) and
+dropped ("We have the mini generator") -- don't re-add one.
+(7) **A design change changes only the PRINT** (Aaron: the photo "just goes dark" and the thumbnails
+"change instantly"). Under each photo sits the blank shirt (the view composed with white artwork, no
+render) so the print lifts off to it; a spectrum band (`.fabric-shimmer`, masked to the fabric by a mask
+from the place map) passes over the fabric while the new design is made; the new print is laid down top
+to bottom (`.print-sweep`, a mask riding `--sweep` via useCrossfadeImage's `reveal: 'sweep'`) -- Aaron's
+pick over a fade and over facets. The hero and every thumbnail wait on ONE signal (`instantPending`,
+until every view is ready) so they change together; a shop card stays in its loading state until its
+own photo lands (ending it when the studio preview lands faded the old photo back in, which also exposed
+a now-fixed `useCrossfadeImage` gap: a url arriving during that fade-back was queued and never shown).
+(7a) **A picked view is an ANGLE SWITCH (facets) only once the current content is on screen**
+(ProductPhoto's `lastChangeRef.shown`; Aaron, on the bandana: after a size change, "the model shot
+from the different size will be there first then switch"). Before that it is the arrival of the new
+content (old photo out, the view's blank, the print swept on). "On screen" means settled AND
+displayed, not merely made: a size whose photos were cached from an earlier visit is ready the
+instant it is picked while the old photo is still fading, and counted as shown then, the next pick
+snapped that fading photo back to full and assembled the new view out of it. Reproduced with a
+per-frame trace of every visible photo layer: 27 frames of the old size's photo after the click,
+now none beyond its own fade-out.
+(7b) **Cheap enough for a grid of twenty** (Aaron: the shop "kind of slows down a little bit" with that
+many cards updating, on a MacBook Pro; headless Chromium and WebKit both held 60fps, so this was fixed
+structurally rather than from a trace): every animation is a transform or an opacity -- the sweep is a
+`.sweep-wrap` 20% taller than the photo with a static feathered bottom, sliding down while the photo
+inside slides up by as much (utils/printSweep.js, Web Animations, so the compositor runs it), and the
+shimmer is a band moved by transform inside a masked box, mounted only while it shows (it used to
+animate a background position, with a blend mode, forever, on every card, even hidden; the first sweep
+animated a mask's stops). And a lazy card (shop, carousel) follows the design only while within 400px
+of the screen: off it, it keeps its photo, makes nothing, and catches up with the usual transition on
+return. Measured: a Generate at the top of a fully scrolled shop makes 20 renders (visible cards plus
+the studio's own) where every visited card used to re-render at once; scrolling down then catches the
+rest up (14 more).
+(8) **FacetSwap no longer redraws the outgoing photo on its canvas** (Aaron: on a thumbnail click the
+photo moved "up and to the left, like one or two pixels, and then moves back into place"). Two shifts,
+measured: Safari rasterises an `<img>` and a canvas copy of the same picture up to a device pixel apart
+(even in a bare page with an integer box; Chromium matches exactly), and every landed triangle is drawn
+1.2% oversized about its centre, so the last canvas frame sits up to a pixel off the photo in ANY
+browser. The outgoing photo is now its own decoded image element over the slot for the run
+(pixel-identical, measured in WebKit) and a finished run fades the canvas out (180ms). Applies to the
+Printful mockup filmstrip too.
+**Nothing is decoded inside a run** (same day, Aaron: frames dropped "now and again" during it): the
+hero passes every view's photo (`warm`) and FacetSwap decodes them ahead with `img.decode()`, and the
+hero decodes every view's blank garment the same way. Measured in WebKit, the run's first frame went
+from 4-5ms of JS (the incoming photo decoded by its first draw) to 1ms; no frame of a run costs more.
+No drop reproduced in headless Chromium or WebKit, even at 4x CPU -- so `?renderlog=1` now logs each
+run (size, first-frame cost, worst frame gap) beside its stall list, for a device that does drop.
+A harness that measures this must SCROLL the thumbnail into view before clicking: below the fold the
+click lands outside the viewport, nothing plays, and every frame reads a perfect 16.7ms.
+**Nor does anything build up across runs** (Aaron: the drops came "after i've changed the image a bunch
+of times"). Every run drew its incoming photo into a NEW full-size canvas (6.5MB at 2x), never reused:
+131 after 120 swaps, measured, in memory the JS heap does not count and the collector frees late. Now
+three are kept and the least recent is REDRAWN for a new photo -- going round eight views in order
+misses any small cache every time, so recycling, not caching, is what stopped it (14 canvases made in
+120 swaps, flat). Decoded photos are held only for the design on screen (`warm` prunes the rest).
+`scratchpad`-style harnesses for this: 120 swaps in a row, and 12 Generates with swaps after each,
+tracking canvases made, live object URLs and heap per block -- all flat now.
+**THE ACTUAL CAUSE WAS SAFARI REDRAWING A 2D CANVAS, and the transition is now drawn with WebGL**
+(`components/ui/facetGl.js`; the 2D drawing stays as the fallback). Aaron's `?renderlog=1` on his Mac:
+every run 2-6 frames over 20ms, worst ~40ms, mid-run. Smooth in Firefox and in headless Chromium and
+WebKit, so it was settled on his machine with temporary `?facet=` modes: a quarter of the pixels, no
+glints and half the triangles per frame ALL still dropped; the canvas drawn once and left up did not.
+So it was redrawing a 2D canvas at all (~70 clipped image draws a frame), which Safari can do on the
+CPU, not any amount the drawing could trim -- and it had been smooth before only by circumstance.
+WebGL draws the same frame in one call (textured triangles, the glints as quads): against the 2D
+drawing on a real photo, mean difference 0.5-2/255. One context per product page, made on the first
+swap and force-lost on leaving (verified); it is created imperatively, not rendered, because a context
+lost on teardown cannot be had again from the same element and StrictMode tears down and remounts.
+`?facet=2d` still forces the old path for comparison -- remove it once Aaron confirms.
+(8b) **Transparent labels are laid over the print beneath them** (Aaron worried about the close-ups
+with labels; rightly -- the shorts' outside label rendered as a black square on every view). A
+label_outside mark (and the bucket hat's inside label) is a transparent PNG Printful prints OVER the
+artwork, but the calibration only measured the LABEL at those pixels. `--underlay` re-runs the ID and
+coordinate patterns with the labels left off (5 tasks) to measure what lies underneath (`underuv` /
+`underplace` maps); the compositor blends the mark over that by its own alpha. Opaque inside tags
+needed nothing. Labels also never name a filmstrip view: their "inside" kept the hat's inside faces.
+**A label's ink is chosen from the FRONT, so every batch must know where the front is**
+(`renderAndUploadPrintFiles`' `allEntries`; Aaron: "our label light/dark swap doesn't seem to be
+working now"). The instant path renders in batches -- per view, and since (8d) per render size -- and
+a batch holding the label but not the front could not sample the print under it, so the mark always
+took the dark ink. Measured on the shorts over 12 designs: alone, dark every time; with the product's
+full placement list, light on the 10 whose print under the label is dark, matching checkout (which
+renders every placement at once, and was never affected).
+(8c) **State at the end of 2026-11-15**: all 20 products calibrated, 48 photo sets -- each product's
+default (verified against a real mockup: mean error 2-11 / 255, the high end small or textured areas
+that still match by eye), black or clear stitching for every product with a stitch option, the tote's
+three colours, the windbreaker's two, the pillow's five sizes and the bandana's three; underlays for
+693/784/801/744/654. ~38 MB under public/instant-mockups. Capture took ~360 tasks.
+(8d) **Quality pass, same day** (Aaron: labels "very pixelated at some places", "a phantom square
+outline on some or just the full black square still", "some pixelated areas and seams"). All of it
+is decode and compositor work -- no new Printful tasks. Measured against the 133 real Printful photos
+`verify` had already downloaded (the verify design re-rendered offline): pixels off by more than 40
+levels went **2.20 -> 0.73 per thousand**, the worst 1% **17.2 -> 14.7**, every product better or
+flat. Eight things worth not re-deriving:
+- **Printful gives a photo a DIFFERENT id when no label is submitted** on 4 of the 5 label products
+  (track jacket 57252 -> 57253, and the crossbody's and joggers' on-model and close-up shots), so the
+  underlay was never paired with those views and the label drew as a black square. The decode now
+  pairs a missing id by silhouette (`underPhotoFor`, IoU > 0.97). The shorts' label close-up (30428)
+  has no label-free photo at all; it uses the product config's label region instead
+  (`synthUnder`), which agrees with the measured underlay to **6-9 print-file pixels** wherever both
+  exist, so it is trustworthy.
+- **The phantom square was the label's edge read as a blend of two patterns.** Within `LABEL_RING`
+  (3px) of a label the label-free capture is used for the print itself, and the underlay covers the
+  ring so an edge cell always has a measured neighbour.
+- **Seams: clear and refill, then blend by coverage.** A pixel on a seam (or across a cut inside one
+  print file -- the shorts' two legs) decodes to a coordinate on neither side: a column of wrong
+  colours. Those are cleared and refilled from their own side; noise that disagrees with its
+  neighbours and islands under 24px go the same way. Then every seam pixel's COVERAGE is fitted from
+  all the patterns (the reading as a mix of what each side would show), written to a full-resolution
+  `edge` map with which half-resolution cells are on each side, and the compositor blends the two
+  prints by it. Before, the side of a cut was decided on the half-resolution grid -- a 2px staircase.
+- **Every threshold in coordinate units is PER PRINT FILE**, scaled by that file's typical step per
+  pixel (decode: `stepOf`/`cutOf`; compositor: `jumpsOf`). A label drawn 95px wide moves 5% of itself
+  per pixel; a fixed 0.03 cut wiped a whole label as noise in the first version, and in the
+  compositor made a tiny label sample nearest cells at full detail (speckle).
+- **Print files are mip-mapped and labels premultiplied** (`levelsOf`, `sampleLod`). A 450px mark
+  drawn 60px wide was point-sampled into broken dotted lines; clear pixels are transparent BLACK, so
+  straight-alpha blending dragged every edge of the mark dark.
+- **The gamma lookup must be clamped.** A mark's edge over the print can sum past 255, and index 256
+  is the next row's first entry (0): a pink line grew blue pixels.
+- **The product page renders each print file at the size its views need** (the calibration's per-view
+  `need`, at most 2500px, shared per print file): close-ups enlarge a 1000px render 2-5x and came out
+  soft and blocky. Shop cards and the carousel stay at 1000px (Aaron: the product pages are what has
+  to be right). Photos made this way are keyed apart (`detail`). In the worker 2500px renders in
+  ~170ms against ~70ms at 1000; its decoded renders are bounded by bytes (160MB).
+- **The compositor is ~1.8x the work it was** (mip sampling, the level-of-detail grid); the grid and
+  cut thresholds depend only on the view and render sizes, so they are cached on the view.
+Measure any future change the same way (the real photos are in `.calib/<id>/<cfg>/verify/`).
+(9) **Known gaps**: the phone case's other models (Aaron wants them all -- TODO.md) and any colour x
+stitch combination not captured (a red tote with clear stitching, a 16in pillow with black) fall back to
+the Printful flow; a recalibration is needed if Printful changes a photo (re-run `verify`).
+Capture costs 9 tasks (4 shading-only, 1 verify) against the store-wide 10/60s create limit, and leaves
+files in Printful's library; `.calib/` (gitignored) keeps the downloads so `decode` reruns for free.
+
 ### The shop has a product-type filter (`components/ui/ShopFilter.jsx`, 2026-10-11)
 All · Tees & tanks · Hoodies & jackets · Bottoms · Accessories -- grouping "B" of three Aaron
 compared in an interactive mockup (https://claude.ai/artifact/5Kzj4jztfJW2WmYiX3i1ZZ), chosen so

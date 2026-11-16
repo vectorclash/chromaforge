@@ -1,0 +1,570 @@
+{
+  "productId": 630,
+  "configs": {
+    "v16031-white": {
+      "variantId": 16031,
+      "variants": [
+        16031
+      ],
+      "stitch": "white",
+      "default": true,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 380,
+          "width": 4125,
+          "height": 4125
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        }
+      ],
+      "views": {
+        "23262": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            196,
+            189,
+            614,
+            608
+          ],
+          "half": [
+            307,
+            304
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16031-white-23262-place-03a6a4c965.png",
+            "uvplace": "v16031-white-23262-uvplace-9d999d61e7.png",
+            "uv": "v16031-white-23262-uv-4fd2d11914.png",
+            "edge": "v16031-white-23262-edge-b385eaee8b.png",
+            "base": "v16031-white-23262-base-8a32efecf7.webp",
+            "gain": "v16031-white-23262-gain-2d81df1e5c.webp",
+            "gamma": "v16031-white-23262-gamma-d369040394.webp"
+          }
+        },
+        "23346": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            1000
+          ],
+          "half": [
+            500,
+            500
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16031-white-23346-place-310d8c7a94.png",
+            "uvplace": "v16031-white-23346-uvplace-6f4eb0af51.png",
+            "uv": "v16031-white-23346-uv-edfee0886a.png",
+            "edge": "v16031-white-23346-edge-52c5d69d40.png",
+            "base": "v16031-white-23346-base-f10a658df4.webp",
+            "gain": "v16031-white-23346-gain-561c7f153e.webp",
+            "gamma": "v16031-white-23346-gamma-54dc22ce01.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        },
+        "23355": {
+          "name": "Front",
+          "group": "Lifestyle 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            408,
+            299,
+            328,
+            388
+          ],
+          "half": [
+            164,
+            194
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v16031-white-23355-place-b5cfe3957b.png",
+            "uvplace": "v16031-white-23355-uvplace-a5ff2d0543.png",
+            "uv": "v16031-white-23355-uv-2e31dc8c2f.png",
+            "edge": "v16031-white-23355-edge-7fd6f0fc38.png",
+            "base": "v16031-white-23355-base-09ddee3c74.webp",
+            "gain": "v16031-white-23355-gain-4307240203.webp",
+            "gamma": "v16031-white-23355-gamma-e2f679b8bd.webp"
+          }
+        }
+      }
+    },
+    "v16032-white": {
+      "variantId": 16032,
+      "variants": [
+        16032
+      ],
+      "stitch": "white",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 380,
+          "width": 4125,
+          "height": 4125
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        }
+      ],
+      "views": {
+        "23276": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            117,
+            123,
+            772,
+            754
+          ],
+          "half": [
+            386,
+            377
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16032-white-23276-place-9a99ad8468.png",
+            "uvplace": "v16032-white-23276-uvplace-669cf10ed6.png",
+            "uv": "v16032-white-23276-uv-e63877e64e.png",
+            "edge": "v16032-white-23276-edge-c616a87dc7.png",
+            "base": "v16032-white-23276-base-ce561b2628.webp",
+            "gain": "v16032-white-23276-gain-ea1498d2df.webp",
+            "gamma": "v16032-white-23276-gamma-4b75535323.webp"
+          }
+        },
+        "23347": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            1000
+          ],
+          "half": [
+            500,
+            500
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16032-white-23347-place-27ee34ba83.png",
+            "uvplace": "v16032-white-23347-uvplace-309b784a7c.png",
+            "uv": "v16032-white-23347-uv-d9ea06e432.png",
+            "edge": "v16032-white-23347-edge-e639db7bd6.png",
+            "base": "v16032-white-23347-base-f10a658df4.webp",
+            "gain": "v16032-white-23347-gain-561c7f153e.webp",
+            "gamma": "v16032-white-23347-gamma-54dc22ce01.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        },
+        "23356": {
+          "name": "Front",
+          "group": "Lifestyle 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            297,
+            252,
+            263,
+            374
+          ],
+          "half": [
+            132,
+            187
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v16032-white-23356-place-f074db0722.png",
+            "uvplace": "v16032-white-23356-uvplace-a2b4a6fdb1.png",
+            "uv": "v16032-white-23356-uv-5761fdabf3.png",
+            "edge": "v16032-white-23356-edge-8c875eccd2.png",
+            "base": "v16032-white-23356-base-b700bdcb71.webp",
+            "gain": "v16032-white-23356-gain-5065da0fe2.webp",
+            "gamma": "v16032-white-23356-gamma-211cfaa23e.webp"
+          }
+        }
+      }
+    },
+    "v16033-white": {
+      "variantId": 16033,
+      "variants": [
+        16033
+      ],
+      "stitch": "white",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 380,
+          "width": 4125,
+          "height": 4125
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        }
+      ],
+      "views": {
+        "23280": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            47,
+            49,
+            913,
+            893
+          ],
+          "half": [
+            457,
+            447
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16033-white-23280-place-7814a09f36.png",
+            "uvplace": "v16033-white-23280-uvplace-31a30f20f2.png",
+            "uv": "v16033-white-23280-uv-8aac0640d6.png",
+            "edge": "v16033-white-23280-edge-f1408337d6.png",
+            "base": "v16033-white-23280-base-4d391912ee.webp",
+            "gain": "v16033-white-23280-gain-33cbec5e19.webp",
+            "gamma": "v16033-white-23280-gamma-ec44b13ff4.webp"
+          }
+        },
+        "23348": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            1000
+          ],
+          "half": [
+            500,
+            500
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16033-white-23348-place-a26d3e6157.png",
+            "uvplace": "v16033-white-23348-uvplace-66b14ecb4a.png",
+            "uv": "v16033-white-23348-uv-71f262795d.png",
+            "edge": "v16033-white-23348-edge-8425565318.png",
+            "base": "v16033-white-23348-base-f10a658df4.webp",
+            "gain": "v16033-white-23348-gain-561c7f153e.webp",
+            "gamma": "v16033-white-23348-gamma-54dc22ce01.webp"
+          },
+          "need": {
+            "0": 2400
+          }
+        },
+        "23357": {
+          "name": "Front",
+          "group": "Lifestyle 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            398,
+            242,
+            222,
+            365
+          ],
+          "half": [
+            111,
+            183
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v16033-white-23357-place-0820e0114e.png",
+            "uvplace": "v16033-white-23357-uvplace-3fbfec88a7.png",
+            "uv": "v16033-white-23357-uv-b9cc7f9152.png",
+            "edge": "v16033-white-23357-edge-d45f8f5884.png",
+            "base": "v16033-white-23357-base-80c3dbdce5.webp",
+            "gain": "v16033-white-23357-gain-60aa16e946.webp",
+            "gamma": "v16033-white-23357-gamma-74e28c899a.webp"
+          }
+        }
+      }
+    },
+    "v16031-black": {
+      "variantId": 16031,
+      "variants": [
+        16031
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 380,
+          "width": 4125,
+          "height": 4125
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        }
+      ],
+      "views": {
+        "23262": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            196,
+            189,
+            614,
+            608
+          ],
+          "half": [
+            307,
+            304
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16031-white-23262-place-03a6a4c965.png",
+            "uv": "v16031-white-23262-uv-4fd2d11914.png",
+            "uvplace": "v16031-white-23262-uvplace-9d999d61e7.png",
+            "edge": "v16031-white-23262-edge-b385eaee8b.png",
+            "base": "v16031-black-23262-base-b23062c6bf.webp",
+            "gain": "v16031-black-23262-gain-361e6c888a.webp",
+            "gamma": "v16031-black-23262-gamma-35ab56b613.webp"
+          }
+        },
+        "23346": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            1000
+          ],
+          "half": [
+            500,
+            500
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16031-white-23346-place-310d8c7a94.png",
+            "uv": "v16031-white-23346-uv-edfee0886a.png",
+            "uvplace": "v16031-white-23346-uvplace-6f4eb0af51.png",
+            "edge": "v16031-white-23346-edge-52c5d69d40.png",
+            "base": "v16031-black-23346-base-48fb6641b5.webp",
+            "gain": "v16031-black-23346-gain-9c0cff7d9a.webp",
+            "gamma": "v16031-black-23346-gamma-83df3abc4e.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        },
+        "23355": {
+          "name": "Front",
+          "group": "Lifestyle 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            408,
+            299,
+            328,
+            388
+          ],
+          "half": [
+            164,
+            194
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v16031-white-23355-place-b5cfe3957b.png",
+            "uv": "v16031-white-23355-uv-2e31dc8c2f.png",
+            "uvplace": "v16031-white-23355-uvplace-a5ff2d0543.png",
+            "edge": "v16031-white-23355-edge-7fd6f0fc38.png",
+            "base": "v16031-black-23355-base-68fa2f94e4.webp",
+            "gain": "v16031-black-23355-gain-5e16e7455f.webp",
+            "gamma": "v16031-black-23355-gamma-76728c0b24.webp"
+          }
+        }
+      }
+    },
+    "v16031-clear": {
+      "variantId": 16031,
+      "variants": [
+        16031
+      ],
+      "stitch": "clear",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 380,
+          "width": 4125,
+          "height": 4125
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        }
+      ],
+      "views": {
+        "23262": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            196,
+            189,
+            614,
+            608
+          ],
+          "half": [
+            307,
+            304
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16031-white-23262-place-03a6a4c965.png",
+            "uv": "v16031-white-23262-uv-4fd2d11914.png",
+            "uvplace": "v16031-white-23262-uvplace-9d999d61e7.png",
+            "edge": "v16031-white-23262-edge-b385eaee8b.png",
+            "base": "v16031-clear-23262-base-4376b6aa3a.webp",
+            "gain": "v16031-clear-23262-gain-71465d750b.webp",
+            "gamma": "v16031-clear-23262-gamma-39482c2f91.webp"
+          }
+        },
+        "23346": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            1000
+          ],
+          "half": [
+            500,
+            500
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v16031-white-23346-place-310d8c7a94.png",
+            "uv": "v16031-white-23346-uv-edfee0886a.png",
+            "uvplace": "v16031-white-23346-uvplace-6f4eb0af51.png",
+            "edge": "v16031-white-23346-edge-52c5d69d40.png",
+            "base": "v16031-clear-23346-base-f253525274.webp",
+            "gain": "v16031-clear-23346-gain-eccefe0bc6.webp",
+            "gamma": "v16031-clear-23346-gamma-381ca7fdb9.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        },
+        "23355": {
+          "name": "Front",
+          "group": "Lifestyle 2",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            408,
+            299,
+            328,
+            388
+          ],
+          "half": [
+            164,
+            194
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v16031-white-23355-place-b5cfe3957b.png",
+            "uv": "v16031-white-23355-uv-2e31dc8c2f.png",
+            "uvplace": "v16031-white-23355-uvplace-a5ff2d0543.png",
+            "edge": "v16031-white-23355-edge-7fd6f0fc38.png",
+            "base": "v16031-clear-23355-base-76d532bcdb.webp",
+            "gain": "v16031-clear-23355-gain-3735d51c47.webp",
+            "gamma": "v16031-clear-23355-gamma-5d3a381c16.webp"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getCatalogProduct, getPrintfileSpecs } from '../lib/printful';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
-import { defaultMockupOptions } from './mockupDefaults';
+import { defaultMockupOptions } from '../lib/mockupDefaults';
 import { keepPrintfulImage, keepFile } from './devApi';
 import Button from '../components/ui/Button';
 import ScrollStrip from '../components/ui/ScrollStrip';

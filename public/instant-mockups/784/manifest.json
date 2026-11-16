@@ -1,0 +1,563 @@
+{
+  "productId": 784,
+  "configs": {
+    "v19889-white": {
+      "variantId": 19889,
+      "variants": [
+        19895,
+        19889,
+        19896,
+        19897,
+        19898,
+        19899,
+        19893,
+        19892,
+        19891,
+        19894,
+        19890
+      ],
+      "stitch": "white",
+      "default": true,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 644,
+          "width": 9750,
+          "height": 8100
+        },
+        {
+          "key": "back",
+          "printfileId": 644,
+          "width": 9750,
+          "height": 8100
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        },
+        {
+          "key": "label_outside",
+          "printfileId": 400,
+          "width": 450,
+          "height": 450
+        }
+      ],
+      "views": {
+        "51113": {
+          "name": "Back",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            261,
+            32,
+            480,
+            931
+          ],
+          "half": [
+            240,
+            466
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19889-white-51113-place-c29bf3eeac.png",
+            "uvplace": "v19889-white-51113-uvplace-546e4a85db.png",
+            "uv": "v19889-white-51113-uv-74eddb794b.png",
+            "edge": "v19889-white-51113-edge-4dd9959aea.png",
+            "base": "v19889-white-51113-base-78a2593a04.webp",
+            "gain": "v19889-white-51113-gain-450c0ee2ac.webp",
+            "gamma": "v19889-white-51113-gamma-dacb886b9d.webp"
+          },
+          "need": {
+            "0": 1300,
+            "1": 1300
+          }
+        },
+        "51116": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            261,
+            33,
+            480,
+            930
+          ],
+          "half": [
+            240,
+            465
+          ],
+          "shown": [
+            0,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51116-place-a6953eab18.png",
+            "uvplace": "v19889-white-51116-uvplace-28bb18f525.png",
+            "uv": "v19889-white-51116-uv-6ba38a2a5f.png",
+            "edge": "v19889-white-51116-edge-fea24be007.png",
+            "underplace": "v19889-white-51116-underplace-5edd609175.png",
+            "underuv": "v19889-white-51116-underuv-8db1d47c1d.png",
+            "base": "v19889-white-51116-base-ec6dc323fc.webp",
+            "gain": "v19889-white-51116-gain-be8563b457.webp",
+            "gamma": "v19889-white-51116-gamma-71a9933e4a.webp"
+          },
+          "need": {
+            "0": 1400
+          }
+        },
+        "51119": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            950
+          ],
+          "half": [
+            500,
+            475
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51119-place-3346a238a0.png",
+            "uvplace": "v19889-white-51119-uvplace-9132f35c81.png",
+            "uv": "v19889-white-51119-uv-32e1a3ae8e.png",
+            "edge": "v19889-white-51119-edge-78c910a93d.png",
+            "underplace": "v19889-white-51119-underplace-b870f9c90c.png",
+            "underuv": "v19889-white-51119-underuv-d7250f83e1.png",
+            "base": "v19889-white-51119-base-1f60211fe3.webp",
+            "gain": "v19889-white-51119-gain-41e0b5a16f.webp",
+            "gamma": "v19889-white-51119-gamma-337664e33e.webp"
+          },
+          "need": {
+            "0": 2500,
+            "1": 2500
+          }
+        },
+        "51135": {
+          "name": "Front",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            362,
+            460,
+            265,
+            488
+          ],
+          "half": [
+            133,
+            244
+          ],
+          "shown": [
+            0,
+            1,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51135-place-9e4b61e8b5.png",
+            "uvplace": "v19889-white-51135-uvplace-b7175daab1.png",
+            "uv": "v19889-white-51135-uv-2ab259bbc5.png",
+            "edge": "v19889-white-51135-edge-dd2e110ecc.png",
+            "underplace": "v19889-white-51135-underplace-132d2046a0.png",
+            "underuv": "v19889-white-51135-underuv-2336113041.png",
+            "base": "v19889-white-51135-base-ba7c611c7c.webp",
+            "gain": "v19889-white-51135-gain-975d24dcf7.webp",
+            "gamma": "v19889-white-51135-gamma-33f6512a5c.webp"
+          }
+        },
+        "51139": {
+          "name": "Left",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            208,
+            221,
+            613,
+            779
+          ],
+          "half": [
+            307,
+            390
+          ],
+          "shown": [
+            0,
+            1,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51139-place-7e8c82cbd3.png",
+            "uvplace": "v19889-white-51139-uvplace-4a25a0d3e5.png",
+            "uv": "v19889-white-51139-uv-9c20f959e7.png",
+            "edge": "v19889-white-51139-edge-af838fcbe3.png",
+            "underplace": "v19889-white-51139-underplace-5c5df664f8.png",
+            "underuv": "v19889-white-51139-underuv-8afe7b7927.png",
+            "base": "v19889-white-51139-base-72bb748343.webp",
+            "gain": "v19889-white-51139-gain-68bd3d68ed.webp",
+            "gamma": "v19889-white-51139-gamma-769f729af6.webp"
+          },
+          "need": {
+            "0": 1900,
+            "1": 2000
+          }
+        },
+        "51142": {
+          "name": "Right Back",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            292,
+            483,
+            331,
+            486
+          ],
+          "half": [
+            166,
+            243
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19889-white-51142-place-a52cf69ef2.png",
+            "uvplace": "v19889-white-51142-uvplace-c978e30e9e.png",
+            "uv": "v19889-white-51142-uv-76d5593de6.png",
+            "edge": "v19889-white-51142-edge-20254fa9ff.png",
+            "base": "v19889-white-51142-base-1375cd78ef.webp",
+            "gain": "v19889-white-51142-gain-b9d18164cf.webp",
+            "gamma": "v19889-white-51142-gamma-2008aad466.webp"
+          }
+        },
+        "51145": {
+          "name": "Right Front",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            266,
+            531,
+            342,
+            427
+          ],
+          "half": [
+            171,
+            214
+          ],
+          "shown": [
+            0,
+            1,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51145-place-8e25707e85.png",
+            "uvplace": "v19889-white-51145-uvplace-2de42c996c.png",
+            "uv": "v19889-white-51145-uv-4f0161b3e6.png",
+            "edge": "v19889-white-51145-edge-c7a3d1c1a0.png",
+            "underplace": "v19889-white-51145-underplace-079e06084d.png",
+            "underuv": "v19889-white-51145-underuv-205a01eb21.png",
+            "base": "v19889-white-51145-base-20258cf21f.webp",
+            "gain": "v19889-white-51145-gain-b480471f35.webp",
+            "gamma": "v19889-white-51145-gamma-d43234ebc1.webp"
+          }
+        }
+      }
+    },
+    "v19889-black": {
+      "variantId": 19889,
+      "variants": [
+        19895,
+        19889,
+        19896,
+        19897,
+        19898,
+        19899,
+        19893,
+        19892,
+        19891,
+        19894,
+        19890
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 644,
+          "width": 9750,
+          "height": 8100
+        },
+        {
+          "key": "back",
+          "printfileId": 644,
+          "width": 9750,
+          "height": 8100
+        },
+        {
+          "key": "label_inside",
+          "printfileId": 64,
+          "width": 375,
+          "height": 150
+        },
+        {
+          "key": "label_outside",
+          "printfileId": 400,
+          "width": 450,
+          "height": 450
+        }
+      ],
+      "views": {
+        "51113": {
+          "name": "Back",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            261,
+            32,
+            480,
+            931
+          ],
+          "half": [
+            240,
+            466
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19889-white-51113-place-c29bf3eeac.png",
+            "uv": "v19889-white-51113-uv-74eddb794b.png",
+            "uvplace": "v19889-white-51113-uvplace-546e4a85db.png",
+            "edge": "v19889-white-51113-edge-4dd9959aea.png",
+            "base": "v19889-black-51113-base-5da822611e.webp",
+            "gain": "v19889-black-51113-gain-e5a4b1797d.webp",
+            "gamma": "v19889-black-51113-gamma-4b8c64b26d.webp"
+          },
+          "need": {
+            "0": 1300,
+            "1": 1300
+          }
+        },
+        "51116": {
+          "name": "Front",
+          "group": "Flat",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            261,
+            33,
+            480,
+            930
+          ],
+          "half": [
+            240,
+            465
+          ],
+          "shown": [
+            0,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51116-place-a6953eab18.png",
+            "uv": "v19889-white-51116-uv-6ba38a2a5f.png",
+            "uvplace": "v19889-white-51116-uvplace-28bb18f525.png",
+            "underplace": "v19889-white-51116-underplace-5edd609175.png",
+            "underuv": "v19889-white-51116-underuv-8db1d47c1d.png",
+            "edge": "v19889-white-51116-edge-fea24be007.png",
+            "base": "v19889-black-51116-base-4632165a15.webp",
+            "gain": "v19889-black-51116-gain-840f68df64.webp",
+            "gamma": "v19889-black-51116-gamma-2865e09475.webp"
+          },
+          "need": {
+            "0": 1400
+          }
+        },
+        "51119": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            0,
+            1000,
+            950
+          ],
+          "half": [
+            500,
+            475
+          ],
+          "shown": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51119-place-3346a238a0.png",
+            "uv": "v19889-white-51119-uv-32e1a3ae8e.png",
+            "uvplace": "v19889-white-51119-uvplace-9132f35c81.png",
+            "underplace": "v19889-white-51119-underplace-b870f9c90c.png",
+            "underuv": "v19889-white-51119-underuv-d7250f83e1.png",
+            "edge": "v19889-white-51119-edge-78c910a93d.png",
+            "base": "v19889-black-51119-base-996cfb5f79.webp",
+            "gain": "v19889-black-51119-gain-1cedac4509.webp",
+            "gamma": "v19889-black-51119-gamma-8afdce7793.webp"
+          },
+          "need": {
+            "0": 2500,
+            "1": 2500
+          }
+        },
+        "51135": {
+          "name": "Front",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            362,
+            460,
+            265,
+            488
+          ],
+          "half": [
+            133,
+            244
+          ],
+          "shown": [
+            0,
+            1,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51135-place-9e4b61e8b5.png",
+            "uv": "v19889-white-51135-uv-2ab259bbc5.png",
+            "uvplace": "v19889-white-51135-uvplace-b7175daab1.png",
+            "underplace": "v19889-white-51135-underplace-132d2046a0.png",
+            "underuv": "v19889-white-51135-underuv-2336113041.png",
+            "edge": "v19889-white-51135-edge-dd2e110ecc.png",
+            "base": "v19889-black-51135-base-3cc6414abc.webp",
+            "gain": "v19889-black-51135-gain-7892d009e4.webp",
+            "gamma": "v19889-black-51135-gamma-dceffc8059.webp"
+          }
+        },
+        "51139": {
+          "name": "Left",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            208,
+            221,
+            613,
+            779
+          ],
+          "half": [
+            307,
+            390
+          ],
+          "shown": [
+            0,
+            1,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51139-place-7e8c82cbd3.png",
+            "uv": "v19889-white-51139-uv-9c20f959e7.png",
+            "uvplace": "v19889-white-51139-uvplace-4a25a0d3e5.png",
+            "underplace": "v19889-white-51139-underplace-5c5df664f8.png",
+            "underuv": "v19889-white-51139-underuv-8afe7b7927.png",
+            "edge": "v19889-white-51139-edge-af838fcbe3.png",
+            "base": "v19889-black-51139-base-192345f6b7.webp",
+            "gain": "v19889-black-51139-gain-94000f3484.webp",
+            "gamma": "v19889-black-51139-gamma-7ede31f3a9.webp"
+          },
+          "need": {
+            "0": 1900,
+            "1": 2000
+          }
+        },
+        "51142": {
+          "name": "Right Back",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            292,
+            483,
+            331,
+            486
+          ],
+          "half": [
+            166,
+            243
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v19889-white-51142-place-a52cf69ef2.png",
+            "uv": "v19889-white-51142-uv-76d5593de6.png",
+            "uvplace": "v19889-white-51142-uvplace-c978e30e9e.png",
+            "edge": "v19889-white-51142-edge-20254fa9ff.png",
+            "base": "v19889-black-51142-base-916b00e7a5.webp",
+            "gain": "v19889-black-51142-gain-a9efca9bc8.webp",
+            "gamma": "v19889-black-51142-gamma-9925a121b1.webp"
+          }
+        },
+        "51145": {
+          "name": "Right Front",
+          "group": "Men's",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            266,
+            531,
+            342,
+            427
+          ],
+          "half": [
+            171,
+            214
+          ],
+          "shown": [
+            0,
+            1,
+            3
+          ],
+          "files": {
+            "place": "v19889-white-51145-place-8e25707e85.png",
+            "uv": "v19889-white-51145-uv-4f0161b3e6.png",
+            "uvplace": "v19889-white-51145-uvplace-2de42c996c.png",
+            "underplace": "v19889-white-51145-underplace-079e06084d.png",
+            "underuv": "v19889-white-51145-underuv-205a01eb21.png",
+            "edge": "v19889-white-51145-edge-c7a3d1c1a0.png",
+            "base": "v19889-black-51145-base-fe6347eb99.webp",
+            "gain": "v19889-black-51145-gain-e6103e9484.webp",
+            "gamma": "v19889-black-51145-gamma-7c8430469d.webp"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,473 @@
+{
+  "productId": 83,
+  "configs": {
+    "v11075-white": {
+      "variantId": 11075,
+      "variants": [
+        11075
+      ],
+      "stitch": "white",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 214,
+          "width": 3450,
+          "height": 3450
+        },
+        {
+          "key": "back",
+          "printfileId": 214,
+          "width": 3450,
+          "height": 3450
+        }
+      ],
+      "views": {
+        "7225": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            93,
+            114,
+            808,
+            787
+          ],
+          "half": [
+            404,
+            394
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v11075-white-7225-place-8dfe602d44.png",
+            "uvplace": "v11075-white-7225-uvplace-02a6c5be8d.png",
+            "uv": "v11075-white-7225-uv-9c41cee9a5.png",
+            "base": "v11075-white-7225-base-0401fcfab0.webp",
+            "gain": "v11075-white-7225-gain-69e47c4bc7.webp",
+            "gamma": "v11075-white-7225-gamma-25f3fd7e30.webp"
+          }
+        },
+        "7226": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            93,
+            114,
+            808,
+            787
+          ],
+          "half": [
+            404,
+            394
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v11075-white-7226-place-054134115a.png",
+            "uvplace": "v11075-white-7226-uvplace-d30576eecd.png",
+            "uv": "v11075-white-7226-uv-9c41cee9a5.png",
+            "base": "v11075-white-7226-base-0401fcfab0.webp",
+            "gain": "v11075-white-7226-gain-69e47c4bc7.webp",
+            "gamma": "v11075-white-7226-gamma-25f3fd7e30.webp"
+          }
+        }
+      }
+    },
+    "v4532-white": {
+      "variantId": 4532,
+      "variants": [
+        4532
+      ],
+      "stitch": "white",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 32,
+          "width": 2850,
+          "height": 2850
+        },
+        {
+          "key": "back",
+          "printfileId": 32,
+          "width": 2850,
+          "height": 2850
+        }
+      ],
+      "views": {
+        "7227": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            170,
+            185,
+            651,
+            634
+          ],
+          "half": [
+            326,
+            317
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v4532-white-7227-place-de39533fd7.png",
+            "uvplace": "v4532-white-7227-uvplace-0bf9345e6d.png",
+            "uv": "v4532-white-7227-uv-347d93e06a.png",
+            "base": "v4532-white-7227-base-fd1c481292.webp",
+            "gain": "v4532-white-7227-gain-afb9c3449c.webp",
+            "gamma": "v4532-white-7227-gamma-ed13d19276.webp"
+          }
+        },
+        "7228": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            170,
+            185,
+            651,
+            634
+          ],
+          "half": [
+            326,
+            317
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v4532-white-7228-place-a4b41ca8c5.png",
+            "uvplace": "v4532-white-7228-uvplace-15e07e660c.png",
+            "uv": "v4532-white-7228-uv-347d93e06a.png",
+            "base": "v4532-white-7228-base-fd1c481292.webp",
+            "gain": "v4532-white-7228-gain-afb9c3449c.webp",
+            "gamma": "v4532-white-7228-gamma-ed13d19276.webp"
+          }
+        }
+      }
+    },
+    "v49853-white": {
+      "variantId": 49853,
+      "variants": [
+        49853
+      ],
+      "stitch": "white",
+      "default": true,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 1701,
+          "width": 2250,
+          "height": 2250
+        },
+        {
+          "key": "back",
+          "printfileId": 1701,
+          "width": 2250,
+          "height": 2250
+        }
+      ],
+      "views": {
+        "99496": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            237,
+            250,
+            517,
+            504
+          ],
+          "half": [
+            259,
+            252
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v49853-white-99496-place-3ff19cc545.png",
+            "uvplace": "v49853-white-99496-uvplace-492ee14db7.png",
+            "uv": "v49853-white-99496-uv-7ec4f14132.png",
+            "base": "v49853-white-99496-base-ca227b92bc.webp",
+            "gain": "v49853-white-99496-gain-ee7c3cfb68.webp",
+            "gamma": "v49853-white-99496-gamma-dfb8c65f5f.webp"
+          }
+        },
+        "99502": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            237,
+            250,
+            517,
+            504
+          ],
+          "half": [
+            259,
+            252
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v49853-white-99502-place-b3b2f8c697.png",
+            "uvplace": "v49853-white-99502-uvplace-2ad58da442.png",
+            "uv": "v49853-white-99502-uv-7ec4f14132.png",
+            "base": "v49853-white-99502-base-ca227b92bc.webp",
+            "gain": "v49853-white-99502-gain-ee7c3cfb68.webp",
+            "gamma": "v49853-white-99502-gamma-dfb8c65f5f.webp"
+          }
+        }
+      }
+    },
+    "v49854-white": {
+      "variantId": 49854,
+      "variants": [
+        49854
+      ],
+      "stitch": "white",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 1702,
+          "width": 2550,
+          "height": 2550
+        },
+        {
+          "key": "back",
+          "printfileId": 1702,
+          "width": 2550,
+          "height": 2550
+        }
+      ],
+      "views": {
+        "99475": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            195,
+            214,
+            588,
+            573
+          ],
+          "half": [
+            294,
+            287
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v49854-white-99475-place-b65c049329.png",
+            "uvplace": "v49854-white-99475-uvplace-942bd71bec.png",
+            "uv": "v49854-white-99475-uv-2581abd3ed.png",
+            "base": "v49854-white-99475-base-1eff984fef.webp",
+            "gain": "v49854-white-99475-gain-d46219be5e.webp",
+            "gamma": "v49854-white-99475-gamma-7719e9a29d.webp"
+          }
+        },
+        "99504": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            195,
+            214,
+            588,
+            573
+          ],
+          "half": [
+            294,
+            287
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v49854-white-99504-place-08d6e827b0.png",
+            "uvplace": "v49854-white-99504-uvplace-30a73dfccb.png",
+            "uv": "v49854-white-99504-uv-2581abd3ed.png",
+            "base": "v49854-white-99504-base-1eff984fef.webp",
+            "gain": "v49854-white-99504-gain-d46219be5e.webp",
+            "gamma": "v49854-white-99504-gamma-7719e9a29d.webp"
+          }
+        }
+      }
+    },
+    "v9513-white": {
+      "variantId": 9513,
+      "variants": [
+        9513
+      ],
+      "stitch": "white",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 72,
+          "width": 3150,
+          "height": 1950
+        },
+        {
+          "key": "back",
+          "printfileId": 72,
+          "width": 3150,
+          "height": 1950
+        }
+      ],
+      "views": {
+        "7229": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            135,
+            284,
+            727,
+            434
+          ],
+          "half": [
+            364,
+            217
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9513-white-7229-place-550a8669cb.png",
+            "uvplace": "v9513-white-7229-uvplace-3685f194dd.png",
+            "uv": "v9513-white-7229-uv-a48cfd8f7d.png",
+            "base": "v9513-white-7229-base-998d907532.webp",
+            "gain": "v9513-white-7229-gain-24e2e83ff9.webp",
+            "gamma": "v9513-white-7229-gamma-2cd3259e12.webp"
+          }
+        },
+        "7230": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            135,
+            284,
+            727,
+            434
+          ],
+          "half": [
+            364,
+            217
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v9513-white-7230-place-d422724619.png",
+            "uvplace": "v9513-white-7230-uvplace-7761a831e7.png",
+            "uv": "v9513-white-7230-uv-a48cfd8f7d.png",
+            "base": "v9513-white-7230-base-998d907532.webp",
+            "gain": "v9513-white-7230-gain-24e2e83ff9.webp",
+            "gamma": "v9513-white-7230-gamma-2cd3259e12.webp"
+          }
+        }
+      }
+    },
+    "v49853-black": {
+      "variantId": 49853,
+      "variants": [
+        49853
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "front",
+          "printfileId": 1701,
+          "width": 2250,
+          "height": 2250
+        },
+        {
+          "key": "back",
+          "printfileId": 1701,
+          "width": 2250,
+          "height": 2250
+        }
+      ],
+      "views": {
+        "99496": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            237,
+            250,
+            517,
+            504
+          ],
+          "half": [
+            259,
+            252
+          ],
+          "shown": [
+            1
+          ],
+          "files": {
+            "place": "v49853-white-99496-place-3ff19cc545.png",
+            "uv": "v49853-white-99496-uv-7ec4f14132.png",
+            "uvplace": "v49853-white-99496-uvplace-492ee14db7.png",
+            "base": "v49853-black-99496-base-ca227b92bc.webp",
+            "gain": "v49853-black-99496-gain-ee7c3cfb68.webp",
+            "gamma": "v49853-black-99496-gamma-dfb8c65f5f.webp"
+          }
+        },
+        "99502": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            237,
+            250,
+            517,
+            504
+          ],
+          "half": [
+            259,
+            252
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v49853-white-99502-place-b3b2f8c697.png",
+            "uv": "v49853-white-99502-uv-7ec4f14132.png",
+            "uvplace": "v49853-white-99502-uvplace-2ad58da442.png",
+            "base": "v49853-black-99502-base-ca227b92bc.webp",
+            "gain": "v49853-black-99502-gain-ee7c3cfb68.webp",
+            "gamma": "v49853-black-99502-gamma-dfb8c65f5f.webp"
+          }
+        }
+      }
+    }
+  }
+}

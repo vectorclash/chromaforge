@@ -1,0 +1,50 @@
+{
+  "productId": 798,
+  "configs": {
+    "v53188": {
+      "variantId": 53188,
+      "variants": [
+        53188
+      ],
+      "stitch": null,
+      "default": true,
+      "placements": [
+        {
+          "key": "default",
+          "printfileId": 331,
+          "width": 1392,
+          "height": 2220
+        }
+      ],
+      "views": {
+        "100950": {
+          "name": "default",
+          "group": null,
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            311,
+            164,
+            378,
+            755
+          ],
+          "half": [
+            189,
+            378
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v53188-100950-place-97adc5948b.png",
+            "uvplace": "v53188-100950-uvplace-e3faf72aa4.png",
+            "uv": "v53188-100950-uv-d16b8ec248.png",
+            "base": "v53188-100950-base-23135e7977.webp",
+            "gain": "v53188-100950-gain-8b854b8ff3.webp",
+            "gamma": "v53188-100950-gamma-00bccdf401.webp"
+          }
+        }
+      }
+    }
+  }
+}

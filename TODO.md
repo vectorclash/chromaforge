@@ -415,6 +415,21 @@ collar band and chest label are newly submitted.
 
 ## Code — high value, near term
 
+- [ ] **Instant mockups: calibrate every MagSafe case model (798) — Aaron wants all of them
+      (2026-11-15, "not today").** Only the default model (iPhone 18 Pro Glossy, variant 53188) is
+      calibrated; every other model and the Matte finish fall back to the Printful flow on the product
+      page. Printful photographs each model separately, so each needs its own FULL capture (9 tasks):
+      `node scripts/calibrate-instant-mockup.mjs --product 798 --variant <id> capture`, then one
+      `decode` for the product (and `verify` on a couple). Glossy vs Matte of one model is probably a
+      shading-only difference (`--shading-from v<glossy id>`, 4 tasks) -- check one pair's photos
+      before assuming it. ~36 variants, roughly 200-300 tasks: run it as a background batch at the
+      script's own pace (it stays under the store-wide 10/60s create limit). See CLAUDE.md's
+      "Instant mockups" section.
+- [ ] **Instant mockups: the URL artwork link (Aaron, 2026-11-15, after calibration).** A link like
+      `/shop?id=<design>` or `/shop/257?id=<design>` should make that saved design the active one on
+      any page, so an ad can land on the shop already wearing the ad's artwork. Today only
+      `/studio?id=` loads a design (`utils/urlConfig.js`).
+
 - [x] **Printful catalog-drift check (scheduled) — BUILT 2026-07-16.**
       `scripts/check-printful-catalog.mjs` (plain Node; PRODUCT_MOCKUP_CONFIG extracted to
       `src/lib/printfulMockupConfig.js` so it imports outside Vite) asserts per product:

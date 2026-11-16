@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { gsap } from 'gsap';
 import Card from '../ui/Card';
-import FadeImage from '../ui/FadeImage';
+import ProductPhoto from '../ui/ProductPhoto';
 import ArrowIcon from '../buttons/ArrowIcon';
 import { listCatalogProducts, STARTER_PRODUCT_IDS } from '../../lib/printful';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
@@ -415,10 +415,9 @@ export default function ShopCarousel() {
                   style={{ width: cardWidth || undefined }}
                 >
                   <div className="relative isolate aspect-square overflow-hidden bg-ink-900">
-                    <FadeImage
-                      src={product.image}
-                      alt={product.title}
-                      className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.08]"
+                    <ProductPhoto
+                      product={product}
+                      className="transition-transform duration-300 ease-out group-hover:scale-[1.08]"
                     />
                     {/* -inset-px, not inset-0: the overlay and the image are the same computed box, but
                         an aspect-square card resolves to a FRACTIONAL height at most widths, and on a

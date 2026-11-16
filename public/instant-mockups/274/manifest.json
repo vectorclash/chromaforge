@@ -1,0 +1,717 @@
+{
+  "productId": 274,
+  "configs": {
+    "v9039-black": {
+      "variantId": 9039,
+      "variants": [
+        9039
+      ],
+      "stitch": "black",
+      "default": true,
+      "placements": [
+        {
+          "key": "default",
+          "printfileId": 120,
+          "width": 3150,
+          "height": 5550
+        },
+        {
+          "key": "pocket",
+          "printfileId": 122,
+          "width": 1500,
+          "height": 2625
+        }
+      ],
+      "views": {
+        "1107": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1107-place-2f65c93b7f.png",
+            "uvplace": "v9039-black-1107-uvplace-e656cc962d.png",
+            "uv": "v9039-black-1107-uv-bd32ddd2de.png",
+            "base": "v9039-black-1107-base-2bd3ca4bf5.webp",
+            "gain": "v9039-black-1107-gain-fda8d4462e.webp",
+            "gamma": "v9039-black-1107-gamma-fa2583c06a.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1108": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1108-place-2f65c93b7f.png",
+            "uvplace": "v9039-black-1108-uvplace-e656cc962d.png",
+            "uv": "v9039-black-1108-uv-b1deeace67.png",
+            "base": "v9039-black-1108-base-2bd3ca4bf5.webp",
+            "gain": "v9039-black-1108-gain-fda8d4462e.webp",
+            "gamma": "v9039-black-1108-gamma-fa2583c06a.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1109": {
+          "name": "Inside Pocket",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            487,
+            1000,
+            464
+          ],
+          "half": [
+            500,
+            232
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9039-black-1109-place-dc1ec63b7b.png",
+            "uvplace": "v9039-black-1109-uvplace-810be4c36f.png",
+            "uv": "v9039-black-1109-uv-5135de2487.png",
+            "edge": "v9039-black-1109-edge-ea0330f13d.png",
+            "base": "v9039-black-1109-base-70c25ed728.webp",
+            "gain": "v9039-black-1109-gain-624e9b8a76.webp",
+            "gamma": "v9039-black-1109-gamma-858fa05383.webp"
+          },
+          "need": {
+            "0": 2500,
+            "1": 1200
+          }
+        },
+        "8645": {
+          "name": "Front",
+          "group": "Standing",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            211,
+            86,
+            562,
+            840
+          ],
+          "half": [
+            281,
+            420
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8645-place-dcc2d2edff.png",
+            "uvplace": "v9039-black-8645-uvplace-e7176f64f2.png",
+            "uv": "v9039-black-8645-uv-c91c3dcc9c.png",
+            "edge": "v9039-black-8645-edge-468d62c07e.png",
+            "base": "v9039-black-8645-base-a8a7873459.webp",
+            "gain": "v9039-black-8645-gain-66406d9ad5.webp",
+            "gamma": "v9039-black-8645-gamma-d758e27a87.webp"
+          },
+          "need": {
+            "0": 1700
+          }
+        },
+        "8646": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            256,
+            723,
+            744
+          ],
+          "half": [
+            362,
+            372
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8646-place-9d60766d94.png",
+            "uvplace": "v9039-black-8646-uvplace-eb0b69be4d.png",
+            "uv": "v9039-black-8646-uv-e01448181e.png",
+            "base": "v9039-black-8646-base-aa0229f2d3.webp",
+            "gain": "v9039-black-8646-gain-2964890392.webp",
+            "gamma": "v9039-black-8646-gamma-eb95fe2443.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        }
+      }
+    },
+    "v9039-clear": {
+      "variantId": 9039,
+      "variants": [
+        9039
+      ],
+      "stitch": "clear",
+      "default": false,
+      "placements": [
+        {
+          "key": "default",
+          "printfileId": 120,
+          "width": 3150,
+          "height": 5550
+        },
+        {
+          "key": "pocket",
+          "printfileId": 122,
+          "width": 1500,
+          "height": 2625
+        }
+      ],
+      "views": {
+        "1107": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1107-place-2f65c93b7f.png",
+            "uv": "v9039-black-1107-uv-bd32ddd2de.png",
+            "uvplace": "v9039-black-1107-uvplace-e656cc962d.png",
+            "base": "v9039-clear-1107-base-2f2e0b1cd3.webp",
+            "gain": "v9039-clear-1107-gain-9642671868.webp",
+            "gamma": "v9039-clear-1107-gamma-79896d42d4.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1108": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1108-place-2f65c93b7f.png",
+            "uv": "v9039-black-1108-uv-b1deeace67.png",
+            "uvplace": "v9039-black-1108-uvplace-e656cc962d.png",
+            "base": "v9039-clear-1108-base-2f2e0b1cd3.webp",
+            "gain": "v9039-clear-1108-gain-9642671868.webp",
+            "gamma": "v9039-clear-1108-gamma-79896d42d4.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1109": {
+          "name": "Inside Pocket",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            487,
+            1000,
+            464
+          ],
+          "half": [
+            500,
+            232
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9039-black-1109-place-dc1ec63b7b.png",
+            "uv": "v9039-black-1109-uv-5135de2487.png",
+            "uvplace": "v9039-black-1109-uvplace-810be4c36f.png",
+            "edge": "v9039-black-1109-edge-ea0330f13d.png",
+            "base": "v9039-clear-1109-base-31dd9c425c.webp",
+            "gain": "v9039-clear-1109-gain-2b05b617d2.webp",
+            "gamma": "v9039-clear-1109-gamma-edb6c1b59b.webp"
+          },
+          "need": {
+            "0": 2500,
+            "1": 1200
+          }
+        },
+        "8645": {
+          "name": "Front",
+          "group": "Standing",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            211,
+            86,
+            562,
+            840
+          ],
+          "half": [
+            281,
+            420
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8645-place-dcc2d2edff.png",
+            "uv": "v9039-black-8645-uv-c91c3dcc9c.png",
+            "uvplace": "v9039-black-8645-uvplace-e7176f64f2.png",
+            "edge": "v9039-black-8645-edge-468d62c07e.png",
+            "base": "v9039-clear-8645-base-1006a7f06c.webp",
+            "gain": "v9039-clear-8645-gain-57b980a0ee.webp",
+            "gamma": "v9039-clear-8645-gamma-8044c9efab.webp"
+          },
+          "need": {
+            "0": 1700
+          }
+        },
+        "8646": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            256,
+            723,
+            744
+          ],
+          "half": [
+            362,
+            372
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8646-place-9d60766d94.png",
+            "uv": "v9039-black-8646-uv-e01448181e.png",
+            "uvplace": "v9039-black-8646-uvplace-eb0b69be4d.png",
+            "base": "v9039-clear-8646-base-a06da6d255.webp",
+            "gain": "v9039-clear-8646-gain-5e1cba9b8d.webp",
+            "gamma": "v9039-clear-8646-gamma-751180863f.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        }
+      }
+    },
+    "v9040-black": {
+      "variantId": 9040,
+      "variants": [
+        9040
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "default",
+          "printfileId": 120,
+          "width": 3150,
+          "height": 5550
+        },
+        {
+          "key": "pocket",
+          "printfileId": 122,
+          "width": 1500,
+          "height": 2625
+        }
+      ],
+      "views": {
+        "1107": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1107-place-2f65c93b7f.png",
+            "uv": "v9039-black-1107-uv-bd32ddd2de.png",
+            "uvplace": "v9039-black-1107-uvplace-e656cc962d.png",
+            "base": "v9040-black-1107-base-1dc58f0071.webp",
+            "gain": "v9040-black-1107-gain-ca5d539b0e.webp",
+            "gamma": "v9040-black-1107-gamma-ad97340380.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1108": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1108-place-2f65c93b7f.png",
+            "uv": "v9039-black-1108-uv-b1deeace67.png",
+            "uvplace": "v9039-black-1108-uvplace-e656cc962d.png",
+            "base": "v9040-black-1108-base-1dc58f0071.webp",
+            "gain": "v9040-black-1108-gain-ca5d539b0e.webp",
+            "gamma": "v9040-black-1108-gamma-ad97340380.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1109": {
+          "name": "Inside Pocket",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            487,
+            1000,
+            464
+          ],
+          "half": [
+            500,
+            232
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9039-black-1109-place-dc1ec63b7b.png",
+            "uv": "v9039-black-1109-uv-5135de2487.png",
+            "uvplace": "v9039-black-1109-uvplace-810be4c36f.png",
+            "edge": "v9039-black-1109-edge-ea0330f13d.png",
+            "base": "v9040-black-1109-base-33d7432fb0.webp",
+            "gain": "v9040-black-1109-gain-159bef287e.webp",
+            "gamma": "v9040-black-1109-gamma-7be6bc8985.webp"
+          },
+          "need": {
+            "0": 2500,
+            "1": 1200
+          }
+        },
+        "8645": {
+          "name": "Front",
+          "group": "Standing",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            211,
+            86,
+            562,
+            840
+          ],
+          "half": [
+            281,
+            420
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8645-place-dcc2d2edff.png",
+            "uv": "v9039-black-8645-uv-c91c3dcc9c.png",
+            "uvplace": "v9039-black-8645-uvplace-e7176f64f2.png",
+            "edge": "v9039-black-8645-edge-468d62c07e.png",
+            "base": "v9040-black-8645-base-d5f19da03a.webp",
+            "gain": "v9040-black-8645-gain-93503e57dc.webp",
+            "gamma": "v9040-black-8645-gamma-3ddab096c7.webp"
+          },
+          "need": {
+            "0": 1700
+          }
+        },
+        "8646": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            256,
+            723,
+            744
+          ],
+          "half": [
+            362,
+            372
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8646-place-9d60766d94.png",
+            "uv": "v9039-black-8646-uv-e01448181e.png",
+            "uvplace": "v9039-black-8646-uvplace-eb0b69be4d.png",
+            "base": "v9040-black-8646-base-cef3aef2ac.webp",
+            "gain": "v9040-black-8646-gain-b6246d5710.webp",
+            "gamma": "v9040-black-8646-gamma-7a46fc9c5d.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        }
+      }
+    },
+    "v9041-black": {
+      "variantId": 9041,
+      "variants": [
+        9041
+      ],
+      "stitch": "black",
+      "default": false,
+      "placements": [
+        {
+          "key": "default",
+          "printfileId": 120,
+          "width": 3150,
+          "height": 5550
+        },
+        {
+          "key": "pocket",
+          "printfileId": 122,
+          "width": 1500,
+          "height": 2625
+        }
+      ],
+      "views": {
+        "1107": {
+          "name": "Front",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1107-place-2f65c93b7f.png",
+            "uv": "v9039-black-1107-uv-bd32ddd2de.png",
+            "uvplace": "v9039-black-1107-uvplace-e656cc962d.png",
+            "base": "v9041-black-1107-base-e664b46dd4.webp",
+            "gain": "v9041-black-1107-gain-91f7ed994b.webp",
+            "gamma": "v9041-black-1107-gamma-f602a3f1ea.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1108": {
+          "name": "Back",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            132,
+            318,
+            735,
+            643
+          ],
+          "half": [
+            368,
+            322
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-1108-place-2f65c93b7f.png",
+            "uv": "v9039-black-1108-uv-b1deeace67.png",
+            "uvplace": "v9039-black-1108-uvplace-e656cc962d.png",
+            "base": "v9041-black-1108-base-e664b46dd4.webp",
+            "gain": "v9041-black-1108-gain-91f7ed994b.webp",
+            "gamma": "v9041-black-1108-gamma-f602a3f1ea.webp"
+          },
+          "need": {
+            "0": 1500
+          }
+        },
+        "1109": {
+          "name": "Inside Pocket",
+          "group": "Default",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            487,
+            1000,
+            464
+          ],
+          "half": [
+            500,
+            232
+          ],
+          "shown": [
+            0,
+            1
+          ],
+          "files": {
+            "place": "v9039-black-1109-place-dc1ec63b7b.png",
+            "uv": "v9039-black-1109-uv-5135de2487.png",
+            "uvplace": "v9039-black-1109-uvplace-810be4c36f.png",
+            "edge": "v9039-black-1109-edge-ea0330f13d.png",
+            "base": "v9041-black-1109-base-c0d8dd2000.webp",
+            "gain": "v9041-black-1109-gain-b6a89472cc.webp",
+            "gamma": "v9041-black-1109-gamma-7a6cc7c55f.webp"
+          },
+          "need": {
+            "0": 2500,
+            "1": 1200
+          }
+        },
+        "8645": {
+          "name": "Front",
+          "group": "Standing",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            211,
+            86,
+            562,
+            840
+          ],
+          "half": [
+            281,
+            420
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8645-place-dcc2d2edff.png",
+            "uv": "v9039-black-8645-uv-c91c3dcc9c.png",
+            "uvplace": "v9039-black-8645-uvplace-e7176f64f2.png",
+            "edge": "v9039-black-8645-edge-468d62c07e.png",
+            "base": "v9041-black-8645-base-5525ae0456.webp",
+            "gain": "v9041-black-8645-gain-ea54702563.webp",
+            "gamma": "v9041-black-8645-gamma-5072e60899.webp"
+          },
+          "need": {
+            "0": 1700
+          }
+        },
+        "8646": {
+          "name": "Product Details",
+          "group": "Product details",
+          "width": 1000,
+          "height": 1000,
+          "crop": [
+            0,
+            256,
+            723,
+            744
+          ],
+          "half": [
+            362,
+            372
+          ],
+          "shown": [
+            0
+          ],
+          "files": {
+            "place": "v9039-black-8646-place-9d60766d94.png",
+            "uv": "v9039-black-8646-uv-e01448181e.png",
+            "uvplace": "v9039-black-8646-uvplace-eb0b69be4d.png",
+            "base": "v9041-black-8646-base-da052a87de.webp",
+            "gain": "v9041-black-8646-gain-d6aa3c626c.webp",
+            "gamma": "v9041-black-8646-gamma-d22daceada.webp"
+          },
+          "need": {
+            "0": 2500
+          }
+        }
+      }
+    }
+  }
+}
