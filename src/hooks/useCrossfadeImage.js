@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap/all';
 import { DURATION_FAST, DURATION_SLOW, DURATION_HOLD } from '../utils/motionTokens';
-import { sweepIn } from '../utils/printSweep';
+import { printIn } from '../utils/printArrival';
 
 // Reveals a new image the same deliberate way DisplayCanvas's own artwork does: fade the
 // current image out, hold on nothing for a beat, then fade the new one in -- matching its
@@ -32,10 +32,10 @@ import { sweepIn } from '../utils/printSweep';
 // needs to start immediately on all surfaces that run this"). If the change ends with no new
 // url (a failed render, or a surface that skipped an identical design), the image it already
 // had fades back in.
-// `reveal` (2026-11-15) is how the new image arrives: 'fade' (everything until then) or 'sweep',
-// laid down top to bottom (utils/printSweep.js -- the incoming element must then be a
-// `.sweep-wrap` around the image). The instant product photos use it, where only the print changes
-// and a sweep reads as printing.
+// `reveal` (2026-11-15) is how the new image arrives: 'fade' (everything until then), 'print' -- the
+// instant product photos' print arriving on the fabric (utils/printArrival.js; the incoming element
+// must then be a `.print-wrap` around the image) -- or a function (el, finish) => cancel for an
+// arrival of the caller's own (ProductPhoto's facets).
 export function useCrossfadeImage(url, { instant = false, pending = false, reveal = 'fade' } = {}) {
   const revealModeRef = useRef(reveal);
   revealModeRef.current = reveal;
@@ -233,11 +233,12 @@ export function useCrossfadeImage(url, { instant = false, pending = false, revea
       queuedUrlRef.current = null;
       if (queued) revealRef.current(queued);
     };
-    if (revealModeRef.current === 'sweep') {
-      // The incoming element is a `.sweep-wrap` around the photo (see utils/printSweep.js): a pass
-      // across the whole photo, so longer than a fade to read as one.
+    // A caller's own arrival (ProductPhoto's facets): given the incoming element and `finish`,
+    // returns a cancel function, and owns the element's opacity until it calls `finish`.
+    if (typeof revealModeRef.current === 'function') return revealModeRef.current(incomingRef.current, finish);
+    if (revealModeRef.current === 'print') {
       gsap.set(incomingRef.current, { opacity: 1 });
-      return sweepIn(incomingRef.current, DURATION_SLOW * 1600, finish);
+      return printIn(incomingRef.current, finish);
     }
     gsap.set(incomingRef.current, { opacity: 0 });
     gsap.to(incomingRef.current, { duration: DURATION_SLOW, opacity: 1, ease: 'power2.inOut', onComplete: finish });

@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DURATION_SLOW } from '../../utils/motionTokens';
-import { sweepIn } from '../../utils/printSweep';
+import { printIn } from '../../utils/printArrival';
 import FadeImage from './FadeImage';
 import { useStudio } from '../../context/StudioContext';
 import { useInstantBlank, useInstantMockup } from '../../hooks/useInstantMockup';
@@ -22,14 +22,16 @@ import FacetSwap from './FacetSwap';
 // block just goes dark"). The model, the background and the shirt itself stay put: under the photo
 // sits the same view with no print at all (the blank shirt, made from the calibration), so the print
 // lifts off to that rather than the whole photo going dark; a band of the spectrum passes over the
-// fabric while the new design is being made; and the new print is laid down top to bottom, like a
-// print pass (Aaron's pick, 2026-11-15, over a plain fade and over facets). The first print arrives
-// the same way, onto the blank garment. The timing is still the shared beat (CLAUDE.md, "Every
+// fabric while the new design is being made; and the new print arrives confined to the fabric --
+// out of facets on the product page's main photo, resolving out of a blur everywhere else
+// (utils/printArrival.js; Aaron's pick, 2026-11-15). The first print arrives the same way, onto the
+// blank garment. The timing is still the shared beat (CLAUDE.md, "Every
 // surface showing the current active artwork reveals on the SAME shared timing"): the print starts
 // leaving on the change itself.
 //
 // CHEAP ENOUGH FOR A GRID OF TWENTY (Aaron: the shop "kind of slows down a little bit"). Every
-// animation here is a transform or an opacity (utils/printSweep.js, .fabric-shimmer), the shimmer
+// animation here is compositor work -- opacity, transform, filter (utils/printArrival.js,
+// .fabric-shimmer) -- the shimmer
 // exists only while it shows, and a card off the screen does not follow the design at all: it keeps
 // the photo it has, makes nothing, and catches up -- with the ordinary transition -- when it next
 // comes near the screen. Before, every card that had ever been on screen re-rendered and animated on
@@ -136,7 +138,7 @@ export default function ProductPhoto({
   // Picked before that -- right after a size change on the bandana, whose sizes are photographed
   // separately, before the new size's photos are made -- it is still the arrival of the new
   // content, and arrives the same way: the old photo leaves, the new view's blank garment waits,
-  // the print sweeps on. Treated as an angle switch it showed the photo still in hand for the
+  // the print arrives. Treated as an angle switch it showed the photo still in hand for the
   // last view (the OLD size's), and then the facets assembled the new one out of it (Aaron,
   // 2026-11-15: "the model shot from the different size will be there first then switch").
   const contentKey = `${config}|${instantContentKey(shownDesign, shownOptions)}`;
@@ -148,37 +150,67 @@ export default function ProductPhoto({
   }
   const angleSwitch = lastChangeRef.current.change === 'view';
   const blank = useInstantBlank(supported ? productId : null, view, config || null);
+  // The fabric mask, for the facet arrival below.
+  const maskRef = useRef(null);
+  maskRef.current = blank?.mask || null;
   // A new print is on its way: from the change itself until THIS photo has landed (the design
   // changing ends when the studio's own small preview lands, before a product photo, which is two
   // or three more renders), or for as long as the caller says. An angle switch is not that: it
   // swaps in place, under the facets. Off the screen, nothing is on its way.
   const changing = near && (pending === undefined ? designChanging : pending);
   const waiting = supported && (changing || (!settled && !angleSwitch));
-  const fade = useCrossfadeImage(url, { instant: angleSwitch, pending: waiting, reveal: 'sweep' });
+  // On the product page's main photo (the only caller with `facetOrigin`) a new print ASSEMBLES out
+  // of facets over the blank garment (FacetSwap's `assemble`, WebGL), confined to the fabric by the
+  // calibration's mask so the model and background never move. Every other surface resolves
+  // (utils/printArrival.js).
+  const facetRef = useRef(null);
+  const facetArrival = !!facetOrigin && !(typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  const facetReveal = (wrap, done) => {
+    const img = wrap?.firstElementChild;
+    const api = facetRef.current;
+    if (!api || !img?.src) return printIn(wrap, done);
+    wrap.style.opacity = '0';
+    let over = false;
+    const cancel = api.assemble(img.src, maskRef.current, () => {
+      if (over) return;
+      over = true;
+      wrap.style.opacity = '1';
+      api.release();
+      done?.();
+    });
+    return () => {
+      if (over) return;
+      over = true;
+      cancel();
+      wrap.style.opacity = '1';
+    };
+  };
+  const fade = useCrossfadeImage(url, { instant: angleSwitch, pending: waiting, reveal: facetArrival ? facetReveal : 'print' });
   // Shown means ON SCREEN, settled: not merely made. A size whose photos were already made (cached
   // from an earlier visit) is ready the moment it is picked, while the old size's photo is still
   // fading out; counted as shown then, the next pick became an angle switch, which snapped that
   // fading photo back to full and assembled the new view out of it.
   if (settled && url && fade.shown === url && !fade.incoming && !fade.holding) lastChangeRef.current.shown = true;
-  // The FIRST print arrives the same way: onto the blank garment, swept on. A photo already made
-  // when the card mounted just appears.
-  const [firstSweep, setFirstSweep] = useState(() => (url ? 'done' : 'pending'));
+  // The FIRST print arrives the same way, onto the blank garment. A photo already made when the card
+  // mounted just appears.
+  const [firstArrival, setFirstArrival] = useState(() => (url ? 'done' : 'pending'));
   useLayoutEffect(() => {
     const el = fade.shownRef.current;
-    if (!fade.shown || !el || firstSweep !== 'pending') return undefined;
+    if (!fade.shown || !el || firstArrival !== 'pending') return undefined;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      setFirstSweep('done');
+      setFirstArrival('done');
       return undefined;
     }
-    setFirstSweep('sweeping');
-    return sweepIn(el, DURATION_SLOW * 1600, () => setFirstSweep('done'));
+    setFirstArrival('arriving');
+    if (facetArrival) return facetReveal(el, () => setFirstArrival('done'));
+    return printIn(el, () => setFirstArrival('done'));
     // Once, on the first photo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fade.shown]);
   // The shimmer: while a print is leaving or being made (and before the first one), mounted only
   // then, and kept a moment after so it fades out rather than vanishing.
   const shimmerWanted =
-    shimmer && !!blank?.mask && (fade.holding || (supported && firstSweep === 'pending' && !fade.shown));
+    shimmer && !!blank?.mask && (fade.holding || (supported && firstArrival === 'pending' && !fade.shown));
   const [shimmerMounted, setShimmerMounted] = useState(false);
   const [shimmerOn, setShimmerOn] = useState(false);
   useEffect(() => {
@@ -192,20 +224,22 @@ export default function ProductPhoto({
     return () => clearTimeout(t);
   }, [shimmerWanted]);
   if (!calibrated) return <FadeImage src={product.image} alt={product.title} className={`h-full w-full object-cover ${className}`} />;
+  // The fabric, for the arrival that confines its effect to the print (utils/printArrival.js).
+  const fabricMask = blank?.mask ? { '--fabric-mask': `url(${blank.mask})` } : undefined;
   return (
     <div ref={boxRef} className={`absolute inset-0 ${className}`}>
       {/* The blank garment, from the first frame: what the first print is laid onto and what a
           leaving print reveals. A skeleton until it is made (FadeImage's own). */}
       <FadeImage src={blank?.blank} alt={fade.shown ? '' : product.title} draggable={false} className="h-full w-full object-cover" />
-      {/* Both photo layers are print-pass wrappers (utils/printSweep.js); the crossfade hook fades
-          the wrapper, and sweeps the incoming one in. */}
+      {/* Both photo layers are print wrappers (utils/printArrival.js); the crossfade hook fades the
+          wrapper out, and brings the incoming one in. */}
       {fade.shown && (
-        <div ref={fade.shownRef} className="sweep-wrap">
+        <div ref={fade.shownRef} className="print-wrap" style={fabricMask}>
           <img src={fade.shown} alt={product.title} draggable={false} />
         </div>
       )}
       {fade.incoming && (
-        <div ref={fade.incomingRef} className="sweep-wrap">
+        <div ref={fade.incomingRef} className="print-wrap" style={fabricMask}>
           <img src={fade.incoming} alt="" draggable={false} />
         </div>
       )}
@@ -218,7 +252,9 @@ export default function ProductPhoto({
           <span />
         </div>
       )}
-      {facetOrigin && <FacetSwap src={fade.shown} enabled={angleSwitch} originSelector={facetOrigin} warm={warm?.urls} />}
+      {facetOrigin && (
+        <FacetSwap ref={facetRef} src={fade.shown} enabled={angleSwitch} originSelector={facetOrigin} warm={warm?.urls} />
+      )}
     </div>
   );
 }

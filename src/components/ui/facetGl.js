@@ -17,11 +17,17 @@ attribute vec2 aUv;
 attribute float aAlpha;
 attribute float aWhite;
 uniform vec2 uSize;
+// The photo's cover crop: x, y offset and scale (canvas px per image px), and the image's size --
+// to find where on the photo a pixel of the canvas is, for the mask, which does not move.
+uniform vec3 uCrop;
+uniform vec2 uImg;
 varying vec2 vUv;
+varying vec2 vMaskUv;
 varying float vAlpha;
 varying float vWhite;
 void main() {
   vUv = aUv;
+  vMaskUv = vec2((uCrop.x + aPos.x / uCrop.z) / uImg.x, (uCrop.y + aPos.y / uCrop.z) / uImg.y);
   vAlpha = aAlpha;
   vWhite = aWhite;
   gl_Position = vec4(aPos.x / uSize.x * 2.0 - 1.0, 1.0 - aPos.y / uSize.y * 2.0, 0.0, 1.0);
@@ -30,12 +36,22 @@ void main() {
 const FRAG = `
 precision mediump float;
 uniform sampler2D uTex;
+uniform sampler2D uMask;
+uniform float uUseMask;
 varying vec2 vUv;
+varying vec2 vMaskUv;
 varying float vAlpha;
 varying float vWhite;
 void main() {
   vec4 c = vWhite > 0.5 ? vec4(1.0) : texture2D(uTex, vUv);
-  gl_FragColor = c * vAlpha;
+  // Only the print assembles: nothing is drawn where the SCREEN is not fabric, and a triangle
+  // carries only the fabric of the photo it samples -- a landing triangle is scaled about its
+  // centre, so without the second test one beside an arm would carry a sliver of the arm onto
+  // the shirt.
+  float onFabric = texture2D(uMask, vMaskUv).a;
+  float ofFabric = vWhite > 0.5 ? 1.0 : texture2D(uMask, vUv).a;
+  float m = mix(1.0, onFabric * ofFabric, uUseMask);
+  gl_FragColor = c * vAlpha * m;
 }`;
 
 // Same timing and shape as facetMosaic.drawFacets.
@@ -85,7 +101,11 @@ export function createFacetGl(canvas) {
     alpha: gl.getAttribLocation(program, 'aAlpha'),
     white: gl.getAttribLocation(program, 'aWhite'),
     size: gl.getUniformLocation(program, 'uSize'),
-    tex: gl.getUniformLocation(program, 'uTex')
+    tex: gl.getUniformLocation(program, 'uTex'),
+    mask: gl.getUniformLocation(program, 'uMask'),
+    useMask: gl.getUniformLocation(program, 'uUseMask'),
+    crop: gl.getUniformLocation(program, 'uCrop'),
+    img: gl.getUniformLocation(program, 'uImg')
   };
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -106,6 +126,16 @@ export function createFacetGl(canvas) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.uniform1i(loc.tex, 0);
+  const maskTexture = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, maskTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(loc.mask, 1);
+  gl.uniform1f(loc.useMask, 0);
+  gl.activeTexture(gl.TEXTURE0);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
@@ -121,8 +151,21 @@ export function createFacetGl(canvas) {
       const ih = img.naturalHeight || img.height;
       const scale = Math.max(W / iw, H / ih);
       crop = { sx: (iw - W / scale) / 2, sy: (ih - H / scale) / 2, scale, iw, ih };
+      gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.uniform3f(loc.crop, crop.sx, crop.sy, crop.scale);
+      gl.uniform2f(loc.img, iw, ih);
+    },
+    // Confine the drawing to where `mask` (an image the photo's size; alpha = fabric) is opaque, or
+    // draw everywhere (null).
+    setMask(mask) {
+      gl.uniform1f(loc.useMask, mask ? 1 : 0);
+      if (!mask) return;
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, maskTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask);
+      gl.activeTexture(gl.TEXTURE0);
     },
     // One frame at run progress t, like drawFacets(ctx, layout, cover, t, glintWidth).
     draw(layout, t, glintWidth, W, H) {
@@ -189,6 +232,7 @@ export function createFacetGl(canvas) {
     },
     dispose() {
       gl.deleteTexture(texture);
+      gl.deleteTexture(maskTexture);
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
       gl.getExtension('WEBGL_lose_context')?.loseContext();

@@ -3319,7 +3319,7 @@ Renders are shared per placement across views (`placementSources`), at 1000px lo
 quarter-area nebula (measured: 685/1000/2000 give identical error), so a card and its product page
 share them. **Every photo ARRIVES the way a design change does** (Aaron, 2026-11-15): the blank
 garment first (made from the calibration alone, no render), the shimmer while the print is made, then
-the print swept on. The shop waits only for the first screenful's blanks and starts their prints at
+the print brought on. The shop waits only for the first screenful's blanks and starts their prints at
 once, in grid order, so they land as a cascade: grid back to ~1-1.5s (it was ~2s waiting for the
 prints, ~1s with stock photos), prints landing ~0.4-1.4s later. The stock photo is never shown for a
 calibrated selection.
@@ -3344,16 +3344,26 @@ dropped ("We have the mini generator") -- don't re-add one.
 (7) **A design change changes only the PRINT** (Aaron: the photo "just goes dark" and the thumbnails
 "change instantly"). Under each photo sits the blank shirt (the view composed with white artwork, no
 render) so the print lifts off to it; a spectrum band (`.fabric-shimmer`, masked to the fabric by a mask
-from the place map) passes over the fabric while the new design is made; the new print is laid down top
-to bottom (`.print-sweep`, a mask riding `--sweep` via useCrossfadeImage's `reveal: 'sweep'`) -- Aaron's
-pick over a fade and over facets. The hero and every thumbnail wait on ONE signal (`instantPending`,
+from the place map) passes over the fabric while the new design is made; then the new print ARRIVES,
+confined to the fabric so the model, background and garment edges never move: on the product page's
+main photo it assembles out of FACETS over the blank (FacetSwap's `assemble`, WebGL), everywhere else
+it RESOLVES out of a blur, rising a little -- the site's own entrance (`utils/printArrival.js`,
+useCrossfadeImage's `reveal: 'print'`, `.print-wrap[data-arriving]` applying the calibration's fabric
+mask). Aaron's pick (2026-11-15) from a round tried on the real pages behind a temporary switch: the
+top-to-bottom "print pass" sweep that shipped first ("I'm not sure that I like it"), press, develop,
+expose, iris, and facets -- which he had passed over before only because of the Safari frame drops (see
+(8)). Facets can't run on the shop cards: twenty cards cannot each hold a WebGL context. Two faults the
+facets had at first, worth not re-deriving: drawn before the fabric mask had loaded they covered the
+whole photo, model included (a run now waits for the mask); and a landing triangle is scaled about its
+centre, so one beside an arm carried a sliver of the arm onto the shirt -- the shader now tests the
+mask both where it draws and where it samples. The hero and every thumbnail wait on ONE signal (`instantPending`,
 until every view is ready) so they change together; a shop card stays in its loading state until its
 own photo lands (ending it when the studio preview lands faded the old photo back in, which also exposed
 a now-fixed `useCrossfadeImage` gap: a url arriving during that fade-back was queued and never shown).
 (7a) **A picked view is an ANGLE SWITCH (facets) only once the current content is on screen**
 (ProductPhoto's `lastChangeRef.shown`; Aaron, on the bandana: after a size change, "the model shot
 from the different size will be there first then switch"). Before that it is the arrival of the new
-content (old photo out, the view's blank, the print swept on). "On screen" means settled AND
+content (old photo out, the view's blank, the print arriving). "On screen" means settled AND
 displayed, not merely made: a size whose photos were cached from an earlier visit is ready the
 instant it is picked while the old photo is still fading, and counted as shown then, the next pick
 snapped that fading photo back to full and assembled the new view out of it. Reproduced with a
@@ -3361,12 +3371,11 @@ per-frame trace of every visible photo layer: 27 frames of the old size's photo 
 now none beyond its own fade-out.
 (7b) **Cheap enough for a grid of twenty** (Aaron: the shop "kind of slows down a little bit" with that
 many cards updating, on a MacBook Pro; headless Chromium and WebKit both held 60fps, so this was fixed
-structurally rather than from a trace): every animation is a transform or an opacity -- the sweep is a
-`.sweep-wrap` 20% taller than the photo with a static feathered bottom, sliding down while the photo
-inside slides up by as much (utils/printSweep.js, Web Animations, so the compositor runs it), and the
-shimmer is a band moved by transform inside a masked box, mounted only while it shows (it used to
-animate a background position, with a blend mode, forever, on every card, even hidden; the first sweep
-animated a mask's stops). And a lazy card (shop, carousel) follows the design only while within 400px
+structurally rather than from a trace): every animation is compositor work -- the print's arrival is
+opacity, a blur filter and a transform under a STATIC mask (utils/printArrival.js, Web Animations), and
+the shimmer is a band moved by transform inside a masked box, mounted only while it shows (it used to
+animate a background position, with a blend mode, forever, on every card, even hidden; the first
+arrival animated a mask's stops). And a lazy card (shop, carousel) follows the design only while within 400px
 of the screen: off it, it keeps its photo, makes nothing, and catches up with the usual transition on
 return. Measured: a Generate at the top of a fully scrolled shop makes 20 renders (visible cards plus
 the studio's own) where every visited card used to re-render at once; scrolling down then catches the
@@ -3406,7 +3415,7 @@ WebGL draws the same frame in one call (textured triangles, the glints as quads)
 drawing on a real photo, mean difference 0.5-2/255. One context per product page, made on the first
 swap and force-lost on leaving (verified); it is created imperatively, not rendered, because a context
 lost on teardown cannot be had again from the same element and StrictMode tears down and remounts.
-`?facet=2d` still forces the old path for comparison -- remove it once Aaron confirms.
+Confirmed smooth on his Mac in Safari, so the `?facet=` test switch is gone.
 (8b) **Transparent labels are laid over the print beneath them** (Aaron worried about the close-ups
 with labels; rightly -- the shorts' outside label rendered as a black square on every view). A
 label_outside mark (and the bucket hat's inside label) is a transparent PNG Printful prints OVER the

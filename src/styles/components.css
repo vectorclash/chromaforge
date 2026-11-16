@@ -2724,25 +2724,29 @@
    down"). The first versions animated a mask's stops and a background's position, both of which
    repaint every frame, and the shimmer ran forever on every card even while hidden. */
 
-/* The print pass (utils/printSweep.js): a wrapper 20% taller than the photo, whose bottom 20% fades
-   out while it sweeps. The photo inside keeps the card's own size. */
-.sweep-wrap {
+/* An instant product photo's layers (ProductPhoto): the photo in a wrapper the crossfade hook fades,
+   which while a new print arrives (utils/printArrival.js) is masked to the fabric, so only the print
+   takes the effect. */
+.print-wrap {
   position: absolute;
-  inset: 0 0 -20% 0;
+  inset: 0;
   overflow: hidden;
   pointer-events: none;
 }
-.sweep-wrap > img {
+.print-wrap > img {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
-  height: calc(100% / 1.2);
+  height: 100%;
   object-fit: cover;
 }
-.sweep-wrap[data-sweeping] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 100% / 6), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 100% / 6), transparent 100%);
+.print-wrap[data-arriving] {
+  -webkit-mask-image: var(--fabric-mask, none);
+  mask-image: var(--fabric-mask, none);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 /* While a new design is being made: a band of the site's spectrum passing over the fabric -- only

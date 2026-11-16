@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import { coverCanvas, layoutFacets, drawFacets, FACET_SWAP_MS, FACET_INTRO_MS } from './facetMosaic';
 import { logRender, renderLogEnabled } from '../../render/renderOffThread';
 import { createFacetGl } from './facetGl';
@@ -63,19 +63,11 @@ const DECODE_WAIT_MS = 120;
 // drops the previous design's.
 const COVER_CACHE = 3;
 
-// DRAWN WITH WEBGL (facetGl.js), with this 2D drawing as the fallback (2026-11-15, Aaron, Safari:
-// every transition dropped 2-6 frames, worst ~40ms; smooth in Firefox and Chromium). Narrowed on his
-// machine with a switch of test modes: a quarter of the pixels, no glints and half the triangles all
-// still dropped, the canvas drawn once and left up did not -- so it was Safari redrawing a 2D canvas
-// at all (~70 clipped image draws a frame), not anything the drawing could trim. `?facet=2d` forces
-// the 2D path for comparison; remove it once the WebGL one is confirmed on his machine.
-const FORCE_2D = (() => {
-  try {
-    return new URLSearchParams(window.location.search).get('facet') === '2d';
-  } catch {
-    return false;
-  }
-})();
+// DRAWN WITH WEBGL (facetGl.js), with this 2D drawing as the fallback where WebGL is unavailable
+// (2026-11-15, Aaron, Safari: every transition dropped 2-6 frames, worst ~40ms; smooth in Firefox and
+// Chromium). Narrowed on his machine with test modes: a quarter of the pixels, no glints and half the
+// triangles all still dropped, the canvas drawn once and left up did not -- so it was Safari
+// redrawing a 2D canvas at all (~70 clipped image draws a frame), not anything the drawing could trim.
 
 // Full device resolution up to 3x: capping lower made the landing photo visibly soften on a 3x
 // phone, since it is the canvas, not the <img>, on screen while it lands.
@@ -106,7 +98,12 @@ function drawCover(img, W, H, canvas) {
 const drawable = img => img && img.complete && img.naturalWidth > 0;
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, originSelector, warm = null }) {
+// `ref` (optional) gets { assemble(url, maskUrl, onLanded) -> cancel, release() }: a NEW PRINT
+// arriving (ProductPhoto under `?printfx=facet`) -- the photo at `url` assembling from the centre
+// over whatever is beneath, confined to `maskUrl`'s opaque pixels (the fabric) so the model and
+// background never move. `onLanded` runs when the last triangle has landed; the canvas then holds
+// that frame until `release()`, which fades it away over the photo the caller has put underneath.
+export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, originSelector, warm = null, ref = null }) {
   const canvasRef = useRef(null);
   // The WebGL canvas and its drawing (null: not tried yet; false: unavailable -- the 2D canvas then).
   const glCanvasRef = useRef(null);
@@ -117,7 +114,7 @@ export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, ori
   // a context lost on teardown cannot be had again from the same element, and a component can be
   // torn down and mounted again (StrictMode does exactly that in development).
   const getGl = () => {
-    if (FORCE_2D || glRef.current === false || !canvasRef.current) return null;
+    if (glRef.current === false || !canvasRef.current) return null;
     if (glRef.current === null) {
       const canvas = document.createElement('canvas');
       canvas.setAttribute('aria-hidden', 'true');
@@ -243,7 +240,7 @@ export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, ori
     }, FADE_OUT_MS + 40);
   };
 
-  const play = (kind, fromImg, toImg) => {
+  const play = (kind, fromImg, toImg, { mask = null, onLanded = null } = {}) => {
     const gl = getGl();
     const canvas = gl ? glCanvasRef.current : canvasRef.current;
     activeRef.current = canvas;
@@ -283,7 +280,7 @@ export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, ori
 
     const layout = layoutFacets(W, H, ox, oy);
 
-    const duration = kind === 'intro' ? FACET_INTRO_MS : FACET_SWAP_MS;
+    const duration = kind === 'swap' ? FACET_SWAP_MS : FACET_INTRO_MS;
     const run = { kind, raf: 0, reported: false };
     runRef.current = run;
     const waitStart = performance.now();
@@ -302,18 +299,24 @@ export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, ori
         stats.last = now;
       }
       if (!to) {
-        if (drawable(toImg) && (toImg.decoded || now - waitStart > DECODE_WAIT_MS)) {
+        // An assembling print also waits for its fabric mask: drawn without one, the triangles
+        // covered the whole photo -- the model included.
+        const maskReady = !mask || (drawable(mask) && mask.decoded);
+        if (drawable(toImg) && maskReady && (toImg.decoded || now - waitStart > DECODE_WAIT_MS)) {
           const c0 = performance.now();
           if (gl) {
             gl.setImage(toImg, W, H);
+            gl.setMask(mask && drawable(mask) ? mask : null);
             to = true;
           } else to = coverFor(toImg, W, H);
           if (stats) stats.first = performance.now() - c0;
           t0 = now;
         } else if (now - waitStart > LOAD_TIMEOUT_MS) {
-          // Not played: the page falls back to the layer's ordinary fade.
+          // Not played: the page falls back to the layer's ordinary fade -- and an assembling
+          // print hands over at once, or the caller would keep the photo hidden.
           reportIntroEnd(run, false);
           finish();
+          if (kind === 'assemble') onLanded?.();
           return;
         } else {
           run.raf = requestAnimationFrame(frame);
@@ -339,6 +342,8 @@ export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, ori
       }
       if (t < 1) run.raf = requestAnimationFrame(frame);
       else if (kind === 'swap') finishSoftly();
+      // An assembled print holds its last frame until the caller releases it.
+      else if (kind === 'assemble') onLanded?.();
       // The intro's last frame covers everything. Hold it until the page has the <img> showing
       // underneath -- the `intro` effect below takes it down in that same commit.
       else reportIntroEnd(run, true);
@@ -349,6 +354,30 @@ export default function FacetSwap({ src, enabled, intro = false, onIntroEnd, ori
   useLayoutEffect(() => {
     onIntroEndRef.current = onIntroEnd;
   });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      assemble(url, maskUrl, onLanded) {
+        finish();
+        if (!canvasRef.current || reducedMotion()) {
+          onLanded?.();
+          return () => {};
+        }
+        play('assemble', null, imageFor(url), { mask: maskUrl ? imageFor(maskUrl) : null, onLanded });
+        const run = runRef.current;
+        return () => {
+          if (runRef.current === run) finish();
+        };
+      },
+      release() {
+        if (runRef.current?.kind === 'assemble') finishSoftly();
+      }
+    }),
+    // imageFor/finish/play/finishSoftly only touch refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   useLayoutEffect(() => {
     enabledRef.current = enabled;
