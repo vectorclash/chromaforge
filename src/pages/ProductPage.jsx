@@ -34,6 +34,7 @@ import {
   getHatWrap,
   describePrintFileStrategy
 } from '../lib/printful';
+import { waitForLinkedDesign } from '../lib/linkedDesign';
 import { getThumbnailUrl } from '../lib/designs';
 import { createCheckoutSession } from '../lib/checkout';
 import { guessShippingRegion } from '../lib/regionGuess';
@@ -662,9 +663,12 @@ export default function ProductPage() {
     setLoading(true);
     (async () => {
       try {
+        // A `?id=` link's design (lib/linkedDesign.js) is awaited too, so the first photo is
+        // already wearing it rather than a random design that then swaps.
         const [d, specs] = await Promise.all([
           getCatalogProduct(productId),
-          getPrintfileSpecs(productId)
+          getPrintfileSpecs(productId),
+          waitForLinkedDesign()
         ]);
         if (!cancelled) {
           track('product_view', { product: Number(productId) });

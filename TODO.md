@@ -22,14 +22,17 @@ Order of work:
 - [ ] `node scripts/check-instant-coverage.mjs` must report every option covered (exit 0).
 
 ### 2. The artwork link for ads
-- [ ] `/shop?id=<design>` and `/shop/<product>?id=<design>` (any page, really) make that saved
-      design the ACTIVE design -- StudioContext's currentDesign -- so an ad lands on the shop or a
-      product already wearing the ad's artwork. Today only `/studio?id=` does (`utils/urlConfig.js`,
-      DisplayCanvas). To decide while building: load it before the shop's first screenful is
-      prepared (or the grid shows a random design, then swaps); re-stamp with
-      `withCurrentGeneratorVersion` (a stored row is adopted into the live pipeline); a bad or private
-      id quietly keeps the visit's own design; whether the `?id=` stays in the address bar; what the
-      product page's artwork picker shows as selected. Test with a real ad URL on a phone.
+- [x] Built 2026-11-16 (`src/lib/linkedDesign.js`): `?id=<design>` on any page but `/` and `/studio`
+      (whose DisplayCanvas already handles it) makes that saved design the active design, rebuilt
+      with the bundle's generator (so it carries the current version) and marked saved. The shop
+      and product page hold their first screenful for it (up to 2.5s), and the ambient surfaces
+      (mini generator, footer, mobile nav) wait too, so nothing ever renders the visit's random
+      opening design first -- verified in Chromium and WebKit at 390px: the ONLY design sent to the
+      render worker is the linked one, on /shop, /shop/257 and /shop/798. A missing, deleted,
+      private or malformed id, or an animation, quietly keeps the visit's own design (no console
+      error). The `?id=` stays in the address bar, so a reload keeps the ad's design. The product
+      page's picker shows it as "Studio design / CURRENT".
+- [ ] Aaron: open a real ad URL on the phone (step 4).
 
 ### 3. Automated sweep (Claude) -- breadth, so Aaron doesn't have to click everything
 - [ ] Every product x every size/colour/stitch x every view: the photo renders, no page errors, the

@@ -14,6 +14,7 @@ import {
 import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
+import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign } from '../lib/linkedDesign';
 import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
 import {
@@ -149,6 +150,9 @@ export function StudioProvider({ children }) {
       geometry: getStudioGeometrySettings(prefs?.settings)
     });
   });
+  // The design on screen as of the last render, for async work that must not land on a newer one.
+  const currentDesignRef = useRef(currentDesign);
+  currentDesignRef.current = currentDesign;
   // A design the mini generators show, to record in the Recent list once its preview has rendered
   // (that is when it reaches their screens). The session's opening design and every mini generator
   // Generate; the studio and the homepage hero record their own stills as they land
@@ -310,7 +314,19 @@ export function StudioProvider({ children }) {
   // visible ones for a covered one was the reverted 2026-09-23 shared cycle's worst cost (a
   // Generate from the menu waited on the footer's 3200px render, which nobody could see).
   const ambientRender = useCallback(
-    (design, width, height, { join = true } = {}) => {
+    (design, width, height, opts = {}) => {
+      // While a `?id=` link's design is loading (lib/linkedDesign.js), wait for it: the visit's
+      // opening design is about to be replaced, and rendering it would show it for a moment, then
+      // swap. A render whose design was replaced meanwhile never settles; its caller has moved on
+      // (every ambient surface cancels on a design change).
+      if (linkedDesignPending() && !opts.afterLink) {
+        return waitForLinkedDesign().then(() =>
+          design === currentDesignRef.current
+            ? ambientRender(design, width, height, { ...opts, afterLink: true })
+            : new Promise(() => {})
+        );
+      }
+      const { join = true } = opts;
       if (!join) return renderDesignBlob(design, width, height, { priority: PRIORITY_AMBIENT, nebulaPixels: NEBULA_PIXELS_LITE });
       let g = ambientGroupRef.current;
       if (!g || g.design !== design || g.landed) {
@@ -548,6 +564,25 @@ export function StudioProvider({ children }) {
     },
     [savedDesignId]
   );
+
+  // A link naming a saved design (`/shop?id=...`, see lib/linkedDesign.js) makes it the active
+  // design once it loads -- unless the visitor has already moved on (a Generate before the row
+  // arrived), which a late load must not undo. It arrives saved, so Save reads "Saved".
+  useEffect(() => {
+    const opening = currentDesignRef.current;
+    let cancelled = false;
+    loadLinkedDesign().then(linked => {
+      if (cancelled || !linked || currentDesignRef.current !== opening) return;
+      recordOnPreviewRef.current = linked.design;
+      // Now, not on the next render: renders waiting on the link read it as soon as this returns.
+      currentDesignRef.current = linked.design;
+      setCurrentDesign(linked.design);
+      markDesignSaved(linked.design, linked.id, linked.title);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [markDesignSaved]);
 
   const value = {
     currentDesign,

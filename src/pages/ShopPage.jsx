@@ -15,6 +15,7 @@ import { humanError } from '../lib/errorMessage';
 import { useStudio } from '../context/StudioContext';
 import { hasInstantMockup, requestInstantBlank, requestInstantMockup } from '../lib/instantMockupStore';
 import { stableDefaultMockupOptions } from '../lib/mockupDefaults';
+import { waitForLinkedDesign } from '../lib/linkedDesign';
 
 // One source of truth for the grid geometry, shared with SiteLayout's route-level fallback:
 // three placeholders hand over to each other on a cold load (chunk download -> this page's
@@ -94,7 +95,10 @@ export default function ShopPage() {
     let cancelled = false;
     (async () => {
       try {
-        const all = await listCatalogProducts();
+        // A `?id=` link's design (lib/linkedDesign.js) is fetched alongside the catalogue and
+        // the first prints are made of it, so an ad never lands on a random design that then swaps.
+        const [all, linked] = await Promise.all([listCatalogProducts(), waitForLinkedDesign()]);
+        const design = linked?.design ?? currentDesign;
         const byId = new Map(all.map(p => [p.id, p]));
         const starter = STARTER_PRODUCT_IDS.map(id => byId.get(id)).filter(Boolean);
         if (cancelled) return;
@@ -112,7 +116,7 @@ export default function ShopPage() {
         // Bounded like the stock photos: a slow load must not hold the shop back.
         const instant = first.filter(p => hasInstantMockup(p.id));
         for (const p of instant) {
-          requestInstantMockup(p.id, currentDesign, stableDefaultMockupOptions(p.id), renderDesignBlob, { background: true });
+          requestInstantMockup(p.id, design, stableDefaultMockupOptions(p.id), renderDesignBlob, { background: true });
         }
         await Promise.all([
           preloadImages(first.filter(p => !hasInstantMockup(p.id)).map(p => p.image).filter(Boolean)),

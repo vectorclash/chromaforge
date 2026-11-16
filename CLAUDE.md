@@ -3486,6 +3486,15 @@ Printful flow; a recalibration is needed if Printful changes a photo (re-run `ve
 Capture costs 9 tasks (4 shading-only, 1 verify) against the store-wide 10/60s create limit, and leaves
 files in Printful's library; `.calib/` (gitignored) keeps the downloads so `decode` reruns for free.
 
+**An ad can link straight to a design: `/shop?id=<design>`, `/shop/<product>?id=<design>`**
+(`lib/linkedDesign.js`, 2026-11-16). Any page except `/` and `/studio` (DisplayCanvas reads `?id=`
+there itself). StudioContext adopts the row, rebuilt by `generateArtwork` (current generator version,
+full config) and marked saved, unless the visitor already generated something else. The shop and
+product page await it before their first screenful, and `ambientRender` waits while it is in flight,
+so the visit's random opening design is never rendered at all; a request slower than 2.5s lets them
+go ahead, and the design is still adopted when it lands. A bad id or an animation keeps the visit's
+own design. Fetched with `maybeSingle`, so a missing row is not a logged 406.
+
 ### The shop has a product-type filter (`components/ui/ShopFilter.jsx`, 2026-10-11)
 All · Tees & tanks · Hoodies & jackets · Bottoms · Accessories -- grouping "B" of three Aaron
 compared in an interactive mockup (https://claude.ai/artifact/5Kzj4jztfJW2WmYiX3i1ZZ), chosen so
