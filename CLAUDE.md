@@ -3478,8 +3478,9 @@ Measure any future change the same way: `node scripts/check-instant-accuracy.mjs
 are in `.calib/<id>/<cfg>/verify/`, on the machine that captured them). `node
 scripts/check-instant-coverage.mjs` checks every product x variant x stitch colour against Printful's
 live catalog and lists any option with no photo set.
-(9) **Known gaps**: only the phone case's other models (Aaron wants them all -- TODO.md); every other
-product, variant and stitch colour Printful offers has a photo set (checked against the live catalog
+(9) **Known gaps**: none -- since 2026-11-16 every product, variant and stitch colour Printful offers
+has a photo set, all 36 MagSafe options included (each Matte is shading-only off its Glossy; the
+mappings measured identical) (checked against the live catalog
 2026-11-15, after capturing the last ten: the pillow's other sizes in black, the bandana's M and L in
 black and clear, the red and yellow totes in clear). A selection with no photo set falls back to the
 Printful flow; a recalibration is needed if Printful changes a photo (re-run `verify`).

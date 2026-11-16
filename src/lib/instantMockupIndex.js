@@ -2806,6 +2806,310 @@ export const INSTANT_MOCKUPS = {
   "798": {
     "configs": [
       {
+        "id": "v20319",
+        "default": false,
+        "variants": [
+          20319
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59679",
+        "views": [
+          {
+            "id": "59679",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20321",
+        "default": false,
+        "variants": [
+          20321
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59681",
+        "views": [
+          {
+            "id": "59681",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20323",
+        "default": false,
+        "variants": [
+          20323
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59680",
+        "views": [
+          {
+            "id": "59680",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20325",
+        "default": false,
+        "variants": [
+          20325
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59682",
+        "views": [
+          {
+            "id": "59682",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20327",
+        "default": false,
+        "variants": [
+          20327
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59683",
+        "views": [
+          {
+            "id": "59683",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20329",
+        "default": false,
+        "variants": [
+          20329
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59684",
+        "views": [
+          {
+            "id": "59684",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20331",
+        "default": false,
+        "variants": [
+          20331
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59685",
+        "views": [
+          {
+            "id": "59685",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20333",
+        "default": false,
+        "variants": [
+          20333
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59686",
+        "views": [
+          {
+            "id": "59686",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20687",
+        "default": false,
+        "variants": [
+          20687
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61381",
+        "views": [
+          {
+            "id": "61381",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20689",
+        "default": false,
+        "variants": [
+          20689
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61383",
+        "views": [
+          {
+            "id": "61383",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20691",
+        "default": false,
+        "variants": [
+          20691
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61382",
+        "views": [
+          {
+            "id": "61382",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20693",
+        "default": false,
+        "variants": [
+          20693
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61384",
+        "views": [
+          {
+            "id": "61384",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34001",
+        "default": false,
+        "variants": [
+          34001
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87597",
+        "views": [
+          {
+            "id": "87597",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34003",
+        "default": false,
+        "variants": [
+          34003
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87596",
+        "views": [
+          {
+            "id": "87596",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34005",
+        "default": false,
+        "variants": [
+          34005
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87595",
+        "views": [
+          {
+            "id": "87595",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34007",
+        "default": false,
+        "variants": [
+          34007
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87594",
+        "views": [
+          {
+            "id": "87594",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
         "id": "v53188",
         "default": true,
         "variants": [
@@ -2819,6 +3123,367 @@ export const INSTANT_MOCKUPS = {
         "views": [
           {
             "id": "100950",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v53189",
+        "default": false,
+        "variants": [
+          53189
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "100950",
+        "views": [
+          {
+            "id": "100950",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v53190",
+        "default": false,
+        "variants": [
+          53190
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "100951",
+        "views": [
+          {
+            "id": "100951",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20318",
+        "default": false,
+        "variants": [
+          20318
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59679",
+        "views": [
+          {
+            "id": "59679",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20320",
+        "default": false,
+        "variants": [
+          20320
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59681",
+        "views": [
+          {
+            "id": "59681",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20322",
+        "default": false,
+        "variants": [
+          20322
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59680",
+        "views": [
+          {
+            "id": "59680",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20324",
+        "default": false,
+        "variants": [
+          20324
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59682",
+        "views": [
+          {
+            "id": "59682",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20326",
+        "default": false,
+        "variants": [
+          20326
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59683",
+        "views": [
+          {
+            "id": "59683",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20328",
+        "default": false,
+        "variants": [
+          20328
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59684",
+        "views": [
+          {
+            "id": "59684",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20330",
+        "default": false,
+        "variants": [
+          20330
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59685",
+        "views": [
+          {
+            "id": "59685",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20332",
+        "default": false,
+        "variants": [
+          20332
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "59686",
+        "views": [
+          {
+            "id": "59686",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20688",
+        "default": false,
+        "variants": [
+          20688
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61381",
+        "views": [
+          {
+            "id": "61381",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20690",
+        "default": false,
+        "variants": [
+          20690
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61383",
+        "views": [
+          {
+            "id": "61383",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20692",
+        "default": false,
+        "variants": [
+          20692
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61382",
+        "views": [
+          {
+            "id": "61382",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v20694",
+        "default": false,
+        "variants": [
+          20694
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "61384",
+        "views": [
+          {
+            "id": "61384",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34002",
+        "default": false,
+        "variants": [
+          34002
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87597",
+        "views": [
+          {
+            "id": "87597",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34004",
+        "default": false,
+        "variants": [
+          34004
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87596",
+        "views": [
+          {
+            "id": "87596",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34006",
+        "default": false,
+        "variants": [
+          34006
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87595",
+        "views": [
+          {
+            "id": "87595",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v34008",
+        "default": false,
+        "variants": [
+          34008
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "87594",
+        "views": [
+          {
+            "id": "87594",
+            "name": "default",
+            "group": null
+          }
+        ]
+      },
+      {
+        "id": "v53191",
+        "default": false,
+        "variants": [
+          53191
+        ],
+        "stitch": null,
+        "placements": [
+          "default"
+        ],
+        "card": "100951",
+        "views": [
+          {
+            "id": "100951",
             "name": "default",
             "group": null
           }

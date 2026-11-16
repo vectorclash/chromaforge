@@ -12,14 +12,14 @@ stay local until the phone cases are done and he has tested the shop fully; then
 Order of work:
 
 ### 1. Phone cases — every MagSafe model (798)
-- [ ] Only the default (iPhone 18 Pro Glossy, variant 53188) is calibrated; the other 35 options fall
-      back to the Printful flow. Printful photographs each model separately, so each model needs a
-      FULL capture (9 tasks): `node scripts/calibrate-instant-mockup.mjs --product 798 --variant <id>
-      capture`. Glossy vs Matte of one model is probably shading-only (`--shading-from v<glossy id>`,
-      4 tasks) -- capture ONE pair fully first and compare the photos before assuming it. Roughly
-      200-300 tasks; run as a background batch (the script paces itself under the store-wide 10/60s
-      limit; each task leaves a file in Printful's library). Then one `decode`, `verify` on two models.
-- [ ] `node scripts/check-instant-coverage.mjs` must report every option covered (exit 0).
+- [x] Done 2026-11-16: all 36 options (18 models x Glossy/Matte). Glossy vs Matte of one model
+      was captured fully first: identical silhouette and white photo, coordinate maps equal to
+      0.25/4096 levels, so every other Matte is `--shading-from` its Glossy (17 x 13 = 221 tasks,
+      no failures). Printful shoots the 17 Pro / 18 Pro and 17 Pro Max / 18 Pro Max on one photo.
+      `verify` on the two worst decodes and one shading-only Matte: mean 4.38 (18 Pro Max), 4.22
+      (17 Air), 3.47 (15 Pro Max Matte) -- the same level as every other product, and
+      indistinguishable side by side.
+- [x] `check-instant-coverage.mjs`: every option of every product covered (exit 0). 42 MB total.
 
 ### 2. The artwork link for ads
 - [x] Built 2026-11-16 (`src/lib/linkedDesign.js`): `?id=<design>` on any page but `/` and `/studio`
@@ -34,26 +34,25 @@ Order of work:
       page's picker shows it as "Studio design / CURRENT".
 - [ ] Aaron: open a real ad URL on the phone (step 4).
 
-### 3. Automated sweep (Claude) -- breadth, so Aaron doesn't have to click everything
-- [ ] Every product x every size/colour/stitch x every view: the photo renders, no page errors, the
-      strip's views and order are right, no two views are the same picture, the page opens on the
-      first view, labels take the right ink (dark print -> light mark), no black squares.
-- [ ] A design change on every product page: hero (facets) and every thumbnail (resolve) all land on
-      the new design together; nothing stale. Size/colour/stitch switches on the per-variant products
-      (pillow, bandana, tote, windbreaker, phone case): no previous-option photo ever shows (the
-      bandana trace).
-- [ ] Shop grid + homepage carousel: all 20 cards render; a Generate updates the visible cards and
-      off-screen ones catch up on scroll; first screenful timing.
-- [ ] Performance and memory: facet frame times (render log), long tasks at 4x CPU, canvases /
-      object URLs / heap flat over 12 Generates and 120 swaps, one WebGL context per product page.
-- [ ] Accuracy unchanged: `node scripts/check-instant-accuracy.mjs` (baseline mean 4.45, bad 0.73 per
-      thousand over 133 real Printful photos).
-- [ ] Buy Now on a calibrated product reaches the Stripe page with the instant photo as the line image
-      (signed in; do NOT pay -- the pending order and session expire on their own).
-- [ ] Repo checks: typecheck, lint, check-routes-smoke, check-leaks, check-route-intro-once,
-      check-hero-build-race, check-reexport-bindings, check-render-density, check-no-secrets, and a
-      production build (`vite build`) that includes public/instant-mockups.
-- [ ] Report back a short list: what broke, what was fixed, what needs Aaron's eye.
+### 3. Automated sweep (Claude) -- done 2026-11-16, production build, nothing broken
+- [x] Every product x every single-choice option (size, colour, stitch, finish, model, Back panel,
+      leg artwork, geometry size) in Chromium at 1280: no page errors, strips open on their first
+      view, no two views the same picture, no view mostly black, and no hero photo mid-change from
+      outside the old or new set (the bandana trace). Photos change where they should (pillow and
+      bandana sizes, tote colours, every case model, Matte/Glossy, stitch colours, geometry size
+      with a geometry design). Only flag: the pillow's "Same as front" makes front and back the same
+      picture, which is that option working.
+- [x] A Generate on every product page: hero and every thumbnail take the new design in the same
+      frame (~1.3s after the click), nothing stale.
+- [x] Shop grid (Chromium + WebKit, 1280 + 390): grid in ~1.0-1.4s, visible cards follow a Generate,
+      off-screen cards hold and catch up on scroll (20/20). Homepage carousel follows a hero Generate.
+- [x] Performance (hoodie page): no long tasks at 4x CPU on a Generate or facet swaps (worst swap
+      frame 17ms); heap, object URLs flat and ONE WebGL context over 12 Generates + 120 swaps.
+- [x] Accuracy unchanged: mean 4.454, bad 0.725 per thousand (133 views).
+- [x] Buy Now (signed in) on 257 and 693 reaches the live Stripe page in ~4s with the instant photo
+      as the line image (two unpaid pending orders, cancelled by the 24h cron).
+- [x] Repo checks: typecheck, lint, routes 10/10, leaks 12/12, route-intro-once, hero-build-race
+      (page + worker), reexport, render-density 420/420, no-secrets, production build.
 
 ### 4. Aaron's checklist -- only what a machine can't judge (Safari desktop + iPhone)
 - [ ] Shop: the grid arrives wearing the current design; a mini-generator Generate updates the
