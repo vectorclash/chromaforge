@@ -3474,7 +3474,10 @@ flat. Eight things worth not re-deriving:
   ~170ms against ~70ms at 1000; its decoded renders are bounded by bytes (160MB).
 - **The compositor is ~1.8x the work it was** (mip sampling, the level-of-detail grid); the grid and
   cut thresholds depend only on the view and render sizes, so they are cached on the view.
-Measure any future change the same way (the real photos are in `.calib/<id>/<cfg>/verify/`).
+Measure any future change the same way: `node scripts/check-instant-accuracy.mjs` (the real photos
+are in `.calib/<id>/<cfg>/verify/`, on the machine that captured them). `node
+scripts/check-instant-coverage.mjs` checks every product x variant x stitch colour against Printful's
+live catalog and lists any option with no photo set.
 (9) **Known gaps**: only the phone case's other models (Aaron wants them all -- TODO.md); every other
 product, variant and stitch colour Printful offers has a photo set (checked against the live catalog
 2026-11-15, after capturing the last ten: the pillow's other sizes in black, the bandana's M and L in

@@ -5,6 +5,82 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
+## Instant mockups — the plan to ship them (Aaron + Claude, written 2026-11-15)
+
+Four commits on local `master`, NOT pushed (8017759, dbf9cfb, ea0fd9c, 7245363). Aaron's rule: they
+stay local until the phone cases are done and he has tested the shop fully; then he says "deploy".
+Order of work:
+
+### 1. Phone cases — every MagSafe model (798)
+- [ ] Only the default (iPhone 18 Pro Glossy, variant 53188) is calibrated; the other 35 options fall
+      back to the Printful flow. Printful photographs each model separately, so each model needs a
+      FULL capture (9 tasks): `node scripts/calibrate-instant-mockup.mjs --product 798 --variant <id>
+      capture`. Glossy vs Matte of one model is probably shading-only (`--shading-from v<glossy id>`,
+      4 tasks) -- capture ONE pair fully first and compare the photos before assuming it. Roughly
+      200-300 tasks; run as a background batch (the script paces itself under the store-wide 10/60s
+      limit; each task leaves a file in Printful's library). Then one `decode`, `verify` on two models.
+- [ ] `node scripts/check-instant-coverage.mjs` must report every option covered (exit 0).
+
+### 2. The artwork link for ads
+- [ ] `/shop?id=<design>` and `/shop/<product>?id=<design>` (any page, really) make that saved
+      design the ACTIVE design -- StudioContext's currentDesign -- so an ad lands on the shop or a
+      product already wearing the ad's artwork. Today only `/studio?id=` does (`utils/urlConfig.js`,
+      DisplayCanvas). To decide while building: load it before the shop's first screenful is
+      prepared (or the grid shows a random design, then swaps); re-stamp with
+      `withCurrentGeneratorVersion` (a stored row is adopted into the live pipeline); a bad or private
+      id quietly keeps the visit's own design; whether the `?id=` stays in the address bar; what the
+      product page's artwork picker shows as selected. Test with a real ad URL on a phone.
+
+### 3. Automated sweep (Claude) -- breadth, so Aaron doesn't have to click everything
+- [ ] Every product x every size/colour/stitch x every view: the photo renders, no page errors, the
+      strip's views and order are right, no two views are the same picture, the page opens on the
+      first view, labels take the right ink (dark print -> light mark), no black squares.
+- [ ] A design change on every product page: hero (facets) and every thumbnail (resolve) all land on
+      the new design together; nothing stale. Size/colour/stitch switches on the per-variant products
+      (pillow, bandana, tote, windbreaker, phone case): no previous-option photo ever shows (the
+      bandana trace).
+- [ ] Shop grid + homepage carousel: all 20 cards render; a Generate updates the visible cards and
+      off-screen ones catch up on scroll; first screenful timing.
+- [ ] Performance and memory: facet frame times (render log), long tasks at 4x CPU, canvases /
+      object URLs / heap flat over 12 Generates and 120 swaps, one WebGL context per product page.
+- [ ] Accuracy unchanged: `node scripts/check-instant-accuracy.mjs` (baseline mean 4.45, bad 0.73 per
+      thousand over 133 real Printful photos).
+- [ ] Buy Now on a calibrated product reaches the Stripe page with the instant photo as the line image
+      (signed in; do NOT pay -- the pending order and session expire on their own).
+- [ ] Repo checks: typecheck, lint, check-routes-smoke, check-leaks, check-route-intro-once,
+      check-hero-build-race, check-reexport-bindings, check-render-density, check-no-secrets, and a
+      production build (`vite build`) that includes public/instant-mockups.
+- [ ] Report back a short list: what broke, what was fixed, what needs Aaron's eye.
+
+### 4. Aaron's checklist -- only what a machine can't judge (Safari desktop + iPhone)
+- [ ] Shop: the grid arrives wearing the current design; a mini-generator Generate updates the
+      cards (resolve); scrolling stays smooth.
+- [ ] Homepage carousel: the same.
+- [ ] A product page: opens on the first flat; a Generate assembles the main photo from facets on
+      the fabric only; clicking through every thumbnail is smooth (facets).
+- [ ] Changing size / colour / stitch on the pillow, bandana, tote, windbreaker and phone case.
+- [ ] Bucket hat with a second artwork: inside views show it; removing it hides them.
+- [ ] Labels on the shorts, joggers, track jacket, crossbody, bucket hat: the mark reads, light on
+      dark prints.
+- [ ] Print options (Artwork for the legs, Back panel, Geometry placement, Geometry size on the case)
+      change the photos.
+- [ ] Buy Now -> the Stripe page shows the right photo (don't pay).
+- [ ] The ad link from step 2, opened on the phone.
+- [ ] Anything that looks wrong: screenshot it, with `?renderlog=1` on if it's about smoothness.
+
+### 5. Deploy
+- [ ] Optional, if testing on the live site first would help: ship it DARK -- instant mockups off for
+      customers, on for Aaron via a remembered `?instant=1` -- then turn it on for everyone with a
+      one-line change (and off again the same way). Decide after step 4.
+- [ ] Run every check in step 3 once more, then push `master`. The first deploy uploads ~38 MB of
+      calibration files (later deploys only what changed). Frontend only: no Fly, Edge Function or
+      database changes, no store pause needed -- print files and orders go through the unchanged
+      path.
+- [ ] Poll the live site until the new bundle serves (crawl the entry chunk's imports for a token
+      from the new code), then load the shop, a product page and Buy Now on the live site.
+- [ ] Rollback if anything is wrong: revert the commits and push; it is a static site, live again in
+      minutes.
+
 ## Deployed — print files render after payment (2026-10-19)
 
 Live as of 2026-10-19 (commits `991dcff`, `dd9faa1`). Details in CLAUDE.md ("Print files render
@@ -414,21 +490,6 @@ collar band and chest label are newly submitted.
          check PASS on 693/784, 38/38 thumbnails byte-identical to fresh v9 renders.
 
 ## Code — high value, near term
-
-- [ ] **Instant mockups: calibrate every MagSafe case model (798) — Aaron wants all of them
-      (2026-11-15, "not today").** Only the default model (iPhone 18 Pro Glossy, variant 53188) is
-      calibrated; every other model and the Matte finish fall back to the Printful flow on the product
-      page. Printful photographs each model separately, so each needs its own FULL capture (9 tasks):
-      `node scripts/calibrate-instant-mockup.mjs --product 798 --variant <id> capture`, then one
-      `decode` for the product (and `verify` on a couple). Glossy vs Matte of one model is probably a
-      shading-only difference (`--shading-from v<glossy id>`, 4 tasks) -- check one pair's photos
-      before assuming it. ~36 variants, roughly 200-300 tasks: run it as a background batch at the
-      script's own pace (it stays under the store-wide 10/60s create limit). See CLAUDE.md's
-      "Instant mockups" section.
-- [ ] **Instant mockups: the URL artwork link (Aaron, 2026-11-15, after calibration).** A link like
-      `/shop?id=<design>` or `/shop/257?id=<design>` should make that saved design the active one on
-      any page, so an ad can land on the shop already wearing the ad's artwork. Today only
-      `/studio?id=` loads a design (`utils/urlConfig.js`).
 
 - [x] **Printful catalog-drift check (scheduled) — BUILT 2026-07-16.**
       `scripts/check-printful-catalog.mjs` (plain Node; PRODUCT_MOCKUP_CONFIG extracted to
