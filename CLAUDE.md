@@ -5807,8 +5807,9 @@ by the shared design as the odds the panel last published.
     and the ad builder match. Three things worth not re-deriving:
     (1) **Printful accepts all five without it and charges nothing for it** -- free draft orders with
     `check-printful-draft-orders.mjs --skip label_outside` (2026-11-16), every other file `ok`; the
-    catalog lists no extra price for either label. NOT yet confirmed on a real garment: whether the
-    spot comes back as print or as a blank patch (the mockups show print).
+    catalog lists no extra price for either label. A placement left out of an order is simply not
+    produced (Aaron, 2026-11-16) -- the labels are optional placements that Printful's API just
+    doesn't mark as optional -- so the spot shows the artwork, as the mockups do.
     (2) **The instant mockup gets a fully CLEAR mark, not none** (`hiddenLogo: clearMark` in
     instantMockupStore). With no file the compositor skips those pixels and leaves the blank garment
     -- a white patch. A clear mark goes through the see-through-label path and shows the print
