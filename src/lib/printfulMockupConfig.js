@@ -550,8 +550,21 @@ export const PRODUCT_MOCKUP_CONFIG = {
       placements: ['inside_front', 'inside_back'],
       primaryLabel: 'Outside',
       label: 'Inside',
-      // Rendered under the picker, verbatim.
-      note: "Printful can't photograph the inside of this hat, so a second design won't show up in the preview above — you'll first see it on the hat itself."
+      // Rendered under the picker, verbatim. It used to say the inside could not be previewed,
+      // which stopped being true once the instant photos showed the inside faces (2026-11-15).
+      note: 'The inside photos come after the outside ones, so you can see both sides before you buy.'
+    },
+    // The instant photo strip, picked by hand (Aaron, 2026-11-16: with two artworks the hat showed
+    // 16 photos -- every angle twice, outside and inside alternating -- and "it just feels like way
+    // too many"). The hat is round, so its flat Front / Back / Right Front / Right photos are
+    // near-twins; these are the ones that each add something: the front, the tilted close-up (the
+    // top of the crown and the brim), and worn from the front and from behind (the most crown on a
+    // head). With a second design, two of the inside face follow the outside four. Printful's own
+    // photo ids (generator_mockup_id, stable across tasks and the same in every stitch colour);
+    // instantViews keeps this order and drops any id the calibration does not have.
+    instantViewPick: {
+      outside: ['26051', '26111', '26176', '26177'],
+      inside: ['26226', '26181']
     }
   }, // reversible bucket hat
   630: {

@@ -61,7 +61,8 @@ Order of work:
 - [ ] A product page: opens on the first flat; a Generate assembles the main photo from facets on
       the fabric only; clicking through every thumbnail is smooth (facets).
 - [ ] Changing size / colour / stitch on the pillow, bandana, tote, windbreaker and phone case.
-- [ ] Bucket hat with a second artwork: inside views show it; removing it hides them.
+- [ ] Bucket hat: 4 photos with one artwork; with a second artwork 6 (the last two show it); removing it
+      goes back to 4.
 - [ ] Labels on the shorts, joggers, track jacket, crossbody, bucket hat: the new Logo option starts
       Off (print runs through where the mark was); On brings the mark back, light on dark prints.
 - [ ] Print options (Artwork for the legs, Back panel, Geometry placement, Geometry size on the case)

@@ -99,9 +99,16 @@ export function instantViews(productId, configId = null, { showsSecondary = fals
     const shown = hideUnsubmittedViews(named, worthShowing, {
       available_placements: Object.fromEntries(placements.map(p => [p, p]))
     });
+    // A product may pick its strip by hand (PRODUCT_MOCKUP_CONFIG's instantViewPick -- the
+    // reversible hat): exactly those photos, in that order, the inside ones only with a second design.
+    const pick = PRODUCT_MOCKUP_CONFIG[pid]?.instantViewPick;
+    const byId = new Map(named.map(v => [v.id, v]));
+    const ordered = pick
+      ? [...pick.outside, ...(showsSecondary ? pick.inside : [])].map(id => byId.get(id)).filter(Boolean)
+      : orderViews(shown, showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS, pid);
     orderedViews.set(
       key,
-      orderViews(shown, showsSecondary ? MAX_VIEWS * 2 : MAX_VIEWS, pid).map(v => ({ id: v.id, name: v.display_name }))
+      ordered.map(v => ({ id: v.id, name: v.display_name }))
     );
   }
   return orderedViews.get(key);

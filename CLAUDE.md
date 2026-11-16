@@ -3360,6 +3360,12 @@ mask both where it draws and where it samples. The hero and every thumbnail wait
 until every view is ready) so they change together; a shop card stays in its loading state until its
 own photo lands (ending it when the studio preview lands faded the old photo back in, which also exposed
 a now-fixed `useCrossfadeImage` gap: a url arriving during that fade-back was queued and never shown).
+(6b) **The bucket hat's strip is picked by hand: 4 photos, 6 with a second artwork** (`instantViewPick`
+on 654, 2026-11-16; Aaron: with two artworks it showed 16, "way too many"). The hat is round, so its
+flat Front/Back/Right Front/Right photos are near-twins; it shows Front, the tilted close-up, Front on
+model, Back on model, then -- with a second design -- Front Inside and Front Inside on model.
+`instantViews` honours a product's pick ahead of `orderViews`. The picker note under the Inside slot
+used to tell customers the inside could not be previewed; it now says the inside photos follow.
 (7a) **A picked view is an ANGLE SWITCH (facets) only once the current content is on screen**
 (ProductPhoto's `lastChangeRef.shown`; Aaron, on the bandana: after a size change, "the model shot
 from the different size will be there first then switch"). Before that it is the arrival of the new
