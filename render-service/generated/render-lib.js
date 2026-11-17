@@ -1788,7 +1788,7 @@ function addContainer(stage, shapes, { x, y, flip = false }) {
   }
   stage.addChild(container);
 }
-function GeometricShape(config) {
+function buildStage(config) {
   let canvas = document.createElement("canvas");
   canvas.width = config.width;
   canvas.height = config.height;
@@ -1802,6 +1802,16 @@ function GeometricShape(config) {
   } else {
     addContainer(stage, config.shapes, { x: config.width / 2, y: config.height / 2 });
   }
+  return { canvas, stage };
+}
+var PREPARED = /* @__PURE__ */ new WeakMap();
+function GeometricShape(config) {
+  const prepared = PREPARED.get(config);
+  if (prepared) {
+    PREPARED.delete(config);
+    return prepared;
+  }
+  const { canvas, stage } = buildStage(config);
   stage.update();
   return canvas;
 }
