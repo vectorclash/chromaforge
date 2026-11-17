@@ -4161,8 +4161,8 @@ A chevron at the foot of the homepage hero that hops, squashes on landing and dr
 spectrum-coloured echo of itself (the `.cf-spectrum-line` stops), on a 2.6s loop that rests more
 than half the time. It replaced Aaron's 11-14 pick ("Scroll" over a hairline with a light running
 down it, from https://claude.ai/artifact/393hLKbHmoT72BvXXzPNVu), which he later found "a bit
-aggressive". Arrives last in the hero's entrance (`HERO_REVEAL.cue`), fades out on the first
-scroll and back at the top, and a tap glides to #about (`scroll_cue_click`). It sits
+aggressive". Arrives last in the hero's entrance (`HERO_REVEAL.cue`), drops away down the page on the first
+scroll and rises back (with a small overshoot) at the top, and a tap glides to #about (`scroll_cue_click`). It sits
 `100lvh - 100svh` above the section's bottom so Safari's toolbar never hides it, and MEASURES
 before showing: full, then smaller, then hidden, so it never overlaps the controls. Being only
 ~40px tall it now fits in full down to 320x568. **A hero headline was built and removed the same day** (Aaron:

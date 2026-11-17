@@ -2645,9 +2645,10 @@
   filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45));
   opacity: 0;
   visibility: hidden;
+  /* Leaving: it drops away down the page, the way the hop already points, quicker than it came. */
   transition:
-    opacity var(--duration-slow, 0.5s) ease,
-    visibility 0s linear var(--duration-slow, 0.5s);
+    opacity 0.32s cubic-bezier(0.5, 0, 0.75, 0),
+    visibility 0s linear 0.32s;
 }
 
 @supports (height: 100svh) {
@@ -2658,8 +2659,21 @@
   opacity: 1;
   visibility: visible;
   transition:
-    opacity var(--duration-slow, 0.5s) ease var(--cue-delay, 0ms),
+    opacity 0.45s ease-out var(--cue-delay, 0ms),
     visibility 0s linear var(--cue-delay, 0ms);
+}
+
+/* The slide rides the mark, not the button: the button's transform centres it and its filter
+   draws the shadow, and ScrollCue measures the button's box to fit it above the controls. */
+.hero-scroll-cue .hero-scroll-cue-mark {
+  transform: translateY(18px);
+  transition: transform 0.32s cubic-bezier(0.5, 0, 0.75, 0);
+}
+
+/* Arriving: it rises back up out of the page's foot and settles with a small overshoot. */
+.hero-scroll-cue.is-shown .hero-scroll-cue-mark {
+  transform: translateY(0);
+  transition: transform 0.7s cubic-bezier(0.34, 1.45, 0.5, 1) var(--cue-delay, 0ms);
 }
 
 .hero-scroll-cue:focus-visible {
@@ -2726,6 +2740,8 @@
 @media (prefers-reduced-motion: reduce) {
   .hero-scroll-cue-chevron,
   .hero-scroll-cue-echo { animation: none; }
+  .hero-scroll-cue .hero-scroll-cue-mark,
+  .hero-scroll-cue.is-shown .hero-scroll-cue-mark { transform: none; transition: none; }
 }
 
 /* ── Instant product photos: the print changing (ProductPhoto) ──────────────

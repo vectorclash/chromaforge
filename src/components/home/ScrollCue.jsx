@@ -9,7 +9,8 @@ import { track } from '../../lib/track';
 // were leaving it without finding anything below. Transforms and opacity only.
 //
 // - Arrives LAST in the hero's entrance (HERO_REVEAL.cue), once what it points past is there.
-// - Shown only at the top of the page; it fades out on the first scroll and back if you return.
+// - Shown only at the top of the page; it drops away down the page on the
+//   first scroll and rises back up, with a small overshoot, when you return.
 // - Never covers the controls. On a short screen (an iPhone SE, Safari with its toolbar up) the
 //   panel's foot can reach the bottom of the visible screen, so `fit` measures: the full cue,
 //   then a smaller one, then nothing.
