@@ -25,6 +25,9 @@ export function recentDesignOf(design) {
   const out = { seed: design.seed, colors: [...(design.colors || [])] };
   const settings = compactSettings(design.settings);
   if (settings) out.settings = settings;
+  // Colours auto colour rolled (render/autoPalette.js), so a recalled tile leaves the swatches
+  // on Auto as the original did.
+  if (design.autoPalette) out.autoPalette = true;
   return out;
 }
 

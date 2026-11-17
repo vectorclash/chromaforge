@@ -4587,6 +4587,17 @@ Verified live on the production build in Chromium and WebKit at 1280/390/360/320
 and regenerate the artwork, `aria-pressed` tracks the live palette, zero console errors, zero
 horizontal page overflow.
 
+**Auto colour lands on a curated palette 15% of the time (`render/autoPalette.js`, 2026-11-16,
+Aaron).** Rolled only when NEW work is made on Auto (studio Generate, the mini generators, a new
+3D flight), on its own `${seed}-autopalette` stream, so nothing stored can change. The design
+carries the palette's colours like any other (every surface, a save and a print agree) plus a
+generation-context `autoPalette` flag, never saved with a row. The flag is what keeps it from
+sticking: the swatches stay on Auto, `cf-studio:design` stays empty, the next Generate rolls
+again (read colours through `chosenColors`, not `design.colors`). A slider release on the same
+seed keeps what it rolled (`buildConfig`); a Recent tile keeps the flag. A "focal points" structure
+for coherence-0 geometry (every chaotic triangle sharing one of 2-3 inner lattice points) was
+built the same day and reverted: Aaron, "not quite doing what I'd hoped".
+
 ### A continuous control commits on release, never mid-drag (`components/ui/SettingsRange.jsx`, 2026-08-26)
 Every studio setting answers a change by regenerating the current seed at full studio
 resolution, so an in-progress adjustment must not reach that path. **A debounce alone does

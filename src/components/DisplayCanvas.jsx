@@ -9,6 +9,7 @@ import { getDesign } from '../lib/designs';
 import { randomSeed } from '../render/prng';
 import { resolvedPalette, resolveDesignPalette } from '../render/resolvedPalette';
 import { generateArtwork } from '../render/generateArtwork';
+import { rollAutoPalette, colorsForNewWork, chosenColors } from '../render/autoPalette';
 import renderArtwork from '../render/renderArtwork';
 import { prepareNebula } from '../render/nebula';
 import { renderConfigOffThread } from '../render/renderOffThread';
@@ -676,9 +677,10 @@ export default class DisplayCanvas extends React.Component {
       flightShowing(this.state) &&
       (this.state.threeDDesign !== prevState.threeDDesign || !flightShowing(prevState))
     ) {
-      const { seed, colors, settings } = this.state.threeDDesign;
+      const { seed, colors, settings, autoPalette } = this.state.threeDDesign;
       const config = generateArtwork(seed, 1080, 1080, colors, settings);
       config.geometryChance = this.state.geometrySettings.chance;
+      if (autoPalette) config.autoPalette = true;
       this.props.onDesignChange?.(config);
     }
     // The large buttons wear the palette of the artwork on screen. Stills and 2D animation
@@ -848,7 +850,7 @@ export default class DisplayCanvas extends React.Component {
     this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
     this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
     this.adoptDesignSettings(design.settings);
-    this.adoptDesignColors(design.colors);
+    this.adoptDesignColors(chosenColors(design));
     const adopted = this.buildAdoptedDesign(design);
     if (alreadySaved) this.namePiece(adopted, this.props.savedDesignTitle);
     this.buildImage(adopted);
@@ -945,7 +947,7 @@ export default class DisplayCanvas extends React.Component {
       this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
       this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
       this.adoptDesignSettings(this.props.initialDesign.settings);
-      this.adoptDesignColors(this.props.initialDesign.colors);
+      this.adoptDesignColors(chosenColors(this.props.initialDesign));
       const adopted = this.buildAdoptedDesign(this.props.initialDesign);
       if (alreadySaved) this.namePiece(adopted, this.props.savedDesignTitle);
       this.buildImage(adopted);
@@ -1137,10 +1139,13 @@ export default class DisplayCanvas extends React.Component {
   }
 
   buildThreeDDesign(seed = randomSeed()) {
+    // A new flight on Auto can land on a curated palette, like a new still (render/autoPalette.js).
+    const picked = colorsForNewWork(seed, this.state.colors.map(c => c.value || c));
     return {
       seed,
-      colors: this.state.colors.map(c => c.value || c),
-      settings: { geometry: this.state.geometrySettings }
+      colors: picked.colors,
+      settings: { geometry: this.state.geometrySettings },
+      ...(picked.autoPalette ? { autoPalette: true } : {})
     };
   }
 
@@ -1176,15 +1181,35 @@ export default class DisplayCanvas extends React.Component {
   // slider state) from "this design has none" (null -> generator defaults) -- load paths
   // pass the stored design's own settings so a loaded design never picks up whatever the
   // sliders happen to be set to.
+  //
+  // Auto colour (an empty panel palette, no colours passed) can land on a curated palette --
+  // see render/autoPalette.js. A NEW seed rolls; the same seed reshaped (a slider release)
+  // keeps what it rolled; explicit colours are never touched. `autoPalette` lets a caller
+  // reproducing a design whose colours were rolled (an adopted or recalled one) say so.
   buildConfig(
-    seed = randomSeed(),
+    seed = null,
     width = this.props.width,
     height = this.props.height,
     colorValues = null,
-    settings = undefined
+    settings = undefined,
+    autoPalette = false
   ) {
+    const isNew = seed == null;
+    if (isNew) seed = randomSeed();
     if (!colorValues) {
       colorValues = this.state.colors.map(c => c.value || c);
+      if (colorValues.length === 0) {
+        const prev = this.mainConfig;
+        const rolled = isNew
+          ? rollAutoPalette(seed)
+          : prev?.autoPalette && prev.seed === seed
+            ? prev.colors
+            : null;
+        if (rolled) {
+          colorValues = rolled.slice();
+          autoPalette = true;
+        }
+      }
     }
     if (settings === undefined) {
       settings = { geometry: this.state.geometrySettings };
@@ -1199,6 +1224,7 @@ export default class DisplayCanvas extends React.Component {
     // "always" or "never" -- caught in a real browser, where opening the app wrote 0.7 and
     // then immediately overwrote it with 1 as the hero adopted its own first design.
     config.geometryChance = this.state.geometrySettings.chance;
+    if (autoPalette) config.autoPalette = true;
     this.mainConfig = config;
     // Any new mainConfig replaces what the canvas had adopted; buildAdoptedDesign re-marks its own.
     this.adoptedDesign = null;
@@ -1233,7 +1259,8 @@ export default class DisplayCanvas extends React.Component {
         this.props.width,
         this.props.height,
         design.colors,
-        design.settings ?? null
+        design.settings ?? null,
+        !!design.autoPalette
       );
       this.adoptedDesign = design;
       return config;
@@ -2698,10 +2725,14 @@ export default class DisplayCanvas extends React.Component {
       const colors = this.state.colors.map((colorObj, index) =>
         colorFields[index] ? colorFields[index].value : colorObj.value || colorObj
       );
-      this.setState(s => ({
-        threeDDesign: s.threeDDesign && { ...s.threeDDesign, colors },
-        isSaved: false
-      }));
+      this.setState(s => {
+        // Still on Auto with a rolled palette: nothing was chosen, so the flight keeps it.
+        if (colors.length === 0 && s.threeDDesign?.autoPalette) return null;
+        return {
+          threeDDesign: s.threeDDesign && { ...s.threeDDesign, colors, autoPalette: false },
+          isSaved: false
+        };
+      });
     }, 350);
   }
 
@@ -2871,12 +2902,9 @@ export default class DisplayCanvas extends React.Component {
     // pending color edit (see onColorsChanged/onColorSwatchEdit) is picked up here too,
     // not just a pending geometry-slider edit -- the two previously had separate sources
     // of truth and could regenerate against stale palettes.
-    const config = this.buildConfig(
-      this.mainConfig.seed,
-      this.props.width,
-      this.props.height,
-      this.state.colors.map(c => c.value || c)
-    );
+    // No colours passed, so buildConfig reads the panel itself and, on Auto, keeps a palette
+    // this seed rolled.
+    const config = this.buildConfig(this.mainConfig.seed, this.props.width, this.props.height);
     this.buildImage(config);
   }
 
@@ -3187,7 +3215,8 @@ export default class DisplayCanvas extends React.Component {
                   this.props.width,
                   this.props.height,
                   fallbackDesign.colors || [],
-                  fallbackDesign.settings ?? null
+                  fallbackDesign.settings ?? null,
+                  !!fallbackDesign.autoPalette
                 )
               );
             } else {
@@ -3582,8 +3611,8 @@ export default class DisplayCanvas extends React.Component {
     this.setState({ isLoading: true, isSaved: !!savedId, showBranchNotice: false });
     this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
     this.adoptDesignSettings(design.settings);
-    this.adoptDesignColors(design.colors);
-    const built = this.buildConfig(design.seed, this.props.width, this.props.height, design.colors, design.settings ?? null);
+    this.adoptDesignColors(chosenColors(design));
+    const built = this.buildConfig(design.seed, this.props.width, this.props.height, design.colors, design.settings ?? null, !!design.autoPalette);
     if (savedId) {
       this.namePiece(built, savedTitle);
       this.props.markDesignSaved?.(built, savedId, savedTitle);

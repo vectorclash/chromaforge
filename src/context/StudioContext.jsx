@@ -17,6 +17,7 @@ import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign } from '../lib/linkedDesign';
 import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
+import { colorsForNewWork, chosenColors } from '../render/autoPalette';
 import {
   readRecentDesigns,
   writeRecentDesigns,
@@ -146,9 +147,13 @@ export function StudioProvider({ children }) {
     // Explicit settings either way: with nothing stored this is the studio's own defaults for
     // NEW work (see STUDIO_DEFAULT_GEOMETRY_SETTINGS), which differ from what an absent
     // settings block means to a stored design. Passing null here would resolve to the latter.
-    return generateArtwork(randomSeed(), 1080, 1080, prefs?.colors ?? [], {
+    const seed = randomSeed();
+    const picked = colorsForNewWork(seed, prefs?.colors ?? []);
+    const first = generateArtwork(seed, 1080, 1080, picked.colors, {
       geometry: getStudioGeometrySettings(prefs?.settings)
     });
+    if (picked.autoPalette) first.autoPalette = true;
+    return first;
   });
   // The design on screen as of the last render, for async work that must not land on a newer one.
   const currentDesignRef = useRef(currentDesign);
@@ -404,7 +409,8 @@ export function StudioProvider({ children }) {
     // precisely the odds the user chose. It strips `present` too, so a Generate off a restored
     // session rolls its own coin rather than inheriting the last design's answer.
     const value = {
-      colors: currentDesign.colors ?? [],
+      // chosenColors: a palette auto colour rolled is not a preference (render/autoPalette.js).
+      colors: chosenColors(currentDesign),
       settings: getGenerationSettings(currentDesign)
     };
     const serialized = JSON.stringify(value);
@@ -462,7 +468,11 @@ export function StudioProvider({ children }) {
   // before.
   const generateRandom = useCallback(() => {
     setCurrentDesign(prev => {
-      const next = generateArtwork(randomSeed(), 1080, 1080, prev.colors ?? [], getGenerationSettings(prev));
+      const seed = randomSeed();
+      // The palette the user chose, not one the last design rolled, so auto colour rolls again.
+      const picked = colorsForNewWork(seed, chosenColors(prev));
+      const next = generateArtwork(seed, 1080, 1080, picked.colors, getGenerationSettings(prev));
+      if (picked.autoPalette) next.autoPalette = true;
       // Set from the updater so it names the design actually committed (StrictMode runs an
       // updater twice and keeps the second result)
       recordOnPreviewRef.current = next;
