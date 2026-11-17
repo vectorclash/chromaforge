@@ -1,22 +1,24 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { HERO_REVEAL, heroIntroEnabled, heroRevealStarted, subscribeHeroReveal } from '../../utils/heroIntro';
 import { isScrollLocked, subscribeScrollLock } from '../../hooks/useScrollLock';
 import { track } from '../../lib/track';
 
-// "Scroll" over a hairline with a light running down it, at the foot of the homepage hero
-// (Aaron's pick from https://claude.ai/artifact/393hLKbHmoT72BvXXzPNVu, 2026-11-14): the hero
-// fills the screen, and ad visitors were leaving it without finding anything below.
+// A chevron at the foot of the homepage hero that hops, lands with a small squash, and drops a
+// spectrum-coloured echo of itself on each landing (2026-11-16, Aaron: the 11-14 "Scroll" word
+// over a running hairline "feels a bit aggressive"). The hero fills the screen, and ad visitors
+// were leaving it without finding anything below. Transforms and opacity only.
 //
 // - Arrives LAST in the hero's entrance (HERO_REVEAL.cue), once what it points past is there.
 // - Shown only at the top of the page; it fades out on the first scroll and back if you return.
 // - Never covers the controls. On a short screen (an iPhone SE, Safari with its toolbar up) the
 //   panel's foot can reach the bottom of the visible screen, so `fit` measures: the full cue,
-//   then a short one with no word, then nothing.
+//   then a smaller one, then nothing.
 // - Tapping it scrolls to the About section.
 const CLEARANCE = 12;
 
 export default function ScrollCue() {
   const ref = useRef(null);
+  const gradientId = `cue-spectrum-${useId().replace(/:/g, '')}`;
   // A restored scroll position skips the hero's entrance (heroIntro.js), so the reveal signal
   // this would wait for may never come; such a mount just shows the cue once back at the top.
   const [revealed, setRevealed] = useState(() => heroRevealStarted() || !heroIntroEnabled());
@@ -102,10 +104,19 @@ export default function ScrollCue() {
       aria-label="Scroll to see more"
       tabIndex={shown ? 0 : -1}
     >
-      <span className="hero-scroll-cue-word" aria-hidden>
-        Scroll
-      </span>
-      <span className="hero-scroll-cue-track" aria-hidden />
+      <svg className="hero-scroll-cue-mark" viewBox="0 0 24 14" aria-hidden focusable="false">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="#4c00ff" />
+            <stop offset="0.3" stopColor="#ff0059" />
+            <stop offset="0.55" stopColor="#ffbb00" />
+            <stop offset="0.75" stopColor="#eaff00" />
+            <stop offset="1" stopColor="#00e5ff" />
+          </linearGradient>
+        </defs>
+        <path className="hero-scroll-cue-echo" d="M3 3 L12 11 L21 3" stroke={`url(#${gradientId})`} />
+        <path className="hero-scroll-cue-chevron" d="M3 3 L12 11 L21 3" />
+      </svg>
     </button>
   );
 }

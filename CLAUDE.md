@@ -4156,14 +4156,16 @@ Checkout now has TWO switches, either of which closes it (`_shared/storeStatus.t
   at a time each, all stopped when idle. "Confirm ALL machines took the release" after a
   `flyctl deploy` now means four.
 
-### The hero's "Scroll" cue (`components/home/ScrollCue.jsx`, 2026-11-14)
-Aaron's pick of five from https://claude.ai/artifact/393hLKbHmoT72BvXXzPNVu: "Scroll" over a
-hairline with a light running down it, at the foot of the homepage hero. Arrives last in the
-hero's entrance (`HERO_REVEAL.cue`), fades out on the first scroll and back at the top, and a
-tap glides to #about (`scroll_cue_click`). It sits `100lvh - 100svh` above the section's
-bottom so Safari's toolbar never hides it, and MEASURES before showing: full, then short (no
-word), then hidden, so it never overlaps the controls (hidden at 320x568, short at iPhone SE /
-390x664, full from 390x844 up). **A hero headline was built and removed the same day** (Aaron:
+### The hero's scroll cue (`components/home/ScrollCue.jsx`, 2026-11-14, restyled 2026-11-16)
+A chevron at the foot of the homepage hero that hops, squashes on landing and drops a fading
+spectrum-coloured echo of itself (the `.cf-spectrum-line` stops), on a 2.6s loop that rests more
+than half the time. It replaced Aaron's 11-14 pick ("Scroll" over a hairline with a light running
+down it, from https://claude.ai/artifact/393hLKbHmoT72BvXXzPNVu), which he later found "a bit
+aggressive". Arrives last in the hero's entrance (`HERO_REVEAL.cue`), fades out on the first
+scroll and back at the top, and a tap glides to #about (`scroll_cue_click`). It sits
+`100lvh - 100svh` above the section's bottom so Safari's toolbar never hides it, and MEASURES
+before showing: full, then smaller, then hidden, so it never overlaps the controls. Being only
+~40px tall it now fits in full down to 320x568. **A hero headline was built and removed the same day** (Aaron:
 "I really don't like the text there at all"): the plain words, then three livelier letter
 entrances (pop, paint, glitch), all rejected as not fitting the site. Don't re-propose words on
 the hero.

@@ -2623,7 +2623,7 @@
   opacity: 1;
 }
 
-/* --- Homepage hero: the "Scroll" cue ------------------------------------------------------
+/* --- Homepage hero: the scroll cue ----------------------------------------------------------
    components/home/ScrollCue.jsx. Sits at the foot of what is actually on screen: the hero is
    100lvh tall, so on iOS Safari with its toolbar showing the section's bottom edge is BEHIND
    the toolbar. `100lvh - 100svh` is exactly that hidden strip (0 everywhere else, including
@@ -2637,8 +2637,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  padding: 8px 14px 18px;
   border: 0;
   background: none;
   color: #fff;
@@ -2669,52 +2668,64 @@
   border-radius: 8px;
 }
 
-.hero-scroll-cue-word {
-  font-family: var(--font-quicksand);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
+/* One chevron, on a 2.6s loop: a small lift, a drop, a squash on landing, one rebound, then a
+   long rest -- so it reads as a nudge, not a beacon. On each landing a copy in the spectrum of
+   the wordmark's hairline (`.cf-spectrum-line`) falls on ahead of it and fades: the direction,
+   said once more, in the site's own colours. Transforms and opacity only. */
+.hero-scroll-cue-mark {
+  display: block;
+  width: 24px;
+  height: 14px;
+  overflow: visible;
+}
+
+.hero-scroll-cue-mark path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+.hero-scroll-cue-chevron {
+  stroke: #fff;
   opacity: 0.9;
+  animation: hero-cue-hop 2.6s infinite;
 }
 
-/* A light running down a hairline, top to bottom, on a loop. */
-.hero-scroll-cue-track {
-  position: relative;
-  width: 2px;
-  height: 40px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.25);
+.hero-scroll-cue-echo {
+  opacity: 0;
+  animation: hero-cue-echo 2.6s infinite;
 }
 
-.hero-scroll-cue-track::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: -40%;
-  width: 100%;
-  height: 40%;
-  border-radius: 2px;
-  background: #fff;
-  animation: hero-cue-drip 1.8s cubic-bezier(0.6, 0, 0.4, 1) infinite;
+/* Easing per segment: ease-in falls, ease-out rises, so the landing has weight. */
+@keyframes hero-cue-hop {
+  0% { transform: translateY(0); animation-timing-function: cubic-bezier(0.3, 0, 0.5, 1); }
+  10% { transform: translateY(-3px); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.5); }
+  24% { transform: translateY(6px) scale(1.12, 0.72); animation-timing-function: cubic-bezier(0.2, 0.6, 0.4, 1); }
+  34% { transform: translateY(1px) scale(0.96, 1.06); animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1); }
+  44% { transform: translateY(3px) scale(1.03, 0.94); animation-timing-function: cubic-bezier(0.3, 0, 0.3, 1); }
+  58%, 100% { transform: translateY(0); }
 }
 
-/* Short screens: the word goes and the line shortens, so it clears the controls
-   (ScrollCue measures and sets this; see `fit` there). */
-.hero-scroll-cue.is-short .hero-scroll-cue-word { display: none; }
-.hero-scroll-cue.is-short .hero-scroll-cue-track { height: 26px; }
-
-@keyframes hero-cue-drip {
-  0% { top: -40%; }
-  100% { top: 100%; }
+@keyframes hero-cue-echo {
+  0%, 23% { opacity: 0; transform: translateY(6px) scale(1, 0.8); }
+  25% { opacity: 0.95; transform: translateY(7px) scale(1.04, 0.9); animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  60%, 100% { opacity: 0; transform: translateY(17px) scale(1.25, 1); }
 }
+
+.hero-scroll-cue:hover .hero-scroll-cue-chevron,
+.hero-scroll-cue:focus-visible .hero-scroll-cue-chevron { opacity: 1; }
+
+/* Short screens: a smaller mark, so it clears the controls (ScrollCue measures and sets this;
+   see `fit` there). */
+.hero-scroll-cue.is-short { padding: 4px 12px; }
+.hero-scroll-cue.is-short .hero-scroll-cue-mark { width: 20px; height: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-scroll-cue-track::after {
-    animation: none;
-    top: 30%;
-  }
+  .hero-scroll-cue-chevron,
+  .hero-scroll-cue-echo { animation: none; }
 }
 
 /* ── Instant product photos: the print changing (ProductPhoto) ──────────────
