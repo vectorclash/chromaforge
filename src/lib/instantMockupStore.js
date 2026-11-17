@@ -13,7 +13,7 @@
 // would, never a second idea of them.
 import { composeInstantMockup } from './instantMockup';
 import { INSTANT_MOCKUPS } from './instantMockupIndex';
-import { renderAndUploadPrintFiles, capRenderStrategy } from './printful';
+import { renderAndUploadPrintFiles, capRenderStrategy, getHatWrap } from './printful';
 import { frontPlacementKey, hideUnsubmittedViews } from './printfulPlacements';
 import { MAX_VIEWS, orderViews } from './printfulViewPolicy';
 import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
@@ -276,6 +276,13 @@ function placementSources(productId, config, design, options, keys, renderDesign
       // With no file at all those pixels would be left as the blank garment -- a white patch.
       hiddenLogo: clearMark,
       allEntries: all,
+      // Fixed properties of the PRODUCT, never per-order choices, so they are read here exactly as
+      // useMockup reads them rather than carried in `options`. Leaving them out rendered the
+      // hoodies' pouch as the whole front shrunk onto it and the bucket hat's faces unwrapped
+      // (2026-11-16). calibrate's `verify` cannot see this: it sends Printful and the compositor
+      // the same plain file, so it tests the mapping, not which file the pipeline makes.
+      pocketCrop: PRODUCT_MOCKUP_CONFIG[productId]?.pocketCrop || null,
+      hatWrap: getHatWrap(PRODUCT_MOCKUP_CONFIG[productId] || {}),
       ...options
     });
     // One key per distinct render (both sleeves share one).

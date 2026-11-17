@@ -139,33 +139,27 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // drawRegion warns about: over the pocket PIECE itself it samples front-file x 0.17-0.83,
     // y 0.52-0.85, entirely in bounds. Only the parts of the pocket canvas that are not fabric
     // fall outside, and those are cut away.
-    // TRUE REGISTRATION IS `{ x: -0.0668, y: 0.118, w: 1.1381, h: 1.1381 }`, IT WAS MEASURED
-    // AND CONFIRMED, AND IT IS DELIBERATELY NOT USED (Aaron, 2026-08-22: "the before looked
-    // better"). Do not "fix" this back without asking him.
-    // That window makes the artwork continue through the pouch exactly -- verified on a real
-    // mockup with a labelled grid (the pouch's bottom row reads 17 against the body's 18
-    // immediately below it, consecutive, where the window below skips one) and with real
-    // artwork (shape edges cross the pouch's diagonals unbroken).
-    // The catch is that perfect continuity makes the pouch VANISH: with the body's artwork
-    // running straight through it, the panel stops reading as a design element at all and the
-    // lower third of the garment reads busier, because whatever wedges sit behind the pouch now
-    // intrude into it. The window kept below is ~10% tighter, which magnifies the pouch's
-    // content about a point near its top edge and leaves it reading as its own panel with its
-    // own focal colour -- accidental in origin, better looking in practice.
-    // So this value is a TASTE choice sitting on top of a solved measurement, not an
-    // unsolved approximation.
-    // CLOSED 2026-08-22 -- the obvious refinement was built, compared and rejected too, so it
-    // does not need proposing again. Expressed as a transform of the registered window, THIS
-    // VALUE IS A ~1.10x MAGNIFICATION of the pouch's content, anchored 0.59in above the pouch's
-    // centre. The centred versions of the same effect are
-    //   1.10x  { x: -0.0150, y: 0.1697, w: 1.0346, h: 1.0346 }
-    //   1.20x  { x:  0.0281, y: 0.2128, w: 0.9484, h: 0.9484 }
-    // and both were generated as real Printful mockups across three designs alongside this one.
-    // Aaron's call, having seen all of them: "a is still best. let's just leave it." Registration
-    // (1.00x) was rejected twice on looks before that. Any future change here is a request for a
-    // different LOOK, not a correction -- the measurement is settled and the zoom is the knob.
+    // RE-SOLVED 2026-11-16 FROM PRINTFUL'S OWN PHOTOS, and this supersedes everything above about
+    // which window is "registered" (Aaron: "it would be nice to get these much more perfectly
+    // aligned"). The instant-mockup calibration measured, per photo pixel, which print file and which
+    // coordinate in it Printful shows there. So along every seam of the pouch the body's FRONT
+    // coordinate just outside and the POCKET coordinate just inside are both known, and the window is
+    // a straight least-squares fit of one against the other -- nothing derived from templates, and
+    // nothing from our own previews. Measured on the flat lay (view 11462, the photo the strip opens
+    // on): seam mismatch rms 51px of the 6000px file, against 82 for the window this replaced and 144
+    // for the August template "registration", which these photos do not support (its horizontal
+    // scale is ~12% too large). A smooth fit of the whole body field extrapolated over the pouch
+    // agrees (x 0.005, w 0.998, y 0.109, h 1.110).
+    // Two things worth not re-deriving: (1) the scale is NOT uniform -- ~1.01 across, ~1.13 down --
+    // and a uniform fit is measurably worse (rms 76); drawRegion takes any w/h. (2) The on-model
+    // photos disagree with each other by more than they disagree with this (6307 alone wants w 1.10),
+    // since cloth on a body is not a flat map; a joint fit across all four views left a visible step
+    // along the pouch's top on the flat lay, so the flat lay is the anchor. Checked on the instant
+    // compositor with a grid and two real designs: diagonals run through the pouch unbroken.
+    // Re-run: the seam-fit harness is a throwaway (session scratchpad, 2026-11-16); rebuild it from
+    // the calibrate script's measureMapping against .calib/388/v18730-white.
     pocketCrop: {
-      regions: [{ src: { x: -0.012, y: 0.155, w: 1.033, h: 1.033 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+      regions: [{ src: { x: -0.0041, y: 0.1054, w: 1.0135, h: 1.1348 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }
   }, // hoodie
   320: {
@@ -309,8 +303,15 @@ export const PRODUCT_MOCKUP_CONFIG = {
     // apply here: it predicts 1.263 where the truth is ~1.01, because that ratio only means
     // anything when both placements cover-fit the SAME printfile, and these are two different
     // files (506 and 507) already at a common 150 DPI -- so 1:1 pixels really are 1:1 inches.
+    // SUPERSEDED 2026-11-16 -- the paragraph above was wrong on these photos. Re-solved the same way
+    // as the hoodie (388): seam-by-seam from the instant calibration's measured maps of Printful's own
+    // photos. The old window missed the pouch's top seam by ~490px of the 6000px front (it showed the
+    // body's artwork from well below where the pouch sits) and compressed it vertically. Fit jointly
+    // over the flat front (32253) and the on-model front (32365), which agree closely: seam rms
+    // 115/145px against 278/310 before. The residual is curvature along the welt pocket's top and
+    // bottom that no single rectangle can follow.
     pocketCrop: {
-      regions: [{ src: { x: 0, y: 0.36, w: 1, h: 0.625 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
+      regions: [{ src: { x: -0.0184, y: 0.3031, w: 1.0444, h: 0.784 }, dest: { x: 0, y: 0, w: 1, h: 1 } }]
     }
   }, // zip hoodie
   784: {

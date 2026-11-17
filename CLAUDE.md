@@ -5475,6 +5475,22 @@ by the shared design as the odds the panel last published.
     no notch, so that photo is the only instrument available for it.
     **Neither needs a render-service deploy**: `pocketCrop` lives in `src/lib`, and the regions
     ride to Fly in the request body.
+    **SUPERSEDED 2026-11-16 for BOTH products (Aaron: "it would be nice to get these much more
+    perfectly aligned").** Both windows are now solved from the instant-mockup calibration: it
+    measured, per pixel of Printful's own photos, which file and coordinate shows there, so the
+    front's coordinate just outside each pouch seam and the pocket's just inside are known and
+    the window is a least-squares fit of one against the other. Seam rms on the flat lays: hoodie
+    82 -> 51px of 6000, zip hoodie 278 -> 115. These photos do NOT support the August template
+    "registration" (rms 144, horizontally ~12% too big), nor the zip hoodie's "correct as
+    configured" grid reading (its top seam was off by ~490px). The fitted scale is not uniform
+    (~1.01 across, ~1.13 down on 388), and a uniform fit is measurably worse. Details in each
+    product's config comment. This brings back the "pouch vanishes" look rejected in August,
+    this time on purpose.
+    **The instant mockups never applied `pocketCrop` (or the hat's `hatWrap`) until the same
+    day**: `instantMockupStore`'s placementSources now reads both off the product config, as
+    useMockup does. Until then the instant pouch showed the whole front shrunk onto it. The
+    calibrate script's `verify` could not catch it, because it sends Printful and the compositor
+    the same plain file, so it tests the mapping, not which file the pipeline makes.
     The hoodie (388) needed one
     `src` rect (solved from CAD template geometry, since its pocket panel and front share
     one printfile at the same aspect). The zip hoodie (717) is structurally different —
