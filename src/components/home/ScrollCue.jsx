@@ -16,9 +16,14 @@ import { track } from '../../lib/track';
 //   then a smaller one, then nothing.
 // - Tapping it scrolls to the About section.
 const CLEARANCE = 12;
+// Mirrors `.hero-scroll-cue-mark`'s animation-range in components.css.
+const FADE_BY = 0.25;
+const SUPPORTS_TIMELINE =
+  typeof CSS !== 'undefined' && CSS.supports?.('animation-timeline: scroll()');
 
 export default function ScrollCue() {
   const ref = useRef(null);
+  const markRef = useRef(null);
   const gradientId = `cue-spectrum-${useId().replace(/:/g, '')}`;
   // A restored scroll position skips the hero's entrance (heroIntro.js), so the reveal signal
   // this would wait for may never come; such a mount just shows the cue once back at the top.
@@ -34,18 +39,28 @@ export default function ScrollCue() {
   }, [revealed]);
 
   useEffect(() => {
-    const onScroll = () => {
-      // A locked page reports scroll 0 (useScrollLock): ignore it rather than reappear under a menu.
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      // A locked page reports scroll 0 (useScrollLock): keep what it had rather than reappear.
       if (isScrollLocked()) return;
-      const top = window.scrollY <= 40;
-      setAtTop(top);
-      if (!top) setDelay(0);
+      const progress = Math.min(1, Math.max(0, window.scrollY / (window.innerHeight * FADE_BY)));
+      setAtTop(progress < 1);
+      if (progress > 0) setDelay(0);
+      if (!SUPPORTS_TIMELINE && markRef.current) markRef.current.style.opacity = String(1 - progress);
     };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
     window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
     const unsubscribe = subscribeScrollLock(onScroll);
     return () => {
       window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
       unsubscribe();
+      cancelAnimationFrame(raf);
     };
   }, []);
 
@@ -82,7 +97,10 @@ export default function ScrollCue() {
     };
   }, [measure]);
 
-  const shown = revealed && atTop && fit !== 'none';
+  // `shown` is the entrance and the fit; the scroll fade rides the mark inside, so the two never
+  // fight over one opacity. `atTop` only decides whether the faded-out cue can still be clicked.
+  const shown = revealed && fit !== 'none';
+  const live = shown && atTop;
 
   const onClick = () => {
     track('scroll_cue_click');
@@ -99,13 +117,18 @@ export default function ScrollCue() {
     <button
       ref={ref}
       type="button"
-      className={'hero-scroll-cue' + (shown ? ' is-shown' : '') + (fit === 'short' ? ' is-short' : '')}
+      className={
+        'hero-scroll-cue' +
+        (shown ? ' is-shown' : '') +
+        (live ? '' : ' is-inert') +
+        (fit === 'short' ? ' is-short' : '')
+      }
       style={{ '--cue-delay': `${delay}ms` }}
       onClick={onClick}
       aria-label="Scroll to see more"
-      tabIndex={shown ? 0 : -1}
+      tabIndex={live ? 0 : -1}
     >
-      <svg className="hero-scroll-cue-mark" viewBox="0 0 24 14" aria-hidden focusable="false">
+      <svg ref={markRef} className="hero-scroll-cue-mark" viewBox="0 0 24 14" aria-hidden focusable="false">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" stopColor="#4c00ff" />

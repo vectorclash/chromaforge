@@ -2676,6 +2676,9 @@
   transition: transform 0.7s cubic-bezier(0.34, 1.45, 0.5, 1) var(--cue-delay, 0ms);
 }
 
+/* Faded out by the scroll: no longer a target. */
+.hero-scroll-cue.is-inert { pointer-events: none; }
+
 .hero-scroll-cue:focus-visible {
   outline: 2px solid var(--color-accent-soft);
   outline-offset: 2px;
@@ -2691,6 +2694,21 @@
   width: 24px;
   height: 14px;
   overflow: visible;
+}
+
+/* The scroll fade: linked to the page's scroll, not triggered, so it moves exactly as fast as
+   the page does. Gone by a quarter of the screen (ScrollCue's FADE_BY). Browsers without scroll
+   timelines get the same mapping from ScrollCue's scroll handler. */
+@supports (animation-timeline: scroll()) {
+  .hero-scroll-cue-mark {
+    animation: hero-cue-scroll-fade linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0px 25vh;
+  }
+}
+
+@keyframes hero-cue-scroll-fade {
+  to { opacity: 0; }
 }
 
 .hero-scroll-cue-mark path {
