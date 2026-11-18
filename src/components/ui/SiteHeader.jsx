@@ -77,6 +77,7 @@ export default function SiteHeader({
           (intro === 'hold' ? ' hero-hold' : '') +
           (intro === 'reveal' ? ' hero-intro intro-item-flat' : '')
         }
+        data-bar={showGradient ? undefined : ''}
         style={{
           ...(intro === 'reveal' ? heroIntroStyle(HERO_REVEAL.nav) : null),
           // The legibility scrim is this element's own background -- see .site-header-scrim
