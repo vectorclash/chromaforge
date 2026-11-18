@@ -30,10 +30,19 @@ function isAlreadyDecoded(src) {
 // the cards treat any error as "no thumbnail" and hide the image -- a black square until a reload.
 // A refused request is worth asking again shortly; a genuinely missing thumbnail (a design saved
 // before thumbnails existed) just costs a few extra 404s before it hides.
-export const THUMBNAIL_RETRIES = 3;
-const RETRY_DELAYS_MS = [1500, 4000, 9000];
+//
+// The schedule has to OUTLAST the refusal, and spread the retries out. 2026-11-18: scrolling ~90
+// of his own designs fired 134 requests in 5s; Storage refused 26, and was still refusing 30s
+// later. The old 1.5/4/9s schedule ran out at ~15s, and since every refused card retried on the
+// same beat, each retry wave was itself a burst that got refused -- a few cards gave up and sat
+// black. Now ~55s in all, each delay jittered by +/-40% so the waves smear out.
+export const THUMBNAIL_RETRIES = 5;
+const RETRY_DELAYS_MS = [2000, 4000, 8000, 15000, 25000];
+const retryDelay = attempt => RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] * (0.6 + Math.random() * 0.8);
 
-export default function FadeImage({ src, alt = '', className = '', onLoad, onError, retries = 0, ...props }) {
+// `onAttempt` is told when each request settles, load or error, retries included -- so a caller
+// pacing requests (GalleryThumbnail's queue) can free its slot without waiting out the retries.
+export default function FadeImage({ src, alt = '', className = '', onLoad, onError, onAttempt, retries = 0, ...props }) {
   // Which retry is showing. A retry re-requests with a query string, so neither the browser nor a
   // cache can hand back the refused response; the image is the same object either way.
   const [attempt, setAttempt] = useState(0);
@@ -82,10 +91,11 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
   };
 
   const handleError = e => {
+    onAttempt?.();
     if (attempt < retries) {
       const next = attempt + 1;
       clearTimeout(retryTimer.current);
-      retryTimer.current = setTimeout(() => setAttempt(next), RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]);
+      retryTimer.current = setTimeout(() => setAttempt(next), retryDelay(attempt));
       return;
     }
     reveal();
@@ -104,8 +114,10 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
   useEffect(() => {
     const img = imgRef.current;
     if (!img || !img.complete || !img.getAttribute('src')) return;
-    if (img.naturalWidth > 0) reveal();
-    else handleError({ target: img, currentTarget: img });
+    if (img.naturalWidth > 0) {
+      onAttempt?.();
+      reveal();
+    } else handleError({ target: img, currentTarget: img });
     // Deliberately keyed on the source alone: this stands in for one load/error event per source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shownSrc]);
@@ -118,6 +130,7 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
         src={shownSrc}
         alt={alt}
         onLoad={e => {
+          onAttempt?.();
           reveal();
           onLoad?.(e);
         }}

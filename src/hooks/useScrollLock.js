@@ -61,6 +61,13 @@ function lockBody() {
   style.left = '0';
   style.right = '0';
   style.width = '100%';
+  // Pinning the body collapses the document to one screen, so the page's scroll drops to 0 -- and
+  // left implicit, WebKit places every `position: fixed` element against the OLD scroll offset for
+  // one frame: measured, the opening modal's own backdrop drawn 822-1422px down the page (off
+  // screen) before snapping into place, 3 opens in 10 on a scrolled gallery (Aaron, Safari,
+  // 2026-11-18: the backdrop "appeared and disappeared and then animated in"). Chromium never did
+  // it. Setting the scroll explicitly hands WebKit the new position before it lays anything out.
+  window.scrollTo(0, 0);
 }
 
 function unlockBody() {

@@ -38,13 +38,7 @@ export function loadLinkedDesign() {
   // maybeSingle, not lib/designs' getDesign: a deleted or private id is an ordinary outcome here,
   // and .single() turns it into a 406 the browser logs as an error.
   load = fetchRow(id)
-    .then(row => {
-      const printable = printableRow(row);
-      const data = printable?.data;
-      if (!data?.seed) return null;
-      const design = generateArtwork(data.seed, 1080, 1080, data.colors ?? [], data.settings ?? null);
-      return { id: row.id, title: row.title ?? null, design };
-    })
+    .then(designFromRow)
     .catch(err => {
       console.warn('Linked design could not be loaded:', err?.message || err);
       return null;
@@ -60,6 +54,17 @@ export function loadLinkedDesign() {
 export function linkedDesignPending() {
   loadLinkedDesign();
   return !settled;
+}
+
+// A saved `designs` row as the active design: rebuilt by the bundle's generator, with the id and
+// title that mark it saved. Null for an animation or a row with no seed. Shared with
+// StudioContext's activateSavedDesign (the homepage's featured cards), so a click and a link
+// adopt a row identically.
+export function designFromRow(row) {
+  const data = printableRow(row)?.data;
+  if (!data?.seed) return null;
+  const design = generateArtwork(data.seed, 1080, 1080, data.colors ?? [], data.settings ?? null);
+  return { id: row.id, title: row.title ?? null, design };
 }
 
 async function fetchRow(id) {

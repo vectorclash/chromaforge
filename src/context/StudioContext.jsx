@@ -14,7 +14,7 @@ import {
 import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
-import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign } from '../lib/linkedDesign';
+import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign, designFromRow } from '../lib/linkedDesign';
 import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
 import { colorsForNewWork, chosenColors } from '../render/autoPalette';
@@ -594,6 +594,28 @@ export function StudioProvider({ children }) {
     };
   }, [markDesignSaved]);
 
+  // A saved row made the active design on a click -- the homepage's featured cards, which take the
+  // visitor to the shop already wearing it. Exactly what a `?id=` link does once its row lands
+  // (above), minus the wait: the row is already in hand. Returns false for a row that cannot be
+  // printed (an animation), so the caller can decide what to do instead.
+  const activateSavedDesign = useCallback(
+    row => {
+      const linked = designFromRow(row);
+      if (!linked) return false;
+      // Already on screen (picked twice, or the visitor generated it): keep the object every
+      // surface has rendered, rather than a copy that would make each render it again.
+      const design = isSameDesign(currentDesignRef.current, linked.design) ? currentDesignRef.current : linked.design;
+      if (design === linked.design) {
+        recordOnPreviewRef.current = design;
+        currentDesignRef.current = design;
+        setCurrentDesign(design);
+      }
+      markDesignSaved(design, linked.id, linked.title);
+      return true;
+    },
+    [markDesignSaved]
+  );
+
   const value = {
     currentDesign,
     setCurrentDesign,
@@ -607,6 +629,7 @@ export function StudioProvider({ children }) {
     repairThumbnail,
     markDesignSaved,
     markDesignDeleted,
+    activateSavedDesign,
     // Real bug, found by manual testing: this used to be reference equality
     // (savedDesign === currentDesign), which only happened to hold for MiniGenerator's own
     // save (it passes currentDesign straight through, same object). DisplayCanvas's Save

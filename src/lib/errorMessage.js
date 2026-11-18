@@ -35,7 +35,10 @@ const PASSTHROUGH = [
   // create-checkout-session with the store closed (by hand, or by order-watchdog), and refusing
   // one purchase because its Storage test failed
   /^store purchasing is temporarily offline/i,
-  /^we can't take orders right now/i
+  /^we can't take orders right now/i,
+  // featured_designs' own trigger (migration 0027), shown to the admin picking homepage designs
+  /^at most 8 designs can be featured/i,
+  /^only a public image can be featured/i
 ];
 
 const RULES = [

@@ -22,7 +22,10 @@ import {
   listMyLikedIds,
   toggleLike,
   deleteDesign,
-  getThumbnailUrl
+  getThumbnailUrl,
+  listFeaturedIds,
+  setDesignFeatured,
+  MAX_FEATURED
 } from '../lib/designs';
 import { useAuth } from '../context/AuthContext';
 import { useStudio } from '../context/StudioContext';
@@ -66,7 +69,7 @@ export default function GalleryPage() {
     description: 'Browse a shared gallery of generative art made in the Chromaforge studio, and print your favorites on real merch.',
     path: '/gallery'
   });
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { setPrintQueueDesign, previewUrl, designChanging, markDesignDeleted } = useStudio();
   // Two stacked layers through the shared hook rather than a bare <img src={previewUrl}>:
   // MiniGenerator sits on this route, so generating from it used to crossfade the widget
@@ -100,6 +103,10 @@ export default function GalleryPage() {
   const [error, setError] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
   const [pendingDelete, setPendingDelete] = useState(null);
+  // The homepage's featured picks (migration 0027), loaded for an admin only -- they are who picks
+  // them, from the modal's Feature button. Null until loaded, so the button waits for the real
+  // count rather than offering a 9th pick the table would refuse.
+  const [featuredIds, setFeaturedIds] = useState(null);
   // The id, not the object -- so the modal always shows fresh data (e.g. a like-count
   // bump) from `designs` instead of a stale snapshot taken when it was opened.
   const [openDesignId, setOpenDesignId] = useState(null);
@@ -255,6 +262,43 @@ export default function GalleryPage() {
   // see StudioPage's `compact`.)
   const onOpenStudio = design => {
     navigate(`/studio?id=${design.id}`, { state: { from: '/gallery' } });
+  };
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setFeaturedIds(null);
+      return;
+    }
+    let cancelled = false;
+    listFeaturedIds()
+      .then(ids => !cancelled && setFeaturedIds(new Set(ids)))
+      .catch(err => console.warn('Featured designs could not be loaded:', err?.message || err));
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  // Optimistic like the like toggle, reverted if the table refuses (a 9th pick, an animation, or
+  // a lapsed admin flag -- RLS is the real gate, this button only hides itself for non-admins).
+  const onToggleFeatured = async design => {
+    if (!featuredIds) return;
+    const was = featuredIds.has(design.id);
+    const flip = prev => {
+      const next = new Set(prev);
+      was ? next.delete(design.id) : next.add(design.id);
+      return next;
+    };
+    setFeaturedIds(flip);
+    try {
+      await setDesignFeatured(design.id, !was);
+    } catch (err) {
+      setFeaturedIds(prev => {
+        const next = new Set(prev);
+        was ? next.add(design.id) : next.delete(design.id);
+        return next;
+      });
+      setError(humanError(err, "We couldn't update the homepage picks."));
+    }
   };
 
   // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage
@@ -437,6 +481,15 @@ export default function GalleryPage() {
                     <AnimationIcon size={12} />
                   </div>
                 )}
+                {/* Admin only: which designs are on the homepage, visible while browsing. */}
+                {featuredIds?.has(design.id) && (
+                  <div
+                    className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/40 px-2 py-1 font-quicksand text-[10px] font-bold uppercase tracking-[0.12em] text-accent backdrop-blur-sm"
+                    title="Featured on the homepage"
+                  >
+                    Featured
+                  </div>
+                )}
                 <div className="absolute inset-x-0 bottom-0 min-w-0 overflow-hidden p-3">
                   {/* Hidden-until-hover only on devices with a hover-capable pointer, same
                       reasoning and same pattern as the like/print/delete pill below -- on
@@ -522,6 +575,9 @@ export default function GalleryPage() {
         onPrint={onPrint}
         onDelete={onDelete}
         onOpenStudio={onOpenStudio}
+        featured={!!openDesign && !!featuredIds?.has(openDesign.id)}
+        featureFull={!!featuredIds && featuredIds.size >= MAX_FEATURED}
+        onToggleFeatured={featuredIds ? onToggleFeatured : null}
       />
 
       <ConfirmDialog

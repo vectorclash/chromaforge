@@ -4,7 +4,9 @@ import SiteFooter from '../components/ui/SiteFooter';
 import MiniGenerator from '../components/ui/MiniGenerator';
 import Hero from '../components/home/Hero';
 import AboutSection from '../components/home/AboutSection';
-import GallerySection from '../components/home/GallerySection';
+// GallerySection (most-liked community designs) is parked, not deleted: it comes back once the
+// gallery has the engagement to carry it. FeaturedSection holds its slot until then.
+import FeaturedSection from '../components/home/FeaturedSection';
 import ShopCarousel from '../components/home/ShopCarousel';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { track } from '../lib/track';
@@ -155,7 +157,7 @@ export default function HomePage() {
       />
       <Hero />
       <AboutSection />
-      <GallerySection />
+      <FeaturedSection />
       <ShopCarousel />
       <SiteFooter />
       {/* Hidden below `sm` (by its own `hidden sm:block`) -- MobileNav docks its own inline instance in the full-screen

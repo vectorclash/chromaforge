@@ -74,6 +74,36 @@ export async function listTopLikedDesigns({ limit = 8 } = {}) {
   return data;
 }
 
+// The homepage's hand-picked designs (migration 0027), in the order they were picked. The table
+// caps itself at 8 and only accepts public images; a design made private after being picked comes
+// back with a null embed (designs' own RLS) and is dropped here.
+export const MAX_FEATURED = 8;
+
+export async function listFeaturedDesigns() {
+  const { data, error } = await client()
+    .from('featured_designs')
+    .select('created_at, designs(*, profiles!designs_user_id_fkey(username, display_name, avatar_url))')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data.map(row => row.designs).filter(Boolean);
+}
+
+// Ids only, for the gallery's admin controls (which designs are currently picked).
+export async function listFeaturedIds() {
+  const { data, error } = await client().from('featured_designs').select('design_id');
+  if (error) throw error;
+  return data.map(row => row.design_id);
+}
+
+// Admin only -- RLS refuses anyone else, and the table refuses a 9th pick or an animation.
+export async function setDesignFeatured(designId, featured) {
+  const sb = client();
+  const { error } = featured
+    ? await sb.from('featured_designs').insert({ design_id: designId })
+    : await sb.from('featured_designs').delete().eq('design_id', designId);
+  if (error) throw error;
+}
+
 // Options are all optional so the Gallery's existing unbounded "my designs" tab keeps
 // working; the ProductPage artwork-picker modal passes a real `limit` + `before` cursor
 // (same keyset pagination as listPublicDesigns) so it never fetches a whole library.

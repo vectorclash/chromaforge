@@ -1,4 +1,5 @@
 import React from 'react';
+import ScrambleText from './ui/ScrambleText';
 import { gsap, TextPlugin } from 'gsap/all';
 import tinycolor from 'tinycolor2';
 import saveAs from 'file-saver';
@@ -4349,11 +4350,10 @@ export default class DisplayCanvas extends React.Component {
                       appear rather than animate in with the buttons"). An element's OWN
                       opacity does not do that -- the same fix MobileNav's mini-generator
                       needed, and the same reason the rule is worth keeping. */}
-                  {/* Save is an icon beside Generate, so its old row can hold the way to buy
-                      the design (Aaron, 2026-11-15, option A of four compared on the real
-                      hero). The hero keeps its height, which matters on short phones where
-                      the Scroll cue measures the space under it. */}
-                  <div className="row hero-generate-row">
+                  {/* Save is an icon, so the hero stays two rows tall, which matters on short
+                      phones where the Scroll cue measures the space under it (Aaron, 2026-11-15).
+                      Generate has the top row to itself; Save sits beside Print it (2026-11-18). */}
+                  <div className="row">
                     <button
                       onClick={this.onGenerateTap}
                       {...heroBeat(
@@ -4362,21 +4362,10 @@ export default class DisplayCanvas extends React.Component {
                         'button-large' + (generateDisabled ? ' disabled' : ' enabled')
                       )}
                     >
-                      {generateDisabled ? 'Generating' : 'Generate'}
-                    </button>
-                    <button
-                      onClick={this.onSaveTap}
-                      className={saveBeat.className + ' hero-save-icon' + (isSaved ? ' is-saved' : '') + (isSaving ? ' is-saving' : '')}
-                      style={saveBeat.style}
-                      aria-label={isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
-                      title={isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
-                    >
-                      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                        <path d="M6 3h12v18l-6-4-6 4Z" />
-                      </svg>
+                      <ScrambleText text={generateDisabled ? 'Generating' : 'Generate'} />
                     </button>
                   </div>
-                  <div className="row">
+                  <div className="row hero-print-row">
                     {/* The whole shop, not one product: a link to the tee alone read as
                         "the tee is all you can buy" (Aaron). Every product page opens on the
                         current design, carried by StudioContext like the shirt's own link.
@@ -4392,6 +4381,17 @@ export default class DisplayCanvas extends React.Component {
                         <path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3a4 4 0 0 1-8 0Z" />
                       </svg>
                       Print it
+                    </button>
+                    <button
+                      onClick={this.onSaveTap}
+                      className={saveBeat.className + ' hero-save-icon' + (isSaved ? ' is-saved' : '') + (isSaving ? ' is-saving' : '')}
+                      style={saveBeat.style}
+                      aria-label={isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
+                      title={isSaving ? 'Saving' : isSaved ? 'Saved' : 'Save'}
+                    >
+                      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                        <path d="M6 3h12v18l-6-4-6 4Z" />
+                      </svg>
                     </button>
                   </div>
                   <button
@@ -4443,13 +4443,17 @@ export default class DisplayCanvas extends React.Component {
                   onClick={this.onGenerateTap}
                   className={'button-large' + (generateDisabled || this.isBuilding3D() ? ' disabled' : ' enabled')}
                 >
-                  {this.isBuilding3D()
-                    ? 'Generating'
-                    : generateDisabled
-                      ? animationMode
-                        ? `Generating ${animationProgress} / ${frameCount}`
-                        : 'Generating'
-                      : 'Generate'}
+                  <ScrambleText
+                    text={
+                      this.isBuilding3D()
+                        ? 'Generating'
+                        : generateDisabled
+                          ? animationMode
+                            ? `Generating ${animationProgress} / ${frameCount}`
+                            : 'Generating'
+                          : 'Generate'
+                    }
+                  />
                 </button>
               </div>
               {/* The three blocks that come and go in this column all animate their own

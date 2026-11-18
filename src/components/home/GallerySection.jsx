@@ -11,6 +11,10 @@ import { useStudio } from '../../context/StudioContext';
 import { useScrollTriggerReveal } from '../../hooks/useScrollTriggerReveal';
 import AuthorBadge from '../ui/AuthorBadge';
 
+// PARKED 2026-11-18, not mounted: FeaturedSection holds this slot until the gallery's social
+// features have the engagement to carry it. To bring it back, swap it in for FeaturedSection in
+// HomePage (both use section id "gallery").
+//
 // Homepage preview of the gallery -- the 8 most-liked public designs. Solid surface (no
 // live art behind the grid as a whole; the artworks themselves are the content). Thumbnails
 // are the same pre-rendered JPEGs the full Gallery page uses (uploaded at save time via

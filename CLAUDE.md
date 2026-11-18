@@ -3507,6 +3507,27 @@ so the visit's random opening design is never rendered at all; a request slower 
 go ahead, and the design is still adopted when it lands. A bad id or an animation keeps the visit's
 own design. Fetched with `maybeSingle`, so a missing row is not a logged 406.
 
+### The homepage shows hand-picked designs, not the most-liked ones (2026-11-18)
+Aaron: until people use the social features, "most liked" wastes the slot. `home/FeaturedSection.jsx`
+("Featured artwork / Ready to wear") replaced `GallerySection`, which is PARKED unmounted for when the
+gallery has the engagement (swap it back in HomePage; both keep section id `gallery`, so the
+home_section event is continuous). Four things worth not re-deriving:
+(1) **Picks live in `featured_designs` (0027)**, set from an admin-only Feature button in the gallery
+modal (GalleryPage passes `onToggleFeatured` only for `isAdmin`; picked cards show a Featured badge
+to the admin). RLS lets only `profiles.is_admin` insert/delete, and a trigger refuses a 9th pick or
+anything but a public image -- the UI's limits are not the gate. Shown in pick order.
+(2) **Fewer than 8 picks are topped up with the most-liked public images**, so the grid is never
+short or empty.
+(3) **A card does not open the modal: `activateSavedDesign` makes the row the ACTIVE design and goes
+to /shop**, so every product card wears it. It shares `designFromRow` with the `?id=` ad link
+(lib/linkedDesign.js), so a click and a link adopt a row identically (rebuilt by the bundle, marked
+saved). Navigating to `/shop?id=` instead would NOT work from the homepage: the link loader runs
+once per visit and `/` is excluded. Tracked as `shop_click` `{ from: 'featured' }`.
+(4) Verified in a browser at 1280 and 390: click lands on /shop with that design's seed recorded in
+Recent (i.e. its preview rendered), no console errors; RLS checked by impersonating a non-admin
+(refused), the admin (allowed), an animation and a 9th pick (refused) in rolled-back transactions.
+The admin button itself was not exercised signed in.
+
 ### The shop has a product-type filter (`components/ui/ShopFilter.jsx`, 2026-10-11)
 All · Tees & tanks · Hoodies & jackets · Bottoms · Accessories -- grouping "B" of three Aaron
 compared in an interactive mockup (https://claude.ai/artifact/5Kzj4jztfJW2WmYiX3i1ZZ), chosen so
@@ -4007,6 +4028,15 @@ Three things worth not re-deriving:
   scrollbars take none and are left alone. **Headless browsers use overlay scrollbars, so this is
   invisible to every Playwright check**; force a classic one with a `::-webkit-scrollbar { width }`
   style (WebKit honours it; headless Chromium did not) to see it.
+- **`lockBody` sets the scroll to 0 explicitly after pinning the body (2026-11-18, Aaron: the
+  gallery modal's backdrop "appeared and disappeared and then animated in", sometimes).** Pinning
+  collapses the document to one screen, and left implicit, WebKit lays out every `position: fixed`
+  element against the OLD scroll offset for one frame: the modal's backdrop drawn 822-1422px down
+  (off screen) and the floating mini generator with it, 3 opens in 10 on a scrolled gallery;
+  0 in 20 after. Chromium never did it. A per-element freeze (hold the panel `fixed` through the
+  lock) was built first and dropped once this fixed the cause for every fixed element at once.
+  Measure positions per frame (getBoundingClientRect), not opacity: the backdrop's opacity ramp was
+  perfect throughout and hid it.
 
 ### ProductPage's hero image slot — one animated layer, and why
 Recorded because getting this wrong cost a long, ugly debugging session (2026-07-29) and every
@@ -4384,6 +4414,12 @@ they draw straight to the canvas. **The homepage reveal scrub stays on GSAP**: A
 on his iPhone against the reveal off, fade-only, and a CSS view-timeline port, and saw no
 difference, unlike the parallax (fixed 2026-09-25). A CSS port would also lose `scrub: 2`'s
 catch-up, which is what makes the reveal perceptible — don't propose it without a new symptom.
+
+### The Generate button's label scrambles (`components/ui/ScrambleText.jsx`, 2026-11-18)
+Generate <-> Generating, both studio and hero buttons: only the characters that differ at the same
+position (or are new) scramble, landing left to right within ~200ms (`RESOLVE_MS`, `LEAD_MS`).
+A change touching only digits (the 2D "Generating 3 / 20" counter) is applied instantly, the
+TerminalText rule. No animation on mount or under reduced motion; screen readers get the real text.
 
 ### The mockup-wait narration retypes itself (`TerminalText`, 2026-08-16)
 `components/ui/TerminalText.jsx` replaced a GSAP `TextPlugin` tween on ProductPage's two
@@ -5016,6 +5052,28 @@ by the shared design as the odds the panel last published.
   background. Chromium fires the event. FadeImage now checks the element's own state after every
   source change. Verified with injected 429s: WebKit 2/2 runs recover every refused card (it failed
   5/5 before), Chromium recovers too.
+  **The retry schedule was too short (2026-11-18).** Scrolling ~90 of his own designs fired 134
+  thumbnail requests in 5s; Storage refused 26 and kept refusing for ~30s, while the 1.5/4/9s
+  retries ended at ~15s and fired in lockstep, so each retry wave was refused as a burst. Now 5
+  retries over ~55s, each jittered +/-40%: with every thumbnail refused for 25s, 30 of 30 cards
+  recovered. And **an owner's card asks Storage (HEAD; a missing public object is 400) before
+  repairing**: the 429s had it re-render and re-upload a thumbnail that was there all along.
+  Present, refused or unreachable, it just re-shows the file later (up to 3 times, ~20s apart).
+  **Gallery thumbnails are PACED (`utils/thumbnailQueue.js`, same day, Aaron's ask)**: a card asks
+  only within 400px of the screen, then needs one of 6 concurrent slots AND a token (bucket of 16,
+  refilling 10/s), and the free slot goes to the waiting card closest to the screen. Three things
+  worth not re-deriving: (1) **a concurrency cap alone does nothing for a 429**, which is a RATE:
+  thumbnails come off the CDN in ms, so 6 slots still turned over ~180 requests in 5s; the token
+  bucket is what bounds it (now 65). (2) **Never probe the cache with `new Image()`** -- assigning
+  `src` STARTS the download, so a per-card cache probe was itself the burst (all 197 requests at
+  mount, the queue bypassed). A card skips the queue only if `performance.getEntriesByName` shows
+  the page already fetched it (the gallery's own preload, or a card seen earlier). (3) A slot is
+  held for one attempt (FadeImage's `onAttempt`), so a refused card's retries never block the queue,
+  and a stall timer frees it after 15s regardless. Measured against the previous commit, both
+  engines: first screen unchanged (~0.7-1.1s), peak in flight 20-37 -> 8, a fast scroll to the
+  bottom and back 197 requests -> ~91, no visible card ever blank at reading-speed scroll, cards
+  instant (no pulse) on returning to the page, and with every thumbnail refused for 25s all visible
+  cards recover and the queue keeps moving after.
 - **A missing thumbnail is retried, then repaired by its owner's browser (2026-10-28, Aaron: a
   saved 3D video showed no thumbnail "no matter how many times I refresh").** A thumbnail is made in
   the browser AFTER its row is saved, and the failure was only ever a console line, so the card

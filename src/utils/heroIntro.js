@@ -42,9 +42,10 @@ export const HERO_REVEAL = {
   // can see and one that only exists in the numbers.
   nav: 150,
   shirt: 300,
+  // Reading order: Generate on its own row, then Print it, then the Save icon beside it.
   generate: 430,
-  save: 560,
-  wear: 690,
+  wear: 560,
+  save: 690,
   studioLink: 820,
   // The "Scroll" cue at the hero's foot (components/home/ScrollCue.jsx): last, once everything
   // it points past is in place.

@@ -72,6 +72,15 @@ const ACTION =
 // The label (and Like's count) inside a tile/pill: the count sits beside the word in both layouts.
 const ACTION_LABEL = 'flex items-center gap-1 @md:gap-2';
 
+// The admin's homepage pick (featured_designs, migration 0027). Filled when the design is picked.
+function StarIcon({ size = 18, filled = false }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+      <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+    </svg>
+  );
+}
+
 function CheckIcon({ size = 18 }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -95,7 +104,21 @@ function CloseIcon() {
 // thing tapping a card could do. Backdrop/panel/keyboard handling mirrors ConfirmDialog
 // (the one other modal in the app) -- flat fade on the backdrop, bouncy pop-in reserved
 // for the panel itself (see tailwind.css's animate-fade-in comment).
-export default function GalleryModal({ design, liked, canDelete, onClose, onToggleLike, onPrint, onDelete, onOpenStudio }) {
+// `onToggleFeatured` is passed only for an admin (GalleryPage); without it there is no Feature
+// button. `featureFull` means 8 are already picked, so an unpicked design cannot be added.
+export default function GalleryModal({
+  design,
+  liked,
+  canDelete,
+  onClose,
+  onToggleLike,
+  onPrint,
+  onDelete,
+  onOpenStudio,
+  featured = false,
+  featureFull = false,
+  onToggleFeatured = null
+}) {
   const { renderDesignBlob } = useStudio();
   useScrollLock(Boolean(design));
   const [fullSrc, setFullSrc] = useState(null);
@@ -514,6 +537,21 @@ export default function GalleryModal({ design, liked, canDelete, onClose, onTogg
           <span className="sr-only" aria-live="polite">
             {shareState === 'copied' ? 'Link copied' : shareState === 'failed' ? 'Could not copy the link' : ''}
           </span>
+
+          {onToggleFeatured && printable && (
+            <button
+              type="button"
+              onClick={() => onToggleFeatured(design)}
+              disabled={!featured && featureFull}
+              className={ACTION + (featured ? PILL_ACTIVE : PILL_IDLE) + ' disabled:cursor-not-allowed disabled:opacity-40'}
+              aria-pressed={featured}
+              aria-label={featured ? 'Remove from the homepage' : 'Feature on the homepage'}
+              title={!featured && featureFull ? '8 designs are already featured' : 'Homepage featured artwork'}
+            >
+              <StarIcon size={18} filled={featured} />
+              <span>{featured ? 'Featured' : 'Feature'}</span>
+            </button>
+          )}
 
           {canDelete && (
             <button
