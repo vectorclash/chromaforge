@@ -841,6 +841,21 @@ the actual print, generated the same deterministic way.
   `?geobatch=1` flag: "the update is smooth and the old one still crunchy"); on for everyone since.
   (5) Still on the page: 2D animation frames, downloads, Recent thumbnails, label backdrops, the
   logo-ink probe. None run on a Generate; move them the same way if one ever stutters.
+  (5c) **A render nobody wants leaves the queue** (`signal` on renderOffThread / renderDesignBlob /
+  ambientRender / requestInstantMockup, 2026-11-19, Aaron: the shop's prints came in "very slowly
+  one at a time" on his iPhone). The worker runs one job at a time, and nothing used to remove a
+  job when its surface went away: a Featured card changes the design and leaves the homepage in
+  the same moment, so the hero (3840x2160), the shirt's three textures, the About blob and the old
+  footer all queued renders of that design ahead of every print on the shop it went to. Now each
+  surface aborts its signal in the effect cleanup it already had (and the hero on a superseding
+  build or unmount); a waiting job is dropped, a running one finishes and is ignored, and the
+  promise REJECTS with `renderCancelled()` (never null, which means "render on the page").
+  Instant mockups are shared, so they COUNT holders (`heldWork` in instantMockupStore): a photo and
+  each batch of renders behind it are cancelled only once every surface asking has let go, and are
+  forgotten at once so a later request starts fresh. Measured, production build, 390px at 4x CPU
+  on a desktop GPU: Featured -> shop cancelled exactly those 6 jobs, last shop print 1.9s -> 1.1s
+  (Print it: 1.0s); six quick round trips dropped 36 stale jobs. A cancelled member of an ambient
+  group settles at once, so the visible surfaces are never held for one that has gone.
   `check-route-intro-once.mjs` fails on reduced-motion /gallery and /shop/257 on the committed code
   too — pre-existing, not this.
   (6) **In Chromium the worker's 2D canvases draw on the CPU** (`willReadFrequently`, patched onto

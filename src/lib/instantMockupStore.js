@@ -18,7 +18,7 @@ import { frontPlacementKey, hideUnsubmittedViews } from './printfulPlacements';
 import { MAX_VIEWS, orderViews } from './printfulViewPolicy';
 import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
 import { MODEL_GROUPS_BY_PRODUCT } from './printfulMockupStyleGroups';
-import { PRIORITY_DEFAULT, PRIORITY_LOW } from '../render/renderOffThread';
+import { PRIORITY_DEFAULT, PRIORITY_LOW, isRenderCancelled } from '../render/renderOffThread';
 import { NEBULA_PIXELS_LITE } from '../render/nebula';
 
 // The long edge each print file is rendered at. The photo is 1000px and shows a panel at up to
@@ -228,12 +228,41 @@ function renderEdges(c, detail) {
   return edgesMemo.get(c);
 }
 
+// WHO STILL WANTS A PHOTO. A photo and the renders behind it are shared -- by a shop card, the
+// homepage carousel, a product page -- so one surface going away must not cancel what another is
+// waiting on. Each photo (and each batch of renders) counts its holders: a request passing an
+// AbortSignal holds it until that signal aborts, one without a signal holds it for good. The last
+// holder letting go cancels the work and forgets it, so the render queue only ever holds prints
+// someone can still see (2026-11-19, Aaron: the shop's prints came in slowly, one at a time,
+// after flipping between designs -- every earlier visit's prints were still queued ahead).
+function heldWork() {
+  return { abort: new AbortController(), holders: 0, forever: false, done: false };
+}
+function hold(work, signal, onDrop) {
+  if (!signal) {
+    work.forever = true;
+    return;
+  }
+  work.holders++;
+  signal.addEventListener(
+    'abort',
+    () => {
+      if (--work.holders > 0 || work.forever || work.done) return;
+      onDrop();
+      work.abort.abort();
+    },
+    { once: true }
+  );
+}
+
 // Rendered print files, per (product, design, options): each placement's render as a promise of
 // { key, blob } -- so a view needing a placement another view already asked for waits on that
 // render, and the worker, given the key, decodes a render shared by several views once.
 const renderSets = new Map();
+// Each source's batch of renders and how to forget it (see heldWork).
+const sourceWork = new WeakMap();
 let nextSourceId = 0;
-function placementSources(productId, config, design, options, keys, renderDesignBlob, priority, edges = null) {
+function placementSources(productId, config, design, options, keys, renderDesignBlob, priority, edges = null, holder = null) {
   // Per configuration as well: the pillow's sizes are different print files.
   const setKey = `${productId}:${config.variantId}:${instantContentKey(design, options)}`;
   let set = renderSets.get(setKey);
@@ -256,8 +285,14 @@ function placementSources(productId, config, design, options, keys, renderDesign
     variant_printfiles: [{ variant_id: config.variantId, placements: Object.fromEntries(all) }]
   };
   const keep = blob => blob;
+  // Already rendering (or rendered) for another photo: this one holds that batch too.
+  for (const k of keys) {
+    const owner = missing.includes(k) ? null : sourceWork.get(set.get(slot(k)));
+    if (owner) hold(owner.work, holder, owner.drop);
+  }
   for (const edge of new Set(missing.map(edgeOf))) {
     const group = missing.filter(k => edgeOf(k) === edge);
+    const work = heldWork();
     const wanted = new Set(group);
     // A pocket is cropped from the front's render, so its batch needs the front's entry.
     if (wanted.has('pocket')) wanted.add(frontPlacementKey(all));
@@ -268,7 +303,7 @@ function placementSources(productId, config, design, options, keys, renderDesign
       renderOne: capRenderStrategy(renderDesignBlob, {
         sink: keep,
         cap: edge,
-        renderOptions: { priority, nebulaPixels: NEBULA_PIXELS_LITE }
+        renderOptions: { priority, nebulaPixels: NEBULA_PIXELS_LITE, signal: work.abort.signal }
       }),
       labelSink: keep,
       // A hidden logo is a fully CLEAR mark here rather than none: the compositor draws a label
@@ -287,6 +322,16 @@ function placementSources(productId, config, design, options, keys, renderDesign
     });
     // One key per distinct render (both sleeves share one).
     const ids = new Map();
+    const sources = [];
+    // Forgotten the moment its last holder lets go, so a later request starts a fresh render
+    // instead of joining a cancelled one.
+    const drop = () => {
+      for (const [k, source] of sources) if (set.get(k) === source) set.delete(k);
+    };
+    batch.then(
+      () => (work.done = true),
+      () => (work.done = true)
+    );
     for (const key of group) {
       const source = batch.then(blobs => {
         const blob = blobs[key];
@@ -294,12 +339,15 @@ function placementSources(productId, config, design, options, keys, renderDesign
         if (!ids.has(blob)) ids.set(blob, `src${++nextSourceId}`);
         return { key: ids.get(blob), blob };
       });
+      sourceWork.set(source, { work, drop });
+      sources.push([slot(key), source]);
       set.set(slot(key), source);
       // A failed render must not stay cached as the answer.
       source.catch(() => {
         if (set.get(slot(key)) === source) set.delete(slot(key));
       });
     }
+    hold(work, holder, drop);
   }
   return Promise.all(keys.map(k => set.get(slot(k))));
 }
@@ -471,24 +519,31 @@ export function instantMockupBlob(key) {
 
 // The photo's object URL (cached), or null for a product with no calibration. `renderDesignBlob`
 // is StudioContext's. `background` puts the renders behind everything else in the render queue
-// -- right for shop cards, which are never the thing the visitor is waiting on.
+// -- right for shop cards, which are never the thing the visitor is waiting on. `signal` (an
+// AbortSignal): this caller stops wanting the photo when it aborts -- see heldWork. A photo every
+// caller has let go of is cancelled and resolves null.
 export function requestInstantMockup(
   productId,
   design,
   options,
   renderDesignBlob,
-  { view = 'card', background = false, config: configId = null, detail = false } = {}
+  { view = 'card', background = false, config: configId = null, detail = false, signal = null } = {}
 ) {
   const key = instantMockupKey(productId, design, options, view, configId, detail);
-  if (!key) return Promise.resolve(null);
+  if (!key || signal?.aborted) return Promise.resolve(null);
   const existing = photos.get(key);
   if (existing) {
     // Most recently used goes to the back of the eviction order.
     photos.delete(key);
     photos.set(key, existing);
+    hold(existing.work, signal, existing.drop);
     return existing.promise.catch(() => null);
   }
-  const entry = { url: null, blob: null, promise: null };
+  const entry = { url: null, blob: null, promise: null, work: heldWork() };
+  entry.drop = () => {
+    if (photos.get(key) === entry) photos.delete(key);
+  };
+  hold(entry.work, signal, entry.drop);
   entry.promise = (async () => {
     const config = configOf(productId, configId);
     const viewId = resolveView(productId, view, config.id);
@@ -503,7 +558,8 @@ export function requestInstantMockup(
       keys,
       renderDesignBlob,
       background ? PRIORITY_LOW : PRIORITY_DEFAULT,
-      renderEdges(c, detail)
+      renderEdges(c, detail),
+      entry.work.abort.signal
     );
     const sources = c.placements.map(p => (keys.includes(p.key) ? rendered[keys.indexOf(p.key)] : null));
     const blob = await composeView(productId, config.id, viewId, manifest, sources);
@@ -514,10 +570,14 @@ export function requestInstantMockup(
     return entry.url;
   })();
   photos.set(key, entry);
-  entry.promise.catch(err => {
-    console.warn('instant mockup failed', err);
-    if (photos.get(key) === entry) photos.delete(key);
-  });
+  entry.promise.then(
+    () => (entry.work.done = true),
+    err => {
+      entry.work.done = true;
+      if (!isRenderCancelled(err)) console.warn('instant mockup failed', err);
+      if (photos.get(key) === entry) photos.delete(key);
+    }
+  );
   while (photos.size > MAX_PHOTOS) {
     const [oldKey, old] = photos.entries().next().value;
     photos.delete(oldKey);

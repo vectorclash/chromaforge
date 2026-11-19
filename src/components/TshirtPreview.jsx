@@ -1145,12 +1145,16 @@ export default function TshirtPreview({
   useEffect(() => {
     if (failed) return undefined;
     let cancelled = false;
+    // Cancelled with the effect: a shirt that has unmounted (the visitor left the homepage) or
+    // moved on to a newer design takes its three renders out of the queue.
+    const abort = new AbortController();
+    const opts = { ...SHIRT_RENDER, signal: abort.signal };
     (async () => {
       try {
         const [baseBlob, bodyBlob, sleeveBlob] = await Promise.all([
-          renderDesignBlob(currentDesign, TEXTURE_SIZE, TEXTURE_SIZE, SHIRT_RENDER),
-          renderDesignBlob(currentDesign, BODY_RENDER.w, BODY_RENDER.h, SHIRT_RENDER),
-          renderDesignBlob(currentDesign, SLEEVE_RENDER.w, SLEEVE_RENDER.h, SHIRT_RENDER)
+          renderDesignBlob(currentDesign, TEXTURE_SIZE, TEXTURE_SIZE, opts),
+          renderDesignBlob(currentDesign, BODY_RENDER.w, BODY_RENDER.h, opts),
+          renderDesignBlob(currentDesign, SLEEVE_RENDER.w, SLEEVE_RENDER.h, opts)
         ]);
         const [base, body, sleeve] = await Promise.all(
           [baseBlob, bodyBlob, sleeveBlob].map(b => createImageBitmap(b))
@@ -1167,6 +1171,7 @@ export default function TshirtPreview({
     })();
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [currentDesign, renderDesignBlob, failed]);
 

@@ -76,6 +76,13 @@ let running = false;
 let scheduled = false;
 const now = () => performance.timeOrigin + performance.now(); // epoch ms, comparable with the page's
 scope.onmessage = e => {
+  // A job its surface no longer wants (renderOffThread's `signal`): dropped if it has not started.
+  // One already running finishes, and the page ignores its result.
+  if (e.data.cancel) {
+    const i = waiting.findIndex(job => job.id === e.data.cancel);
+    if (i >= 0) waiting.splice(i, 1);
+    return;
+  }
   e.data.recvAt = now();
   waiting.push(e.data);
   if (!running && !scheduled) {

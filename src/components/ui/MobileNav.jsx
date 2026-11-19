@@ -95,8 +95,9 @@ export default function MobileNav({ open, onClose }) {
     if (!mounted) return;
     if (isSameDesign(renderedDesignRef.current, currentDesign)) return;
     let cancelled = false;
+    const abort = new AbortController();
     // ambientRender: lands in the same frame as the mini generator's preview (StudioContext)
-    ambientRender(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT)
+    ambientRender(currentDesign, BG_RENDER_WIDTH, BG_RENDER_HEIGHT, { signal: abort.signal })
       .then(blob => {
         if (cancelled) return;
         // Only mark the design "rendered" once the blob actually lands -- marking it
@@ -117,6 +118,7 @@ export default function MobileNav({ open, onClose }) {
       .catch(() => {});
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [mounted, currentDesign, ambientRender]);
 

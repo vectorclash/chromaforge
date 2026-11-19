@@ -101,13 +101,37 @@ export const PRIORITY_AMBIENT = 3;
 export const PRIORITY_SHIRT = 2;
 export const PRIORITY_DEFAULT = 1;
 export const PRIORITY_LOW = 0;
-export function renderOffThread(args, out, priority = PRIORITY_DEFAULT) {
+// A render nobody wants any more. `signal` (an AbortSignal) is how a surface says so: aborted
+// while its job is still waiting in the worker, the job leaves the queue and never runs; aborted
+// while it runs, the result is thrown away. Either way the promise REJECTS with this, never
+// resolves null, since null means "render it on the page instead" (2026-11-19, Aaron: after a
+// Featured card the shop's prints came in slowly, one at a time -- the homepage hero, shirt,
+// About blob and footer had asked for the card's design a moment before the page unmounted, and
+// the shop's prints queued behind every one of them).
+export function renderCancelled() {
+  return new DOMException('render no longer wanted', 'AbortError');
+}
+export function isRenderCancelled(err) {
+  return !!err && err.name === 'AbortError';
+}
+
+export function renderOffThread(args, out, priority = PRIORITY_DEFAULT, signal = null) {
+  if (signal?.aborted) return Promise.reject(renderCancelled());
   const w = worker();
   if (!w) return Promise.resolve(null);
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const id = ++nextId;
     const sentAt = performance.timeOrigin + performance.now();
+    const onAbort = () => {
+      if (!JOBS.has(id)) return;
+      JOBS.delete(id);
+      WORKER?.postMessage({ cancel: id });
+      logRender({ size: `${out.width}x${out.height}`, priority, path: 'cancelled', wait: null, phases: '', total: Math.round(performance.timeOrigin + performance.now() - sentAt) });
+      reject(renderCancelled());
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     JOBS.set(id, msg => {
+      signal?.removeEventListener('abort', onAbort);
       const t = msg.timing;
       logRender({
         size: `${out.width}x${out.height}`,
@@ -132,7 +156,7 @@ export function renderOffThread(args, out, priority = PRIORITY_DEFAULT) {
 }
 
 /** renderOffThread for a config from generateArtwork, at its own size. */
-export function renderConfigOffThread(config, quality) {
+export function renderConfigOffThread(config, quality, signal = null) {
   if (!canRenderOffThread(config)) return Promise.resolve(null);
-  return renderOffThread(config.generatedBy, { width: config.width, height: config.height, quality });
+  return renderOffThread(config.generatedBy, { width: config.width, height: config.height, quality }, PRIORITY_DEFAULT, signal);
 }

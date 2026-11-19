@@ -34,13 +34,17 @@ export function useInstantMockup(productId, design, options = null, { view = 'ca
       return undefined;
     }
     let live = true;
+    // This surface wants the photo until it unmounts or moves to another key; once no surface
+    // does, its renders leave the queue (instantMockupStore's heldWork).
+    const abort = new AbortController();
     // A failed photo still SETTLES the key, keeping the previous URL: a surface waiting on it
     // (ProductPhoto's loading state) must end rather than wait forever.
-    requestInstantMockup(productId, design, options, renderDesignBlob, { view, background, config, detail }).then(url => {
+    requestInstantMockup(productId, design, options, renderDesignBlob, { view, background, config, detail, signal: abort.signal }).then(url => {
       if (live) setState(prev => ({ key, url: url || prev.url }));
     });
     return () => {
       live = false;
+      abort.abort();
     };
     // `key` covers productId, view, design and options.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,13 +66,17 @@ export function useInstantMockupSet(productId, design, options = null, config = 
   useEffect(() => {
     if (!views.length || keys.some(k => !k)) return undefined;
     let live = true;
-    Promise.all(views.map(v => requestInstantMockup(productId, design, options, renderDesignBlob, { view: v.id, config, detail: true }))).then(
+    const abort = new AbortController();
+    Promise.all(
+      views.map(v => requestInstantMockup(productId, design, options, renderDesignBlob, { view: v.id, config, detail: true, signal: abort.signal }))
+    ).then(
       urls => {
         if (live && urls.every(Boolean)) setState({ setKey, urls });
       }
     );
     return () => {
       live = false;
+      abort.abort();
     };
     // `setKey` covers productId, design and options.
     // eslint-disable-next-line react-hooks/exhaustive-deps

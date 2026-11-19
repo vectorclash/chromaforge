@@ -32,8 +32,11 @@ export default function SiteFooter() {
 
   useEffect(() => {
     let cancelled = false;
+    // Cancelled with the effect, so a footer that has gone (the homepage's, on a route change)
+    // leaves the render queue rather than holding up the next page's renders.
+    const abort = new AbortController();
     // ambientRender: lands in the same frame as the mini generator's preview (StudioContext)
-    ambientRender(currentDesign, RENDER_WIDTH, RENDER_HEIGHT, { join: !isScrollLocked() })
+    ambientRender(currentDesign, RENDER_WIDTH, RENDER_HEIGHT, { join: !isScrollLocked(), signal: abort.signal })
       .then(blob => {
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
@@ -48,6 +51,7 @@ export default function SiteFooter() {
       .catch(() => {});
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [currentDesign, ambientRender]);
 

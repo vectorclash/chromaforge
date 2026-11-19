@@ -93,6 +93,9 @@ export default function ShopPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // Holds the first screenful's prints until their cards mount and hold them too; leaving the
+    // shop before then takes them out of the render queue (instantMockupStore's heldWork).
+    const abort = new AbortController();
     (async () => {
       try {
         // A `?id=` link's design (lib/linkedDesign.js) is fetched alongside the catalogue and
@@ -116,7 +119,7 @@ export default function ShopPage() {
         // Bounded like the stock photos: a slow load must not hold the shop back.
         const instant = first.filter(p => hasInstantMockup(p.id));
         for (const p of instant) {
-          requestInstantMockup(p.id, design, stableDefaultMockupOptions(p.id), renderDesignBlob, { background: true });
+          requestInstantMockup(p.id, design, stableDefaultMockupOptions(p.id), renderDesignBlob, { background: true, signal: abort.signal });
         }
         await Promise.all([
           preloadImages(first.filter(p => !hasInstantMockup(p.id)).map(p => p.image).filter(Boolean)),
@@ -135,6 +138,7 @@ export default function ShopPage() {
     })();
     return () => {
       cancelled = true;
+      abort.abort();
     };
     // Once per visit: `active` only picks which images to preload first, and a later chip change
     // must not refetch the catalogue.

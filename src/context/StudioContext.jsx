@@ -4,7 +4,7 @@ import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { prepareNebula, NEBULA_PIXELS_LITE } from '../render/nebula';
 import { yieldToPaint } from '../render/animationFrames';
-import { renderOffThread, logRender, PRIORITY_AMBIENT, PRIORITY_DEFAULT } from '../render/renderOffThread';
+import { renderOffThread, renderCancelled, logRender, PRIORITY_AMBIENT, PRIORITY_DEFAULT } from '../render/renderOffThread';
 import { toCompactDesign } from '../render/compactDesign';
 import { isSameDesign, getStudioGeometrySettings } from '../render/designSettings';
 import { densityFloorSize } from '../render/scale';
@@ -249,7 +249,11 @@ export function StudioProvider({ children }) {
         legSymmetry = false,
         geometryScale = 1,
         priority = PRIORITY_DEFAULT,
-        nebulaPixels = null
+        nebulaPixels = null,
+        // An AbortSignal: the caller no longer wants this render (it unmounted, or its design
+        // changed). The promise then rejects with renderCancelled() and nothing more is drawn --
+        // see render/renderOffThread.js for why that matters.
+        signal = null
       } = {}
     ) => {
       const { width: genWidth, height: genHeight } = highDensity
@@ -261,9 +265,11 @@ export function StudioProvider({ children }) {
       const offThread = await renderOffThread(
         [config.seed, genWidth, genHeight, config.colors || [], config.settings ?? null, renderContext],
         { width, height, quality: 0.85 },
-        priority
+        priority,
+        signal
       );
       if (offThread) return offThread;
+      if (signal?.aborted) throw renderCancelled();
       // On the page: one render at a time, each after a paint (2026-10-19, Aaron: a few lost
       // frames "right as you press generate"). Every surface showing the design asks for its
       // render from the same effect flush right after the click, so their generateArtwork calls
@@ -272,9 +278,11 @@ export function StudioProvider({ children }) {
       const turn = renderTurnRef.current.then(yieldToPaint);
       renderTurnRef.current = turn;
       await turn;
+      if (signal?.aborted) throw renderCancelled();
       const pageDrawStart = performance.now();
       const built = generateArtwork(config.seed, genWidth, genHeight, config.colors, config.settings, renderContext);
       await prepareNebula(built); // off the main thread (render/nebula.js)
+      if (signal?.aborted) throw renderCancelled();
       const canvas = renderArtwork(built);
       let outputCanvas = canvas;
       if (genWidth !== width || genHeight !== height) {
@@ -332,8 +340,9 @@ export function StudioProvider({ children }) {
             : new Promise(() => {})
         );
       }
-      const { join = true } = opts;
-      if (!join) return renderDesignBlob(design, width, height, { priority: PRIORITY_AMBIENT, nebulaPixels: NEBULA_PIXELS_LITE });
+      const { join = true, signal = null } = opts;
+      const render = () => renderDesignBlob(design, width, height, { priority: PRIORITY_AMBIENT, nebulaPixels: NEBULA_PIXELS_LITE, signal });
+      if (!join) return render();
       let g = ambientGroupRef.current;
       if (!g || g.design !== design || g.landed) {
         g = { design, pending: 0, waiting: [], landed: false };
@@ -346,7 +355,8 @@ export function StudioProvider({ children }) {
         group.landed = true;
         for (const finish of group.waiting.splice(0)) finish();
       };
-      return renderDesignBlob(design, width, height, { priority: PRIORITY_AMBIENT, nebulaPixels: NEBULA_PIXELS_LITE }).then(
+      // A member cancelled (its surface unmounted) settles at once, so the rest are never held for it.
+      return render().then(
         blob =>
           new Promise(resolve => {
             group.waiting.push(() => resolve(blob));
@@ -418,7 +428,8 @@ export function StudioProvider({ children }) {
   // each consumer rendering its own copy.
   useEffect(() => {
     let cancelled = false;
-    ambientRender(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE)
+    const abort = new AbortController();
+    ambientRender(currentDesign, PREVIEW_SIZE, PREVIEW_SIZE, { signal: abort.signal })
       .then(blob => {
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
@@ -447,6 +458,7 @@ export function StudioProvider({ children }) {
       });
     return () => {
       cancelled = true;
+      abort.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDesign, ambientRender]);

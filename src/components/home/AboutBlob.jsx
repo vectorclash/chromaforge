@@ -360,7 +360,8 @@ export default function AboutBlob({ className = '' }) {
     // recompose for that ratio rather than a stretch of another one.
     const width = ART_CAP;
     const height = Math.round(width / ASPECT);
-    renderDesignBlob(currentDesign, width, height, { nebulaPixels: NEBULA_PIXELS_LITE, priority: PRIORITY_LOW })
+    const abort = new AbortController();
+    renderDesignBlob(currentDesign, width, height, { nebulaPixels: NEBULA_PIXELS_LITE, priority: PRIORITY_LOW, signal: abort.signal })
       .then(blob => {
         if (cancelled) return null;
         url = URL.createObjectURL(blob);
@@ -383,6 +384,7 @@ export default function AboutBlob({ className = '' }) {
       });
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [currentDesign, renderDesignBlob, startReveal]);
 

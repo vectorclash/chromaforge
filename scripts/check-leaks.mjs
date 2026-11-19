@@ -169,7 +169,9 @@ const waitFor = async url => {
 
 const heroGenerateReady = page =>
   page.waitForFunction(
-    () => [...document.querySelectorAll('button.button-large')].some(b => b.textContent.trim() === 'Generate' && b.classList.contains('enabled')),
+    // The label is ScrambleText's: a visible copy (scrambling) and a screen-reader copy holding the
+    // real text, so textContent reads "GenerateGenerate". Read the real one.
+    () => [...document.querySelectorAll('button.button-large')].some(b => (b.querySelector('.sr-only') || b).textContent.trim() === 'Generate' && b.classList.contains('enabled')),
     null,
     { timeout: 60000 }
   );
@@ -276,10 +278,10 @@ async function studio(browser, base) {
     // ends (DisplayCanvas.releaseLoader), so wait for THIS click's build to begin before waiting
     // for the button to come back -- otherwise the last click's build is still to start when the
     // count is taken
-    await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => b.textContent.trim() === 'Generating'), null, { timeout: 15000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => (b.querySelector('.sr-only') || b).textContent.trim() === 'Generating'), null, { timeout: 15000 });
     // A 3D Generate holds the new scene for one hexagon-loader cycle (2s); wait for the button to
     // come back rather than a fixed delay, so every click starts a real build
-    await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => b.textContent.trim() === 'Generate'), null, { timeout: 15000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('button.button-large')].some(b => (b.querySelector('.sr-only') || b).textContent.trim() === 'Generate'), null, { timeout: 15000 });
     await page.waitForTimeout(300);
   }
   let gl = await page.evaluate(() => ({ made: window.__leak.made, lost: window.__leak.lost }));

@@ -13,7 +13,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import { rollAutoPalette, colorsForNewWork, chosenColors } from '../render/autoPalette';
 import renderArtwork from '../render/renderArtwork';
 import { prepareNebula } from '../render/nebula';
-import { renderConfigOffThread } from '../render/renderOffThread';
+import { renderConfigOffThread, isRenderCancelled } from '../render/renderOffThread';
 import { toCompactDesign } from '../render/compactDesign';
 import { geometrySvgBlob } from '../render/geometrySvg';
 import { recentDesignKey, RECENT_MAX } from '../lib/recentDesigns';
@@ -613,6 +613,7 @@ export default class DisplayCanvas extends React.Component {
 
   componentWillUnmount() {
     this.unmounted = true;
+    this.buildAbort?.abort();
     clearTimeout(this.downloadPreviewTimer);
     clearTimeout(this.recentThumbTimer);
     this.recentThumbJob++;
@@ -1317,6 +1318,13 @@ export default class DisplayCanvas extends React.Component {
     this.changeGradient(config.gradientBackgroundConfig.colors);
 
     const token = ++this.buildToken;
+    // A build superseded by this one, or a canvas that unmounts (componentWillUnmount), takes its
+    // render out of the worker's queue: a Featured card leaves the homepage the moment it changes
+    // the design, and the hero's full-size render of that design used to sit ahead of every print
+    // on the shop it went to (2026-11-19).
+    this.buildAbort?.abort();
+    const abort = new AbortController();
+    this.buildAbort = abort;
     // Drawn in the render worker (render/renderOffThread.js), so the old artwork's fade-out and
     // the loader keep moving while it is drawn; drawn here, the render froze them for its whole
     // length on every Generate. A page render is the fallback when the worker is unavailable,
@@ -1327,9 +1335,9 @@ export default class DisplayCanvas extends React.Component {
     // worker's priorities could not put them ahead of a job already under way. The hero is held
     // for its loader beat regardless, so it has the slack.
     yieldToPaint()
-      .then(() => (token === this.buildToken ? renderConfigOffThread(config, 0.98) : null))
+      .then(() => (token === this.buildToken ? renderConfigOffThread(config, 0.98, abort.signal) : null))
       .then(blob => {
-        if (token !== this.buildToken) return; // superseded while it was being drawn
+        if (token !== this.buildToken || abort.signal.aborted) return; // superseded while it was being drawn
         if (blob) return this.setImage(blob, token, config);
         prepareNebula(config).then(() => {
           if (token !== this.buildToken) return; // superseded while its nebula was being made
@@ -1337,6 +1345,9 @@ export default class DisplayCanvas extends React.Component {
           canvas.toBlob(b => this.setImage(b, token, config), 'image/jpeg', 0.98);
           this.clearElement(canvas);
         });
+      })
+      .catch(err => {
+        if (!isRenderCancelled(err)) throw err;
       });
   }
 
