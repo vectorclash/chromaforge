@@ -20,6 +20,7 @@ import { recentDesignKey, RECENT_MAX } from '../lib/recentDesigns';
 import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
   getGeometrySettings,
+  getGeometryPresence,
   getStudioGeometrySettings
 } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
@@ -237,20 +238,25 @@ export default class DisplayCanvas extends React.Component {
     super(props);
     this.setRasterRows = this.setRasterRows.bind(this);
     this.previewLayerSeq = 0;
-    // Settings remembered from the user's last visit (lib/studioPrefs.js). The palette and
-    // geometry sliders normally arrive via the initialDesign prop -- StudioContext seeds its
-    // first design from the same store, and init()/adoptDesign* sync the panel to it -- so
-    // reading them again here only matters for a mount with no initialDesign at all. Doing it
-    // anyway keeps the panel's own defaults and the restored design from ever disagreeing.
-    // The Video tab has no such carrier: it is playback/export state, never part of a design,
-    // so this IS its only restore path.
+    // The visitor's chosen settings (StudioContext's chosenSettings, passed down by StudioPage;
+    // lib/studioPrefs.js directly for a mount without the provider). The palette and sliders
+    // show them, EXCEPT while a loaded design is on screen whose settings differ, when they show
+    // that design's so it can be edited from where it is (showDesignSettings). Loading never
+    // changes the chosen settings, and Generate always goes back to them. The Video tab is
+    // playback/export state, never part of a design, so its restore path is the store alone.
     // Whether this mount is the first beat-driven paint of the homepage hero. Decided once,
     // here, so a scroll during the sequence cannot retract it half way through; compact-only,
     // because the full studio at /studio is a tool the visitor navigated INTO, not a landing
     // composition being introduced. See utils/heroIntro.js.
     this.playIntro = props.compact && heroIntroEnabled();
     if (this.playIntro) resetHeroReveal();
-    const designPrefs = readDesignPrefs();
+    const designPrefs = props.chosenSettings
+      ? { colors: props.chosenSettings.colors, settings: { geometry: props.chosenSettings.geometry } }
+      : readDesignPrefs();
+    this.chosen = {
+      colors: designPrefs?.colors ?? [],
+      geometry: getStudioGeometrySettings(designPrefs?.settings)
+    };
     const videoPrefs = readVideoPrefs(ANIM_LIMIT, Object.keys(RATIOS));
     const imagePrefs = readImagePrefs(Object.keys(RATIOS), imageSizesFor(isMobileDevice()));
     this.state = {
@@ -336,9 +342,13 @@ export default class DisplayCanvas extends React.Component {
       animTiming: null,
       settingsDirty: false,
       // Studio defaults, not the resolution defaults: this is the panel about to make NEW
-      // work, and nothing stored is being reproduced here. adoptDesignSettings below is the
-      // opposite case and correctly stays on getGeometrySettings.
-      geometrySettings: getStudioGeometrySettings(designPrefs?.settings),
+      // work, and nothing stored is being reproduced here.
+      geometrySettings: { ...this.chosen.geometry },
+      // True while the panel shows a loaded design's settings rather than the visitor's own
+      // (showDesignSettings). designFact is that design's stated geometry (`present`, or its own
+      // odds for a legacy row), so editing it never re-flips its coin with the visitor's odds.
+      showingDesign: false,
+      designFact: null,
       // Which points-slider thumb was most recently grabbed -- the two thumbs are separate
       // native range inputs stacked on one track, so when their values sit close together
       // they visually overlap and only the higher-z-index one is hit-testable. Tracking the
@@ -642,8 +652,8 @@ export default class DisplayCanvas extends React.Component {
       this.loaderDrawnAt = this.loaderMountedAt + HEXAGON_DRAWN;
     }
     // Remember the Video tab's own settings across visits. Unlike the palette and geometry
-    // sliders -- which ride the design itself and are persisted once, centrally, in
-    // StudioContext -- nothing carries these anywhere, so this is where they are written.
+    // sliders -- reported to StudioContext below and persisted there, centrally -- nothing
+    // carries these anywhere, so this is where they are written.
     // Diffed rather than written on every update because this component re-renders on
     // animation progress, export progress and loading flags, none of which touch them.
     if (prevState && VIDEO_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
@@ -651,6 +661,23 @@ export default class DisplayCanvas extends React.Component {
     }
     if (prevState && IMAGE_PREF_KEYS.some(key => prevState[key] !== this.state[key])) {
       writeImagePrefs(this.state);
+    }
+    // While the panel shows the visitor's own settings, every edit (a slider, a swatch, a preset,
+    // Reset) is a change to them: it reaches StudioContext, which persists them and makes every
+    // Generate from them. While it shows a loaded design's (showingDesign), edits change that
+    // design only.
+    if (
+      prevState &&
+      !this.state.showingDesign &&
+      (prevState.colors !== this.state.colors ||
+        prevState.geometrySettings !== this.state.geometrySettings ||
+        prevState.showingDesign)
+    ) {
+      this.chosen = {
+        colors: this.state.colors.map(c => c.value || c),
+        geometry: this.state.geometrySettings
+      };
+      this.props.onChosenSettingsChange?.(this.chosen);
     }
     if (this.state.downloadVisible && prevState && PREVIEW_KEYS.some(key => prevState[key] !== this.state[key])) {
       this.queueDownloadPreview();
@@ -849,9 +876,13 @@ export default class DisplayCanvas extends React.Component {
     // generating from the mini-generator widget while the hero was still on screen never
     // looked like it animated, even though the hero's data (seed/colors) genuinely updated.
     this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
-    this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
-    this.adoptDesignSettings(design.settings);
-    this.adoptDesignColors(chosenColors(design));
+    this.setState({
+      isLoading: true,
+      generateDisabled: true,
+      isSaved: alreadySaved,
+      showBranchNotice: false,
+      ...this.designPanelState(design)
+    });
     const adopted = this.buildAdoptedDesign(design);
     if (alreadySaved) this.namePiece(adopted, this.props.savedDesignTitle);
     this.buildImage(adopted);
@@ -876,9 +907,8 @@ export default class DisplayCanvas extends React.Component {
             const video = storedVideo(config);
             const design = { seed: config.design.seed, colors: config.design.colors || [], settings: config.design.settings ?? null };
             this.namePiece(design, row.title);
-            this.adoptDesignSettings(design.settings);
-            this.adoptDesignColors(design.colors);
             this.setState({
+              ...this.designPanelState(design),
               animationMode: true,
               threeDMode: true,
               threeDDesign: design,
@@ -897,6 +927,8 @@ export default class DisplayCanvas extends React.Component {
             // outside it, so a 2D row loaded with 3D on showed nothing at all.
             this.setState(
               {
+                // All frames share one palette and settings, so the first frame's are the animation's
+                ...this.designPanelState(config.frames[0]),
                 animationMode: true,
                 threeDMode: false,
                 isSaved: true,
@@ -909,11 +941,6 @@ export default class DisplayCanvas extends React.Component {
               },
               () => this.loadAnimationFromConfigs(config.frames, row.title)
             );
-            // All frames of one animation share their generation settings and palette
-            // (they're built in a single session with the sliders/colors in one position),
-            // so the first frame's are the animation's.
-            this.adoptDesignSettings(config.frames[0]?.settings);
-            this.adoptDesignColors(config.frames[0]?.colors);
           } else {
             this.loadImageFromUrl(config, designId, row.title);
           }
@@ -946,9 +973,13 @@ export default class DisplayCanvas extends React.Component {
       const alreadySaved = !!this.props.isDesignSaved;
       this.shareUrl = alreadySaved && this.props.savedDesignId ? buildShareUrl(this.props.savedDesignId) : null;
       this.shareDesignId = alreadySaved && this.props.savedDesignId ? this.props.savedDesignId : null;
-      this.setState({ isLoading: true, generateDisabled: true, isSaved: alreadySaved, showBranchNotice: false });
-      this.adoptDesignSettings(this.props.initialDesign.settings);
-      this.adoptDesignColors(chosenColors(this.props.initialDesign));
+      this.setState({
+        isLoading: true,
+        generateDisabled: true,
+        isSaved: alreadySaved,
+        showBranchNotice: false,
+        ...this.designPanelState(this.props.initialDesign)
+      });
       const adopted = this.buildAdoptedDesign(this.props.initialDesign);
       if (alreadySaved) this.namePiece(adopted, this.props.savedDesignTitle);
       this.buildImage(adopted);
@@ -1141,11 +1172,14 @@ export default class DisplayCanvas extends React.Component {
 
   buildThreeDDesign(seed = randomSeed()) {
     // A new flight on Auto can land on a curated palette, like a new still (render/autoPalette.js).
-    const picked = colorsForNewWork(seed, this.state.colors.map(c => c.value || c));
+    // A new seed is new work, so it is made from the visitor's settings even while the panel is
+    // showing a loaded design's (the caller puts the panel back, see chosenPanelState).
+    const own = !this.state.showingDesign;
+    const picked = colorsForNewWork(seed, own ? this.state.colors.map(c => c.value || c) : this.chosen.colors);
     return {
       seed,
       colors: picked.colors,
-      settings: { geometry: this.state.geometrySettings },
+      settings: { geometry: own ? this.state.geometrySettings : { ...this.chosen.geometry } },
       ...(picked.autoPalette ? { autoPalette: true } : {})
     };
   }
@@ -1213,7 +1247,7 @@ export default class DisplayCanvas extends React.Component {
       }
     }
     if (settings === undefined) {
-      settings = { geometry: this.state.geometrySettings };
+      settings = { geometry: this.panelGeometry() };
     }
     const config = generateArtwork(seed, width, height, colorValues, settings);
     // The panel's slider is the only thing in the app that knows the user's ODDS, so it
@@ -1595,6 +1629,55 @@ export default class DisplayCanvas extends React.Component {
   // up to StudioContext so the shared "is the current design saved" fact agrees with the
   // isSaved: true set just below -- otherwise the studio panel reads Saved while every
   // MiniGenerator elsewhere still offers Save for a design already in the gallery.
+  // The panel's geometry as a design reproduces it: while a loaded design is showing, plus that
+  // design's own stated geometry (designFact), so reshaping it never re-flips its coin.
+  panelGeometry(s = this.state) {
+    return s.showingDesign && s.designFact ? { ...s.geometrySettings, ...s.designFact } : s.geometrySettings;
+  }
+
+  // The panel back on the visitor's own settings. Fresh colour ids remount the swatches, so
+  // their entrance is run again.
+  chosenPanelState() {
+    gsap.delayedCall(0.05, () => this.animateColors());
+    return {
+      colors: this.chosen.colors.map(value => ({ id: this.nextColorId++, value })),
+      geometrySettings: { ...this.chosen.geometry },
+      showingDesign: false,
+      designFact: null
+    };
+  }
+
+  // The panel for a design about to be shown: its own settings when they differ from the
+  // visitor's (a featured card, a share link, a gallery load, a Recent pick from other settings),
+  // so editing it continues from where it is -- otherwise the visitor's own. Nothing here
+  // changes the visitor's settings (componentDidUpdate reports only while showingDesign is
+  // false). Odds are not a design's, so the chance slider keeps the visitor's value and reads
+  // "—" while a design is showing. The hero has no panel and always holds the visitor's.
+  designPanelState(design) {
+    if (this.props.compact || !design) return {};
+    const colors = chosenColors(design);
+    const { chance: ownChance, ...dna } = getGeometrySettings(design.settings);
+    const mine = this.chosen;
+    const same =
+      colors.length === mine.colors.length &&
+      colors.every((c, i) => String(c).toLowerCase() === String(mine.colors[i]).toLowerCase()) &&
+      Object.keys(dna).every(key => dna[key] === mine.geometry[key]);
+    if (same) return this.state.showingDesign ? this.chosenPanelState() : {};
+    const present = getGeometryPresence(design.settings);
+    gsap.delayedCall(0.05, () => this.animateColors());
+    return {
+      colors: colors.map(value => ({ id: this.nextColorId++, value })),
+      geometrySettings: { ...dna, chance: mine.geometry.chance },
+      showingDesign: true,
+      designFact: present !== null ? { present } : { chance: ownChance }
+    };
+  }
+
+  showDesignSettings(design) {
+    const patch = this.designPanelState(design);
+    if (Object.keys(patch).length) this.setState(patch);
+  }
+
   loadImageFromUrl(config, designId = null, title = null) {
     this.setState({
       isLoading: true,
@@ -1609,9 +1692,9 @@ export default class DisplayCanvas extends React.Component {
 
     // `config` from a share link / gallery row is the compact { seed, colors, settings? }
     // form -- buildConfig regenerates the full composition (and sets this.mainConfig)
-    // before we render it, same as the `initialDesign` continuity path in init().
-    this.adoptDesignSettings(config.settings);
-    this.adoptDesignColors(config.colors);
+    // before we render it, same as the `initialDesign` continuity path in init(). The panel
+    // shows the design's own settings so it can be edited (showDesignSettings).
+    this.showDesignSettings(config);
     const built = this.buildConfig(
       config.seed,
       this.props.width,
@@ -1625,38 +1708,6 @@ export default class DisplayCanvas extends React.Component {
     this.namePiece(built, title);
     if (designId) this.props.markDesignSaved?.(built, designId, title);
     this.buildImage(built);
-  }
-
-  // Sync the geometry sliders to a loaded design's stored settings (or back to defaults
-  // when it has none), so a Generate right after loading produces work in the same style
-  // the user is looking at -- without this, loading a coherent-geometry design would show
-  // it correctly (buildConfig gets the stored settings explicitly) but leave the sliders,
-  // and therefore the next Generate, wherever they last were.
-  adoptDesignSettings(settings) {
-    // Everything except the odds -- and note getGeometrySettings also strips `present`, so a
-    // loaded design's own answer cannot leak into the panel and govern later generates (see
-    // its whitelist comment). The sliders describing the SHAPE of the layer follow the design;
-    // the one deciding whether a fresh roll produces one is the user's and stays theirs.
-    this.setState(s => ({
-      geometrySettings: { ...getGeometrySettings(settings), chance: s.geometrySettings.chance }
-    }));
-  }
-
-  // Sync the color swatch panel to a loaded design's actual palette (or clear it, for an
-  // auto-palette design) -- the missing color counterpart to adoptDesignSettings above.
-  // Without this, buildConfig still renders the artwork with the right colors (it's given
-  // them explicitly), but state.colors -- what the swatch panel actually reads -- stays
-  // whatever this fresh mount's constructor defaulted it to ([]), so the panel looked
-  // "reset" on every load path (a share/gallery link, or navigating home and back to the
-  // Studio) even though the artwork itself never changed.
-  adoptDesignColors(colors) {
-    this.setState({
-      colors: (colors || []).map(value => ({ id: this.nextColorId++, value }))
-    });
-    // Fresh ids mean fresh swatches, and a swatch mounts at opacity 0 (ColorField) until its
-    // entrance runs. The palette and Add buttons run it; this path never did, so a design adopted
-    // with the settings panel open (a Recent pick, a load) left the Color tab's swatches invisible.
-    gsap.delayedCall(0.05, () => this.animateColors());
   }
 
   // A build that can't produce a usable image: put the artwork that's already on screen back
@@ -2698,7 +2749,7 @@ export default class DisplayCanvas extends React.Component {
               this.setState(s => ({
                 threeDDesign: s.threeDDesign && {
                   ...s.threeDDesign,
-                  settings: { geometry: s.geometrySettings }
+                  settings: { geometry: this.panelGeometry(s) }
                 }
               }));
             }, 350);
@@ -2778,6 +2829,8 @@ export default class DisplayCanvas extends React.Component {
         confirmResetOpen: false,
         colors: [],
         geometrySettings: { ...STUDIO_DEFAULT_GEOMETRY_SETTINGS },
+        showingDesign: false,
+        designFact: null,
         ...DEFAULT_VIDEO_PREFS,
         ...DEFAULT_IMAGE_PREFS,
         customWidthInput: String(DEFAULT_IMAGE_PREFS.customWidth),
@@ -2934,6 +2987,13 @@ export default class DisplayCanvas extends React.Component {
       this.pendingGenerate = true;
       return;
     }
+    if (!generateDisabled && !this.isBuilding3D() && this.state.showingDesign) {
+      // New work is made from the visitor's own settings: put the panel back on them first, then
+      // generate (Aaron, 2026-11-18: "returning to generate should always go back to your chosen
+      // settings").
+      this.setState(this.chosenPanelState(), () => this.onGenerateButtonClick(e));
+      return;
+    }
     if (!generateDisabled && !this.isBuilding3D()) {
       // Before anything below shows the loader -- see restartLoaderBeat
       this.restartLoaderBeat();
@@ -3047,7 +3107,17 @@ export default class DisplayCanvas extends React.Component {
         shareUrl: this.shareUrl,
         shareDesignId: this.shareDesignId,
         // What the panel said when this still was left -- see the restore below
-        panel: this.panelStyleKey()
+        panel: this.panelStyleKey(),
+        // ...and, when it was showing a loaded design's settings, those settings, so coming back
+        // puts them back rather than restyling the design in the visitor's own
+        panelState: this.state.showingDesign
+          ? {
+              colors: this.state.colors,
+              geometrySettings: this.state.geometrySettings,
+              showingDesign: true,
+              designFact: this.state.designFact
+            }
+          : null
       };
 
       // 3D mode: entering animation mode needs no frame build -- just make sure a 3D
@@ -3057,10 +3127,13 @@ export default class DisplayCanvas extends React.Component {
         this.shareUrl = null;
         this.shareDesignId = null;
         this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+        // The panel follows the flight now on screen: a new one is the visitor's own work
+        const flight = this.state.threeDDesign || this.buildThreeDDesign();
         this.setState({
           animationMode: true,
           isSaved: false,
-          threeDDesign: this.state.threeDDesign || this.buildThreeDDesign(),
+          threeDDesign: flight,
+          ...this.designPanelState(flight),
           ...this.threeDBuildState()
         });
       } else if (this.animationModeState) {
@@ -3073,6 +3146,7 @@ export default class DisplayCanvas extends React.Component {
         this.shareDesignId = shareDesignId || null;
         this.changeGradient(configs[configs.length - 1].gradientBackgroundConfig.colors);
         this.setState({
+          ...this.designPanelState(configs[0]),
           animationMode: true,
           animationFrames: frames,
           animationStarFrames: starFrames,
@@ -3086,7 +3160,9 @@ export default class DisplayCanvas extends React.Component {
         this.shareUrl = null;
         this.shareDesignId = null;
         this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+        // New frames are new work, made from the visitor's own settings
         this.setState({
+          ...(this.state.showingDesign ? this.chosenPanelState() : {}),
           animationMode: true,
           animationFrames: [],
           animationStarFrames: [],
@@ -3142,14 +3218,27 @@ export default class DisplayCanvas extends React.Component {
 
       // Restore previous image state if available
       if (this.imageModeState && this.imageModeState.blobUrl) {
-        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl, shareDesignId, panel } =
+        const { blob, blobUrl, config, isSaved: wasSaved, shareUrl, shareDesignId, panel, panelState } =
           this.imageModeState;
         // The palette and geometry sliders are one studio-wide choice: an edit on the Image tab
         // already reaches the waiting flight (syncThreeDColors), and an edit made in Animation has
         // to reach this still the same way, or the Image tab came back on the old palette with the
         // new one lit in the panel (Aaron, 2026-10-19). Restored first, then reshaped in place by
         // the same regenerate a palette change runs.
-        const restyle = panel !== this.panelStyleKey();
+        // A still that was showing its own (loaded) settings gets them back and is not restyled;
+        // the visitor's own still follows the visitor's settings, wherever they were edited.
+        let panelPatch = {};
+        let restyle;
+        if (panelState) {
+          panelPatch = panelState;
+          restyle = false;
+          gsap.delayedCall(0.05, () => this.animateColors());
+        } else if (this.state.showingDesign) {
+          panelPatch = this.chosenPanelState();
+          restyle = panel !== JSON.stringify([this.chosen.colors.map(c => String(c).toLowerCase()), this.chosen.geometry]);
+        } else {
+          restyle = panel !== this.panelStyleKey();
+        }
         this.imageModeState = null;
         this.blob = blob;
         this.blobConfig = config;
@@ -3179,6 +3268,7 @@ export default class DisplayCanvas extends React.Component {
         }
 
         this.setState({
+          ...panelPatch,
           animationMode: false,
           animationFrames: [],
           animationStarFrames: [],
@@ -3210,6 +3300,7 @@ export default class DisplayCanvas extends React.Component {
             if (hasStill) return;
             if (fallbackDesign?.seed) {
               this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
+              this.showDesignSettings(fallbackDesign);
               this.buildImage(
                 this.buildConfig(
                   fallbackDesign.seed,
@@ -3609,10 +3700,8 @@ export default class DisplayCanvas extends React.Component {
     const { design, savedId, savedTitle } = entry;
     this.shareUrl = savedId ? buildShareUrl(savedId) : null;
     this.shareDesignId = savedId || null;
-    this.setState({ isLoading: true, isSaved: !!savedId, showBranchNotice: false });
+    this.setState({ isLoading: true, isSaved: !!savedId, showBranchNotice: false, ...this.designPanelState(design) });
     this.fadeArtwork({ duration: DURATION_FAST, alpha: 0, ease: 'power2.inOut' });
-    this.adoptDesignSettings(design.settings);
-    this.adoptDesignColors(chosenColors(design));
     const built = this.buildConfig(design.seed, this.props.width, this.props.height, design.colors, design.settings ?? null, !!design.autoPalette);
     if (savedId) {
       this.namePiece(built, savedTitle);
@@ -4655,7 +4744,9 @@ export default class DisplayCanvas extends React.Component {
                     Chance
                     <span className="settings-label-note">
                       {' '}
-                      {geometrySettings.chance <= 0
+                      {this.state.showingDesign
+                        ? '—'
+                        : geometrySettings.chance <= 0
                         ? 'never'
                         : geometrySettings.chance >= 1
                           ? 'always'

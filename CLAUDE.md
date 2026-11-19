@@ -4671,15 +4671,30 @@ Two versioned keys: `cf-studio:design` (palette + geometry sliders) and `cf-stud
 (the Video tab -- 3D, frames, star frames, duration, speed ramp, logo, export ratio, fps).
 **The SEED is deliberately not stored** -- a visit still opens on artwork nobody has
 seen, it just arrives in the style the user last chose.
-- **The design half is read and written in ONE place, StudioContext**, not in each control.
-  It seeds `currentDesign`'s `useState` initialiser *synchronously*, so the session's first
-  design is already in the user's settings -- no default-then-correct flash, and every
-  surface deriving from `currentDesign` (hero, the three MiniGenerators, footer band, About
-  blob, product mockups) agrees from frame one. One effect writes it back, because every path
-  that can change a palette or slider -- Generate, the debounced slider regen, a colour edit,
-  a share/gallery load, the mini-generator -- ends at `setCurrentDesign`. It skips unchanged
-  values, which is what keeps a 60-frame 2D animation build from doing 60 writes
-  (`buildConfig` runs once per frame and every frame shares the palette).
+- **The design half is the visitor's CHOSEN settings, `StudioContext.chosenSettings`, and it
+  is kept apart from the design on screen (2026-11-18, Aaron: "your chosen settings should not
+  be overridden by activating an artwork. returning to generate should always go back to your
+  chosen settings").** Read once, synchronously, so the session's first design is already in
+  the user's settings, and only DisplayCanvas's panel writes it (`onChosenSettingsChange`; one
+  effect persists it). **No load path changes it** -- a featured card, a `?id=` link, a share or
+  gallery load, a Recent pick, an adopted mini-generator design -- and every Generate (studio,
+  hero, `generateRandom`, a new 3D flight, new 2D frames) makes new work from it.
+  It replaced `adoptDesignSettings`/`adoptDesignColors`, which copied a loaded design's settings
+  into the panel and from there into storage. Found from a featured design whose rebuilt form
+  carried the legacy 40% chance (`designFromRow` never stamped the user's odds), which then became
+  the visitor's remembered chance.
+  **The panel follows the design on screen so it can be EDITED** (same day, Aaron's go-ahead).
+  When a loaded design's settings differ from the visitor's (`designPanelState`; odds never
+  count, since a design has none), the palette and sliders show THAT design's, with
+  `showingDesign` set: edits then reshape that design only and are never reported up, the
+  Chance readout shows "—", and `designFact` (its `present`, or a legacy row's own odds) rides
+  every regenerate so its coin is never re-flipped with the visitor's odds (`panelGeometry`).
+  Generate puts the panel back on the visitor's settings first (`chosenPanelState`), then
+  generates. The Animation tab follows the same rule: a new flight or new frames are the
+  visitor's work; a stashed still that was showing its own settings gets them back on return
+  instead of being restyled. Verified in a browser: a share link and a featured card both show
+  the design's own settings, edits leave storage untouched, Generate returns to the visitor's,
+  and a slider edit after that persists. The hero has no panel and always holds the visitor's.
 - **The Video tab has no such carrier** (it is playback/export state, never part of a
   design), so DisplayCanvas restores it in its constructor and mirrors it from
   `componentDidUpdate`, diffed against `DEFAULT_VIDEO_PREFS`'s own key list -- adding a field
@@ -4692,10 +4707,6 @@ seen, it just arrives in the style the user last chose.
   default; the clamps require an actual number. Colours must match a strict hex form and are
   never normalised. Clamp ranges mirror the sliders exactly, so a restored value is always
   representable by the control that produced it.
-- **Loading a share link or gallery design overwrites the stored palette/settings**, because
-  that is already what the panel does live (`adoptDesignColors`/`adoptDesignSettings` exist
-  so the next Generate matches what you are looking at). Consistent, but it does mean opening
-  someone else's design replaces your remembered palette.
 - **Reset is `RESET` beside `BACK`** in the settings panel's bottom rail (a fixed row OUTSIDE
   `.settings-scroll`, so it costs no scroller height -- the scarce axis), behind
   `ConfirmDialog`. Both are `.button-small` at 48.5%, the split the Color tab's CLEAR/ADD row
@@ -4875,8 +4886,8 @@ A palette edit on the Image tab also updates the waiting flight (`syncThreeDColo
 componentDidUpdate published every flight change to StudioContext; the canvas then saw a design
 it had not made and ADOPTED it -- a second full-size build of the flight's seed, after the
 palette's own. The flight now reaches StudioContext only while it is showing, and on entering
-Animation. Separately, `adoptDesignColors` now runs the swatch entrance: swatches mount at
-opacity 0 (ColorField) and every adopt with the settings panel open left them invisible.
+Animation. (`adoptDesignColors`, which re-ran the swatch entrance after an adopt, is gone since
+2026-11-18: no load changes the swatches any more, so nothing remounts them.)
 
 **Adopting a design never hands a copy back** (2026-09-25, `buildAdoptedDesign`). When the canvas
 builds the design StudioContext already holds -- a mini-generator Generate, any mount -- it builds

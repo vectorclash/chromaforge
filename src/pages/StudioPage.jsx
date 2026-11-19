@@ -50,6 +50,8 @@ export default function StudioPage({ compact = true }) {
   const {
     currentDesign,
     setCurrentDesign,
+    chosenSettings,
+    setChosenSettings,
     saveCurrentDesign,
     isCurrentDesignSaved,
     savedDesignId,
@@ -83,6 +85,8 @@ export default function StudioPage({ compact = true }) {
       savedDesignId={savedDesignId}
       savedDesignTitle={savedDesignTitle}
       onDesignChange={setCurrentDesign}
+      chosenSettings={chosenSettings}
+      onChosenSettingsChange={setChosenSettings}
       onNavigate={navigate}
       saveCurrentDesign={saveCurrentDesign}
       markDesignSaved={markDesignSaved}

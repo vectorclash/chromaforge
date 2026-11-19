@@ -6,18 +6,14 @@ import { prepareNebula, NEBULA_PIXELS_LITE } from '../render/nebula';
 import { yieldToPaint } from '../render/animationFrames';
 import { renderOffThread, logRender, PRIORITY_AMBIENT, PRIORITY_DEFAULT } from '../render/renderOffThread';
 import { toCompactDesign } from '../render/compactDesign';
-import {
-  isSameDesign,
-  getGenerationSettings,
-  getStudioGeometrySettings
-} from '../render/designSettings';
+import { isSameDesign, getStudioGeometrySettings } from '../render/designSettings';
 import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign, designFromRow } from '../lib/linkedDesign';
 import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
-import { colorsForNewWork, chosenColors } from '../render/autoPalette';
+import { colorsForNewWork } from '../render/autoPalette';
 import {
   readRecentDesigns,
   writeRecentDesigns,
@@ -130,28 +126,33 @@ export function StudioProvider({ children }) {
   // state directly here rather than threading `user` through every caller of saveCurrentDesign.
   const { user } = useAuth();
 
+  // The visitor's OWN chosen settings -- the palette and geometry sliders they last worked in,
+  // restored from localStorage (lib/studioPrefs.js). Kept apart from currentDesign on purpose
+  // (Aaron, 2026-11-18): activating an artwork (a featured card, a `?id=` link, a gallery or share
+  // load, a Recent pick) changes what is ON SCREEN, never these. Only the studio panel writes them
+  // (DisplayCanvas reports every edit through setChosenSettings), and every Generate anywhere --
+  // the studio, the hero, the mini generators -- makes new work from them. Before, loading a design
+  // copied its settings into the panel and the remembered prefs, so one look at a featured design
+  // with a stored legacy chance of 40% left the visitor's generator making near-geometry-free work.
+  const [chosenSettings, setChosen] = useState(() => {
+    const prefs = readDesignPrefs();
+    // Studio defaults with nothing stored: new work, not a stored design's legacy resolution.
+    return { colors: prefs?.colors ?? [], geometry: getStudioGeometrySettings(prefs?.settings) };
+  });
+  const chosenRef = useRef(chosenSettings);
+  chosenRef.current = chosenSettings;
+
   // Seed a random default so the store always has something to preview even on a cold
-  // deep-link to /shop (no Studio visit). The studio overwrites this via setCurrentDesign
-  // on its first generate; empty colors -> the seeded RNG picks a palette, deterministically.
-  //
-  // The palette + geometry sliders the user last worked in, restored from localStorage (see
-  // lib/studioPrefs.js). Read once, synchronously, so the very first design of the session
-  // is already in their settings -- there is no "generate the default, then correct it"
-  // flash, and every surface that derives from currentDesign (the hero, the three
-  // MiniGenerators, the footer band, the About blob, product mockups) starts out agreeing.
+  // deep-link to /shop (no Studio visit), made from the chosen settings so the very first design
+  // of the session is already in the visitor's style -- no "generate the default, then correct
+  // it" flash, and every surface deriving from currentDesign starts out agreeing.
   //
   // The SEED is deliberately not restored: a visit still opens on artwork nobody has seen,
   // it just arrives in the style they chose. Only the settings persist, not the design.
   const [currentDesign, setCurrentDesign] = useState(() => {
-    const prefs = readDesignPrefs();
-    // Explicit settings either way: with nothing stored this is the studio's own defaults for
-    // NEW work (see STUDIO_DEFAULT_GEOMETRY_SETTINGS), which differ from what an absent
-    // settings block means to a stored design. Passing null here would resolve to the latter.
     const seed = randomSeed();
-    const picked = colorsForNewWork(seed, prefs?.colors ?? []);
-    const first = generateArtwork(seed, 1080, 1080, picked.colors, {
-      geometry: getStudioGeometrySettings(prefs?.settings)
-    });
+    const picked = colorsForNewWork(seed, chosenSettings.colors);
+    const first = generateArtwork(seed, 1080, 1080, picked.colors, { geometry: chosenSettings.geometry });
     if (picked.autoPalette) first.autoPalette = true;
     return first;
   });
@@ -392,32 +393,25 @@ export function StudioProvider({ children }) {
     setRecent(prev => recordInList(prev.entries, prev.currentId, design, asSaved));
   }, []);
 
-  // Mirror the active design's palette + settings back to localStorage. This is the single
-  // write point on purpose: every path that can change either of them -- the studio's own
-  // Generate, the debounced geometry-slider regeneration, a colour edit, a share-link or
-  // gallery load (both of which sync the panel to the loaded design via
-  // DisplayCanvas.adoptDesignColors/adoptDesignSettings), the mini-generator widget --
-  // finishes by handing the rebuilt design to setCurrentDesign. Persisting here rather than
-  // at each of those means a future path cannot forget to.
-  //
-  // Skipped when the value is unchanged, which is what keeps a 2D animation build cheap:
-  // it calls buildConfig once per frame (up to 60), and every one of those frames shares the
-  // palette and settings this is watching.
+  // The chosen settings, from a panel edit. Either half may be omitted. An unchanged value keeps
+  // the same object, so a re-report (DisplayCanvas reports on every state change touching them)
+  // costs nothing downstream.
+  const setChosenSettings = useCallback(({ colors, geometry }) => {
+    setChosen(prev => {
+      const next = { colors: colors ?? prev.colors, geometry: geometry ?? prev.geometry };
+      return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+    });
+  }, []);
+
+  // Persist the chosen settings -- the single write point for `cf-studio:design`. Nothing about
+  // the design on screen reaches it, which is the whole point (see chosenSettings above).
   useEffect(() => {
-    // getGenerationSettings, not currentDesign.settings: a design carries the FACT of its own
-    // geometry (`present`) and no odds at all, while what belongs in a remembered preference is
-    // precisely the odds the user chose. It strips `present` too, so a Generate off a restored
-    // session rolls its own coin rather than inheriting the last design's answer.
-    const value = {
-      // chosenColors: a palette auto colour rolled is not a preference (render/autoPalette.js).
-      colors: chosenColors(currentDesign),
-      settings: getGenerationSettings(currentDesign)
-    };
+    const value = { colors: chosenSettings.colors, settings: { geometry: chosenSettings.geometry } };
     const serialized = JSON.stringify(value);
     if (serialized === lastPersistedRef.current) return;
     lastPersistedRef.current = serialized;
     writeDesignPrefs(value);
-  }, [currentDesign]);
+  }, [chosenSettings]);
 
   // Derived small preview of the current design -- the single render both the mini-generator
   // widget and the footer art band read, so regenerating once updates both at once instead of
@@ -457,21 +451,16 @@ export function StudioProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDesign, ambientRender]);
 
-  // Fresh seed, but keeps the CURRENT palette/geometry settings -- what "Generate" means
-  // everywhere else in the app (DisplayCanvas.onGenerateButtonClick's buildConfig() defaults
-  // to the live state.colors/geometrySettings the same way). This was the real bug behind
-  // "the mini generator resets everything": it used to always regenerate with an empty
-  // palette and default settings regardless of what was actually live, so clicking Generate
-  // on the ambient widget silently discarded any colors/geometry chosen in the Studio, while
-  // the Studio's own Generate button (a different code path) preserved them. Falls back to
-  // an auto-palette only for the provider's very first (pre-Studio-visit) design, same as
-  // before.
+  // A fresh seed in the visitor's CHOSEN settings -- what Generate means everywhere, the studio's
+  // own button included (DisplayCanvas's sliders are those same settings). Never the settings of
+  // the design on screen: a featured card or a loaded design is something being looked at, not a
+  // style the next Generate inherits.
   const generateRandom = useCallback(() => {
-    setCurrentDesign(prev => {
+    setCurrentDesign(() => {
       const seed = randomSeed();
-      // The palette the user chose, not one the last design rolled, so auto colour rolls again.
-      const picked = colorsForNewWork(seed, chosenColors(prev));
-      const next = generateArtwork(seed, 1080, 1080, picked.colors, getGenerationSettings(prev));
+      const { colors, geometry } = chosenRef.current;
+      const picked = colorsForNewWork(seed, colors);
+      const next = generateArtwork(seed, 1080, 1080, picked.colors, { geometry });
       if (picked.autoPalette) next.autoPalette = true;
       // Set from the updater so it names the design actually committed (StrictMode runs an
       // updater twice and keeps the second result)
@@ -619,6 +608,8 @@ export function StudioProvider({ children }) {
   const value = {
     currentDesign,
     setCurrentDesign,
+    chosenSettings,
+    setChosenSettings,
     previewUrl,
     previewPalette,
     designChanging: previewDesign !== currentDesign,

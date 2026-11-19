@@ -117,7 +117,11 @@ window.__cf.heroIndex = () => {
 };
 window.__cf.generateLabel = () => {
   const b = document.querySelector('.button-large');
-  return b ? b.textContent.trim() : null;
+  if (!b) return null;
+  // ScrambleText renders the label twice (an animated copy and a screen-reader one); the
+  // screen-reader copy is the real label.
+  const label = b.querySelector('.sr-only');
+  return (label || b).textContent.trim();
 };
 `;
 
