@@ -187,6 +187,14 @@ function surgeOf(rush) {
 const STREAK_LENGTH = 12;
 // Lower than the tunnel's 0.45: at 0.45 the streak layer turned the frame hairy.
 const STREAK_OPACITY = 0.3;
+// The streaks are GL lines, one DEVICE pixel wide at any canvas size, so their share of the frame
+// -- and so how strong the effect reads -- went as 1 / the drawing buffer's height: the ad
+// builder's half-size Flight preview (960 tall) showed about twice the streaking of the studio on
+// a retina screen (Aaron, 2026-11-20), measured at +1.9-3.3 brightness levels over a 3840-tall
+// render of the same frame. Their opacity now scales with the buffer height, anchored here: the
+// studio at 1800 device px tall (a retina laptop) looks exactly as it did, and every other size
+// matches it.
+const STREAK_REF_H = 1800;
 const STREAK_END_FADE = 0.25;
 const RUSH_STREAK_EPS = 0.002;
 
@@ -2422,6 +2430,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     return t * t * (3 - 2 * t);
   };
   let streaksOn = false;
+  let streakRush = 0;
 
   // showLogo: whether the mark is drawn at all (the scene must also have been built with one);
   // where it is and how it looks come from the flight -- see "Logo mark".
@@ -2434,8 +2443,8 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     const streaking = rush > RUSH_STREAK_EPS;
     streaksOn = streaking;
     uStreak.value = STREAK_LENGTH * rush;
+    streakRush = rush; // opacity is set in render(), which knows the drawing buffer's size
     for (const layer of streakLayers) {
-      layer.mat.opacity = STREAK_OPACITY * rush;
       for (const line of layer.lines) line.visible = streaking;
     }
 
@@ -2533,6 +2542,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   function render(renderer) {
     renderer.getDrawingBufferSize(_size);
     uViewHalfH.value = _size.y / 2;
+    for (const layer of streakLayers) layer.mat.opacity = STREAK_OPACITY * streakRush * (_size.y / STREAK_REF_H);
     for (const t of [layerTarget, layerTargetAA, accum, spare]) {
       if (t.width !== _size.x || t.height !== _size.y) t.setSize(_size.x, _size.y);
     }
