@@ -13,6 +13,7 @@ import ProductSlot, { slotPhotos } from './ProductSlot';
 import InstagramOverlay from './InstagramOverlay';
 import DesignThumb from './DesignThumb';
 import PostCopy from './PostCopy';
+import ShopLink from './ShopLink';
 import InstagramPost from './InstagramPost';
 import FeedPreview, { FlightPlayer } from './FeedPreview';
 import FeedSlides, { FlightOptions } from './FeedSlides';
@@ -1141,6 +1142,20 @@ export default function AdBuilder() {
   const captionOpts = isExplain ? { explain: explain.garment } : undefined;
   const caption = fullCaption(post, design, captionNames, captionOpts);
 
+  // The products this ad shows, in order: the store link offers them first.
+  const adProductIds = [
+    ...new Set(
+      (isFeed
+        ? feedSlides.filter(s => s.type === 'photo').map(s => photoByUrl.get(s.url)?.productId)
+        : isFlight
+          ? []
+          : isExplain
+            ? [explain.garment === 'hoodie' ? 388 : 257]
+            : photos.map(p => p.productId)
+      ).filter(Boolean)
+    )
+  ];
+
   // ── Layout ──────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-dvh bg-[#0c0b12] text-neutral-200">
@@ -1298,6 +1313,13 @@ export default function AdBuilder() {
             </Button>
           </div>
           {designError && <p className="mt-2 text-xs text-red-300">{designError}</p>}
+          <ShopLink
+            design={design}
+            post={post}
+            onChange={setPost}
+            catalog={catalog}
+            adProductIds={adProductIds}
+          />
         </Section>
 
         {isExplain && (
@@ -1716,21 +1738,6 @@ export default function AdBuilder() {
             captionOpts={captionOpts}
             post={post}
             onChange={setPost}
-            catalog={catalog}
-            adProductIds={[
-              ...new Set(
-                (isFeed
-                  ? feedSlides
-                      .filter(s => s.type === 'photo')
-                      .map(s => photoByUrl.get(s.url)?.productId)
-                  : isFlight
-                    ? []
-                    : isExplain
-                      ? [explain.garment === 'hoodie' ? 388 : 257]
-                      : photos.map(p => p.productId)
-                ).filter(Boolean)
-              )
-            ]}
           />
           <InstagramPost
             kind={isFeed ? feedKind : 'reel'}

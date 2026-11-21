@@ -2647,14 +2647,15 @@ The web uploader also defaults to a 1:1 crop -- pick Original for 9:16.
 
 (9) **Section 7 · Post is the caption helper** (`PostCopy.jsx`, `postText.js`, 2026-10-10): a caption
 written from the ad (the bio's "Hit Generate. Get art. Wear
-it." FIRST, since a Reel shows only the first line, then the design and products, then plain `chromaforge.app` -- no ✦, which reads as the AI sparkle; an explainer adds its garment's CC-BY credit; no seed talk, no emoji) until typed into, four curated hashtag sets, Copy caption
-(caption + one set) and Copy link (the design's `chromaforge.app/studio?id=` page, for a Story sticker
-or bio -- Reel caption links aren't clickable). **Each set is exactly 5 tags** because Instagram caps
+it." FIRST, since a Reel shows only the first line, then the design and products, then plain `chromaforge.app` -- no ✦, which reads as the AI sparkle; an explainer adds its garment's CC-BY credit; no seed talk, no emoji) until typed into, four curated hashtag sets, and Copy caption
+(caption + one set). **Each set is exactly 5 tags** because Instagram caps
 a post at 5 (Dec 2025), caption and first comment together; every set leads with #chromaforge. Saved
-with the ad as `post`. **Shop link** (2026-11-16): a picker (the shop, or any product -- the ad's own first)
-builds `chromaforge.app/shop[/<id>]?id=<design>` for the paid ad's Shop Now button, landing already wearing
-the design (`lib/linkedDesign.js`); saved on `post.linkTarget`. The Explainer offers its garment (tee 257,
-hoodie 388) first. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
+with the ad as `post`. **The store link is in section 1 · Design** (`ShopLink.jsx`; moved there 2026-11-21,
+Aaron had missed it at the bottom of Post under a studio link he never asked for, now removed): a picker
+(the shop, or any product -- the ad's own first) builds `chromaforge.app/shop[/<id>]?id=<design>` for an
+ad's Shop Now button, landing already wearing the design (`lib/linkedDesign.js`); saved on
+`post.linkTarget`. Only a saved design (one with a row id) can be linked. The Explainer offers its garment
+(tee 257, hoodie 388) first. The helper file is `postText.js`, not `postCopy.js`: macOS's case-insensitive
 filesystem resolved `./PostCopy` to the lowercase file.
 (10) **Post Reel posts straight to @chromaforge.app** (`InstagramPost.jsx`,
 `scripts/ad-builder-instagram.mjs`, 2026-10-12; first real post published the same day). Instagram

@@ -1,4 +1,4 @@
-// The words that go with a Reel: a caption written from the ad, one hashtag set, and a link.
+// The words that go with a Reel: a caption written from the ad, one hashtag set, and a store link.
 //
 // Instagram caps a post at FIVE hashtags (announced 18 Dec 2025, replacing 30), counted across the
 // caption and the first comment together, so each set is exactly five and a post takes one set.
@@ -34,13 +34,6 @@ export const HASHTAG_SETS = [
 ];
 
 export const DEFAULT_POST = { caption: null, tagSet: 'art' };
-
-// A design's own page, for a Story link sticker or the bio link. Links in a Reel caption are not
-// clickable, so this is not part of the caption. Built against the live site, not this page's
-// origin -- the ad builder runs on localhost. A design with no saved row has no page of its own.
-export function designLink(design) {
-  return design?.id ? `https://chromaforge.app/studio?id=${design.id}` : 'https://chromaforge.app';
-}
 
 // The ad's link for its own call to action: the shop, or one product page, opening already wearing
 // the ad's design (`?id=`, lib/linkedDesign.js). `target` is 'shop' or a product id. A design with no
