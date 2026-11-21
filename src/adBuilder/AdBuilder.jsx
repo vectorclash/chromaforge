@@ -165,6 +165,10 @@ export default function AdBuilder() {
   const [designError, setDesignError] = useState(null);
   const [musicBusy, setMusicBusy] = useState(null); // null | 'loading' | progress 0..1
   const [musicError, setMusicError] = useState(null);
+  // What the Orrery link field shows while it is being edited; null shows the loaded link. With a
+  // track loaded, focusing the field empties it so a new link can be pasted straight in, and
+  // leaving it empty puts the loaded link back.
+  const [linkDraft, setLinkDraft] = useState(null);
   const [savedAds, setSavedAds] = useState([]);
   const [notice, setNotice] = useState(null);
   const [showIg, setShowIg] = useState(true);
@@ -697,16 +701,19 @@ export default function AdBuilder() {
   };
 
   // ── Music ───────────────────────────────────────────────────────────────────
-  const loadMusicLink = async () => {
+  const loadMusicLink = async (link = linkDraft ?? music.link) => {
+    link = link.trim();
+    if (!link) return;
     setMusicError(null);
     setMusicBusy('loading');
     try {
-      const plan = await planFromLink(music.link);
+      const plan = await planFromLink(link);
       if (!plan)
         throw new Error('That is not an Orrery share link. Use SHARE in Orrery’s Manual mode.');
       takes.current.clear();
-      setMusic(m => ({ ...m, plan, audioUrl: null, duration: null }));
+      setMusic(m => ({ ...m, link, plan, audioUrl: null, duration: null }));
       setMusicBuffer(null);
+      setLinkDraft(null);
     } catch (e) {
       setMusicError(e.message);
     } finally {
@@ -807,6 +814,7 @@ export default function AdBuilder() {
     setMusicBusy(null);
     setMusic({ link: '', plan: null, audioUrl: null, duration: null });
     setMusicBuffer(null);
+    setLinkDraft(null);
   };
 
   // ── Save, load, export ──────────────────────────────────────────────────────
@@ -876,6 +884,7 @@ export default function AdBuilder() {
           buffer: savedTake
         });
       setMusic(ad.music);
+      setLinkDraft(null);
       setMusicBuffer(savedTake);
       play.current.t = 0;
       setNotice(`Opened ${slug}.`);
@@ -1485,16 +1494,45 @@ export default function AdBuilder() {
           >
             <div className="flex gap-2">
               <input
-                value={music.link}
-                onChange={e => setMusic(m => ({ ...m, link: e.target.value }))}
-                placeholder="Orrery share link (SHARE in Edit mode)"
+                value={linkDraft ?? music.link}
+                onFocus={() => setLinkDraft(music.plan ? '' : music.link)}
+                onChange={e => setLinkDraft(e.target.value)}
+                onBlur={() => {
+                  // Left empty (or untouched): the loaded link comes back. Anything else typed
+                  // stays put until Load, so clicking Load still sees it.
+                  if (linkDraft !== null && (!linkDraft.trim() || linkDraft === music.link))
+                    setLinkDraft(null);
+                }}
+                onPaste={e => {
+                  // Pasting into an empty (or fully selected) field loads it straight away.
+                  const el = e.currentTarget;
+                  const whole =
+                    !el.value || (el.selectionStart === 0 && el.selectionEnd === el.value.length);
+                  const text = e.clipboardData.getData('text').trim();
+                  if (!whole || !text) return;
+                  e.preventDefault();
+                  setLinkDraft(text);
+                  if (musicBusy === null) loadMusicLink(text);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && musicBusy === null) loadMusicLink();
+                  if (e.key === 'Escape') {
+                    setLinkDraft(null);
+                    e.currentTarget.blur();
+                  }
+                }}
+                placeholder={
+                  music.plan
+                    ? 'Paste a new link to replace (Esc keeps the current one)'
+                    : 'Orrery share link (SHARE in Edit mode)'
+                }
                 className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
               />
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={!music.link || musicBusy !== null}
-                onClick={loadMusicLink}
+                disabled={!(linkDraft ?? music.link).trim() || musicBusy !== null}
+                onClick={() => loadMusicLink()}
               >
                 Load
               </Button>
