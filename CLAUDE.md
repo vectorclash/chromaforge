@@ -3442,6 +3442,13 @@ back to the page): at 4x CPU a Generate adds no long task. Shop/carousel photos 
 the screen; the shop still prepares its first screenful before showing the grid. Files are
 content-hashed (`public/` has a fixed-name one-hour cache, so a browser holding an old manifest must
 find its own files or none).
+(5b) **Every calibration fetch retries (`utils/fetchRetry.js`, 2026-11-21, Aaron: two shop cards stayed
+empty after landing on `/shop?id=`).** Hostinger answers a burst from one visitor with 429, and the shop
+asks for every product's manifest and maps at once: reproduced live in WebKit, 693's and 784's manifests
+came back 429, and since nothing retried, those cards were empty for the whole visit. 429, 5xx and network
+errors now retry up to 4 times (~0.8/1.6/3.2/6.4s, jittered, Retry-After honoured), on the page and in the
+worker. Verified with injected 429s in Chromium and WebKit: two refusals per file still fill every card;
+refusing every attempt reproduces the empty cards.
 (6) **A calibrated product's page has NO Printful step (Aaron's pick, 2026-11-15).** Every view is
 instant, in printfulViewPolicy's strip order, opening on the strip's first view, the first flat (it opened on the shop card's view, third or so in the strip, and Aaron: that "feels weird"). No
 scrim, no sign-in wall for previews, no `useMockup` sync; Buy Now skips the "not previewed" step and

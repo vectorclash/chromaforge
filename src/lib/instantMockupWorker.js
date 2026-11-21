@@ -10,6 +10,7 @@
 // `base` is the absolute URL of the product's calibration folder; `meta` its manifest entry for the
 // view. Sources are keyed so a render shared by several views is decoded once.
 import { composeInstantMockup } from './instantMockup';
+import { fetchRetry } from '../utils/fetchRetry';
 
 async function pixelsOf(blob) {
   const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
@@ -30,7 +31,7 @@ function loadView(base, meta) {
       MAPS.map(name =>
         // The underlay maps exist only on views with a transparent label, the edge map only on
         // views with a seam.
-        !meta.files[name] ? null : fetch(`${base}/${meta.files[name]}`).then(r => {
+        !meta.files[name] ? null : fetchRetry(`${base}/${meta.files[name]}`).then(r => {
           if (!r.ok) throw new Error(`${meta.files[name]}: ${r.status}`);
           return r.blob().then(pixelsOf);
         })

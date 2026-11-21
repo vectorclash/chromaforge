@@ -20,6 +20,7 @@ import { PRODUCT_MOCKUP_CONFIG } from './printfulMockupConfig';
 import { MODEL_GROUPS_BY_PRODUCT } from './printfulMockupStyleGroups';
 import { PRIORITY_DEFAULT, PRIORITY_LOW, isRenderCancelled } from '../render/renderOffThread';
 import { NEBULA_PIXELS_LITE } from '../render/nebula';
+import { fetchRetry } from '../utils/fetchRetry';
 
 // The long edge each print file is rendered at. The photo is 1000px and shows a panel at up to
 // ~940px (the flat front); measured against real mockups, rendering at 685, 1000 and 2000 gives
@@ -118,7 +119,7 @@ const manifests = new Map();
 function loadManifest(productId) {
   const id = String(productId);
   if (!manifests.has(id)) {
-    const promise = fetch(`/instant-mockups/${id}/manifest.json`).then(r => {
+    const promise = fetchRetry(`/instant-mockups/${id}/manifest.json`).then(r => {
       if (!r.ok) throw new Error(`instant mockup manifest ${id}: ${r.status}`);
       return r.json();
     });
@@ -151,7 +152,7 @@ function loadView(productId, configId, viewId) {
       if (!meta) throw new Error(`instant mockup ${key}: no such view`);
       const [base, gain, gamma, place, uv, uvplace, underplace, underuv, edge] = await Promise.all(
         ['base', 'gain', 'gamma', 'place', 'uv', 'uvplace', 'underplace', 'underuv', 'edge'].map(name =>
-          !meta.files[name] ? null : fetch(`/instant-mockups/${productId}/${meta.files[name]}`)
+          !meta.files[name] ? null : fetchRetry(`/instant-mockups/${productId}/${meta.files[name]}`)
             .then(r => {
               if (!r.ok) throw new Error(`instant mockup ${meta.files[name]}: ${r.status}`);
               return r.blob();
