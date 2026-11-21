@@ -38,11 +38,21 @@ function isAlreadyDecoded(src) {
 // black. Now ~55s in all, each delay jittered by +/-40% so the waves smear out.
 export const THUMBNAIL_RETRIES = 5;
 const RETRY_DELAYS_MS = [2000, 4000, 8000, 15000, 25000];
-const retryDelay = attempt => RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] * (0.6 + Math.random() * 0.8);
+const retryDelay = attempt =>
+  RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] * (0.6 + Math.random() * 0.8);
 
 // `onAttempt` is told when each request settles, load or error, retries included -- so a caller
 // pacing requests (GalleryThumbnail's queue) can free its slot without waiting out the retries.
-export default function FadeImage({ src, alt = '', className = '', onLoad, onError, onAttempt, retries = 0, ...props }) {
+export default function FadeImage({
+  src,
+  alt = '',
+  className = '',
+  onLoad,
+  onError,
+  onAttempt,
+  retries = 0,
+  ...props
+}) {
   // Which retry is showing. A retry re-requests with a query string, so neither the browser nor a
   // cache can hand back the refused response; the image is the same object either way.
   const [attempt, setAttempt] = useState(0);
@@ -60,16 +70,21 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
   //
   // An image the browser already has decoded counts as loaded straight away, so a cached image is
   // never blank, on first mount or on a swap.
+  //
+  // No source yet (a gallery card waiting for its turn in thumbnailQueue) is NOT loaded. As
+  // `loadedSrc === src` it read as null === null, i.e. loaded: the card skipped its pulse, played
+  // its reveal on an empty <img> -- which draws its alt text and, in WebKit, a broken-image icon --
+  // and then played it again when the real source arrived (2026-11-20, check-route-intro-once).
   const decodedNow = useMemo(() => isAlreadyDecoded(src), [src]);
   const [loadedSrc, setLoadedSrc] = useState(null);
-  const loaded = decodedNow || loadedSrc === src;
+  const loaded = !!src && (decodedNow || loadedSrc === src);
   // Whether this image actually had to be fetched, i.e. whether there was a blank state for
   // the reveal to play out of. An image that was already decoded appears at full opacity with
   // no animation at all -- same instant-swap rule as the skeleton above, and the reason the
   // reveal is keyed on this rather than on `loaded`, which is true immediately for a cached
   // image and would animate a swap that should be instant.
   const [revealingSrc, setRevealingSrc] = useState(null);
-  const revealing = !decodedNow && revealingSrc === src;
+  const revealing = !!src && !decodedNow && revealingSrc === src;
 
   // A same-origin/cached/blob src (e.g. the studio's own canvas-render preview) can fire
   // onLoad before the browser ever paints the opacity-0 frame, so React batches both
@@ -125,23 +140,25 @@ export default function FadeImage({ src, alt = '', className = '', onLoad, onErr
   return (
     <>
       {!loaded && <div className="absolute inset-0 animate-pulse bg-ink-700" />}
-      <img
-        ref={imgRef}
-        src={shownSrc}
-        alt={alt}
-        onLoad={e => {
-          onAttempt?.();
-          reveal();
-          onLoad?.(e);
-        }}
-        onError={handleError}
-        // No `transition-opacity` here: it collided with call sites that pass their own
-        // `transition-*` (see --animate-image-reveal in tailwind.css). The reveal is an
-        // animation, and it is applied ONLY when the image really had to load -- an
-        // already-decoded one just renders, with nothing to fade.
-        className={`${className} ${loaded ? (revealing ? 'animate-image-reveal' : '') : 'opacity-0'}`}
-        {...props}
-      />
+      {src ? (
+        <img
+          ref={imgRef}
+          src={shownSrc}
+          alt={alt}
+          onLoad={e => {
+            onAttempt?.();
+            reveal();
+            onLoad?.(e);
+          }}
+          onError={handleError}
+          // No `transition-opacity` here: it collided with call sites that pass their own
+          // `transition-*` (see --animate-image-reveal in tailwind.css). The reveal is an
+          // animation, and it is applied ONLY when the image really had to load -- an
+          // already-decoded one just renders, with nothing to fade.
+          className={`${className} ${loaded ? (revealing ? 'animate-image-reveal' : '') : 'opacity-0'}`}
+          {...props}
+        />
+      ) : null}
     </>
   );
 }
