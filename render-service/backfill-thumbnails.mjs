@@ -27,6 +27,7 @@
 //   ... node backfill-thumbnails.mjs --generator-version=6 --dry-run
 //
 // --generator-version=N restricts the run to designs SAVED under generator version N.
+// --id=<uuid>[,<uuid>...] restricts it to those rows.
 // Added 2026-07-24 for the v6->v7 case: because generateArtwork never branches on a stored
 // version (see its own comment above GENERATOR_VERSION -- every design always renders with
 // current bundle code), a version bump silently makes every OLDER design's stored thumbnail
@@ -69,6 +70,13 @@ const ONLY_GENERATOR_VERSION = (() => {
     process.exit(2);
   }
   return parsed;
+})();
+
+// --id=<uuid>[,<uuid>...] (optional): just these rows, e.g. the few designs a generator change
+// re-composed (check-render-regression names them), instead of re-rendering the whole table.
+const ONLY_IDS = (() => {
+  const arg = process.argv.find(a => a.startsWith('--id='));
+  return arg ? new Set(arg.slice(5).split(',').filter(Boolean)) : null;
 })();
 
 // Must match StudioContext.jsx's THUMBNAIL_SIZE exactly -- this backfill is only
@@ -142,6 +150,10 @@ async function main() {
     // Counted separately from `skipped` so the summary distinguishes "not selected by the
     // filter" (expected, uninteresting) from "selected but unusable" (worth looking at).
     if (ONLY_GENERATOR_VERSION !== null && source.generatorVersion !== ONLY_GENERATOR_VERSION) {
+      filteredOut++;
+      continue;
+    }
+    if (ONLY_IDS && !ONLY_IDS.has(row.id)) {
       filteredOut++;
       continue;
     }
