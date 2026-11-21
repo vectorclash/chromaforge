@@ -856,8 +856,8 @@ the actual print, generated the same deterministic way.
   on a desktop GPU: Featured -> shop cancelled exactly those 6 jobs, last shop print 1.9s -> 1.1s
   (Print it: 1.0s); six quick round trips dropped 36 stale jobs. A cancelled member of an ambient
   group settles at once, so the visible surfaces are never held for one that has gone.
-  `check-route-intro-once.mjs` fails on reduced-motion /gallery and /shop/257 on the committed code
-  too — pre-existing, not this.
+  (`check-route-intro-once.mjs`'s /gallery failures were FadeImage reading a queued card's
+  `src={null}` as loaded -- fixed 2026-11-20; the check passes in full again.)
   (6) **In Chromium the worker's 2D canvases draw on the CPU** (`willReadFrequently`, patched onto
   `OffscreenCanvas.prototype.getContext` in renderWorker.js; 2026-10-20, Aaron: Chrome on Windows
   dropped frames of the loader on ~80% of Generates). Off the page is not off Chrome's GPU process:
