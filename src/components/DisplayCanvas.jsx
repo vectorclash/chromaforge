@@ -70,6 +70,9 @@ import Animation3DPreview from './Animation3DPreview';
 import TshirtPreview from './TshirtPreview';
 import CloseButton from './buttons/CloseButton';
 import SettingsRange from './ui/SettingsRange';
+
+// The Geometry tab's lattice controls; editing any of them switches a design to that model.
+const LATTICE_KEYS = ['pointsMin', 'pointsMax', 'ringsMin', 'ringsMax', 'scaleMin', 'scaleMax', 'style', 'density', 'coherence'];
 import PalettePicker from './ui/PalettePicker';
 import ConfirmDialog from './ui/ConfirmDialog';
 import FileName from './FileNameGenerator';
@@ -286,7 +289,7 @@ export default class DisplayCanvas extends React.Component {
       frameCount: videoPrefs.frameCount,
       // 5s, the stepper's own minimum (Aaron, 2026-08-12: it's what he reaches for). Nothing
       // downstream assumed 10 -- 3D still builds one lap of unique content (FLIGHT_SPEED x 5
-      // is under MAX_CONTENT_LENGTH), the logo mark's two half-second windows still fit, and
+      // is under MAX_CONTENT_LENGTH, and over MIN_CONTENT_LENGTH), the logo mark's two half-second windows still fit, and
       // a 5s export never reaches the bitrate cap, so it always encodes at full quality.
       cycleDuration: videoPrefs.cycleDuration,
       starFrameCount: videoPrefs.starFrameCount,
@@ -2745,7 +2748,14 @@ export default class DisplayCanvas extends React.Component {
     const wasSaved = this.state.isSaved;
     this.setState(
       s => ({
-        geometrySettings: { ...s.geometrySettings, ...patch },
+        // Any edit to the lattice controls makes this a lattice design -- a classic design
+        // shown in the panel has no Rings or Scale of its own to edit, so changing one is the
+        // moment it becomes the new model. Chance and the toggles leave the model alone.
+        geometrySettings: {
+          ...s.geometrySettings,
+          ...patch,
+          ...(LATTICE_KEYS.some(k => k in patch) ? { model: 'lattice' } : null)
+        },
         isSaved: false,
         showBranchNotice: s.showBranchNotice || wasSaved
       }),
@@ -4775,19 +4785,46 @@ export default class DisplayCanvas extends React.Component {
                     onCommit={v => this.onGeometrySettingChange({ chance: v / 100 })}
                   />
                 </div>
+                {/* The lattice model's controls (2026-11-20). Each one describes the ring
+                    lattice directly and none changes another's meaning -- see
+                    GenerateGeometricShape.buildLattice. Sides, Shapes and Symmetry reuse the
+                    classic keys (pointsMin/Max, density, coherence); Rings and Scale are new.
+                    A classic design shown here is converted to the lattice model by the first
+                    edit to one of these (onGeometrySettingChange). */}
+                <div className="settings-field">
+                  <span className="settings-label">Style</span>
+                  {/* Lattice: shapes from the ring lattice. Mosaic, Flower and Golden: a triangle
+                      grid, Flower of Life petals and a golden spiral (GenerateGeometricShape's
+                      build* methods), where Sides and Rings mean nothing and read "—". */}
+                  <select
+                    className="settings-select"
+                    value={geometrySettings.style}
+                    onChange={e => this.onGeometrySettingChange({ style: e.target.value })}
+                    aria-label="Geometry style"
+                  >
+                    <option value="lattice">Lattice</option>
+                    <option value="mosaic">Mosaic</option>
+                    <option value="flower">Flower</option>
+                    <option value="golden">Golden</option>
+                  </select>
+                </div>
                 <div className="settings-field">
                   <span className="settings-label">
-                    Points
+                    Sides
                     <span className="settings-label-note">
                       {' '}
-                      {geometrySettings.pointsMin === geometrySettings.pointsMax
+                      {geometrySettings.style !== 'lattice'
+                        ? '—'
+                        : geometrySettings.pointsMin === geometrySettings.pointsMax
                         ? geometrySettings.pointsMin
                         : `${geometrySettings.pointsMin}–${geometrySettings.pointsMax}`}
                     </span>
                   </span>
                   {/* Two stacked native ranges; only the thumbs take pointer events (see
                       components.css), so each thumb drags independently over the shared
-                      track. Min and max may meet (pinning the vertex count) but never cross. */}
+                      track. Min and max may meet (pinning the value) but never cross. Whichever
+                      thumb was grabbed last stays on top, so repeated touches in the same spot
+                      keep reaching it once the two overlap. */}
                   <div
                     className="settings-range-dual"
                     style={{
@@ -4799,10 +4836,7 @@ export default class DisplayCanvas extends React.Component {
                       min="3"
                       max="12"
                       value={geometrySettings.pointsMin}
-                      aria-label="Minimum points"
-                      // Whichever thumb was grabbed last stays on top, so repeated touches in
-                      // the same spot keep reaching it even once the two thumbs overlap.
-                      // Falls back to the old "min sits high" rule before any grab happens.
+                      aria-label="Minimum sides"
                       style={
                         this.state.pointsActiveThumb
                           ? this.state.pointsActiveThumb === 'min'
@@ -4829,7 +4863,7 @@ export default class DisplayCanvas extends React.Component {
                       min="3"
                       max="12"
                       value={geometrySettings.pointsMax}
-                      aria-label="Maximum points"
+                      aria-label="Maximum sides"
                       style={this.state.pointsActiveThumb === 'max' ? { zIndex: 4 } : undefined}
                       onPointerDown={() => this.setState({ pointsActiveThumb: 'max' })}
                       onDrag={v =>
@@ -4848,118 +4882,138 @@ export default class DisplayCanvas extends React.Component {
                 </div>
                 <div className="settings-field">
                   <span className="settings-label">
-                    Coherence
+                    Rings
                     <span className="settings-label-note">
-                      {' '}{Math.round(geometrySettings.coherence * 100)}%
+                      {' '}
+                      {geometrySettings.style !== 'lattice'
+                        ? '—'
+                        : geometrySettings.ringsMin === geometrySettings.ringsMax
+                        ? geometrySettings.ringsMin
+                        : `${geometrySettings.ringsMin}–${geometrySettings.ringsMax}`}
                     </span>
                   </span>
-                  <SettingsRange
-                    className="settings-range"
-                    min="0"
-                    max="100"
-                    value={Math.round(geometrySettings.coherence * 100)}
-                    style={{ '--range-fill': `${Math.round(geometrySettings.coherence * 100)}%` }}
-                    aria-label="Geometry coherence"
-                    onDrag={v => this.onGeometrySettingChange({ coherence: v / 100 }, false)}
-                    onCommit={v => this.onGeometrySettingChange({ coherence: v / 100 })}
-                  />
+                  {/* Two stacked native ranges; only the thumbs take pointer events (see
+                      components.css), so each thumb drags independently over the shared
+                      track. Min and max may meet (pinning the value) but never cross. Whichever
+                      thumb was grabbed last stays on top, so repeated touches in the same spot
+                      keep reaching it once the two overlap. */}
+                  <div
+                    className="settings-range-dual"
+                    style={{
+                      '--range-min': `${((geometrySettings.ringsMin - 1) / 5) * 100}%`,
+                      '--range-max': `${((geometrySettings.ringsMax - 1) / 5) * 100}%`
+                    }}
+                  >
+                    <SettingsRange
+                      min="1"
+                      max="6"
+                      value={geometrySettings.ringsMin}
+                      aria-label="Minimum rings"
+                      style={
+                        this.state.ringsActiveThumb
+                          ? this.state.ringsActiveThumb === 'min'
+                            ? { zIndex: 4 }
+                            : undefined
+                          : geometrySettings.ringsMin > 3
+                            ? { zIndex: 4 }
+                            : undefined
+                      }
+                      onPointerDown={() => this.setState({ ringsActiveThumb: 'min' })}
+                      onDrag={v =>
+                        this.onGeometrySettingChange(
+                          { ringsMin: Math.min(v, geometrySettings.ringsMax) },
+                          false
+                        )
+                      }
+                      onCommit={v =>
+                        this.onGeometrySettingChange({
+                          ringsMin: Math.min(v, geometrySettings.ringsMax)
+                        })
+                      }
+                    />
+                    <SettingsRange
+                      min="1"
+                      max="6"
+                      value={geometrySettings.ringsMax}
+                      aria-label="Maximum rings"
+                      style={this.state.ringsActiveThumb === 'max' ? { zIndex: 4 } : undefined}
+                      onPointerDown={() => this.setState({ ringsActiveThumb: 'max' })}
+                      onDrag={v =>
+                        this.onGeometrySettingChange(
+                          { ringsMax: Math.max(v, geometrySettings.ringsMin) },
+                          false
+                        )
+                      }
+                      onCommit={v =>
+                        this.onGeometrySettingChange({
+                          ringsMax: Math.max(v, geometrySettings.ringsMin)
+                        })
+                      }
+                    />
+                  </div>
                 </div>
                 <div className="settings-field">
                   <span className="settings-label">
-                    Size
+                    Scale
                     <span className="settings-label-note">
                       {' '}
-                      {geometrySettings.coherence <= 0
-                        ? '—'
-                        : geometrySettings.size <= 0
-                          ? 'small'
-                          : geometrySettings.size >= 1
-                            ? 'max'
-                            : `${Math.round(geometrySettings.size * 100)}%`}
+                      {Math.round(geometrySettings.scaleMin * 100) === Math.round(geometrySettings.scaleMax * 100)
+                        ? `${Math.round(geometrySettings.scaleMin * 100)}%`
+                        : `${Math.round(geometrySettings.scaleMin * 100)}–${Math.round(geometrySettings.scaleMax * 100)}%`}
                     </span>
                   </span>
-                  <SettingsRange
-                    className="settings-range"
-                    min="0"
-                    max="100"
-                    value={Math.round(geometrySettings.size * 100)}
-                    style={{ '--range-fill': `${Math.round(geometrySettings.size * 100)}%` }}
-                    aria-label="Geometry size"
-                    onDrag={v => this.onGeometrySettingChange({ size: v / 100 }, false)}
-                    onCommit={v => this.onGeometrySettingChange({ size: v / 100 })}
-                  />
+                  {/* A range like Sides and Rings: each design draws its own size from it,
+                      weighted toward the top (GenerateGeometricShape.buildLattice). */}
+                  <div
+                    className="settings-range-dual"
+                    style={{
+                      '--range-min': `${Math.round(geometrySettings.scaleMin * 100)}%`,
+                      '--range-max': `${Math.round(geometrySettings.scaleMax * 100)}%`
+                    }}
+                  >
+                    <SettingsRange
+                      min="0"
+                      max="100"
+                      value={Math.round(geometrySettings.scaleMin * 100)}
+                      aria-label="Minimum scale"
+                      style={
+                        this.state.scaleActiveThumb
+                          ? this.state.scaleActiveThumb === 'min'
+                            ? { zIndex: 4 }
+                            : undefined
+                          : geometrySettings.scaleMin > 0.5
+                            ? { zIndex: 4 }
+                            : undefined
+                      }
+                      onPointerDown={() => this.setState({ scaleActiveThumb: 'min' })}
+                      onDrag={v =>
+                        this.onGeometrySettingChange({ scaleMin: Math.min(v / 100, geometrySettings.scaleMax) }, false)
+                      }
+                      onCommit={v =>
+                        this.onGeometrySettingChange({ scaleMin: Math.min(v / 100, geometrySettings.scaleMax) })
+                      }
+                    />
+                    <SettingsRange
+                      min="0"
+                      max="100"
+                      value={Math.round(geometrySettings.scaleMax * 100)}
+                      aria-label="Maximum scale"
+                      style={this.state.scaleActiveThumb === 'max' ? { zIndex: 4 } : undefined}
+                      onPointerDown={() => this.setState({ scaleActiveThumb: 'max' })}
+                      onDrag={v =>
+                        this.onGeometrySettingChange({ scaleMax: Math.max(v / 100, geometrySettings.scaleMin) }, false)
+                      }
+                      onCommit={v =>
+                        this.onGeometrySettingChange({ scaleMax: Math.max(v / 100, geometrySettings.scaleMin) })
+                      }
+                    />
+                  </div>
                 </div>
-                {/* Directly under Size because the two are the same question asked of the two
-                    halves of this layer -- Size is how big the coherent lattice is, Spread is
-                    how big the chaotic shapes are -- and their "—" conditions are exact
-                    opposites, so the pair always has exactly one live control at the ends of
-                    the coherence range. Named for the mechanism rather than the look, like
-                    every other row here: it does not promise "bigger", it sets how far the
-                    scattered shapes reach, and the lower half genuinely keeps them small. */}
                 <div className="settings-field">
                   <span className="settings-label">
-                    Spread
+                    Shapes
                     <span className="settings-label-note">
-                      {' '}
-                      {/* Same "—" treatment as Density, and for the identical reason: at full
-                          coherence no chaotic shapes survive, so this genuinely does nothing
-                          and shouldn't imply otherwise. */}
-                      {geometrySettings.coherence >= 1
-                        ? '—'
-                        : `${Math.round(geometrySettings.spread * 100)}%`}
-                    </span>
-                  </span>
-                  <SettingsRange
-                    className="settings-range"
-                    min="0"
-                    max="100"
-                    value={Math.round(geometrySettings.spread * 100)}
-                    style={{ '--range-fill': `${Math.round(geometrySettings.spread * 100)}%` }}
-                    aria-label="Geometry spread"
-                    onDrag={v => this.onGeometrySettingChange({ spread: v / 100 }, false)}
-                    onCommit={v => this.onGeometrySettingChange({ spread: v / 100 })}
-                  />
-                </div>
-                <div className="settings-field">
-                  <span className="settings-label">
-                    Density
-                    <span className="settings-label-note">
-                      {' '}
-                      {/* Shows the fraction of chaotic shapes actually KEPT, which is not
-                          the same as the slider's own value, and deliberately so.
-                          GenerateGeometricShape caps them at `min(round(n * density),
-                          round(n * (1 - coherence)))`, so past a point the coherence term is
-                          the smaller one and moving this slider changes nothing -- density
-                          0.9 stops mattering above coherence 0.10, 0.8 above 0.20. Reported
-                          live (Aaron, 2026-09-17: "density seems to do nothing unless
-                          coherence is very very low"), which is exactly right; the panel was
-                          showing a live percentage for a control that was already inert.
-                          Verified against a real coherence x density grid -- the min()
-                          formula reproduces all 70 cells exactly.
-                          Two wrong versions were written first, and both are worth not
-                          repeating. Dashing on `coherence >= 1` (Size's and Spread's
-                          condition) is what caused the complaint. But dashing on
-                          `density >= 1 - coherence` is ALSO wrong, in two ways: it dashes at
-                          the DEFAULT state (coherence 0, density 1), where the control is
-                          perfectly live and simply happens to be removing nothing; and it
-                          treats a dead ZONE as a dead CONTROL -- at coherence 0.5 the top
-                          half of this slider does nothing while the bottom half still works,
-                          so a dash would claim it is finished when it is not.
-                          Showing min() itself solves both: at the default it reads 100%, it
-                          responds the moment the density term becomes the binding one, and in
-                          a dead zone it simply holds still -- which IS the honest answer, and
-                          shows the user where the live range starts instead of hiding it.
-                          Consistent with this tab's convention that the note slot is a value
-                          readout rather than prose.
-                          READOUT ONLY. The min() composition is deliberate ("coherence still
-                          wins; density can only ever remove more, never add back") and is what
-                          every stored design was rendered under, so touching it would rewrite
-                          saved artwork. */}
-                      {geometrySettings.coherence >= 1
-                        ? '—'
-                        : `${Math.round(
-                            Math.min(geometrySettings.density, 1 - geometrySettings.coherence) * 100
-                          )}%`}
+                      {' '}{`${Math.round(geometrySettings.density * 100)}%`}
                     </span>
                   </span>
                   <SettingsRange
@@ -4968,9 +5022,27 @@ export default class DisplayCanvas extends React.Component {
                     max="100"
                     value={Math.round(geometrySettings.density * 100)}
                     style={{ '--range-fill': `${Math.round(((geometrySettings.density * 100 - 10) / 90) * 100)}%` }}
-                    aria-label="Geometry density"
+                    aria-label="Geometry shapes"
                     onDrag={v => this.onGeometrySettingChange({ density: v / 100 }, false)}
                     onCommit={v => this.onGeometrySettingChange({ density: v / 100 })}
+                  />
+                </div>
+                <div className="settings-field">
+                  <span className="settings-label">
+                    Symmetry
+                    <span className="settings-label-note">
+                      {' '}{`${Math.round(geometrySettings.coherence * 100)}%`}
+                    </span>
+                  </span>
+                  <SettingsRange
+                    className="settings-range"
+                    min="0"
+                    max="100"
+                    value={Math.round(geometrySettings.coherence * 100)}
+                    style={{ '--range-fill': `${Math.round(((geometrySettings.coherence * 100 - 0) / 100) * 100)}%` }}
+                    aria-label="Geometry symmetry"
+                    onDrag={v => this.onGeometrySettingChange({ coherence: v / 100 }, false)}
+                    onCommit={v => this.onGeometrySettingChange({ coherence: v / 100 })}
                   />
                 </div>
                 {/* Last in the tab because it's the only row here that doesn't shape the

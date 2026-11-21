@@ -6,7 +6,7 @@ import { renderLogEnabled, renderWorkerStatus, subscribeRenderLog } from '../../
 // smoothly). Off unless turned on: add ?renderlog=1 to any URL once (it is remembered), and
 // ?renderlog=0 to turn it off. Shows each render -- size, queue priority, worker or page, how
 // long it waited, where its time went -- and every frame over STALL_MS, all as times from the last
-// tap, so a screenshot says what happened.
+// tap, so a screenshot says what happened. Its first line is a live frame rate (2026-11-20).
 // Two dropped frames at 60Hz. It was 50ms, which missed a hitch Aaron could just see (2026-10-20).
 const STALL_MS = 34;
 
@@ -26,6 +26,8 @@ export default function RenderLog() {
   const [entries, setEntries] = useState([]);
   const [tapAt, setTapAt] = useState(null);
   const [stalls, setStalls] = useState([]);
+  // Live frame rate: frames per second over the last half second, and that window's slowest frame.
+  const [fps, setFps] = useState(null);
 
   useEffect(() => {
     if (!on) return undefined;
@@ -37,7 +39,21 @@ export default function RenderLog() {
     document.addEventListener('pointerdown', onTap, true);
     let last = 0;
     let raf = 0;
+    let windowStart = 0;
+    let frames = 0;
+    let worst = 0;
     const loop = t => {
+      if (last) {
+        frames++;
+        worst = Math.max(worst, t - last);
+      }
+      if (!windowStart) windowStart = t;
+      if (t - windowStart >= 500) {
+        setFps({ rate: Math.round((frames * 1000) / (t - windowStart)), worst: Math.round(worst) });
+        windowStart = t;
+        frames = 0;
+        worst = 0;
+      }
       if (last && t - last > STALL_MS) {
         const at = performance.timeOrigin + t;
         const gap = Math.round(t - last);
@@ -61,6 +77,9 @@ export default function RenderLog() {
       className="pointer-events-none fixed bottom-2 left-2 z-[9999] max-w-[calc(100vw-16px)] rounded bg-black/80 p-2 font-mono text-[9px] leading-tight text-lime-300"
       aria-hidden
     >
+      <div className="text-white">
+        {fps ? `${fps.rate} fps · slowest frame ${fps.worst}ms` : 'fps …'}
+      </div>
       <div>{renderWorkerStatus()} · times from last tap</div>
       {entries.map((e, i) => (
         <div key={i} className={e.path === 'worker' ? '' : 'text-amber-300'}>

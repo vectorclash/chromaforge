@@ -35,7 +35,12 @@ const PRINTFILES = {
   276:[[4050,5100]], 798:[[1392,2220]]
 };
 const SEEDS = ['bffvnasl','1vsx8atp','qos0t1c0','aa11bb22','s8x2k9df'];
-const SETTINGS = [null, { geometry:{ present:true, coherence:0, spread:0.7 } }, { geometry:{ present:false } }];
+// The lattice model (2026-11-20) is what the studio makes new work with, so every style is
+// checked at no symmetry and at full symmetry (the densest figure).
+const LATTICE = ['lattice', 'mosaic', 'flower', 'golden'].flatMap(style => [0, 1].map(coherence => (
+  { geometry:{ present:true, model:'lattice', style, coherence } }
+)));
+const SETTINGS = [null, { geometry:{ present:true, coherence:0, spread:0.7 } }, { geometry:{ present:false } }, ...LATTICE];
 
 function counts(seed, settings, w, h) {
   const c = generateArtwork(seed, w, h, [], settings);

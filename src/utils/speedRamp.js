@@ -45,6 +45,14 @@
 // reads as a break, not touching zero. If more absolute speed is wanted, it has to come from
 // OUTSIDE the ramp -- tunnelScene's FLIGHT_SPEED in 3D, or a shorter Duration in either mode.
 //
+// A BRIEF burst cannot be smooth either (2026-11-20). A 3D ramp that cruised at 0.6x and fired a
+// 5x burst over a fifth of the cycle was rejected on sight ("why does the speed ramp just jump
+// like that"): acceleration grows as 1/width^2 and jerk -- which is what reads as a jump -- as
+// 1/width^3, and it measured 844 / 4301 against this ramp's 164 / 167 (world units at 240 u/s, a
+// 10s loop). Holding the old smoothness forced the burst out to two-thirds of the cycle, and with
+// a near-stop at the seam asked for on top, the shape became exactly this one again. Check accel
+// and jerk before trying another shape.
+//
 // The floor is the speed at the seam, as a fraction of linear playback, and is the ONE
 // value that differs between the two modes — hence the parameter rather than a constant.
 // It exists because seamlessness needs velocity to be CONTINUOUS at the seam, not zero:

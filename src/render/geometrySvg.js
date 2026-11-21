@@ -1,3 +1,5 @@
+import { shapeOutline, shapePathData } from './shapePath';
+
 // The geometry layer as an SVG document: the same triangles GeometricShape.js draws, as
 // vectors, so the layer can be taken into a design tool, cut on a plotter or printed at any
 // size. Pure and framework-free (a string in, a string out), so it runs in Node as well as the
@@ -66,7 +68,7 @@ export function geometryBounds(config) {
   let maxY = -Infinity;
   for (const c of containers(config)) {
     for (const shape of config.shapes) {
-      for (const p of shape.points.slice(0, 3)) {
+      for (const p of shape.path ? shapeOutline(shape) : shape.points.slice(0, 3)) {
         const [x, y] = place(p, c);
         if (x < minX) minX = x;
         if (y < minY) minY = y;
@@ -100,9 +102,10 @@ export function geometrySvg(config, options = {}) {
         `<stop offset="1" stop-color="${escapeAttr(c2)}"/>` +
         `</linearGradient>`
     );
-    paths.push(
-      `<path d="M${num(p0[0])} ${num(p0[1])}L${num(p1[0])} ${num(p1[1])}L${num(p2[0])} ${num(p2[1])}Z" fill="url(#g${i})" style="mix-blend-mode:hard-light"/>`
-    );
+    const d = shape.path
+      ? shapePathData(shape, num)
+      : `M${num(p0[0])} ${num(p0[1])}L${num(p1[0])} ${num(p1[1])}L${num(p2[0])} ${num(p2[1])}Z`;
+    paths.push(`<path d="${d}" fill="url(#g${i})" style="mix-blend-mode:hard-light"/>`);
   });
 
   const body = paths.join('\n');

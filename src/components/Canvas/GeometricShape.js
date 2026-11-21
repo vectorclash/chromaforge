@@ -1,3 +1,5 @@
+import { drawShapePath, shapeOutline } from '../../render/shapePath';
+
 function buildShape(shapeConfig) {
   let fill = new window.createjs.Shape();
 
@@ -10,10 +12,16 @@ function buildShape(shapeConfig) {
     shapeConfig.points[2][1]
   );
 
-  fill.graphics.moveTo(shapeConfig.points[0][0], shapeConfig.points[0][1]);
-  fill.graphics.lineTo(shapeConfig.points[1][0], shapeConfig.points[1][1]);
-  fill.graphics.lineTo(shapeConfig.points[2][0], shapeConfig.points[2][1]);
-  fill.graphics.lineTo(shapeConfig.points[0][0], shapeConfig.points[0][1]);
+  if (shapeConfig.path) {
+    // A curved shape (Flower, Golden): its outline, true arcs; the gradient still runs from
+    // point 0 to point 2. Triangles below are drawn exactly as they always were.
+    drawShapePath(fill.graphics, shapeConfig);
+  } else {
+    fill.graphics.moveTo(shapeConfig.points[0][0], shapeConfig.points[0][1]);
+    fill.graphics.lineTo(shapeConfig.points[1][0], shapeConfig.points[1][1]);
+    fill.graphics.lineTo(shapeConfig.points[2][0], shapeConfig.points[2][1]);
+    fill.graphics.lineTo(shapeConfig.points[0][0], shapeConfig.points[0][1]);
+  }
 
   fill.graphics.endFill();
 
@@ -95,7 +103,7 @@ export default function GeometricShape(config) {
 function shapeArea(shape, container, width, height) {
   const sx = container.scaleX;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (const [x, y] of shape.points) {
+  for (const [x, y] of shape.path ? shapeOutline(shape) : shape.points) {
     const px = container.x - y;
     const py = container.y + sx * x;
     if (px < x0) x0 = px;

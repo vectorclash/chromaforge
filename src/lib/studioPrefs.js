@@ -18,6 +18,7 @@
 import {
   DEFAULT_GEOMETRY_SETTINGS,
   STUDIO_DEFAULT_GEOMETRY_CHANCE,
+  STUDIO_DEFAULT_GEOMETRY_MODEL,
   STUDIO_DEFAULT_GEOMETRY_SPREAD,
   STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
   getGeometrySettings
@@ -105,7 +106,13 @@ function sanitizeGeometry(geometry) {
       typeof geometry.starsOnTop === 'boolean'
         ? geometry.starsOnTop
         : STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
-    nebulaLinked: geometry.nebulaLinked === true
+    nebulaLinked: geometry.nebulaLinked === true,
+    model: geometry.model === 'classic' || geometry.model === 'lattice' ? geometry.model : STUDIO_DEFAULT_GEOMETRY_MODEL,
+    ringsMin: Math.min(clampInt(geometry.ringsMin, 1, 6, d.ringsMin), clampInt(geometry.ringsMax, 1, 6, d.ringsMax)),
+    ringsMax: Math.max(clampInt(geometry.ringsMin, 1, 6, d.ringsMin), clampInt(geometry.ringsMax, 1, 6, d.ringsMax)),
+    scaleMin: Math.min(clampNumber(geometry.scaleMin, 0, 1, d.scaleMin), clampNumber(geometry.scaleMax, 0, 1, d.scaleMax)),
+    scaleMax: Math.max(clampNumber(geometry.scaleMin, 0, 1, d.scaleMin), clampNumber(geometry.scaleMax, 0, 1, d.scaleMax)),
+    style: ['mosaic', 'flower', 'golden'].includes(geometry.style) ? geometry.style : 'lattice'
   };
 }
 

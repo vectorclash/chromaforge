@@ -4,6 +4,7 @@ import { nLerp, valueNoise } from '../render/valueNoise';
 import { makeRng, expandMonochromePalette } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
 import { getGeometrySettings } from '../render/designSettings';
+import { shapeOutline } from '../render/shapePath';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
 import { LOGO_SCREEN_FRACTION, LOGO_OCTAVES, logoAlpha, logoDraw } from '../utils/logoIntro';
@@ -44,7 +45,18 @@ import smallStarUrl from '../assets/images/star-sprite-small-3d.png';
 // before Aaron picked plain static plates.
 
 // ─── Flight ───────────────────────────────────────────────────────────────────────────
-const FLIGHT_SPEED = 240; // world units/sec, duration-independent (Aaron, 2026-07-18)
+// World units/sec, duration-independent. 120 since 2026-11-20 (Aaron: "it just moves too fast
+// to really enjoy anything... even when you extend the time and turn off the ramp"). The speed
+// ramp is unchanged (speedRamp.js: near-stop at the seam, 2.16x at mid-cycle), so it runs at the
+// same proportions, half as fast: about 259 u/s at its peak. A cruise-plus-brief-burst ramp was
+// tried the same day and rejected as a jump; see the note there. The ad builder flies at this
+// speed too (Aaron: "any flight in the ad builder should definitely get the slower speed"); its
+// timing is set in time and ramp shape, not distance, so nothing there depends on the speed.
+const FLIGHT_SPEED = 120;
+// The shortest content length a loop may have: VIEW_FAR + BEHIND (570) plus a margin. Binds below
+// 5s at 120 -- the studio's Duration stepper stops at 5, but the ad builder's 3-4s flight slides
+// reach it and so fly a little faster (about 200 and 150 u/s).
+const MIN_CONTENT_LENGTH = 600;
 const MAX_CONTENT_LENGTH = 2400;
 const REFERENCE_LENGTH = 400;
 // World sizes are set through this field of view (PX below): the 2D canvas fills the frame at
@@ -74,12 +86,12 @@ const PX = (2 * FRAME_D * TAN_REF) / REF_H;
 //
 // The WARP gathers far things into the vanishing point. Past WARP_START each element's distance
 // from the flight axis is scaled by warpW(d) -- the same picture as plain perspective seen from
-// an effective depth D = d / warpW(d). D is d up to WARP_START and then bends smoothly (no jump
-// in growth rate) into D ~ d^WARP_POWER. On screen a thing still grows in proportion to the
-// camera's speed, slowly when far and faster on approach -- perspective's shape, only steeper.
-// Needed because the haze alone could not hide large geometry: at Spread 1.0 a shape was still
-// half the screen tall while a 2% ghost (Aaron, 2026-10-01: big plates "just pop in from the
-// haze"). Under this warp it is under 3% of its plain size by depth 300.
+// an effective depth D = d / warpW(d). D is d up to WARP_START and then bends smoothly away, so
+// a thing grows on screen slowly when far and faster on approach, its growth rate only ever
+// rising as it nears (see warpW for the rate, and for why the first version of this warp, D ~
+// d^4, was replaced on 2026-11-20). Needed because the haze alone could not hide large geometry:
+// at Spread 1.0 a shape was still half the screen tall while a 2% ghost (Aaron, 2026-10-01: big
+// plates "just pop in from the haze").
 // Two warps were tried before this, and both gave far geometry a clock of its own -- a
 // smoothstep to zero at 395 (burst, stall, rush), then (d/s) * exp(-(d-s)/s), whose D grew
 // EXPONENTIALLY, so everything past 78 grew at one fixed rate however far away it was, and the
@@ -93,24 +105,36 @@ const PX = (2 * FRAME_D * TAN_REF) / REF_H;
 // 450/300 the frames differ by 0.13/255 on average, so it stays at the cheapest setting (a longer
 // haze keeps more plates, each a full-screen pass, in the draw list).
 const WARP_START = 60; // Aaron's pick, 2026-10-01; also LOGO_SEAM_DISTANCE, so the seam pose is unwarped
-const WARP_POWER = 4; // the strength, Aaron's pick (the top of the range he tried, 1-4)
+// THE STEEP WARP'S DIP (2026-11-20, Aaron: "the geometric plates simply slow down as they
+// approach the camera"). How fast a thing seems to grow is d(ln D)/dd per unit travelled: 1/d for
+// plain perspective, which only ever climbs as it nears. The steep warp boosts that far out and
+// hands back to perspective at WARP_START, so it fell from 0.033 at d = 120 to 0.017 at 60 and
+// back to 0.033 at 30: every plate grew at HALF speed as it crossed ~60, read as braking. Any warp
+// that switches on at a distance has such a dip. The SMOOTH warp (the default) cannot: its growth
+// rate is 1/s at s and (1/s)(s/d)^WARP_ALPHA beyond it -- never above what is nearer, so it only
+// climbs as a thing approaches, and still falls off with distance (a constant rate, alpha 0, is
+// the exponential warp rejected on 2026-10-01 for "scaling up out of nothing"). Unchanged inside
+// WARP_START, so the logo's seam pose is unwarped. It shrinks the far field less than the steep
+// warp did (about 15x larger at 300 units); Aaron confirmed it smooth on 2026-11-20. The steep
+// one was D = d * (1 + x^2)^1.5, x = (d - 60) / 60.
+const WARP_ALPHA = 0.25;
 function warpW(d) {
   if (d <= WARP_START) return 1;
-  const x = (d - WARP_START) / WARP_START;
-  return Math.pow(1 + x * x, -0.5 * (WARP_POWER - 1));
+  const r = d / WARP_START;
+  return r * Math.exp(-(Math.pow(r, 1 - WARP_ALPHA) - 1) / (1 - WARP_ALPHA));
 }
 const HAZE_CLEAR = 150; // the air is clear nearer than this
 const HAZE_DEPTH = 150; // gaussian fall-off length beyond it
 // Where the haze has left under 0.12%: nothing is drawn past it. Must stay under the shortest
-// loop's content length (FLIGHT_SPEED * 5s = 1200) less BEHIND, or a plate would be counted
-// once where it should appear twice.
+// loop's content length (MIN_CONTENT_LENGTH; FLIGHT_SPEED * 5s = 600) less BEHIND, or a plate
+// would be counted once where it should appear twice.
 const VIEW_FAR = Math.round(HAZE_CLEAR + 2.6 * HAZE_DEPTH);
 function haze(d) {
   const x = Math.max(0, d - HAZE_CLEAR) / HAZE_DEPTH;
   return Math.exp(-x * x);
 }
 const SPACE_GLSL = `float haze(float d) { float x = max(0.0, d - ${HAZE_CLEAR.toFixed(1)}) / ${HAZE_DEPTH.toFixed(1)}; return exp(-x * x); }
-float warpW(float d) { if (d <= ${WARP_START.toFixed(1)}) return 1.0; float x = (d - ${WARP_START.toFixed(1)}) / ${WARP_START.toFixed(1)}; return pow(1.0 + x * x, ${(-0.5 * (WARP_POWER - 1)).toFixed(3)}); }
+float warpW(float d) { if (d <= ${WARP_START.toFixed(1)}) return 1.0; float r = d / ${WARP_START.toFixed(1)}; return r * exp(-(pow(r, ${(1 - WARP_ALPHA).toFixed(3)}) - 1.0) / ${(1 - WARP_ALPHA).toFixed(3)}); }
 `;
 
 // ─── Plates ───────────────────────────────────────────────────────────────────────────
@@ -398,15 +422,70 @@ const DATA_WIDTH = 2048; // texel row width of the packed data textures
 // container rotated 90 degrees on a canvas whose y runs down, which maps a shape point
 // (x, y) to (-y, -x). Degenerate (zero-area) triangles are dropped here; they draw nothing
 // in 2D either.
+//
+// A curved shape (Flower, Golden) becomes ONE item tested as a region (curveItem): cut into
+// triangles, each petal was ~80 thin candidates and the flight dropped frames.
 function plateTriangles(config) {
   const tris = [];
+  const flip = ([x, y]) => [-y, -x];
   for (const shape of config.shapes) {
-    const p = shape.points.map(([x, y]) => [-y, -x]);
+    const colors = shape.colors.slice(0, 3).map(srgb);
+    const g = [flip(shape.points[0]), flip(shape.points[2])];
+    if (shape.curve) {
+      tris.push(curveItem(shape, g, colors, flip));
+      continue;
+    }
+    const p = shape.points.slice(0, 3).map(flip);
     const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
     if (Math.abs(area) < 1e-3) continue;
-    tris.push({ p, orient: Math.sign(area), colors: shape.colors.slice(0, 3).map(srgb) });
+    tris.push({ p, g, orient: Math.sign(area), colors });
   }
   return tris;
+}
+
+// One curved shape (Flower, Golden) as a single plate item the shader tests analytically:
+// inside discs[0], inside discs[1] or outside `hole` (never both), and within the sector about
+// discs[0]'s centre. `flags` = 1 second disc, 2 hole, 4 sector. It is binned into cells by the
+// same discs and half-planes (packPlateData), bounded by its flattened outline. Coordinates go through `flip` like every
+// other plate point; normals are vectors and flip the same way.
+function curveItem(shape, g, colors, flip) {
+  const { discs, hole, sector } = shape.curve;
+  const [c1, r1] = discs[0];
+  const second = discs[1] || hole || null;
+  let flags = discs[1] ? 1 : hole ? 2 : 0;
+  let normals = [0, 0, 0, 0];
+  if (sector) {
+    flags |= 4;
+    const [a0, a1] = sector;
+    const sg = Math.sign(a1 - a0) || 1;
+    const n1 = flip([Math.cos(a0 + (sg * Math.PI) / 2), Math.sin(a0 + (sg * Math.PI) / 2)]);
+    const n2 = flip([Math.cos(a1 - (sg * Math.PI) / 2), Math.sin(a1 - (sg * Math.PI) / 2)]);
+    normals = [...n1, ...n2];
+  }
+  const C1 = flip(c1);
+  const C2 = second ? flip(second[0]) : C1;
+  // Bounds from the flattened outline (cheap: no triangulation), and the binning data.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const pt of shapeOutline(shape)) {
+    const [x, y] = flip(pt);
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  const binDiscs = [[C1[0], C1[1], r1]];
+  if (discs[1]) binDiscs.push([C2[0], C2[1], discs[1][1]]);
+  return {
+    curve: {
+      normals,
+      entry0: [C1[0], C1[1], r1, second ? second[1] : 0],
+      entry1: [C2[0], C2[1], 0, 8 + flags],
+      bin: { discs: binDiscs, sector: sector ? [C1[0], C1[1], ...normals] : null }
+    },
+    bbox: [minX, minY, maxX, maxY],
+    g,
+    colors
+  };
 }
 
 // Packs every plate content's triangles and cell lists into two float textures.
@@ -434,16 +513,23 @@ function packPlateData(contents) {
     c.triBase = base;
     let half = 1;
     c.tris.forEach((t, i) => {
-      for (const [x, y] of t.p) half = Math.max(half, Math.abs(x), Math.abs(y));
-      const [p0, p1, p2] = t.p;
-      const dx = p2[0] - p0[0];
-      const dy = p2[1] - p0[1];
+      if (t.curve) for (const v of t.bbox) half = Math.max(half, Math.abs(v));
+      else for (const [x, y] of t.p) half = Math.max(half, Math.abs(x), Math.abs(y));
+      const [g0, g2] = t.g;
+      const dx = g2[0] - g0[0];
+      const dy = g2[1] - g0[1];
       const dd = Math.max(1e-6, dx * dx + dy * dy);
       const o = (base + i) * TRI_TEXELS * 4;
-      const [a, b, cc] = t.orient > 0 ? [p0, p1, p2] : [p0, p2, p1];
-      tri.set([a[0], a[1], b[0], b[1]], o);
-      tri.set([cc[0], cc[1], 0, 0], o + 4);
-      tri.set([p0[0], p0[1], dx / dd, dy / dd], o + 8);
+      if (t.curve) {
+        // Texel 0: the sector's inward edge normals (the shader reads them only for a sector).
+        tri.set(t.curve.normals, o);
+      } else {
+        const [p0, p1, p2] = t.p;
+        const [a, b, cc] = t.orient > 0 ? [p0, p1, p2] : [p0, p2, p1];
+        tri.set([a[0], a[1], b[0], b[1]], o);
+        tri.set([cc[0], cc[1], 0, 0], o + 4);
+      }
+      tri.set([g0[0], g0[1], dx / dd, dy / dd], o + 8);
       tri.set([...t.colors[0], 0], o + 12);
       tri.set([...t.colors[1], 0], o + 16);
       tri.set([...t.colors[2], 0], o + 20);
@@ -457,35 +543,70 @@ function packPlateData(contents) {
     const cell = (2 * c.half) / GRID;
     const pad = cell * 0.02;
     const lists = Array.from({ length: GRID * GRID }, () => []);
+    // Allocation-free (2026-11-20): the first version spread fresh arrays through Math.max for
+    // every cell tested, and binning was ~90ms of a dense scene's build. A box's extent along
+    // an axis comes straight from its nearest and farthest corners, which is exactly the
+    // max/min over its four corners, so every decision is the same as before.
+    const boxMax = (nx, ny, x0, y0, x1, y1) => nx * (nx >= 0 ? x1 : x0) + ny * (ny >= 0 ? y1 : y0);
+    const boxMin = (nx, ny, x0, y0, x1, y1) => nx * (nx >= 0 ? x0 : x1) + ny * (ny >= 0 ? y0 : y1);
+    const cellRange = (minX, minY, maxX, maxY) => [
+      Math.max(0, Math.floor((minX + c.half) / cell)),
+      Math.max(0, Math.floor((minY + c.half) / cell)),
+      Math.min(GRID - 1, Math.floor((maxX + c.half) / cell)),
+      Math.min(GRID - 1, Math.floor((maxY + c.half) / cell))
+    ];
+    const ax = new Float64Array(3), ay = new Float64Array(3), lo = new Float64Array(3), hi = new Float64Array(3);
     c.tris.forEach((t, i) => {
-      const xs = t.p.map(p => p[0]);
-      const ys = t.p.map(p => p[1]);
-      const x0 = Math.max(0, Math.floor((Math.min(...xs) + c.half) / cell));
-      const x1 = Math.min(GRID - 1, Math.floor((Math.max(...xs) + c.half) / cell));
-      const y0 = Math.max(0, Math.floor((Math.min(...ys) + c.half) / cell));
-      const y1 = Math.min(GRID - 1, Math.floor((Math.max(...ys) + c.half) / cell));
-      const axes = [0, 1, 2].map(e => {
-        const [ax, ay] = t.p[e];
-        const [bx, by] = t.p[(e + 1) % 3];
-        return [-(by - ay), bx - ax];
-      });
-      const triProj = axes.map(([nx, ny]) => {
-        const v = t.p.map(([x, y]) => nx * x + ny * y);
-        return [Math.min(...v), Math.max(...v)];
-      });
-      for (let gy = y0; gy <= y1; gy++) {
-        for (let gx = x0; gx <= x1; gx++) {
-          const bx0 = -c.half + gx * cell - pad;
-          const by0 = -c.half + gy * cell - pad;
-          const bx1 = bx0 + cell + 2 * pad;
-          const by1 = by0 + cell + 2 * pad;
+      const idx = base + i;
+      if (t.curve) {
+        // A curved item: a cell takes it if the cell touches every disc it lies inside and
+        // both of its sector's half-planes. That is conservative (it may take a cell the
+        // region itself misses), never the other way, and the shader tests exactly.
+        const k = t.curve.bin;
+        const [gx0, gy0, gx1, gy1] = cellRange(...t.bbox);
+        for (let gy = gy0; gy <= gy1; gy++) {
+          for (let gx = gx0; gx <= gx1; gx++) {
+            const x0 = -c.half + gx * cell - pad, y0 = -c.half + gy * cell - pad;
+            const x1 = x0 + cell + 2 * pad, y1 = y0 + cell + 2 * pad;
+            let hit = true;
+            for (const [cx, cy, r] of k.discs) {
+              const dx = Math.max(x0 - cx, 0, cx - x1), dy = Math.max(y0 - cy, 0, cy - y1);
+              if (dx * dx + dy * dy > r * r) { hit = false; break; }
+            }
+            if (hit && k.sector) {
+              const [cx, cy, n1x, n1y, n2x, n2y] = k.sector;
+              if (boxMax(n1x, n1y, x0 - cx, y0 - cy, x1 - cx, y1 - cy) < 0) hit = false;
+              else if (boxMax(n2x, n2y, x0 - cx, y0 - cy, x1 - cx, y1 - cy) < 0) hit = false;
+            }
+            if (hit) lists[gy * GRID + gx].push(idx);
+          }
+        }
+        return;
+      }
+      const P = t.p;
+      for (let e = 0; e < 3; e++) {
+        const A = P[e], B = P[(e + 1) % 3];
+        ax[e] = -(B[1] - A[1]);
+        ay[e] = B[0] - A[0];
+        const v0 = ax[e] * P[0][0] + ay[e] * P[0][1];
+        const v1 = ax[e] * P[1][0] + ay[e] * P[1][1];
+        const v2 = ax[e] * P[2][0] + ay[e] * P[2][1];
+        lo[e] = Math.min(v0, v1, v2);
+        hi[e] = Math.max(v0, v1, v2);
+      }
+      const [gx0, gy0, gx1, gy1] = cellRange(
+        Math.min(P[0][0], P[1][0], P[2][0]), Math.min(P[0][1], P[1][1], P[2][1]),
+        Math.max(P[0][0], P[1][0], P[2][0]), Math.max(P[0][1], P[1][1], P[2][1])
+      );
+      for (let gy = gy0; gy <= gy1; gy++) {
+        for (let gx = gx0; gx <= gx1; gx++) {
+          const x0 = -c.half + gx * cell - pad, y0 = -c.half + gy * cell - pad;
+          const x1 = x0 + cell + 2 * pad, y1 = y0 + cell + 2 * pad;
           let hit = true;
           for (let e = 0; e < 3 && hit; e++) {
-            const [nx, ny] = axes[e];
-            const v = [nx * bx0 + ny * by0, nx * bx1 + ny * by0, nx * bx0 + ny * by1, nx * bx1 + ny * by1];
-            if (Math.max(...v) < triProj[e][0] || Math.min(...v) > triProj[e][1]) hit = false;
+            if (boxMax(ax[e], ay[e], x0, y0, x1, y1) < lo[e] || boxMin(ax[e], ay[e], x0, y0, x1, y1) > hi[e]) hit = false;
           }
-          if (hit) lists[gy * GRID + gx].push(base + i);
+          if (hit) lists[gy * GRID + gx].push(idx);
         }
       }
     });
@@ -499,6 +620,11 @@ function packPlateData(contents) {
       cellTotal++;
       for (const idx of list) {
         const t = c.tris[idx - base];
+        if (t.curve) {
+          // (c1.xy, r1, r2), (c2.xy, index, 8 + flags): see PLATE_FRAG's curved branch.
+          cellEntries.push(t.curve.entry0, [...t.curve.entry1.slice(0, 2), idx, t.curve.entry1[3]]);
+          continue;
+        }
         const [p0, p1, p2] = t.p;
         const [a, b, cc] = t.orient > 0 ? [p0, p1, p2] : [p0, p2, p1];
         cellEntries.push([a[0], a[1], b[0], b[1]], [cc[0], cc[1], idx, 0]);
@@ -552,6 +678,22 @@ const PLATE_FRAG = /* glsl */ `
     vec2 e = b - a;
     return (e.x * (q.y - a.y) - e.y * (q.x - a.x)) / max(length(e), 1e-6);
   }
+  // Signed distance (positive inside) to a curved shape packed by curveItem:
+  //   t0 = (c1.xy, r1, r2), t1 = (c2.xy, index, 8 + flags); flags 1 = inside disc (c2, r2),
+  //   2 = outside disc (c2, r2), 4 = within the sector whose inward edge normals are texel 0.
+  // The minimum over the constraints, exact near every edge, which is all the antialiasing needs.
+  float curvedDist(vec2 p, vec4 t0, vec4 t1) {
+    float f = t1.w - 8.0;
+    float d = t0.z - length(p - t0.xy);
+    if (mod(f, 2.0) >= 1.0) d = min(d, t0.w - length(p - t1.xy));
+    if (mod(floor(f / 2.0), 2.0) >= 1.0) d = min(d, length(p - t1.xy) - t0.w);
+    if (f >= 3.5) {
+      vec4 n = fetch(t1.z * ${TRI_TEXELS}.0);
+      vec2 r = p - t0.xy;
+      d = min(d, min(dot(r, n.xy), dot(r, n.zw)));
+    }
+    return d;
+  }
   void main() {
     vec2 world = (vUv * 2.0 - 1.0) * uTanHalf * uDepth;
     vec2 d = world - uOffset;
@@ -572,17 +714,29 @@ const PLATE_FRAG = /* glsl */ `
       if (k >= count || k >= uMaxList) break;
       vec4 t0 = fetchCell(start + float(k) * 2.0);
       vec4 t1 = fetchCell(start + float(k) * 2.0 + 1.0);
-      float dist = min(min(edgeDist(q, t0.xy, t0.zw), edgeDist(q, t0.zw, t1.xy)), edgeDist(q, t1.xy, t0.xy));
-      float cov = clamp(0.5 + dist / pix, 0.0, 1.0);
-      if (cov <= 0.0) continue;
-      if (uHoleQ > 0.0) {
-        // The aperture opens SHAPE BY SHAPE: a shape fades out whole as the opening reaches its
-        // nearest point to the flight axis, so the opening is made of the artwork's own shapes
-        // -- a screen-space circle cut a feathered ring through them.
-        float inA = min(min(edgeDist(axis, t0.xy, t0.zw), edgeDist(axis, t0.zw, t1.xy)), edgeDist(axis, t1.xy, t0.xy));
-        float dTri = inA >= 0.0 ? 0.0 : min(min(segDist(axis, t0.xy, t0.zw), segDist(axis, t0.zw, t1.xy)), segDist(axis, t1.xy, t0.xy));
-        cov *= smoothstep(uHoleQ - uHoleSoftQ, uHoleQ, dTri);
+      float cov;
+      if (t1.w > 7.5) {
+        // A curved shape (Flower, Golden), tested as a region rather than as triangles -- see
+        // curveItem. The aperture fades it whole by its distance from the flight axis.
+        cov = clamp(0.5 + curvedDist(q, t0, t1) / pix, 0.0, 1.0);
         if (cov <= 0.0) continue;
+        if (uHoleQ > 0.0) {
+          cov *= smoothstep(uHoleQ - uHoleSoftQ, uHoleQ, max(0.0, -curvedDist(axis, t0, t1)));
+          if (cov <= 0.0) continue;
+        }
+      } else {
+        float dist = min(min(edgeDist(q, t0.xy, t0.zw), edgeDist(q, t0.zw, t1.xy)), edgeDist(q, t1.xy, t0.xy));
+        cov = clamp(0.5 + dist / pix, 0.0, 1.0);
+        if (cov <= 0.0) continue;
+        if (uHoleQ > 0.0) {
+          // The aperture opens SHAPE BY SHAPE: a shape fades out whole as the opening reaches its
+          // nearest point to the flight axis, so the opening is made of the artwork's own shapes
+          // -- a screen-space circle cut a feathered ring through them.
+          float inA = min(min(edgeDist(axis, t0.xy, t0.zw), edgeDist(axis, t0.zw, t1.xy)), edgeDist(axis, t1.xy, t0.xy));
+          float dTri = inA >= 0.0 ? 0.0 : min(min(segDist(axis, t0.xy, t0.zw), segDist(axis, t0.zw, t1.xy)), segDist(axis, t1.xy, t0.xy));
+          cov *= smoothstep(uHoleQ - uHoleSoftQ, uHoleQ, dTri);
+          if (cov <= 0.0) continue;
+        }
       }
       float b = t1.z * ${TRI_TEXELS}.0;
       vec4 gr = fetch(b + 2.0);
@@ -868,6 +1022,263 @@ function buildCage(rng, geometry, L, uViewHalfH) {
     ];
   };
 
+  // ── Style cages ──────────────────────────────────────────────────────────────────────
+  // Each builds vertices (polar about the tunnel's curved centreline, or about a circle's own
+  // centre for Flower), wires and panels, with the same per-zone density, wire/panel caps,
+  // ripple and palette treatment the lattice cage uses. Loop-safety is the one hard rule:
+  // anything built along z must meet itself at z = L, so every repeating structure here has a
+  // whole number of repeats per lap and no twist that does not come back round.
+  function buildStyleCage(style) {
+    const V = { ang: [], r: [], z: [], cx: [], cy: [], ph: [], fr: [], amp: [], cj: [], dim: [] };
+    const edgeList = [];
+    const panelList = [];
+    // One vertex. (ox, oy) is an extra centre offset (Flower's petal circles); the tunnel's own
+    // curved centreline at that z is added here.
+    // `shared` ({ ph, fr, cj }) gives a group of vertices one ripple and one colour offset, so a
+    // Flower circle breathes and colours as one piece: independent per-vertex ripple made a
+    // 36-point circle jagged, and per-vertex colour striped its petals.
+    const vert = (ang, r, z, outer, ox = 0, oy = 0, shared = null) => {
+      const zFrac = z / L;
+      const zone = zoneAt(zFrac);
+      const jitter = jitterBase * (outer ? 0.6 : 1) * 0.5;
+      const [cx, cy] = pathAt(zFrac, boreRadiusAt(zFrac));
+      V.ang.push(ang + (rng() - 0.5) * 0.08 * jitter);
+      V.r.push(r * (1 + (rng() - 0.5) * jitter * 0.3));
+      V.z.push(z);
+      V.cx.push(cx + ox);
+      V.cy.push(cy + oy);
+      V.ph.push(shared ? shared.ph : rng() * TWO_PI);
+      V.fr.push(shared ? shared.fr : 1 + Math.floor(rng() * 3));
+      V.amp.push(outer ? 0.04 : zone.rippleAmp);
+      V.cj.push(shared ? shared.cj : (rng() - 0.5) * 0.3 + zone.paletteOffset);
+      V.dim.push(outer ? 0.65 : 1);
+      return V.ang.length - 1;
+    };
+    // Wire and panel odds at a point along the tunnel -- the lattice cage's formulas.
+    const wireAt = (zFrac, scale) => {
+      const zone = zoneAt(zFrac);
+      const densityMul = (0.35 + zone.density) * densityScale;
+      return clampNum((0.15 + rng() * 0.85 + coh * 0.4) * complexityAt(zFrac) * densityMul * zone.wireMul * scale, 0, CAGE_MAX_WIRE);
+    };
+    const panelAt = (zFrac, scale) => {
+      const zone = zoneAt(zFrac);
+      const densityMul = (0.35 + zone.density) * densityScale;
+      return Math.min(CAGE_MAX_PANEL, (0.28 + coh * 0.3) * complexityAt(zFrac) * densityMul * zone.panelMul * scale);
+    };
+    const edge = (a, b, aOff = 0, bOff = 0) => edgeList.push({ a, b, aOff, bOff });
+    // A panel's brightness variant, as the lattice cage rolls it. Pass `mul` to give every
+    // triangle of one shape the same one (a Flower petal is 24 triangles, and a roll each
+    // striped it).
+    const rollMul = () => {
+      const roll = rng();
+      return roll < 0.15 ? 1.35 : roll < 0.3 ? 0.8 : 1;
+    };
+    const panel = (v, off, mul = rollMul()) => panelList.push({ v, off, mul });
+    // Mean bore radius, for spacing structures so their cells keep their proportions.
+    let rMean = 0;
+    for (let i = 0; i < 16; i++) rMean += boreRadiusAt(i / 16) / 16;
+
+    if (style === 'mosaic') {
+      // An isometric tube: six-sided rings, each turned half a side from the last (an
+      // antiprism), spaced so the wall is a skin of near-equilateral triangles -- the Mosaic
+      // grid wrapped into a tunnel. An even ring count closes the half-step alternation.
+      const tube = (radiusAt, count, outer, wireScale, panelScale) => {
+        const SIDES = 6;
+        const step = TWO_PI / SIDES;
+        const ang0 = rng() * step;
+        const ringStart = [];
+        for (let k = 0; k < count; k++) {
+          const z = (k / count) * L;
+          ringStart.push(V.ang.length);
+          const a = ang0 + (k % 2) * (step / 2);
+          for (let j = 0; j < SIDES; j++) vert(a + j * step, radiusAt(z / L), z, outer);
+        }
+        const at = (k, j) => ringStart[k % count] + (((j % SIDES) + SIDES) % SIDES);
+        for (let k = 0; k < count; k++) {
+          const zFrac = k / count;
+          const wire = wireAt(zFrac, wireScale);
+          const pc = panelAt(zFrac, panelScale);
+          const off = k + 1 === count ? L : 0;
+          // Ring k+1 is turned half a side from ring k, so its vertex j sits between ring k's j
+          // and j+1 when k is even, and between j-1 and j when k is odd.
+          for (let j = 0; j < SIDES; j++) {
+            const a0 = at(k, j), a1 = at(k, j + 1);
+            // The next ring's vertices between a0 and a1, and between a(j-1) and a0
+            const mid = k % 2 === 0 ? at(k + 1, j) : at(k + 1, j + 1);
+            const midPrev = k % 2 === 0 ? at(k + 1, j - 1) : at(k + 1, j);
+            if (rng() < 0.8 * wire) edge(a0, a1);
+            if (rng() < 0.7 * wire) edge(a0, mid, 0, off);
+            if (rng() < 0.7 * wire) edge(a1, mid, 0, off);
+            if (rng() < pc) panel([a0, a1, mid], [0, 0, off]);
+            if (rng() < pc * 0.8) panel([midPrev, mid, a0], [off, off, 0]);
+          }
+        }
+      };
+      let count = Math.max(6, Math.round(L / (0.866 * rMean)));
+      count += count % 2;
+      tube(z => boreRadiusAt(z), count, false, 1, 1);
+      const oR = (38 + rng() * 5) * sizeScale;
+      let oCount = Math.max(4, Math.round(L / (0.866 * oR)));
+      oCount += oCount % 2;
+      tube(() => oR, oCount, true, 0.45, 0.15);
+    } else if (style === 'flower') {
+      // Seed of Life stations: at each, a centre circle the camera flies through and six equal
+      // circles centred on it, so the view down the tunnel is the Flower of Life. Circles are
+      // whole, or arcs, or absent, by the zone's wire density; some petals (where the centre
+      // circle and a petal circle overlap) are filled. Each station turns by a whole number of
+      // 10-degree steps from the last, ending a lap on a multiple of 60 so the loop closes.
+      const SEG = 36; // circle vertices: every 10 degrees, which puts the petal tips on vertices
+      const step = TWO_PI / SEG;
+      const stations = Math.max(3, Math.round(L / (1.6 * rMean)));
+      const turnSteps = Math.round((rng() - 0.5) * 4); // -2..2 steps of 10 degrees per station
+      const lapTurn = Math.round((turnSteps * stations) / 6) * 6; // a multiple of 60 degrees per lap
+      const base = rng() * TWO_PI;
+      for (let s = 0; s < stations; s++) {
+        const z = (s / stations) * L;
+        const zFrac = z / L;
+        const r = boreRadiusAt(zFrac);
+        const theta = base + ((lapTurn * s) / stations) * step;
+        const wire = wireAt(zFrac, 1);
+        const pc = panelAt(zFrac, 1);
+        const circle = (ox, oy, outer) => {
+          const start = V.ang.length;
+          const shared = { ph: rng() * TWO_PI, fr: 1 + Math.floor(rng() * 2), cj: (rng() - 0.5) * 0.3 + zoneAt(zFrac).paletteOffset };
+          for (let m = 0; m < SEG; m++) vert(theta + m * step, r, z, outer, ox, oy, shared);
+          return start;
+        };
+        const drawArc = (start, from, len) => {
+          for (let m = 0; m < len; m++) edge(start + ((from + m) % SEG), start + ((from + m + 1) % SEG));
+        };
+        const wireCircle = start => {
+          const roll = rng();
+          if (roll < wire * 1.2) drawArc(start, 0, SEG);
+          else if (roll < wire * 2.2) drawArc(start, Math.floor(rng() * SEG), Math.round(SEG * (0.25 + rng() * 0.35)));
+        };
+        const centre = circle(0, 0, false);
+        wireCircle(centre);
+        for (let i = 0; i < 6; i++) {
+          // Petal circle i is centred r out at angle theta + i*60 degrees.
+          const phi = theta + i * 6 * step;
+          const pStart = circle(Math.cos(phi) * r, Math.sin(phi) * r, true);
+          wireCircle(pStart);
+          if (rng() < pc * 1.5) {
+            const mul = rollMul();
+            // The petal between the centre circle and this one: the centre's arc from phi-60
+            // to phi+60 (vertices i*6-6 .. i*6+6) against the petal circle's arc through its
+            // own phi+180, from phi+240 back round to phi+120 -- 13 vertices each, joined
+            // as a strip.
+            for (let m = 0; m < 12; m++) {
+              const o0 = centre + ((i * 6 - 6 + m + SEG) % SEG);
+              const o1 = centre + ((i * 6 - 5 + m + SEG) % SEG);
+              const p0 = pStart + ((i * 6 + 24 - m + SEG) % SEG);
+              const p1 = pStart + ((i * 6 + 23 - m + SEG) % SEG);
+              panel([o0, o1, p0], [0, 0, 0], mul);
+              panel([p0, o1, p1], [0, 0, 0], mul);
+            }
+          }
+        }
+      }
+    } else {
+      // Golden: a phyllotaxis tube. Points are laid along the tunnel, each turned from the last
+      // by 21/34 of a turn -- the Fibonacci fraction a sunflower's seeds settle on, the golden
+      // ratio's nearest neighbour that repeats -- so a lap is a whole number of 34-point
+      // periods and closes exactly. Joining each point to the points 3, 5 and 8 on (Fibonacci
+      // numbers, its nearest neighbours at this spacing) draws the two families of crossing
+      // spirals of a sunflower head.
+      const spiral = (radiusAt, periods, outer, wireScale, panelScale) => {
+        const N = 34 * periods;
+        const ang0 = rng() * TWO_PI;
+        const start = V.ang.length;
+        for (let k = 0; k < N; k++) {
+          const z = (k / N) * L;
+          vert(ang0 + ((21 * k) % 34) * (TWO_PI / 34), radiusAt(z / L), z, outer);
+        }
+        const at = k => start + (k % N);
+        const off = k => (k >= N ? L : 0);
+        // Each spiral strand (the points k, k+step, k+2*step... for one residue of k) gets one
+        // strength, and a segment is drawn where the local wire density exceeds it, so a strand
+        // runs unbroken through a dense stretch and fades out through a sparse one. Segment-by-
+        // segment odds broke every spiral into scattered dashes.
+        const strength = { 5: [], 8: [] };
+        for (const st of [5, 8]) for (let f = 0; f < st; f++) strength[st].push(rng());
+        // Panels as SPIRAL RIBBONS (2026-11-20, Aaron: Golden's cage "still looks like the lattice
+        // mode"): scattered single triangles read as the lattice cage. A ribbon is the band
+        // between a strand of the 8-family and its neighbour 5 points on, filled cell after cell
+        // ((k, k+8, k+13, k+5), a lattice parallelogram) for a run along the strand, all one
+        // brightness, so it winds down the tube the way a sunflower's seed spirals do. Only the
+        // two strand families are wired (5 and 8); the short 3-step chords made it a triangle
+        // mesh.
+        const ribbon = new Array(8).fill(null).map(() => ({ on: false, mul: 1 }));
+        for (let k = 0; k < N; k++) {
+          const zFrac = k / N;
+          const wire = wireAt(zFrac, wireScale);
+          const pc = panelAt(zFrac, panelScale);
+          if (strength[5][k % 5] < 1.6 * wire) edge(at(k), at(k + 5), 0, off(k + 5));
+          if (strength[8][k % 8] < 1.6 * wire) edge(at(k), at(k + 8), 0, off(k + 8));
+          // Each 8-strand's ribbon switches on and off in runs: a run starts with odds set by the
+          // local panel density and lasts several cells.
+          const r = ribbon[k % 8];
+          if (r.on ? rng() < 0.12 : rng() < pc * 0.35) {
+            r.on = !r.on;
+            if (r.on) r.mul = rollMul();
+          }
+          if (r.on) {
+            panel([at(k), at(k + 8), at(k + 13)], [0, off(k + 8), off(k + 13)], r.mul);
+            panel([at(k), at(k + 13), at(k + 5)], [0, off(k + 13), off(k + 5)], r.mul);
+          }
+        }
+      };
+      // Spacing: the 5- and 8-step neighbours about 0.8 of a radius away.
+      spiral(z => boreRadiusAt(z), Math.max(1, Math.round(L / (0.11 * rMean * 34))), false, 1, 1);
+      const oR = (38 + rng() * 5) * sizeScale;
+      spiral(() => oR, Math.max(1, Math.round(L / (0.11 * oR * 34))), true, 0.45, 0.15);
+    }
+
+    // Keep only the vertices a wire or panel uses: the per-frame pass computes every vertex,
+    // and Flower builds whole circles of which the zones draw only some.
+    const keep = new Int32Array(V.ang.length).fill(-1);
+    const order = [];
+    const kept = v => {
+      if (keep[v] < 0) {
+        keep[v] = order.length;
+        order.push(v);
+      }
+      return keep[v];
+    };
+    for (const e of edgeList) {
+      e.a = kept(e.a);
+      e.b = kept(e.b);
+    }
+    for (const p of panelList) p.v = p.v.map(kept);
+    const pick = (arr, Type) => Type.from(order, v => arr[v]);
+    return {
+      vertCount: order.length,
+      baseAng: pick(V.ang, Float32Array),
+      baseR: pick(V.r, Float32Array),
+      baseZ: pick(V.z, Float32Array),
+      centerX: pick(V.cx, Float32Array),
+      centerY: pick(V.cy, Float32Array),
+      ripplePhase: pick(V.ph, Float32Array),
+      rippleFreq: pick(V.fr, Uint8Array),
+      rippleAmp: pick(V.amp, Float32Array),
+      colorJitter: pick(V.cj, Float32Array),
+      dim: pick(V.dim, Float32Array),
+      edges: edgeList,
+      panels: panelList
+    };
+  }
+
+  // The cage takes the geometry style's own structure (2026-11-20, Aaron: "is it possible for
+  // each geometry mode to adjust the geometric cage's geometry to match?"). Lattice keeps the
+  // original rings-and-chords build below, untouched; the other styles build their own vertices,
+  // wires and panels (buildStyleCage) into the same arrays, so the per-frame pass, colour and
+  // drawing are shared. Everything above this point (radius, path, zones) is common to all.
+  let vertCount, baseAng, baseR, baseZ, centerX, centerY, ripplePhase, rippleFreq, rippleAmp, colorJitter, dim, edges, panels;
+  const cageStyle = geometry.style && geometry.style !== 'lattice' ? geometry.style : null;
+  if (cageStyle) {
+    ({ vertCount, baseAng, baseR, baseZ, centerX, centerY, ripplePhase, rippleFreq, rippleAmp, colorJitter, dim, edges, panels } =
+      buildStyleCage(cageStyle));
+  } else {
   // Ring list: clustered spacing (rings clump and gap per the zone's spacingVar), plus
   // 1–2 "gates" — several rings packed 2.2 units apart with dense chord webs, the 2D
   // vector-equilibrium look as a flythrough set-piece.
@@ -940,21 +1351,21 @@ function buildCage(rng, geometry, L, uViewHalfH) {
   }
 
   const allRings = rings.concat(outerRings);
-  let vertCount = 0;
+  vertCount = 0;
   for (const ring of allRings) {
     ring.start = vertCount;
     vertCount += ring.sides;
   }
-  const baseAng = new Float32Array(vertCount);
-  const baseR = new Float32Array(vertCount);
-  const baseZ = new Float32Array(vertCount);
-  const centerX = new Float32Array(vertCount); // static curved-centerline offset
-  const centerY = new Float32Array(vertCount);
-  const ripplePhase = new Float32Array(vertCount);
-  const rippleFreq = new Uint8Array(vertCount);
-  const rippleAmp = new Float32Array(vertCount); // per-zone ripple energy
-  const colorJitter = new Float32Array(vertCount); // per-vertex palette phase offset
-  const dim = new Float32Array(vertCount); // outer web renders fainter
+  baseAng = new Float32Array(vertCount);
+  baseR = new Float32Array(vertCount);
+  baseZ = new Float32Array(vertCount);
+  centerX = new Float32Array(vertCount); // static curved-centerline offset
+  centerY = new Float32Array(vertCount);
+  ripplePhase = new Float32Array(vertCount);
+  rippleFreq = new Uint8Array(vertCount);
+  rippleAmp = new Float32Array(vertCount); // per-zone ripple energy
+  colorJitter = new Float32Array(vertCount); // per-vertex palette phase offset
+  dim = new Float32Array(vertCount); // outer web renders fainter
   for (const ring of allRings) {
     const zFrac = ring.z / L;
     // Gates read as machined, not hand-bent — much less jitter than their zone
@@ -987,8 +1398,8 @@ function buildCage(rng, geometry, L, uViewHalfH) {
   const vidx = (ring, j) => ring.start + (((j % ring.sides) + ring.sides) % ring.sides);
   const mapJ = (ringA, j, ringB) =>
     Math.round((ringA.ang0 + j * ringA.step - ringB.ang0) / ringB.step);
-  const edges = []; // { a, b, aOff, bOff }
-  const panels = []; // { v: [3 indices], off: [3 zOffsets], mul: color multiplier }
+  edges = []; // { a, b, aOff, bOff }
+  panels = []; // { v: [3 indices], off: [3 zOffsets], mul: color multiplier }
   const connectChain = (chain, { wireScale, panelScale }) => {
     for (let i = 0; i < chain.length; i++) {
       const A = chain[i];
@@ -1054,6 +1465,7 @@ function buildCage(rng, geometry, L, uViewHalfH) {
   };
   connectChain(rings, { wireScale: 1, panelScale: 1 });
   connectChain(outerRings, { wireScale: 0.45, panelScale: 0.15 });
+  }
 
   // Panels blend normally (not additively), so draw order matters: static centroid z per
   // panel, sorted back-to-front against the camera every frame (buffer order = draw
@@ -1154,7 +1566,22 @@ function buildCage(rng, geometry, L, uViewHalfH) {
       vertPos[v * 3 + 1] = Math.sin(ang) * r + centerY[v];
       vertPos[v * 3 + 2] = baseZ[v];
 
-      const p = paletteAtHsl(paletteHsl, zFrac * 2 * fScale + progress + colorJitter[v]);
+      // A vertex at the same depth, colour offset and dimming as the one before it has the same
+      // colours: copy them. Every vertex of a Flower circle does (it is one colour), and that
+      // halved the style's per-frame cost on long loops; lattice vertices never match.
+      if (v > 0 && baseZ[v] === baseZ[v - 1] && colorJitter[v] === colorJitter[v - 1] && dim[v] === dim[v - 1]) {
+        for (let k = 0; k < 3; k++) {
+          vertCol[v * 3 + k] = vertCol[(v - 1) * 3 + k];
+          vertColPanel[v * 3 + k] = vertColPanel[(v - 1) * 3 + k];
+        }
+        continue;
+      }
+      // Colour by place along the tunnel only (2026-11-20, Aaron): with the loop's progress added,
+      // the palette slid through every panel over the loop, and on this branch it read as a
+      // constant shimmer the live site does not have. Tied to place, a panel keeps its colour and
+      // colour changes only with distance, in line with the motion. Loop-safe: nothing here
+      // depends on time.
+      const p = paletteAtHsl(paletteHsl, zFrac * 2 * fScale + colorJitter[v]);
       _c.setHSL(p.h, Math.min(1, p.s + 0.2), Math.min(0.68, p.l + 0.12), THREE.LinearSRGBColorSpace);
       vertCol[v * 3] = _c.r * dim[v];
       vertCol[v * 3 + 1] = _c.g * dim[v];
@@ -1637,7 +2064,7 @@ function plateCount(L) {
   return Math.max(3, Math.round(L / PLATE_SPACING));
 }
 function flightLayout(duration) {
-  const travel = FLIGHT_SPEED * duration;
+  const travel = Math.max(MIN_CONTENT_LENGTH, FLIGHT_SPEED * duration);
   const laps = Math.max(1, Math.ceil(travel / MAX_CONTENT_LENGTH));
   const L = travel / laps;
   return { L, laps, plates: plateCount(L) };

@@ -462,7 +462,8 @@ export function generateArtwork(
       settings,
       geometryLayout,
       sizeFrame,
-      geometryScale
+      geometryScale,
+      makeRng(`${seed}-lattice`)
     );
     if (includeGeometry) {
       config.geometryConfig = geometryConfig;

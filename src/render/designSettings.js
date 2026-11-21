@@ -12,6 +12,10 @@
 // This lives in its own module (not generateArtwork.js) because the Generate* classes need
 // it too, and generateArtwork imports those -- putting it there would be a circular import.
 
+// See scaleMin/scaleMax below; named so the tuning lives in one place.
+const SCALE_MIN_DEFAULT = 0.3;
+const SCALE_MAX_DEFAULT = 1;
+
 export const DEFAULT_GEOMETRY_SETTINGS = {
   // Lattice vertex-count range (a "points" value of 6 makes hexagonal lattices). Equal
   // min/max pins the shape: min = max = 6 means every design gets a hexagon.
@@ -108,7 +112,28 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // isSameSettings iterate this block). Consumes no shared rng(); it is part of a design's
   // identity, persisted only when true. An absent key on every stored design reads as own
   // colours, which is intended -- v15 gave every design its nebula at once.
-  nebulaLinked: false
+  nebulaLinked: false,
+  // Which generator builds the layer. 'classic' (every design saved before 2026-11-20, and
+  // anything that does not say) is the original chaotic/coherence generator, untouched;
+  // 'lattice' is the rebuild (see GenerateGeometricShape.buildLattice) that the studio makes
+  // new work with. The four keys after it only mean anything to 'lattice' -- there, pointsMin/
+  // pointsMax are its Sides, density its Shapes and coherence its Symmetry, while size and
+  // spread are classic-only.
+  model: 'classic',
+  // Lattice: how many rings deep the figure is (a range, like Sides).
+  ringsMin: 3,
+  ringsMax: 5,
+  // Lattice: how far the figure reaches, as a RANGE each design draws its own size from
+  // (weighted toward scaleMax, see buildLattice). 0 = the figure's radius is half the canvas's
+  // short half, 1 = four times it. Defaults to the large end (Aaron, 2026-11-20: "prefer
+  // large, with about 50% going beyond the edges to cover the entire artwork").
+  scaleMin: SCALE_MIN_DEFAULT,
+  scaleMax: SCALE_MAX_DEFAULT,
+  // Lattice: 'lattice' (the ring lattice), 'mosaic' (an isometric triangle grid filled in
+  // clusters), 'flower' (Flower of Life petals) or 'golden' (a golden spiral) -- see
+  // GenerateGeometricShape's build* methods. Sides and Rings mean nothing to the last three.
+  // Flower and Golden draw curves (render/shapePath.js).
+  style: 'lattice'
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.
@@ -196,8 +221,12 @@ export const STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP = true;
 // by StudioContext's first design of a session, DisplayCanvas's panel when nothing is stored,
 // and RESET. Every path that reproduces a STORED design resolves through
 // getGeometrySettings instead.
+// New work is made with the lattice model; see DEFAULT_GEOMETRY_SETTINGS.model.
+export const STUDIO_DEFAULT_GEOMETRY_MODEL = 'lattice';
+
 export const STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
+  model: STUDIO_DEFAULT_GEOMETRY_MODEL,
   chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
   spread: STUDIO_DEFAULT_GEOMETRY_SPREAD,
   starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
@@ -245,6 +274,9 @@ export function getStudioGeometrySettings(settings) {
   // reload. (studioPrefs' sanitiser carries the same distinction, for the same reason.)
   if (settings?.geometry?.starsOnTop === undefined)
     resolved.starsOnTop = STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP;
+  // A visitor whose remembered settings predate the lattice model starts making new work with
+  // it; only a stored 'classic' (someone who chose it) stays classic.
+  if (settings?.geometry?.model === undefined) resolved.model = STUDIO_DEFAULT_GEOMETRY_MODEL;
   return resolved;
 }
 

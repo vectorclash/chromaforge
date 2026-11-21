@@ -13,6 +13,35 @@ import { getGeometrySettings } from '../../render/designSettings';
 // CLAUDE.md's `spread` bullet for what each candidate looked like.
 const SPREAD_MAX_GAIN = 3;
 
+// Mosaic grid helpers: a cell is keyed by its three integer lattice vertices, sorted, so a
+// cell reached by turning another is found by the same key.
+function cellKey(v) {
+  return v.map(([a, b]) => `${a},${b}`).sort().join('|');
+}
+// The three cells sharing an edge with this one: each is this cell's edge plus the vertex
+// mirrored across it (p + q - r for edge p-q and opposite vertex r).
+function cellNeighbours(v) {
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const p = v[i], q = v[(i + 1) % 3], o = v[(i + 2) % 3];
+    out.push(cellKey([p, q, [p[0] + q[0] - o[0], p[1] + q[1] - o[1]]]));
+  }
+  return out;
+}
+
+// The shorter arc of circle (c, r) from p to q, as a shape path op (render/shapePath.js).
+function shortArc(c, r, p, q) {
+  const a0 = Math.atan2(p[1] - c[1], p[0] - c[0]);
+  let d = Math.atan2(q[1] - c[1], q[0] - c[0]) - a0;
+  while (d <= -Math.PI) d += Math.PI * 2;
+  while (d > Math.PI) d -= Math.PI * 2;
+  return ['A', c[0], c[1], r, a0, a0 + d, d < 0];
+}
+
+// How hard the lattice Scale range leans toward its top (see buildLattice). 1 would be
+// uniform across the range; below 1 pushes designs toward scaleMax.
+const SCALE_SKEW = 0.3;
+
 export default class GenerateGeometricShape {
   constructor(
     width,
@@ -28,7 +57,13 @@ export default class GenerateGeometricShape {
     // their own size) and consumes no rng(). 1 is exact in IEEE754, so the default is
     // byte-identical. Used by products small enough that the full studio scale buries the
     // geometry -- see PRODUCT_MOCKUP_CONFIG's geometryScaleOptions.
-    geometryScale = 1
+    geometryScale = 1,
+    // The lattice model's own random stream (`${seed}-lattice`, made by generateArtwork). Every
+    // draw that model makes after the three it shares with the classic generator comes from
+    // here, so moving one of its sliders can never shift a layer generated after this one.
+    // Callers without a seed (the 3D flight's per-plate configs) leave it out; they then draw
+    // from their own `rng`, which is already a stream of its own there.
+    latticeRng = null
   ) {
     const geometry = getGeometrySettings(settings);
 
@@ -48,6 +83,13 @@ export default class GenerateGeometricShape {
 
     this.shapeVertices =
       geometry.pointsMin + Math.round(rng() * (geometry.pointsMax - geometry.pointsMin));
+
+    // The lattice model (2026-11-20): a separate path rather than a branch inside the classic
+    // one below, which every saved design still renders through untouched. See buildLattice.
+    if (geometry.model === 'lattice') {
+      // Returns the config object, like the end of this constructor (see the note there).
+      return this.buildLattice(config, width, height, shapeNum, geometry, sizeFrame, geometryScale, latticeRng || rng);
+    }
     // Ring count (shapeDepth): 2-6 at coherence 0 (unchanged from before coherence existed --
     // chaotic triangles hide the ring structure, so more rings never looked odd there), reined
     // in to 2-4 at full coherence, where every ring is a fully visible band and 5-6 of them
@@ -327,7 +369,457 @@ export default class GenerateGeometricShape {
     return cells;
   }
 
-  pointsArray(r) {
+  // THE LATTICE MODEL (2026-11-20, Aaron). Everything is drawn from the ring lattice -- rings of
+  // `Sides` evenly spaced points around a centre, the structure that builds Metatron's cube and,
+  // fully connected, the vector equilibrium. Two kinds of shape share it:
+  //   - free picks: triangles of three lattice points, kept only if well proportioned and not
+  //     tiny ("clean picks" -- no needles, no specks);
+  //   - families: one lattice cell together with every turn of it around the figure, so a
+  //     partial fill is still symmetric. All families together are the full web -- exactly the
+  //     cells classic full coherence draws.
+  // The controls map onto it directly: Sides (pointsMin/Max), Rings (ringsMin/Max), Scale (how
+  // far the figure reaches), Shapes (density: how many are drawn) and Symmetry (coherence: how
+  // many free picks are traded for families). None of them changes another's meaning, which is
+  // what the classic path could not offer (Size and Spread each live at one end of Coherence).
+  //
+  // Random draws: the SHARED stream gives exactly three -- sides (already taken), rings, and a
+  // per-design size nudge -- the same three slots the classic generator takes first. Everything
+  // else comes from `side`, so dragging any slider here leaves every later layer of the design
+  // (overlay, blends) exactly where it was.
+  //
+  // Size independence: every decision -- which triangle is clean enough, which family is kept,
+  // draw order -- is made on the lattice in RING-SPACING units (`unit`), never on rounded pixel
+  // coordinates, so a mockup and its print choose identical shapes.
+  buildLattice(config, width, height, shapeNum, g, sizeFrame, geometryScale, side) {
+    const shared = this.rng;
+    const ringsLo = Math.min(g.ringsMin, g.ringsMax);
+    const ringsHi = Math.max(g.ringsMin, g.ringsMax);
+    this.shapeDepth = ringsLo + Math.round(shared() * (ringsHi - ringsLo));
+    this.shapeAng = 360 / this.shapeVertices;
+    const nudge = shared();
+
+    // Scale: the figure's outer radius as a multiple of half the frame's short edge, 0.5x at 0
+    // to 4x at 1 on a log curve (each step looks like the same amount bigger). The setting is a
+    // RANGE and each design takes its own place in it from `nudge`, skewed toward the top
+    // (u^SCALE_SKEW, concave) so the default range lands mostly large -- the same trick as the
+    // classic Spread. A pinned range (min = max) is that exact size on every design.
+    const lo = Math.min(g.scaleMin, g.scaleMax);
+    const hi = Math.max(g.scaleMin, g.scaleMax);
+    const scale = lo + (hi - lo) * Math.pow(nudge, SCALE_SKEW);
+    const reach = 0.5 * Math.pow(8, scale) * geometryScale;
+    const half = getFrameSizeScale(width, height, sizeFrame) / 2;
+    // Mosaic style: the same three shared draws are already taken, so switching style moves
+    // no later layer. See buildMosaic.
+    if (g.style === 'mosaic' || g.style === 'flower' || g.style === 'golden') {
+      this.rng = side;
+      const short = half * 2 * geometryScale;
+      if (g.style === 'mosaic') config.shapes = this.buildMosaic(width, height, scale, short, g);
+      else if (g.style === 'flower') config.shapes = this.buildFlower(width, height, scale, short, g);
+      else config.shapes = this.buildGolden(width, height, scale, short, g);
+      return config;
+    }
+    this.shapeSize = (half * reach) / this.shapeDepth;
+    this.points = this.pointsArray(this.shapeSize);
+    this.unit = this.pointsArray(1, false);
+    this.rng = side;
+
+    const perRing = (this.points.length - 1) / this.shapeDepth;
+    const ringOf = i => (i === 0 ? 0 : 1 + Math.floor((i - 1) / perRing));
+
+    // Free picks. A triangle must cover at least 3% of the frame's short edge squared (the
+    // area that read well in the lab), but never more than 6% of the lattice's own footprint
+    // asks, so a small figure can still be built from its own points.
+    const halfInUnits = this.shapeDepth / reach;
+    const minArea = Math.min(0.12 * halfInUnits * halfInUnits, 0.06 * this.shapeDepth * this.shapeDepth);
+    const freeCount = Math.round(shapeNum * g.density * (1 - g.coherence));
+    const free = [];
+    for (let i = 0; i < freeCount; i++) {
+      const order = this.between(0, this.points.length - 1);
+      const tri = this.cleanTriple(order, minArea);
+      free.push(this.buildShape(tri.map(k => this.points[k])));
+    }
+
+    // Families, chosen whole. Fewer at low Symmetry on a gentle curve, all of them at the top;
+    // Shapes thins them too, so a partial web at full Symmetry is still symmetric.
+    let cells = [];
+    if (g.coherence > 0) {
+      const orbits = this.latticeOrbits();
+      this.shuffle(orbits);
+      const keep = Math.max(1, Math.round(orbits.length * Math.pow(g.coherence, 1.5) * g.density));
+      cells = orbits.slice(0, keep).flat();
+      // Same order as classic full coherence: cells reaching the outer rings behind, cells
+      // reaching toward the centre on top. Stable sort, so ties keep the shuffled order.
+      const maxRing = c => Math.max(ringOf(c[0]), ringOf(c[1]), ringOf(c[2]));
+      const minRing = c => Math.min(ringOf(c[0]), ringOf(c[1]), ringOf(c[2]));
+      cells.sort((a, b) => maxRing(b) - maxRing(a) || minRing(b) - minRing(a));
+    }
+
+    config.shapes = free.concat(cells.map(c => this.buildShape(c.map(k => this.points[k]))));
+    return config;
+  }
+
+  // MOSAIC STYLE (2026-11-20, Aaron; from the 11/19 lab's "isometric mosaic"). An equilateral
+  // triangle grid at two scales -- coarse cells, and a fine grid a third their size whose
+  // vertices include every coarse vertex -- each filled by clusters grown cell to cell from a
+  // few seed cells. Coarse is drawn first, fine on top.
+  //   Scale    -> coarse cell side, 0.08x the frame's short edge at 0 to ~0.5x at 1.
+  //   Shapes   -> how much of each grid the clusters fill.
+  //   Symmetry -> the chance each cluster is copied into all six turns about the centre (the
+  //               grid maps onto itself every 60 degrees about the vertex at the canvas centre),
+  //               so the top of the slider is a six-fold snowflake.
+  // Every decision is made on integer grid coordinates, never pixels, so a mockup and its print
+  // grow the identical clusters. All draws here come from the lattice stream.
+  buildMosaic(width, height, scale, short, g) {
+    const r = this.rng;
+    const coarse = short * 0.08 * Math.pow(6, scale);
+    const turned = r() < 0.5; // grid orientation: a point or a flat side toward the top
+    const shapes = [];
+    const layers = [
+      { side: coarse, fill: (0.2 + r() * 0.2) * g.density },
+      { side: Math.max(coarse / 3, short * 0.04), fill: (0.1 + r() * 0.1) * g.density }
+    ];
+    for (const layer of layers) {
+      const cells = this.isoCells(width, height, layer.side, turned);
+      // A six-fold cluster starts within 0.35 of the short edge of the centre, so its turns
+      // gather into one figure on screen instead of landing off the sides of a wide canvas.
+      const near = (short * 0.35) / layer.side;
+      const chosen = this.growClusters(cells, layer.fill, 2 + Math.floor(r() * 3), g.coherence, near);
+      for (const cell of chosen) shapes.push(this.buildShape(cell.pts));
+    }
+    return shapes;
+  }
+
+  // FLOWER STYLE (2026-11-20, Aaron; from the mode mockups). The Flower of Life: circles of
+  // radius R centred on a triangular lattice of spacing R, filled only where two neighbours
+  // overlap, so every shape is a lens-shaped petal. Clusters of CENTRES are grown and each chosen
+  // centre gets all six of its petals -- the Seed of Life rosette. Two scales, the fine lattice a
+  // third of the coarse one, so it shares the coarse lattice's centres.
+  //   Scale    -> circle radius, 0.08x the frame's short edge at 0 to ~0.33x at 1.
+  //   Shapes   -> how many rosettes.
+  //   Symmetry -> the chance a cluster is copied into all six turns about the centre.
+  // Petals are true arcs (render/shapePath.js); decisions are made on integer lattice
+  // coordinates, so a mockup and its print grow the same flower.
+  buildFlower(width, height, scale, short, g) {
+    const r = this.rng;
+    const turned = r() < 0.5;
+    const big = short * (0.08 + 0.25 * scale);
+    const layers = [
+      { R: big, fill: (0.22 + r() * 0.12) * g.density },
+      { R: big / 3, fill: (0.08 + r() * 0.08) * g.density }
+    ];
+    const shapes = [];
+    const SIX = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+    for (const { R, fill } of layers) {
+      const at = (a, b) => {
+        const x = (a + b / 2) * R;
+        const y = ((b * Math.sqrt(3)) / 2) * R;
+        return turned ? [-y, x] : [x, y];
+      };
+      const n = Math.ceil(Math.hypot(width, height) / R) + 2;
+      const centres = new Map();
+      for (let b = -n; b <= n; b++) {
+        for (let a = -n; a <= n; a++) {
+          const [x, y] = at(a, b);
+          if (Math.abs(x) > height / 2 + R || Math.abs(y) > width / 2 + R) continue;
+          centres.set(`${a},${b}`, { a, b, d: Math.hypot(x, y) / R });
+        }
+      }
+      const chosen = this.growGraph(centres, {
+        fill,
+        seeds: 2 + Math.floor(r() * 3),
+        symmetry: g.coherence,
+        near: (short * 0.3) / R,
+        neighbours: ({ a, b }) => SIX.map(([da, db]) => `${a + da},${b + db}`),
+        turn: key => {
+          const [a, b] = key.split(',').map(Number);
+          return `${-b},${a + b}`;
+        },
+        turns: 6
+      });
+      const done = new Set();
+      const h = (R * Math.sqrt(3)) / 2;
+      for (const { a, b } of chosen) {
+        const A = at(a, b);
+        for (const [da, db] of SIX) {
+          const pair = [`${a},${b}`, `${a + da},${b + db}`].sort().join('|');
+          if (done.has(pair)) continue;
+          done.add(pair);
+          const B = at(a + da, b + db);
+          const M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+          const px = -(B[1] - A[1]) / R;
+          const py = (B[0] - A[0]) / R;
+          const P1 = [M[0] + px * h, M[1] + py * h];
+          const P2 = [M[0] - px * h, M[1] - py * h];
+          const shape = this.buildShape([P1, M, P2]);
+          shape.path = [['M', P1[0], P1[1]], shortArc(A, R, P1, P2), shortArc(B, R, P2, P1)];
+          shape.curve = { discs: [[A, R], [B, R]] }; // see render/shapePath.js
+          shapes.push(shape);
+        }
+      }
+    }
+    return shapes;
+  }
+
+  // GOLDEN STYLE (2026-11-20, Aaron; "Nautilus" in the mockups, renamed for the golden ratio).
+  // A golden spiral: quarter-circle wedges, each smaller than the last by the golden ratio and
+  // turned a quarter, most with a band through them.
+  //   Scale    -> the outermost wedge's radius, 0.5x the frame's short edge at 0 to 1.4x at 1.
+  //   Shapes   -> how many wedges carry a band (and, low down, how many wedges are kept).
+  //   Symmetry -> arms: one spiral below 0.15, up to four turned about the eye at the top, the
+  //               eye moving to the centre as it rises.
+  buildGolden(width, height, scale, short, g) {
+    const r = this.rng;
+    const PHI = (1 + Math.sqrt(5)) / 2;
+    const STEPS = 11;
+    const arms = g.coherence < 0.15 ? 1 : 1 + Math.ceil(g.coherence * 3);
+    const dir = r() < 0.5 ? 1 : -1;
+    const a0 = r() * Math.PI * 2;
+    const off = 1 - g.coherence;
+    const eye = [(r() - 0.5) * height * 0.4 * off, (r() - 0.5) * width * 0.4 * off];
+    const size0 = short * (0.5 + 0.9 * scale);
+    // The spiral built outside-in around its own origin: arc k has radius size0/PHI^k, and each
+    // centre steps toward the eye so consecutive arcs join.
+    /** @type {Array<[number[], number, number]>} */
+    const arcs = [];
+    let C = [0, 0];
+    let th = 0;
+    for (let k = 0; k < STEPS; k++) {
+      const a = size0 / Math.pow(PHI, k);
+      arcs.push([C, a, th]);
+      const next = size0 / Math.pow(PHI, k + 1);
+      C = [C[0] + (a - next) * Math.cos(th + (dir * Math.PI) / 2), C[1] + (a - next) * Math.sin(th + (dir * Math.PI) / 2)];
+      th += (dir * Math.PI) / 2;
+    }
+    const limit = C; // where the spiral closes in: placed on the eye
+    const shapes = [];
+    for (let arm = 0; arm < arms; arm++) {
+      const turn = a0 + (arm * Math.PI * 2) / arms;
+      const cos = Math.cos(turn), sin = Math.sin(turn);
+      const T = (/** @type {number[]} */ [x, y]) => {
+        const dx = x - limit[0], dy = y - limit[1];
+        return [eye[0] + dx * cos - dy * sin, eye[1] + dx * sin + dy * cos];
+      };
+      for (const [Ck, a, th0] of arcs) {
+        const keepWedge = r() < 0.55 + 0.45 * g.density;
+        const keepBand = r() < 0.75 * g.density;
+        const c = T(Ck);
+        const s0 = th0 + turn;
+        const s1 = s0 + (dir * Math.PI) / 2;
+        const at = (rad, ang) => [c[0] + rad * Math.cos(ang), c[1] + rad * Math.sin(ang)];
+        if (keepWedge) {
+          const shape = this.buildShape([at(a, s0), c, at(a, s1)]);
+          shape.path = [['M', c[0], c[1]], ['L', ...at(a, s0)], ['A', c[0], c[1], a, s0, s1, dir < 0]];
+          shape.curve = { discs: [[c, a]], sector: [s0, s1] };
+          shapes.push(shape);
+        }
+        if (keepBand) {
+          const mid = (s0 + s1) / 2;
+          const shape = this.buildShape([c, at(a * 0.8, mid), at(a, mid)]);
+          shape.path = [
+            ['M', ...at(a, s0)],
+            ['A', c[0], c[1], a, s0, s1, dir < 0],
+            ['L', ...at(a * 0.62, s1)],
+            ['A', c[0], c[1], a * 0.62, s1, s0, dir > 0]
+          ];
+          shape.curve = { discs: [[c, a]], hole: [c, a * 0.62], sector: [s0, s1] };
+          shapes.push(shape);
+        }
+      }
+    }
+    return shapes;
+  }
+
+  // Clusters grown across any graph of items (a Map of key -> item, each item with `d`, its
+  // distance from the centre in the units `near` is given in). Like growClusters, which Mosaic
+  // keeps for its own triangle grid: a random walk from a few seeds until `fill` of the items
+  // are taken, each cluster copied into all `turns` turns (`turn` maps a key to the key one turn on) with
+  // probability `symmetry`, those
+  // clusters starting within `near` of the centre. Returns items in the order taken.
+  growGraph(items, { fill, seeds, symmetry, near, neighbours, turn, turns }) {
+    const r = this.rng;
+    const keys = [...items.keys()];
+    if (!keys.length) return [];
+    const central = keys.filter(k => items.get(k).d <= Math.max(near, 1));
+    const want = Math.max(1, Math.round(keys.length * fill));
+    const perSeed = Math.max(1, Math.round(want / seeds));
+    const taken = new Set();
+    const out = [];
+    for (let s = 0; s < seeds && taken.size < want; s++) {
+      const mirror = r() < symmetry;
+      const size = mirror ? Math.max(1, Math.round(perSeed / turns)) : perSeed;
+      const pool = mirror && central.length ? central : keys;
+      const start = pool[Math.floor(r() * pool.length)];
+      const cluster = [start];
+      const inCluster = new Set(cluster);
+      const front = [start];
+      while (cluster.length < size && front.length) {
+        const fi = Math.floor(r() * front.length);
+        const next = neighbours(items.get(front[fi])).filter(k => items.has(k) && !inCluster.has(k));
+        if (!next.length) {
+          front.splice(fi, 1);
+          continue;
+        }
+        const k = next[Math.floor(r() * next.length)];
+        inCluster.add(k);
+        cluster.push(k);
+        front.push(k);
+      }
+      const add = k => {
+        if (items.has(k) && !taken.has(k)) {
+          taken.add(k);
+          out.push(items.get(k));
+        }
+      };
+      for (const k of cluster) {
+        add(k);
+        if (!mirror) continue;
+        let key = k;
+        for (let t = 1; t < turns; t++) {
+          key = turn(key); // keys, not items: a turn may pass off the canvas and come back on
+          add(key);
+        }
+      }
+    }
+    return out;
+  }
+
+  // The grid's cells covering the canvas (plus a cell of margin), in the geometry container's
+  // own coordinates (origin at the canvas centre, which the container turns 90 degrees -- so
+  // the local x span is the canvas HEIGHT). Lattice point (a, b) sits at a*e1 + b*e2 with
+  // e1 = (1, 0), e2 = (1/2, sqrt(3)/2); cell keys are those integer coordinates.
+  isoCells(width, height, side, turned) {
+    const h = (Math.sqrt(3) / 2) * side;
+    const halfX = height / 2 + side;
+    const halfY = width / 2 + side;
+    const n = Math.ceil(Math.hypot(width, height) / h) + 2;
+    const place = (a, b) => {
+      const x = (a + b / 2) * side;
+      const y = b * h;
+      return turned ? [-y, x] : [x, y];
+    };
+    const cells = new Map();
+    for (let b = -n; b <= n; b++) {
+      for (let a = -n; a <= n; a++) {
+        for (const up of [true, false]) {
+          const v = up ? [[a, b], [a + 1, b], [a, b + 1]] : [[a + 1, b], [a + 1, b + 1], [a, b + 1]];
+          const pts = v.map(([p, q]) => place(p, q));
+          const cx = (pts[0][0] + pts[1][0] + pts[2][0]) / 3;
+          const cy = (pts[0][1] + pts[1][1] + pts[2][1]) / 3;
+          if (Math.abs(cx) > halfX || Math.abs(cy) > halfY) continue;
+          cells.set(cellKey(v), { v, pts, d: Math.hypot(cx, cy) / side });
+        }
+      }
+    }
+    return cells;
+  }
+
+  // Clusters grown by a random walk across shared edges, from `seeds` seed cells, until they
+  // hold `fill` of the grid. Each cluster is, with probability `symmetry`, copied into its
+  // six turns about the origin (cells turned off the canvas are dropped). Returned in the
+  // order grown, which is the draw order.
+  growClusters(cells, fill, seeds, symmetry, near) {
+    const r = this.rng;
+    const keys = [...cells.keys()];
+    if (!keys.length) return [];
+    const central = keys.filter(k => cells.get(k).d <= Math.max(near, 1));
+    const want = Math.max(1, Math.round(keys.length * fill));
+    const taken = new Set();
+    const out = [];
+    const perSeed = Math.max(1, Math.round(want / seeds));
+    for (let s = 0; s < seeds && taken.size < want; s++) {
+      const mirror = r() < symmetry;
+      // A mirrored cluster is copied six times, so it grows a sixth as far.
+      const size = mirror ? Math.max(1, Math.round(perSeed / 6)) : perSeed;
+      const pool = mirror && central.length ? central : keys;
+      const start = pool[Math.floor(r() * pool.length)];
+      const cluster = [start];
+      const inCluster = new Set(cluster);
+      const front = [start];
+      while (cluster.length < size && front.length) {
+        const fi = Math.floor(r() * front.length);
+        const next = cellNeighbours(cells.get(front[fi]).v).filter(k => cells.has(k) && !inCluster.has(k));
+        if (!next.length) {
+          front.splice(fi, 1);
+          continue;
+        }
+        const k = next[Math.floor(r() * next.length)];
+        inCluster.add(k);
+        cluster.push(k);
+        front.push(k);
+      }
+      const add = k => {
+        if (cells.has(k) && !taken.has(k)) {
+          taken.add(k);
+          out.push(cells.get(k));
+        }
+      };
+      for (const k of cluster) {
+        add(k);
+        if (!mirror) continue;
+        let v = cells.get(k).v;
+        for (let t = 1; t < 6; t++) {
+          v = v.map(([a, b]) => [-b, a + b]); // 60 degrees about the origin vertex
+          add(cellKey(v));
+        }
+      }
+    }
+    return out;
+  }
+
+  // The first triple, in this shape's own random ordering of the lattice, that is fat
+  // (quality = 12*sqrt(3)*area/perimeter^2 above 0.35, where 1 is equilateral) and big enough.
+  // If none of the first 16 points makes one, the best-scoring triple seen is used.
+  cleanTriple(order, minArea) {
+    const n = Math.min(order.length, 16);
+    let best = null;
+    let bestScore = -1;
+    for (let a = 0; a < n; a++) {
+      for (let b = a + 1; b < n; b++) {
+        for (let c = b + 1; c < n; c++) {
+          const p = this.unit[order[a]], q = this.unit[order[b]], r = this.unit[order[c]];
+          const area = Math.abs((q[0] - p[0]) * (r[1] - p[1]) - (r[0] - p[0]) * (q[1] - p[1])) / 2;
+          const per =
+            Math.hypot(q[0] - p[0], q[1] - p[1]) + Math.hypot(r[0] - q[0], r[1] - q[1]) + Math.hypot(p[0] - r[0], p[1] - r[1]);
+          const quality = per > 0 ? (12 * Math.sqrt(3) * area) / (per * per) : 0;
+          if (quality > 0.35 && area > minArea) return [order[a], order[b], order[c]];
+          const score = quality * Math.min(1, area / minArea);
+          if (score > bestScore) {
+            bestScore = score;
+            best = [order[a], order[b], order[c]];
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  // latticeCells, grouped into rotational families of lattice INDICES: each family is one cell
+  // and its turns around the figure. Same cells, same counts as latticeCells.
+  latticeOrbits() {
+    const perRing = (this.points.length - 1) / this.shapeDepth;
+    const idx = (ring, k) => 1 + (ring - 1) * perRing + (((k % perRing) + perRing) % perRing);
+    const maxSkip = Math.floor((perRing - 1) / 2);
+    const orbits = [];
+    for (let ring = 1; ring <= this.shapeDepth; ring++) {
+      for (let skip = 1; skip <= maxSkip; skip++) {
+        const orbit = [];
+        for (let k = 0; k < perRing; k++) orbit.push([idx(ring, k), idx(ring, k + skip), idx(ring, k + 2 * skip)]);
+        orbits.push(orbit);
+      }
+    }
+    for (let outer = 2; outer <= this.shapeDepth; outer++) {
+      for (let inner = 1; inner < outer; inner++) {
+        for (let j = 1; j <= maxSkip; j++) {
+          const orbit = [];
+          for (let k = 0; k < perRing; k++) orbit.push([idx(outer, k), idx(inner, k + j), idx(inner, k - j)]);
+          orbits.push(orbit);
+        }
+      }
+    }
+    return orbits;
+  }
+
+  pointsArray(r, round = true) {
     let radius = r;
     let points = [];
 
@@ -339,7 +831,7 @@ export default class GenerateGeometricShape {
         let newX = 0 + radius * h * Math.cos(rad);
         let newY = 0 + radius * h * Math.sin(rad);
 
-        points.push([Math.round(newX), Math.round(newY)]);
+        points.push(round ? [Math.round(newX), Math.round(newY)] : [newX, newY]);
       }
     }
 
