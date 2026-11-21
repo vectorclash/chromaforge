@@ -124,14 +124,13 @@ function instrument({ origin, failEncoderAt }) {
     };
   }
 
-  // Geometry layer always on (see the header), and the studio starting in 3D so it does not
-  // spend 30s building 2D frames first. Written once per tab, so the app's own writes stand.
+  // Geometry layer always on (see the header). Written once per tab, so the app's own writes stand.
   if (!sessionStorage.getItem('__leakSeeded')) {
     sessionStorage.setItem('__leakSeeded', '1');
     localStorage.setItem('cf-studio:design', JSON.stringify({ v: 1, colors: [], settings: { geometry: { chance: 1 } } }));
     localStorage.setItem(
       'cf-studio:video',
-      JSON.stringify({ v: 1, threeDMode: true, cycleDuration: 5, speedRamp: true, logoMark: false, frameCount: 20, starFrameCount: 10, exportAspect: '1:1', exportFps: 24, exportSize: '4k' })
+      JSON.stringify({ v: 1, cycleDuration: 5, speedRamp: true, logoMark: false, exportAspect: '1:1', exportFps: 24, exportSize: '4k' })
     );
   }
 }

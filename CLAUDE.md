@@ -1757,6 +1757,25 @@ correctly under `@napi-rs/canvas` (Skia-backed, same engine real Chrome uses) pl
   the Stripe redirect in 0.6-0.8s with `render-print-file` never called. Harness lives outside
   the repo (session scratchpad); rebuild it the same way if this path changes.
 ### MP4 export: client-side (WebCodecs), not server-side
+**THE 2D ANIMATION MODE IS GONE (2026-11-21, Aaron: "let's drop the 2d animation entirely. it's
+just not interesting compared to the 3d mode now").** The studio's animation is the 3D flight
+alone: no 3D toggle, no Frames / Star Frames, no frame build (`AnimationPreview.jsx` and
+`render/animationFrames.js` deleted; `yieldToPaint` moved to `utils/yieldToPaint.js`). No 2D
+animation was ever kept in `designs` (checked that day: 16 animations, all 3D), so the 2D row
+shape (`frames: [...]`) is read nowhere any more either. Old `cf-studio:video` entries
+carrying `threeDMode`/`frameCount`/`starFrameCount` are read past. Everything below and in the 3D
+section about 2D frames, the 2D export crop, `RAMP_FLOOR_2D`'s cruise, star frames, mobile 2D
+rasters or 2D memory is HISTORY. Verified: all repo checks, check-leaks 12/12, hero race in both
+modes, and real-browser flows (old 2D prefs, Duration, Generate, Image/Animation switching, a real
+3D share link).
+
+**The H.264 bitrate is capped at 235 Mbps (2026-11-21, Aaron: 60fps exports "pretty much with any
+other settings seemed to fail").** Level 5.2's ceiling is 240 Mbps and Safari enforces it: past it
+every encode fails "Encoding task failed" though `isConfigSupported` says yes. The size-derived rule
+below asks 300 at 4K60 (251 at 4:5) and 4K is the default size, so nearly every 60fps export died in
+Safari; Chrome tolerated the overshoot. Measured in WebKit: 235 encodes, 245 fails. Re-verified with
+real studio exports in WebKit (4K60 16:9, 4K60 4:5) and Chrome (4K60 9:16).
+
 Animation export is fully client-side: WebCodecs (`VideoEncoder`/`VideoFrame`) muxed with
 `mp4-muxer`. All in `src/components/DisplayCanvas.jsx` (`exportAnimationVideo`). **There
 is no `server/` directory, no `/api/export`, no Vite proxy** — an earlier server-side
@@ -2815,6 +2834,11 @@ site's flight so they play in real time. Things worth not re-deriving:
   per-filament hues were all tried and rejected: the nebula is one gradient, one colour per spot.
 - **Deep stars** are unwarped and unhazed (fade before the far plane): warped, stars far off the path
   collapsed into the vanishing point.
+- **VJ loops** (Aaron's pick for selling these, with the ramp off: a steady flight through endless
+  geometry): the Stock master writes **DXV**, Resolume's codec, via ffmpeg's encoder, which only
+  does DXT1 ("Normal Quality", lossy, no alpha), so ProRes stays the master. Lengths go to 20s and
+  30s; the flight builds new geometry for 20s at constant speed and laps it after. A 20s ramp-off DXV
+  loop measured a seam step equal to its neighbouring frame steps.
 - Cost: ~0.7s per 1080p frame at 16 samples; a full-size Flight-mode Reel takes minutes.
 - The image Read tool shows ffmpeg's 16-bit PNG grabs as banded; extract with `-pix_fmt rgb24`.
 

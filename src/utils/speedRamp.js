@@ -1,4 +1,4 @@
-// Speed-ramp time warp for animation playback (2D and 3D) and MP4 export.
+// Speed-ramp time warp for animation playback and MP4 export.
 //
 // Maps a linear elapsed time onto a per-cycle ease: each cycle accelerates for its whole
 // first half and decelerates through its whole second half, so playback is essentially
@@ -6,10 +6,9 @@
 // both ends, so a loop that was seamless under linear time stays seamless under the warp.
 // Monotonic and continuous across cycle boundaries for any t >= 0.
 //
-// This must stay the single source of the warp: AnimationPreview (2D GSAP
-// timeline), Animation3DPreview (tunnel scene setTime), and DisplayCanvas's
-// exportAnimationVideo all call it, which is what keeps the preview and the
-// frame-by-frame export showing the exact same motion.
+// This must stay the single source of the warp: Animation3DPreview (tunnel scene setTime),
+// DisplayCanvas's exportAnimationVideo and the ad builder all call it, which is what keeps the
+// preview and the frame-by-frame export showing the exact same motion.
 //
 // ── Shape ────────────────────────────────────────────────────────────────────
 // Velocity is RAMP_FLOOR + A * g(u) over the cycle fraction p, where u = 1 - |2p - 1| is the
@@ -60,9 +59,9 @@
 //
 //   RAMP_FLOOR_3D (0.03) — a near stop at each loop end (Aaron, 2026-07-28: "it needs to
 //     come to a near stop at the beginning and end... just for the 3d at least").
-//   RAMP_FLOOR_2D (0.25) — 2D deliberately keeps a real cruise. Its animation is a
-//     crossfade between still frames, so near-zero playback speed doesn't read as "slow
-//     flight", it reads as a frozen picture.
+//   RAMP_FLOOR_2D (0.25) — the 2D animation mode's (a crossfade between stills, where near-zero
+//     speed read as a frozen picture). That mode went on 2026-11-21; this stays as rampTime's
+//     default floor and the logo intro's (utils/logoIntro).
 export const RAMP_CURVE = 2.4;
 export const RAMP_FLOOR_2D = 0.25;
 export const RAMP_FLOOR_3D = 0.03;

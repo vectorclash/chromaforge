@@ -3,11 +3,10 @@ import { gsap } from 'gsap';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 
-// 3D animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
-// (src/animation3d/tunnelScene.js) with a single looping GSAP timeline, mirroring
-// AnimationPreview's contract (paused/onClick, atomic pause/play). three.js and the
-// scene module are dynamically imported so they stay out of the main bundle until 3D
-// mode is actually used.
+// The animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
+// (src/animation3d/tunnelScene.js) with a single looping GSAP timeline (paused/onClick, atomic
+// pause/play). three.js and the scene module are dynamically imported so they stay out of the
+// main bundle until an animation is actually shown.
 //
 // The timeline tweens a plain proxy time value and setTime(t) does all the work — the
 // scene has no internal clock, so pausing, scrubbing, and the exporter's fixed-step

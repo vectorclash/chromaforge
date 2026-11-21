@@ -3,7 +3,7 @@ import { generateArtwork } from '../render/generateArtwork';
 import { randomSeed } from '../render/prng';
 import renderArtwork from '../render/renderArtwork';
 import { prepareNebula, NEBULA_PIXELS_LITE } from '../render/nebula';
-import { yieldToPaint } from '../render/animationFrames';
+import { yieldToPaint } from '../utils/yieldToPaint';
 import { renderOffThread, renderCancelled, logRender, PRIORITY_AMBIENT, PRIORITY_DEFAULT } from '../render/renderOffThread';
 import { toCompactDesign } from '../render/compactDesign';
 import { isSameDesign, getStudioGeometrySettings } from '../render/designSettings';
@@ -11,7 +11,7 @@ import { densityFloorSize } from '../render/scale';
 import { resolvedPalette } from '../render/resolvedPalette';
 import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign, designFromRow } from '../lib/linkedDesign';
-import { compactAnimationData, is3DAnimation, is2DAnimation, storedVideo } from '../lib/savedAnimation';
+import { compactAnimationData, is3DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
 import { colorsForNewWork } from '../render/autoPalette';
 import {
@@ -110,9 +110,8 @@ function thumbnailRender(data, renderDesignBlob) {
         render3DStill(data.design, { duration: cycleDuration, speedRamp, width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE })
       );
   }
-  const source = is2DAnimation(data) ? data.frames?.[0] : data;
-  if (source?.seed === undefined) return null;
-  return () => renderDesignBlob(source, THUMBNAIL_SIZE, THUMBNAIL_SIZE, { highDensity: true });
+  if (data?.seed === undefined) return null;
+  return () => renderDesignBlob(data, THUMBNAIL_SIZE, THUMBNAIL_SIZE, { highDensity: true });
 }
 
 // Repairs run one at a time: an owner's gallery with several empty cards must not start several

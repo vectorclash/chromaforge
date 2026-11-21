@@ -147,11 +147,9 @@ export function writeDesignPrefs({ colors, settings }) {
 // Video-tab defaults, kept here rather than inline in DisplayCanvas's constructor so the
 // stored shape and the fallback can't drift apart. These are the same values the component
 // used before any of this existed; see its state comments for why each is what it is.
+// (The 2D animation mode and its 3D / Frames / Star Frames settings went on 2026-11-21; old entries
+// still carrying those keys are simply read past.)
 export const DEFAULT_VIDEO_PREFS = {
-  // 3D became the default 2026-09-30 (Aaron: "it really captures the artwork perfectly now")
-  threeDMode: true,
-  frameCount: 20,
-  starFrameCount: 10,
   cycleDuration: 5,
   speedRamp: true,
   logoMark: false,
@@ -172,27 +170,15 @@ export const DEFAULT_IMAGE_PREFS = {
   customHeight: 1080
 };
 
-// `limits` is the caller's resolved ANIM_LIMIT (device-dependent: a phone caps frames,
-// duration and frame rate lower than a desktop). Passing it in rather than importing it
-// keeps this module free of device detection, and means a preference saved on a desktop and
-// synced to a phone lands inside that phone's caps instead of asking it to build an
-// animation it cannot hold in memory.
-const THREE_D_CHOICE = 1;
-
+// `limits` is the caller's resolved ANIM_LIMIT (device-dependent: a phone caps duration and
+// frame rate lower than a desktop). Passing it in rather than importing it keeps this module
+// free of device detection, and means a preference saved on a desktop and synced to a phone
+// lands inside that phone's caps.
 export function readVideoPrefs(limits, aspects) {
   const stored = readKey(VIDEO_KEY);
   if (!stored) return { ...DEFAULT_VIDEO_PREFS };
   const d = DEFAULT_VIDEO_PREFS;
-  const frameCount = clampInt(stored.frameCount, 5, limits.frames, d.frameCount);
   return {
-    // Every write stores every key, so an entry from before 3D was the default says
-    // threeDMode: false whether or not anyone chose 2D. Only an entry carrying THREE_D_CHOICE
-    // (written since) records a real choice; older ones take the new default.
-    threeDMode: stored.threeDChoice === THREE_D_CHOICE ? stored.threeDMode === true : d.threeDMode,
-    frameCount,
-    // Mirrors maxStarFrames(frameCount) -- star frames cost exactly what main frames cost,
-    // so they are always capped at half, and a restored pair must satisfy that too.
-    starFrameCount: clampInt(stored.starFrameCount, 1, Math.max(1, Math.floor(frameCount / 2)), d.starFrameCount),
     cycleDuration: clampInt(stored.cycleDuration, 5, limits.duration, d.cycleDuration),
     speedRamp: stored.speedRamp !== false,
     logoMark: stored.logoMark === true,
@@ -228,7 +214,6 @@ export function writeImagePrefs(image) {
 export function writeVideoPrefs(video) {
   const out = {};
   for (const key of Object.keys(DEFAULT_VIDEO_PREFS)) out[key] = video[key];
-  out.threeDChoice = THREE_D_CHOICE;
   writeKey(VIDEO_KEY, out);
 }
 

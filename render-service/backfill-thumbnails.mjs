@@ -140,7 +140,7 @@ async function main() {
       skipped++;
       continue;
     }
-    const source = row.data?.animation && row.data?.frames ? row.data.frames[0] : row.data;
+    const source = row.data;
     if (!source?.seed) {
       console.log(`SKIP  ${row.id}  "${row.title}"  -- no seed to recompose from`);
       skipped++;
