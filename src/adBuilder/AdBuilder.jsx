@@ -80,11 +80,10 @@ const fmt = t => `${t.toFixed(2)}s`;
 let nextSlotId = 1;
 const newSlot = productId => ({ uid: nextSlotId++, productId, photos: [], fit: 'full' });
 
-// The design a saved row prints: the row's own design for an image, a 3D animation's one design,
-// or a 2D animation's first frame.
+// The design a saved row prints: the row's own design for an image, an animation's one design.
 function designOfRow(row) {
   if (row.kind === 'image') return row.data;
-  return row.data?.design ?? row.data?.frames?.[0] ?? null;
+  return row.data?.design ?? null;
 }
 
 function Section({ title, children, aside = null }) {
@@ -453,6 +452,50 @@ export default function AdBuilder() {
   }, [drawKey]);
 
   // ── Playback: the music's clock when there is music, the wall clock otherwise ──
+  // The audio context, made once, with an analyser between the music and the speakers. The
+  // analyser drives the audio readout under the preview (showAudio): Safari has gone silent on
+  // this page four times (2026-10-13, 10-27, 11-11, 11-21) with the code fine every time, a refresh
+  // not helping and a full quit of Safari fixing it -- and the context's own state while it was
+  // broken had never been seen. The readout says whether the page is making sound (state running,
+  // level moving) or not (suspended, or Safari's own 'interrupted'), which tells "the page" apart
+  // from "Safari's audio output" the next time it happens.
+  const audioRef = useRef(null);
+  const ensureAudio = () => {
+    const p = play.current;
+    if (!p.audio) {
+      p.audio = new AudioContext();
+      p.analyser = p.audio.createAnalyser();
+      p.analyser.fftSize = 2048;
+      p.analyser.connect(p.audio.destination);
+      p.audio.addEventListener('statechange', () => {
+        console.info('[ad builder] audio context:', p.audio.state);
+        showAudio();
+      });
+    }
+    return p.audio;
+  };
+  const showAudio = () => {
+    const p = play.current;
+    const el = audioRef.current;
+    if (!el) return;
+    if (!p.audio) {
+      el.textContent = '';
+      return;
+    }
+    let level = '';
+    if (p.source && p.analyser) {
+      const buf = new Float32Array(p.analyser.fftSize);
+      p.analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      const rms = Math.sqrt(sum / buf.length);
+      level = rms > 1e-5 ? ` · ${Math.round(20 * Math.log10(rms))} dB` : ' · silent';
+    } else if (!musicRef.current) {
+      level = ' · no music';
+    }
+    el.textContent = `audio ${p.audio.state} · ${Math.round(p.audio.sampleRate / 100) / 10}kHz${level}`;
+  };
+
   const stopSource = () => {
     const p = play.current;
     try {
@@ -468,11 +511,10 @@ export default function AdBuilder() {
     stopSource();
     const buffer = musicRef.current;
     if (buffer) {
-      p.audio = p.audio || new AudioContext();
-      p.audio.resume();
+      ensureAudio().resume();
       const src = p.audio.createBufferSource();
       src.buffer = buffer;
-      src.connect(p.audio.destination);
+      src.connect(p.analyser);
       src.start(0, Math.min(t0, buffer.duration));
       p.source = src;
       p.audioStart = p.audio.currentTime - t0;
@@ -490,6 +532,7 @@ export default function AdBuilder() {
     p.playing = false;
     cancelAnimationFrame(p.raf);
     stopSource();
+    showAudio();
     setPlaying(false);
   };
 
@@ -520,8 +563,7 @@ export default function AdBuilder() {
     // A take that lands mid-play starts its source from an effect; a context first created
     // there is outside any user gesture, and Safari keeps it suspended -- a silent preview
     // until the next pause and play.
-    p.audio = p.audio || new AudioContext();
-    p.audio.resume();
+    ensureAudio().resume();
     startClock(p.t);
     const tick = now => {
       if (!p.playing) return;
@@ -540,6 +582,7 @@ export default function AdBuilder() {
       if (now - (p.readoutAt || 0) > 100) {
         p.readoutAt = now;
         showTime(t);
+        showAudio();
       }
       p.raf = requestAnimationFrame(tick);
     };
@@ -553,16 +596,36 @@ export default function AdBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [musicBuffer]);
 
-  useEffect(
-    () => () => {
+  // Audio is shut down cleanly before the page goes away or its code is swapped: the source
+  // stopped, then the context closed AND forgotten. Two reasons (2026-11-21):
+  //   - Forgotten: a dev-server hot update re-runs this cleanup without remounting, and a closed
+  //     context left in play.current was reused by the next Play -- silent until a refresh.
+  //   - Before, not during: Safari's output for this site has wedged four times, each in a
+  //     session where the builder's code was being edited while it played (hot updates and
+  //     dev-server restarts tearing the page down mid-playback). Unproven as the cause, but closing
+  //     first costs nothing. vite:beforeFullReload covers a server restart; pagehide a refresh
+  //     or a closed tab.
+  useEffect(() => {
+    const shut = () => {
       const p = play.current;
       p.playing = false;
       cancelAnimationFrame(p.raf);
       stopSource();
-      p.audio?.close();
-    },
-    []
-  );
+      const ctx = p.audio;
+      p.audio = null;
+      p.analyser = null;
+      if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
+    };
+    window.addEventListener('pagehide', shut);
+    import.meta.hot?.on('vite:beforeFullReload', shut);
+    return () => {
+      window.removeEventListener('pagehide', shut);
+      import.meta.hot?.off?.('vite:beforeFullReload', shut);
+      shut();
+      setPlaying(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Feed post ───────────────────────────────────────────────────────────────
   // The photos the slides use, decoded once each. A new Map on every change, so the preview
@@ -1724,6 +1787,11 @@ export default function AdBuilder() {
                 {playing ? 'Pause' : 'Play'}
               </Button>
               <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
+              <span
+                ref={audioRef}
+                className="text-xs tabular-nums text-neutral-500"
+                title="The preview's audio: its state, sample rate and level. If Safari goes silent, this says whether the page is still making sound."
+              />
               {isReelSize && (
                 <label className="ml-auto flex items-center gap-2 text-xs text-neutral-400">
                   <Toggle
@@ -1834,6 +1902,11 @@ export default function AdBuilder() {
                 {playing ? 'Pause' : 'Play'}
               </Button>
               <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
+              <span
+                ref={audioRef}
+                className="text-xs tabular-nums text-neutral-500"
+                title="The preview's audio: its state, sample rate and level. If Safari goes silent, this says whether the page is still making sound."
+              />
               <span
                 ref={fpsRef}
                 className="ml-auto text-xs tabular-nums text-neutral-500"
