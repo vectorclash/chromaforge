@@ -41,7 +41,9 @@ export default [
       'no-unused-vars': 'off',
       'no-empty': 'off',
       'no-constant-condition': 'off',
-      'no-prototype-builtins': 'off'
+      'no-prototype-builtins': 'off',
+      // New in eslint 10's recommended set (2026-11-20): flagged six dead assignments, none a bug.
+      'no-useless-assignment': 'off'
     }
   }
 ];

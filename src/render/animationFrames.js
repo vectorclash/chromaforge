@@ -19,6 +19,7 @@ export class AnimationBuildCancelled extends Error {}
 
 // Lets a loader paint between frames. A rAF alone would stall in a background tab, where it does
 // not fire, so the timeout is the fallback that keeps a hidden build moving.
+/** @returns {Promise<void>} */
 export function yieldToPaint() {
   return new Promise(resolve => {
     let done = false;

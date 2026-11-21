@@ -113,7 +113,7 @@ async function encodeAudioTrack(audioBuffer, muxer, bitrate) {
   const totalFrames = audioBuffer.length;
   const CHUNK_FRAMES = 4096;
 
-  await new Promise((resolve, reject) => {
+  await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
     const encoder = new AudioEncoder({
       output: (chunk, meta) => {
         if (!meta?.decoderConfig?.description) {
@@ -157,7 +157,7 @@ async function encodeAudioTrack(audioBuffer, muxer, bitrate) {
     } catch (e) {
       reject(e);
     }
-  });
+  }));
 }
 
 // ─── Encode ───────────────────────────────────────────────────────────────────

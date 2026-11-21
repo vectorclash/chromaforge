@@ -407,6 +407,7 @@ export function prepareNebula(config) {
   if (PENDING.has(key)) return PENDING.get(key);
   const w = nebulaWorker();
   if (!w) return Promise.resolve();
+  /** @type {Promise<void>} */
   const p = new Promise(resolve => {
     const id = ++jobId;
     JOBS.set(id, msg => {
