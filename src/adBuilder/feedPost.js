@@ -28,7 +28,9 @@ export const MAX_SLIDES = 10;
 export const DEFAULT_CLIP_SECONDS = 6;
 // 3s is Instagram's shortest Reel; carousel videos run to 60s, but past ~15s a loop of this scene
 // only repeats its plates (the content length caps and the camera laps it).
-export const CLIP_LENGTHS = [3, 4, 6, 8, 10, 15];
+// 20s and 30s for VJ loops (2026-11-21): long enough that the repeat is hard to spot. The flight builds
+// new geometry for up to 20s at constant speed (tunnelScene's MAX_CONTENT_LENGTH), then laps it.
+export const CLIP_LENGTHS = [3, 4, 6, 8, 10, 15, 20, 30];
 // Share of the flight's plates that carry geometry -- the 3D scene's reading of `chance`, which
 // also thickens the cage. A stored design states no odds, so it resolves to the legacy 0.4.
 export const OBJECT_SHARES = [0.2, 0.4, 0.6, 0.8, 1];

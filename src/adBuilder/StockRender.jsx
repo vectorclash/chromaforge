@@ -223,7 +223,7 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
           value={prefs.format}
           disabled={busy}
           onChange={format => set({ format })}
-          options={[['prores', 'ProRes 422 HQ'], ['hevc', 'HEVC 10-bit']]}
+          options={[['prores', 'ProRes 422 HQ'], ['hevc', 'HEVC 10-bit'], ['dxv', 'DXV (Resolume)']]}
         />
       </Row>
       <div className="mt-1 flex flex-wrap items-center gap-2">

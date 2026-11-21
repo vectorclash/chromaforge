@@ -9,9 +9,12 @@
 //   POST /__ads/stock/finish?id=  -> { file, bytes }
 //   POST /__ads/stock/cancel?id=
 //
-// Formats: 'prores' (ProRes 422 HQ, 10-bit, .mov -- what stock sites ask for) and 'hevc' (H.265 10-bit
-// at a high quality, .mp4 -- a much smaller file to watch or upload where ProRes is not taken).
-// Both are tagged BT.709, which is how sRGB-made footage is delivered for video.
+// Formats: 'prores' (ProRes 422 HQ, 10-bit, .mov -- what stock sites ask for), 'hevc' (H.265 10-bit
+// at a high quality, .mp4 -- a much smaller file to watch or upload where ProRes is not taken), both
+// tagged BT.709, which is how sRGB-made footage is delivered for video; and 'dxv' (Resolume's own
+// codec, .mov, for VJ loops -- it plays far more smoothly in Resolume with layers stacked). ffmpeg's
+// DXV encoder writes only DXT1, Resolume's "Normal Quality" (block-compressed RGB, no alpha), so it
+// is lossy by design: ProRes stays the master.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -19,12 +22,19 @@ import path from 'node:path';
 
 const FORMATS = {
   prores: {
+    yuv: true,
     ext: '.mov',
     args: ['-c:v', 'prores_ks', '-profile:v', '3', '-vendor', 'apl0', '-pix_fmt', 'yuv422p10le']
   },
   hevc: {
+    yuv: true,
     ext: '.mp4',
     args: ['-c:v', 'libx265', '-preset', 'slow', '-crf', '10', '-pix_fmt', 'yuv420p10le', '-tag:v', 'hvc1', '-x265-params', 'log-level=error']
+  },
+  dxv: {
+    yuv: false,
+    ext: '.mov',
+    args: ['-c:v', 'dxv', '-format', 'dxt1', '-pix_fmt', 'rgba']
   }
 };
 const SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
@@ -46,9 +56,11 @@ export function createStockEncoder({ root }) {
       [
         '-hide_banner', '-loglevel', 'error', '-y',
         '-f', 'rawvideo', '-pix_fmt', 'rgb48le', '-s', `${w}x${h}`, '-r', String(r), '-i', 'pipe:0',
-        '-vf', 'scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv',
+        ...(f.yuv
+          ? ['-vf', 'scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv']
+          : []),
         ...f.args,
-        '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
+        ...(f.yuv ? ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv'] : []),
         '-r', String(r), '-movflags', '+faststart',
         file
       ],
