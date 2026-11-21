@@ -198,22 +198,39 @@ function blurCanvas(c, radius, { saturate = 1, brightness = 1 } = {}) {
   ctx.putImageData(img, 0, 0);
 }
 
+// The geometry styles the studio offers. Every part of the Explainer shows all of them (Aaron,
+// 2026-11-20: "it should probably build artworks from all geometry types").
+const GEOMETRY_STYLES = ['lattice', 'mosaic', 'flower', 'golden'];
+
+// The studio's defaults in one style: what a tap gives you with only Style changed. `present`
+// pins the geometry layer on: the studio's odds leave about one design in ten without one, which
+// on the site is part of the range but in an ad about the geometry is a wasted beat. Stating it
+// overrides the coin without moving anything else in the design (see designSettings).
+const tapSettings = style => ({ geometry: { ...STUDIO_DEFAULT_GEOMETRY_SETTINGS, style, present: true } });
+const styleFrom = key => GEOMETRY_STYLES[Math.floor(makeRng(key)() * GEOMETRY_STYLES.length)];
+
 /**
  * The fresh designs for this ad: the tapped ones, then the wall's. `salt` reshuffles them.
- * The tapped pieces are what a tap gives you, so they stay at the studio's defaults. The wall is
- * a collection someone has kept, made with every setting the studio has, so its pieces vary the
+ * The tapped pieces are what a tap gives you, so they stay at the studio's defaults, taking the
+ * styles in turn from a per-ad starting point so a run of taps shows every one. The wall is a
+ * collection someone has kept, made with every setting the studio has, so its pieces vary the
  * palette and the geometry -- at the defaults alone, a wall of them read as one look repeated.
  */
 function freshDesigns(design, salt) {
+  const first = GEOMETRY_STYLES.indexOf(styleFrom(`${design.seed}-${salt}-styles`));
   return Array.from({ length: TAPPED_FRESH + WALL_EXTRAS }, (_, k) => {
     const seed = `${design.seed}-${salt}-${k}`;
-    if (k < TAPPED_FRESH) return { seed, colors: [], settings: { geometry: STUDIO_DEFAULT_GEOMETRY_SETTINGS } };
-    return { seed, ...wallStyle(makeRng(`${seed}-style`)) };
+    const style = GEOMETRY_STYLES[(first + k) % GEOMETRY_STYLES.length];
+    if (k < TAPPED_FRESH) return { seed, colors: [], settings: tapSettings(style) };
+    return { seed, ...wallStyle(makeRng(`${seed}-style`), style) };
   });
 }
 
-/** A varied palette and geometry for one wall card, from its own stream. */
-function wallStyle(rng) {
+/**
+ * A varied palette and geometry for one wall card, from its own stream. `style` comes from the
+ * caller, which takes the styles in turn: picked at random, one could all but miss a whole wall.
+ */
+export function wallStyle(rng, style) {
   const pick = a => a[Math.floor(rng() * a.length)];
   // About half keep the generator's own palette; the rest take a curated one, in a shuffled order
   // (the stops' order is the gradient's), sometimes only part of it.
@@ -226,14 +243,20 @@ function wallStyle(rng) {
     }
     colors = preset.slice(0, Math.max(2, preset.length - Math.floor(rng() * 3)));
   }
-  // Chaotic shards or a lattice, small to overflowing; sometimes the pinned hexagon.
-  const lattice = rng() < 0.5;
+  // Every style the studio has (in turn, see above), loose or symmetric, small to overflowing; sometimes the pinned
+  // hexagon. These are the lattice model's controls (the studio's default model since 2026-11-20):
+  // Symmetry is `coherence`, Shapes `density`, Scale the scaleMin..scaleMax range. The classic
+  // model's Size and Spread do nothing there, so varying them left the wall one look repeated.
+  const symmetric = rng() < 0.45;
   const hex = rng() < 0.25;
+  const scaleMin = 0.1 + 0.5 * rng();
   const geometry = {
     ...STUDIO_DEFAULT_GEOMETRY_SETTINGS,
-    coherence: lattice ? 0.45 + 0.55 * rng() : 0.25 * rng(),
-    size: 0.15 + 0.7 * rng(),
-    spread: 0.45 + 0.5 * rng(),
+    style,
+    present: true,
+    coherence: symmetric ? 0.5 + 0.5 * rng() : 0.3 * rng(),
+    scaleMin,
+    scaleMax: Math.min(1, scaleMin + 0.15 + 0.5 * rng()),
     density: 0.55 + 0.45 * rng(),
     ...(hex ? { pointsMin: 6, pointsMax: 6 } : {})
   };
@@ -291,9 +314,7 @@ export async function createExplainComposer({
   // the way the studio itself works, which always has a piece up when you first tap (Aaron,
   // 2026-10-27). A fresh piece at the studio's defaults, like the tapped ones.
   const opener = renderArtwork(
-    generateArtwork(`${design.seed}-${salt}-open`, width, height, [], {
-      geometry: STUDIO_DEFAULT_GEOMETRY_SETTINGS
-    })
+    generateArtwork(`${design.seed}-${salt}-open`, width, height, [], tapSettings(styleFrom(`${design.seed}-${salt}-open-style`)))
   );
 
   // Behind everything once the wall appears: the kept piece, blurred and dimmed.
