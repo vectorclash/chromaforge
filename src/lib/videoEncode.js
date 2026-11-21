@@ -30,6 +30,13 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 // DisplayCanvas's ANIM_LIMITS) and Aaron's ask was specifically desktop.
 const VIDEO_QUALITY_K = 1736; // bits per (sqrt-pixel x frame)
 const MAX_EXPORT_BYTES = 600 * 1024 * 1024;
+// H.264 Level 5.2's ceiling is 240 Mbps (Baseline/Main), and Safari's encoder enforces it: past it
+// every encode fails with "Encoding task failed", though isConfigSupported says yes. The rule above
+// asks 300 Mbps at 4K60 (251 at 4:5), and 4K is the default size, so in Safari nearly every 60fps
+// export died on its first frame (Aaron, 2026-11-21: "the 60 frames per second mode pretty much with
+// any other settings seemed to fail"). Measured in WebKit: 235 encodes, 245 fails. Chrome tolerated
+// the overshoot, which is why it never showed there.
+const H264_MAX_BITRATE = 235_000_000;
 const MOBILE_BITRATE = 25_000_000;
 
 /** @param {{ width: number, height: number, fps: number, durationSec: number, mobile?: boolean }} o */
@@ -37,7 +44,8 @@ export function exportBitrate({ width, height, fps, durationSec, mobile = false 
   if (mobile) return MOBILE_BITRATE;
   return Math.min(
     Math.round(VIDEO_QUALITY_K * Math.sqrt(width * height) * fps),
-    Math.floor((MAX_EXPORT_BYTES * 8) / durationSec)
+    Math.floor((MAX_EXPORT_BYTES * 8) / durationSec),
+    H264_MAX_BITRATE
   );
 }
 
