@@ -2082,6 +2082,15 @@ scene's own. Two layers: panels composite with the design's geometry blend, line
 COMPOSITE_FRAG's blend 8 -- light over dark, darkened over bright, decided PER PIXEL. Screen alone
 vanished on a pale sky, and a sky-wide luminance switch turned a vivid design's cage into dark
 scratches. `cage: false` turns it off. Costs ~nothing (medians ~10ms either way).
+**That cage is the LATTICE style's only; Mosaic, Flower and Golden get the ECHO cage**
+(`buildEchoCage`, 2026-11-20, Aaron's pick). The lattice cage works because rings joined by chords
+are also a tunnel's cross-section; the other figures have no such fit. Each plate's larger shapes
+trail back from it as 3-5 copies (each 6% larger, fainter), some corners joined copy to copy, one
+copy per convex shape filled -- wires at plate distance are under a pixel, so outlines alone were
+invisible. Placed through the plate's own rotation/offset (screen right is world -x), verified to
+land on the plate's shapes. Rejected, both prototyped in the studio: those styles' shapes wrapped
+round the flight as tubes (hex antiprism, Seed of Life stations, phyllotaxis), and free-standing
+3D solids (cube blocks down their diagonal, Seed of Life spheres, nested golden solids).
 (10) **Artwork flows OUT OF THE CENTRE** (round 6, Aaron: plates "just appear half way through
 rather than coming in from the center"). Far plates are small and central because of the lens
 and the haze (11); and the plate being reached OPENS FROM THE MIDDLE, SHAPE BY SHAPE

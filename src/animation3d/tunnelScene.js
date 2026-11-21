@@ -794,7 +794,8 @@ function buildPlates(seed, designGeometry, paletteColors, settings, geometry, L)
       config = new GenerateGeometricShape(REF_W, REF_H, shapeNum, paletteColors, prng, settings);
     }
     const tris = config ? plateTriangles(config) : [];
-    if (tris.length) contents.push({ tris });
+    // Outlines in plate coordinates (the same flip as plateTriangles), for the echo cage.
+    if (tris.length) contents.push({ tris, outlines: config.shapes.map(sh => shapeOutline(sh).map(([x, y]) => [-y, -x])) });
   }
   const data = packPlateData(contents);
 
@@ -907,7 +908,7 @@ function applyDepthFade(mat, uViewHalfH = null) {
 // index mapping (which also bridges rings of different side counts at zone boundaries),
 // and all motion/profiles use integer cycle frequencies — so exports still loop
 // seamlessly.
-function buildCage(rng, geometry, L, uViewHalfH) {
+function buildCage(rng, geometry, L, uViewHalfH, plates = []) {
   const clampNum = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   // Length scaling: counts stretch linearly with content length so structure density
   // per unit distance stays what it was tuned at (REFERENCE_LENGTH); integer spatial
@@ -1022,38 +1023,17 @@ function buildCage(rng, geometry, L, uViewHalfH) {
     ];
   };
 
-  // ── Style cages ──────────────────────────────────────────────────────────────────────
-  // Each builds vertices (polar about the tunnel's curved centreline, or about a circle's own
-  // centre for Flower), wires and panels, with the same per-zone density, wire/panel caps,
-  // ripple and palette treatment the lattice cage uses. Loop-safety is the one hard rule:
-  // anything built along z must meet itself at z = L, so every repeating structure here has a
-  // whole number of repeats per lap and no twist that does not come back round.
-  function buildStyleCage(style) {
+  // ── The echo cage (Mosaic, Flower, Golden) ─────────────────────────────────────────────
+  // The lattice cage below works because it IS the lattice -- rings of vertices joined by chords,
+  // which is also a tunnel's cross-section. A flower, a spiral or a triangle grid has no such fit:
+  // wrapped round the flight as a tube (the first version, 2026-11-20: a hex antiprism, Seed of
+  // Life stations, a phyllotaxis tube) each read as a different object from the flat figure in
+  // front of it, and free-standing 3D solids (cubes, spheres, nested golden solids) lost to this
+  // too. Aaron's pick (2026-11-20): each plate's own figure, given depth (buildEcho).
+  function buildEchoCage() {
     const V = { ang: [], r: [], z: [], cx: [], cy: [], ph: [], fr: [], amp: [], cj: [], dim: [] };
     const edgeList = [];
     const panelList = [];
-    // One vertex. (ox, oy) is an extra centre offset (Flower's petal circles); the tunnel's own
-    // curved centreline at that z is added here.
-    // `shared` ({ ph, fr, cj }) gives a group of vertices one ripple and one colour offset, so a
-    // Flower circle breathes and colours as one piece: independent per-vertex ripple made a
-    // 36-point circle jagged, and per-vertex colour striped its petals.
-    const vert = (ang, r, z, outer, ox = 0, oy = 0, shared = null) => {
-      const zFrac = z / L;
-      const zone = zoneAt(zFrac);
-      const jitter = jitterBase * (outer ? 0.6 : 1) * 0.5;
-      const [cx, cy] = pathAt(zFrac, boreRadiusAt(zFrac));
-      V.ang.push(ang + (rng() - 0.5) * 0.08 * jitter);
-      V.r.push(r * (1 + (rng() - 0.5) * jitter * 0.3));
-      V.z.push(z);
-      V.cx.push(cx + ox);
-      V.cy.push(cy + oy);
-      V.ph.push(shared ? shared.ph : rng() * TWO_PI);
-      V.fr.push(shared ? shared.fr : 1 + Math.floor(rng() * 3));
-      V.amp.push(outer ? 0.04 : zone.rippleAmp);
-      V.cj.push(shared ? shared.cj : (rng() - 0.5) * 0.3 + zone.paletteOffset);
-      V.dim.push(outer ? 0.65 : 1);
-      return V.ang.length - 1;
-    };
     // Wire and panel odds at a point along the tunnel -- the lattice cage's formulas.
     const wireAt = (zFrac, scale) => {
       const zone = zoneAt(zFrac);
@@ -1067,175 +1047,130 @@ function buildCage(rng, geometry, L, uViewHalfH) {
     };
     const edge = (a, b, aOff = 0, bOff = 0) => edgeList.push({ a, b, aOff, bOff });
     // A panel's brightness variant, as the lattice cage rolls it. Pass `mul` to give every
-    // triangle of one shape the same one (a Flower petal is 24 triangles, and a roll each
+    // triangle of one shape the same one (a fan-filled curve is many triangles, and a roll each
     // striped it).
     const rollMul = () => {
       const roll = rng();
       return roll < 0.15 ? 1.35 : roll < 0.3 ? 0.8 : 1;
     };
     const panel = (v, off, mul = rollMul()) => panelList.push({ v, off, mul });
-    // Mean bore radius, for spacing structures so their cells keep their proportions.
-    let rMean = 0;
-    for (let i = 0; i < 16; i++) rMean += boreRadiusAt(i / 16) / 16;
+    // A vertex at a fixed world point, outside the tunnel's own frame: no centreline, no ripple,
+    // no jitter. The echo is rigid, like the plates -- nothing moves but the camera.
+    const rawVert = (x, y, z, cj, d = 1) => {
+      V.ang.push(Math.atan2(y, x));
+      V.r.push(Math.hypot(x, y));
+      V.z.push(z);
+      V.cx.push(0);
+      V.cy.push(0);
+      V.ph.push(0);
+      V.fr.push(1);
+      V.amp.push(0);
+      V.cj.push(cj);
+      V.dim.push(d);
+      return V.ang.length - 1;
+    };
+    const wrapFrac = z => (((z / L) % 1) + 1) % 1;
 
-    if (style === 'mosaic') {
-      // An isometric tube: six-sided rings, each turned half a side from the last (an
-      // antiprism), spaced so the wall is a skin of near-equilateral triangles -- the Mosaic
-      // grid wrapped into a tunnel. An even ring count closes the half-step alternation.
-      const tube = (radiusAt, count, outer, wireScale, panelScale) => {
-        const SIDES = 6;
-        const step = TWO_PI / SIDES;
-        const ang0 = rng() * step;
-        const ringStart = [];
-        for (let k = 0; k < count; k++) {
-          const z = (k / count) * L;
-          ringStart.push(V.ang.length);
-          const a = ang0 + (k % 2) * (step / 2);
-          for (let j = 0; j < SIDES; j++) vert(a + j * step, radiusAt(z / L), z, outer);
-        }
-        const at = (k, j) => ringStart[k % count] + (((j % SIDES) + SIDES) % SIDES);
-        for (let k = 0; k < count; k++) {
-          const zFrac = k / count;
-          const wire = wireAt(zFrac, wireScale);
-          const pc = panelAt(zFrac, panelScale);
-          const off = k + 1 === count ? L : 0;
-          // Ring k+1 is turned half a side from ring k, so its vertex j sits between ring k's j
-          // and j+1 when k is even, and between j-1 and j when k is odd.
-          for (let j = 0; j < SIDES; j++) {
-            const a0 = at(k, j), a1 = at(k, j + 1);
-            // The next ring's vertices between a0 and a1, and between a(j-1) and a0
-            const mid = k % 2 === 0 ? at(k + 1, j) : at(k + 1, j + 1);
-            const midPrev = k % 2 === 0 ? at(k + 1, j - 1) : at(k + 1, j);
-            if (rng() < 0.8 * wire) edge(a0, a1);
-            if (rng() < 0.7 * wire) edge(a0, mid, 0, off);
-            if (rng() < 0.7 * wire) edge(a1, mid, 0, off);
-            if (rng() < pc) panel([a0, a1, mid], [0, 0, off]);
-            if (rng() < pc * 0.8) panel([midPrev, mid, a0], [off, off, 0]);
-          }
-        }
-      };
-      let count = Math.max(6, Math.round(L / (0.866 * rMean)));
-      count += count % 2;
-      tube(z => boreRadiusAt(z), count, false, 1, 1);
-      const oR = (38 + rng() * 5) * sizeScale;
-      let oCount = Math.max(4, Math.round(L / (0.866 * oR)));
-      oCount += oCount % 2;
-      tube(() => oR, oCount, true, 0.45, 0.15);
-    } else if (style === 'flower') {
-      // Seed of Life stations: at each, a centre circle the camera flies through and six equal
-      // circles centred on it, so the view down the tunnel is the Flower of Life. Circles are
-      // whole, or arcs, or absent, by the zone's wire density; some petals (where the centre
-      // circle and a petal circle overlap) are filled. Each station turns by a whole number of
-      // 10-degree steps from the last, ending a lap on a multiple of 60 so the loop closes.
-      const SEG = 36; // circle vertices: every 10 degrees, which puts the petal tips on vertices
-      const step = TWO_PI / SEG;
-      const stations = Math.max(3, Math.round(L / (1.6 * rMean)));
-      const turnSteps = Math.round((rng() - 0.5) * 4); // -2..2 steps of 10 degrees per station
-      const lapTurn = Math.round((turnSteps * stations) / 6) * 6; // a multiple of 60 degrees per lap
-      const base = rng() * TWO_PI;
-      for (let s = 0; s < stations; s++) {
-        const z = (s / stations) * L;
-        const zFrac = z / L;
-        const r = boreRadiusAt(zFrac);
-        const theta = base + ((lapTurn * s) / stations) * step;
+    // ECHO: each plate's own figure, given depth. Its larger shapes are repeated as wireframe
+    // outlines trailing back from the plate, each copy a little larger and fainter, with some
+    // corners joined copy to copy so a shape reads as a solid extruded out of the plate.
+    // Placed through the plate's own rotation and offset (PLATE_FRAG's mapping inverted; the
+    // camera looks down +z, so screen right is world -x), so the copies register with the plate.
+    function buildEcho() {
+      let budget = 14000; // vertices, over the whole loop: the cage's per-frame pass touches each
+      for (const plate of plates) {
+        if (!plate.present || !plate.content?.outlines?.length || budget <= 0) continue;
+        const zFrac = wrapFrac(plate.z);
         const wire = wireAt(zFrac, 1);
         const pc = panelAt(zFrac, 1);
-        const circle = (ox, oy, outer) => {
-          const start = V.ang.length;
-          const shared = { ph: rng() * TWO_PI, fr: 1 + Math.floor(rng() * 2), cj: (rng() - 0.5) * 0.3 + zoneAt(zFrac).paletteOffset };
-          for (let m = 0; m < SEG; m++) vert(theta + m * step, r, z, outer, ox, oy, shared);
-          return start;
-        };
-        const drawArc = (start, from, len) => {
-          for (let m = 0; m < len; m++) edge(start + ((from + m) % SEG), start + ((from + m + 1) % SEG));
-        };
-        const wireCircle = start => {
-          const roll = rng();
-          if (roll < wire * 1.2) drawArc(start, 0, SEG);
-          else if (roll < wire * 2.2) drawArc(start, Math.floor(rng() * SEG), Math.round(SEG * (0.25 + rng() * 0.35)));
-        };
-        const centre = circle(0, 0, false);
-        wireCircle(centre);
-        for (let i = 0; i < 6; i++) {
-          // Petal circle i is centred r out at angle theta + i*60 degrees.
-          const phi = theta + i * 6 * step;
-          const pStart = circle(Math.cos(phi) * r, Math.sin(phi) * r, true);
-          wireCircle(pStart);
-          if (rng() < pc * 1.5) {
-            const mul = rollMul();
-            // The petal between the centre circle and this one: the centre's arc from phi-60
-            // to phi+60 (vertices i*6-6 .. i*6+6) against the petal circle's arc through its
-            // own phi+180, from phi+240 back round to phi+120 -- 13 vertices each, joined
-            // as a strip.
-            for (let m = 0; m < 12; m++) {
-              const o0 = centre + ((i * 6 - 6 + m + SEG) % SEG);
-              const o1 = centre + ((i * 6 - 5 + m + SEG) % SEG);
-              const p0 = pStart + ((i * 6 + 24 - m + SEG) % SEG);
-              const p1 = pStart + ((i * 6 + 23 - m + SEG) % SEG);
-              panel([o0, o1, p0], [0, 0, 0], mul);
-              panel([p0, o1, p1], [0, 0, 0], mul);
+        const [c, s] = plate.rot;
+        const at = ([qx, qy], f) => [
+          -((c * qx - s * qy) * PX * f + plate.ox),
+          (s * qx + c * qy) * PX * f + plate.oy
+        ];
+        // The larger shapes carry the figure; small ones only add noise as wires.
+        const ranked = plate.content.outlines
+          .map(o => {
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+            for (const [x, y] of o) {
+              x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+              y0 = Math.min(y0, y); y1 = Math.max(y1, y);
             }
+            return { o, size: Math.hypot(x1 - x0, y1 - y0) };
+          })
+          .sort((a, b) => b.size - a.size);
+        const pool = ranked.slice(0, Math.max(4, Math.ceil(ranked.length * 0.6)));
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        const take = Math.min(pool.length, Math.round(6 + 44 * wire));
+        const copies = 3 + Math.floor(rng() * 3);
+        const gap = 9 + rng() * 8;
+        for (let n = 0; n < take && budget > 0; n++) {
+          let pts = pool[n].o;
+          if (pts.length > 16) {
+            const stepN = Math.ceil(pts.length / 16);
+            pts = pts.filter((_, i) => i % stepN === 0);
+          }
+          const m = pts.length;
+          if (m < 3) continue;
+          const cj = (rng() - 0.5) * 0.3;
+          const corners = m === 3 ? [0, 1, 2] : pts.map((_, i) => i).filter(i => i % Math.ceil(m / 4) === 0);
+          const joined = corners.filter(() => rng() < 0.55);
+          const ribbonEdge = rng() < pc * 1.2 ? Math.floor(rng() * m) : -1;
+          // Wires this far out are under a pixel (see CAGE_WIRE_WIDTH), so a copy also carries a
+          // filled silhouette to be seen at all: one copy per shape, convex shapes only (a fan
+          // from the centre misfills the Golden ring pieces).
+          let turn = 0;
+          for (let i = 0; i < m; i++) {
+            const [a0, a1] = [pts[i], pts[(i + 1) % m]], a2 = pts[(i + 2) % m];
+            const cr = (a1[0] - a0[0]) * (a2[1] - a1[1]) - (a1[1] - a0[1]) * (a2[0] - a1[0]);
+            if (Math.abs(cr) > 1e-9) turn |= cr > 0 ? 1 : 2;
+          }
+          const fillCopy = turn !== 3 && rng() < 0.75 ? 1 + Math.floor(rng() * copies) : -1;
+          const fillMul = rollMul();
+          const ribbonMul = rollMul();
+          let prev = null;
+          for (let j = 0; j <= copies; j++) {
+            const z = plate.z + j * gap;
+            const f = 1 + 0.06 * j;
+            const d = j === 0 ? 1 : 0.95 * (1 - (0.6 * (j - 1)) / copies);
+            const ring = pts.map(pt => {
+              const [x, y] = at(pt, f);
+              return rawVert(x, y, z, cj, d);
+            });
+            budget -= m;
+            // Copy 0 sits on the plate and is not outlined (it would stroke the plate's own
+            // shape); it only anchors the joining wires.
+            if (j > 0) for (let i = 0; i < m; i++) edge(ring[i], ring[(i + 1) % m]);
+            if (j === fillCopy) {
+              if (m === 3) panel(ring.slice(), [0, 0, 0], fillMul);
+              else {
+                let hx = 0, hy = 0;
+                for (const pt of pts) { hx += pt[0] / m; hy += pt[1] / m; }
+                const [x, y] = at([hx, hy], f);
+                const hub = rawVert(x, y, z, cj, d);
+                for (let i = 0; i < m; i++) panel([hub, ring[i], ring[(i + 1) % m]], [0, 0, 0], fillMul);
+              }
+            }
+            if (prev) {
+              for (const i of joined) edge(prev[i], ring[i]);
+              if (ribbonEdge >= 0) {
+                const a = ribbonEdge, b = (ribbonEdge + 1) % m;
+                panel([prev[a], prev[b], ring[b]], [0, 0, 0], ribbonMul);
+                panel([prev[a], ring[b], ring[a]], [0, 0, 0], ribbonMul);
+              }
+            }
+            prev = ring;
           }
         }
       }
-    } else {
-      // Golden: a phyllotaxis tube. Points are laid along the tunnel, each turned from the last
-      // by 21/34 of a turn -- the Fibonacci fraction a sunflower's seeds settle on, the golden
-      // ratio's nearest neighbour that repeats -- so a lap is a whole number of 34-point
-      // periods and closes exactly. Joining each point to the points 3, 5 and 8 on (Fibonacci
-      // numbers, its nearest neighbours at this spacing) draws the two families of crossing
-      // spirals of a sunflower head.
-      const spiral = (radiusAt, periods, outer, wireScale, panelScale) => {
-        const N = 34 * periods;
-        const ang0 = rng() * TWO_PI;
-        const start = V.ang.length;
-        for (let k = 0; k < N; k++) {
-          const z = (k / N) * L;
-          vert(ang0 + ((21 * k) % 34) * (TWO_PI / 34), radiusAt(z / L), z, outer);
-        }
-        const at = k => start + (k % N);
-        const off = k => (k >= N ? L : 0);
-        // Each spiral strand (the points k, k+step, k+2*step... for one residue of k) gets one
-        // strength, and a segment is drawn where the local wire density exceeds it, so a strand
-        // runs unbroken through a dense stretch and fades out through a sparse one. Segment-by-
-        // segment odds broke every spiral into scattered dashes.
-        const strength = { 5: [], 8: [] };
-        for (const st of [5, 8]) for (let f = 0; f < st; f++) strength[st].push(rng());
-        // Panels as SPIRAL RIBBONS (2026-11-20, Aaron: Golden's cage "still looks like the lattice
-        // mode"): scattered single triangles read as the lattice cage. A ribbon is the band
-        // between a strand of the 8-family and its neighbour 5 points on, filled cell after cell
-        // ((k, k+8, k+13, k+5), a lattice parallelogram) for a run along the strand, all one
-        // brightness, so it winds down the tube the way a sunflower's seed spirals do. Only the
-        // two strand families are wired (5 and 8); the short 3-step chords made it a triangle
-        // mesh.
-        const ribbon = new Array(8).fill(null).map(() => ({ on: false, mul: 1 }));
-        for (let k = 0; k < N; k++) {
-          const zFrac = k / N;
-          const wire = wireAt(zFrac, wireScale);
-          const pc = panelAt(zFrac, panelScale);
-          if (strength[5][k % 5] < 1.6 * wire) edge(at(k), at(k + 5), 0, off(k + 5));
-          if (strength[8][k % 8] < 1.6 * wire) edge(at(k), at(k + 8), 0, off(k + 8));
-          // Each 8-strand's ribbon switches on and off in runs: a run starts with odds set by the
-          // local panel density and lasts several cells.
-          const r = ribbon[k % 8];
-          if (r.on ? rng() < 0.12 : rng() < pc * 0.35) {
-            r.on = !r.on;
-            if (r.on) r.mul = rollMul();
-          }
-          if (r.on) {
-            panel([at(k), at(k + 8), at(k + 13)], [0, off(k + 8), off(k + 13)], r.mul);
-            panel([at(k), at(k + 13), at(k + 5)], [0, off(k + 13), off(k + 5)], r.mul);
-          }
-        }
-      };
-      // Spacing: the 5- and 8-step neighbours about 0.8 of a radius away.
-      spiral(z => boreRadiusAt(z), Math.max(1, Math.round(L / (0.11 * rMean * 34))), false, 1, 1);
-      const oR = (38 + rng() * 5) * sizeScale;
-      spiral(() => oR, Math.max(1, Math.round(L / (0.11 * oR * 34))), true, 0.45, 0.15);
     }
 
-    // Keep only the vertices a wire or panel uses: the per-frame pass computes every vertex,
-    // and Flower builds whole circles of which the zones draw only some.
+    buildEcho();
+
+    // Keep only the vertices a wire or panel uses: the per-frame pass computes every vertex.
     const keep = new Int32Array(V.ang.length).fill(-1);
     const order = [];
     const kept = v => {
@@ -1268,16 +1203,14 @@ function buildCage(rng, geometry, L, uViewHalfH) {
     };
   }
 
-  // The cage takes the geometry style's own structure (2026-11-20, Aaron: "is it possible for
-  // each geometry mode to adjust the geometric cage's geometry to match?"). Lattice keeps the
-  // original rings-and-chords build below, untouched; the other styles build their own vertices,
-  // wires and panels (buildStyleCage) into the same arrays, so the per-frame pass, colour and
+  // Lattice keeps the original rings-and-chords build below, untouched; Mosaic, Flower and Golden
+  // build the echo cage (buildEchoCage) into the same arrays, so the per-frame pass, colour and
   // drawing are shared. Everything above this point (radius, path, zones) is common to all.
   let vertCount, baseAng, baseR, baseZ, centerX, centerY, ripplePhase, rippleFreq, rippleAmp, colorJitter, dim, edges, panels;
   const cageStyle = geometry.style && geometry.style !== 'lattice' ? geometry.style : null;
   if (cageStyle) {
     ({ vertCount, baseAng, baseR, baseZ, centerX, centerY, ripplePhase, rippleFreq, rippleAmp, colorJitter, dim, edges, panels } =
-      buildStyleCage(cageStyle));
+      buildEchoCage());
   } else {
   // Ring list: clustered spacing (rings clump and gap per the zone's spacingVar), plus
   // 1–2 "gates" — several rings packed 2.2 units apart with dense chord webs, the 2D
@@ -2365,7 +2298,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // carries hues the sky does not already have.
   const cagePaletteHsl = [...art.gradientBackgroundConfig.colors, ...art.starFieldConfig.gradientConfig.colors].map(toHsl);
   if (cageOn) {
-    cage = buildCage(makeRng(`${seed}-3d-cage`), geometry, L, uViewHalfH);
+    cage = buildCage(makeRng(`${seed}-3d-cage`), geometry, L, uViewHalfH, plates);
     cage.group.traverse(obj => {
       if (obj.geometry) disposables.push(obj.geometry);
       if (obj.material) disposables.push(obj.material);
