@@ -5,6 +5,56 @@ Working list for Aaron + Claude, written after the full pre-launch review on 202
 hardening"). Check items off / delete sections as they land — like CLAUDE.md, this file
 tracks what's true now, not history.
 
+## Planned — move the website from Hostinger to Cloudflare (decided 2026-11-21, not started)
+
+Why: Hostinger is shared hosting built for WordPress, and it keeps costing workarounds -- FTP outages
+(hence the July move to rsync), LiteSpeed silently ignoring correct cache rules, heuristic HTML
+caching that served old builds to phones, and 429s on a burst of requests (two shop cards empty on
+2026-11-21; patched with `fetchRetry`, but the host is the cause). The site is static (~53 MB, ~1,900
+files; Supabase, Fly and Stripe do the real work), and Cloudflare serves static files free, with no
+bandwidth or request limit, from a global CDN, with atomic deploys.
+
+**This does not touch Supabase egress.** The site's files (bundle, instant-mockup maps, 3D models)
+come from the web host, never Supabase. **Email stays on Hostinger**: the `no-reply@`/`support@`
+mailboxes depend only on DNS records, which are copied across unchanged.
+
+Steps, in order. Nothing visible changes until step 6.
+1. **Cloudflare account + project.** Create a Pages project (or Workers with static assets, which
+   Cloudflare now recommends for new sites -- either serves a `dist/` folder; pick on the day). Add
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub secrets.
+2. **Port `public/.htaccess` and `public/assets/.htaccess`** to `public/_headers` (+ `_redirects` if
+   needed). Same policy: HTML no-cache, `/assets/*` one year immutable, other fixed-name files one
+   hour, the four security headers. Two things to test on the preview, not assume:
+   - **SPA fallback vs `public/404.html`.** Cloudflare serves `index.html` for unknown paths only when
+     there is NO top-level `404.html`; ours would turn every client route (`/shop`, `/account`...)
+     into a 404. But a missing `/assets/` chunk must still be a real 404, not `index.html` as
+     `200 text/html` (the blank-page bug the `.htaccess` rule fixed). Find the combination that gives
+     both, and check it with `curl -I`.
+   - **Header rules can MERGE when several match** a path, which could join two Cache-Control values.
+     Check `curl -I` on `/`, `/shop`, one `/assets/` file, `/createjs.min.js`, a missing chunk.
+3. **Deploy step.** In `deploy.yml`, add a `wrangler` deploy of `dist/` after the existing checks and
+   build. Keep the rsync step too until cutover, so both hosts carry every build and rollback is a DNS
+   change.
+4. **Instagram Post Reel's file hosting.** It `scp`s the MP4/cover to Hostinger's `public_html/_ig`
+   so Instagram can fetch them (`scripts/ad-builder-instagram.mjs`). Move to a Cloudflare R2 bucket
+   with a public URL (free to 10 GB, no download fees; files are deleted after posting anyway).
+   Keep the HEAD check, the delete after publish and the 2h sweep.
+5. **Test on the preview URL** (`*.pages.dev`) before touching DNS. To sign in there, add the preview
+   host to Supabase Auth's redirect allow-list and to the Turnstile widget's hostnames. Check: every
+   route loads and survives a hard refresh, `/shop?id=` and a product page fill their instant mockups,
+   the studio generates, a 3D flight plays, sign-in works, Buy Now reaches Stripe, headers per step 2,
+   and Aaron's Safari + iPhone pass.
+6. **Cutover = move DNS to Cloudflare.** An apex custom domain needs the zone on Cloudflare, so the
+   nameservers move (the domain registration can stay at Hostinger). Before switching, copy EVERY
+   existing record from hPanel: MX, SPF/DKIM/DMARC TXT for the Hostinger mailboxes, any verification
+   TXT records. Then send a test email both ways and run `order-watchdog`'s `testAlert`.
+7. **After a quiet week:** remove the rsync step, both `.htaccess` files, the `DEPLOY_SSH_KEY` secret
+   and its key in hPanel; drop Hostinger to its cheapest mail-only option; update CLAUDE.md ("What
+   this is", "Serving & HTTP caching", the ad builder's Post Reel notes).
+
+Rollback until step 7: point the DNS records back at Hostinger (45.137.159.160), which still has
+every build.
+
 ## Instant mockups — DEPLOYED 2026-11-16 (`adc5066`); the plan that shipped them
 
 Four commits on local `master`, NOT pushed (8017759, dbf9cfb, ea0fd9c, 7245363). Aaron's rule: they
