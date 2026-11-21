@@ -2311,6 +2311,10 @@ The logo mark's accent comes from `resolveDesignPalette` like 2D's; `scenePalett
 - **Rush streaks** are one line segment per star extruded toward +z, AWAY from the camera -- the
   physically correct direction (the stars are static and the camera flies +z) -- riding `rush` and
   hidden entirely below `RUSH_STREAK_EPS`; at rush 0 the scene is pixel-identical to one without them.
+  Their opacity scales with the DRAWING BUFFER's height (`STREAK_REF_H` 1800 = unchanged): GL lines
+  are one device pixel at any size, so before 2026-11-20 a smaller canvas showed proportionally more
+  streak -- the ad builder's half-size Flight preview about twice a retina studio's. Anything else
+  drawn as GL lines needs the same treatment (the cage's wires have it, via `uViewHalfH`).
 - **Nothing pops in at the far end because of the depth warp, the haze and sub-pixel coverage**
   -- see (11) above.
 
