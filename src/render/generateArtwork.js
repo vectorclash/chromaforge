@@ -10,7 +10,7 @@ import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialFi
 import GenerateStarField from '../components/Canvas/GenerateStarField';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import { makeRng, randomSeed, expandMonochromePalette, meanLuminance, BRIGHT_BACKDROP } from './prng';
-import { getGeometrySettings, getGeometryPresence, compactSettings } from './designSettings';
+import { getGeometrySettings, getGeometryPresence, compactSettings, resolveGeometryStyle } from './designSettings';
 import { generateNebula } from './nebula';
 
 // Bump when the generation algorithm changes in a way that alters output for a given
@@ -327,6 +327,9 @@ export function generateArtwork(
   } = {}
 ) {
   const rng = makeRng(seed);
+  // "Random" style becomes this seed's own style before anything reads the settings, so the
+  // design built AND the settings it stores both name a real style (see resolveGeometryStyle).
+  settings = resolveGeometryStyle(seed, settings);
 
   // A one-colour palette used to be special-cased inside three separate generators, each
   // improvising a random greyscale companion (see expandMonochromePalette for why that was

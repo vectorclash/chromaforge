@@ -6,7 +6,7 @@
 // it should never be persisted. `settings` (render/designSettings.js) is part of a design's
 // identity like seed/colors, but only kept when non-default so pre-settings designs stay
 // byte-identical. Idempotent: calling this on an already-compact object returns the same shape.
-import { compactSettings } from './designSettings';
+import { compactSettings, resolveGeometryStyle } from './designSettings';
 import { GENERATOR_VERSION } from './generateArtwork';
 
 export function toCompactDesign(config) {
@@ -15,7 +15,9 @@ export function toCompactDesign(config) {
     seed: config.seed,
     colors: config.colors
   };
-  const settings = compactSettings(config.settings);
+  // A 3D flight's design carries the panel's settings as they are, so "Random" is resolved here
+  // too: nothing saved ever says 'random' (see resolveGeometryStyle).
+  const settings = compactSettings(resolveGeometryStyle(config.seed, config.settings));
   if (settings) compact.settings = settings;
   return compact;
 }

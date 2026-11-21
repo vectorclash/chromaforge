@@ -112,7 +112,7 @@ function sanitizeGeometry(geometry) {
     ringsMax: Math.max(clampInt(geometry.ringsMin, 1, 6, d.ringsMin), clampInt(geometry.ringsMax, 1, 6, d.ringsMax)),
     scaleMin: Math.min(clampNumber(geometry.scaleMin, 0, 1, d.scaleMin), clampNumber(geometry.scaleMax, 0, 1, d.scaleMax)),
     scaleMax: Math.max(clampNumber(geometry.scaleMin, 0, 1, d.scaleMin), clampNumber(geometry.scaleMax, 0, 1, d.scaleMax)),
-    style: ['mosaic', 'flower', 'golden'].includes(geometry.style) ? geometry.style : 'lattice'
+    style: ['mosaic', 'flower', 'golden', 'random'].includes(geometry.style) ? geometry.style : 'lattice'
   };
 }
 

@@ -21,7 +21,8 @@ import {
   STUDIO_DEFAULT_GEOMETRY_SETTINGS,
   getGeometrySettings,
   getGeometryPresence,
-  getStudioGeometrySettings
+  getStudioGeometrySettings,
+  resolveGeometryStyle
 } from '../render/designSettings';
 import { DURATION_FAST, DURATION_BASE, DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_2D, RAMP_FLOOR_3D } from '../utils/speedRamp';
@@ -1672,10 +1673,14 @@ export default class DisplayCanvas extends React.Component {
     const colors = chosenColors(design);
     const { chance: ownChance, ...dna } = getGeometrySettings(design.settings);
     const mine = this.chosen;
+    // "Random" names no style, so a design matches it when it has the style Random gives its
+    // seed: a design the visitor's own settings just made, or one the panel can reshape as-is
+    // (any edit regenerates this seed under Random, which lands on that same style).
+    const mineGeometry = resolveGeometryStyle(design.seed, { geometry: mine.geometry }).geometry;
     const same =
       colors.length === mine.colors.length &&
       colors.every((c, i) => String(c).toLowerCase() === String(mine.colors[i]).toLowerCase()) &&
-      Object.keys(dna).every(key => dna[key] === mine.geometry[key]);
+      Object.keys(dna).every(key => dna[key] === mineGeometry[key]);
     if (same) return this.state.showingDesign ? this.chosenPanelState() : {};
     const present = getGeometryPresence(design.settings);
     gsap.delayedCall(0.05, () => this.animateColors());
@@ -4795,7 +4800,10 @@ export default class DisplayCanvas extends React.Component {
                   <span className="settings-label">Style</span>
                   {/* Lattice: shapes from the ring lattice. Mosaic, Flower and Golden: a triangle
                       grid, Flower of Life petals and a golden spiral (GenerateGeometricShape's
-                      build* methods), where Sides and Rings mean nothing and read "—". */}
+                      build* methods), where Sides and Rings mean nothing and read "—". Random
+                      picks one of the four per design, from its seed (resolveGeometryStyle);
+                      Sides and Rings keep their values there, since they apply whenever it
+                      lands on Lattice. */}
                   <select
                     className="settings-select"
                     value={geometrySettings.style}
@@ -4806,6 +4814,7 @@ export default class DisplayCanvas extends React.Component {
                     <option value="mosaic">Mosaic</option>
                     <option value="flower">Flower</option>
                     <option value="golden">Golden</option>
+                    <option value="random">Random</option>
                   </select>
                 </div>
                 <div className="settings-field">
@@ -4813,7 +4822,7 @@ export default class DisplayCanvas extends React.Component {
                     Sides
                     <span className="settings-label-note">
                       {' '}
-                      {geometrySettings.style !== 'lattice'
+                      {geometrySettings.style !== 'lattice' && geometrySettings.style !== 'random'
                         ? '—'
                         : geometrySettings.pointsMin === geometrySettings.pointsMax
                         ? geometrySettings.pointsMin
@@ -4885,7 +4894,7 @@ export default class DisplayCanvas extends React.Component {
                     Rings
                     <span className="settings-label-note">
                       {' '}
-                      {geometrySettings.style !== 'lattice'
+                      {geometrySettings.style !== 'lattice' && geometrySettings.style !== 'random'
                         ? '—'
                         : geometrySettings.ringsMin === geometrySettings.ringsMax
                         ? geometrySettings.ringsMin

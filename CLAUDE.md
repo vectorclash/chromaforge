@@ -329,6 +329,14 @@ the actual print, generated the same deterministic way.
   out a different figure on every product (his Mosaic: 3% of the studio's central shapes on the tee
   front, some products with none). `check-render-density.mjs` now asserts it on every real
   printfile (verified to fail on that code). Any new style must pass it.
+  **The Style selector's "Random" is not a style** (`resolveGeometryStyle` in designSettings.js,
+  2026-11-20): `generateArtwork` and `createTunnelScene` swap it for one of `GEOMETRY_STYLES`,
+  drawn from the design's own `${seed}-style` stream, before anything reads the settings, so no
+  shared rng() draw moves and every generated (and saved) design states a concrete style. Like
+  `chance` it only lives in the panel and the remembered prefs. `designPanelState` compares a
+  loaded design against what Random gives ITS seed, so a design Random made still reads as the
+  visitor's own. Adding a style to `GEOMETRY_STYLES` re-deals Random's pick per seed, which
+  reaches nothing stored.
 - **The studio starts with **Stars in front** ON — `STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP`
   (2026-09-17, Aaron, immediately after the Spread default above: "any large geometry should
   have the stars in front setting on").** It is the direct consequence of that default rather

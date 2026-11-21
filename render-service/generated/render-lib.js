@@ -467,7 +467,8 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // Lattice: 'lattice' (the ring lattice), 'mosaic' (an isometric triangle grid filled in
   // clusters), 'flower' (Flower of Life petals) or 'golden' (a golden spiral) -- see
   // GenerateGeometricShape's build* methods. Sides and Rings mean nothing to the last three.
-  // Flower and Golden draw curves (render/shapePath.js).
+  // Flower and Golden draw curves (render/shapePath.js). The studio's selector also offers
+  // 'random', which is never a style of its own: see resolveGeometryStyle.
   style: "lattice"
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
@@ -489,6 +490,12 @@ var STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   spread: STUDIO_DEFAULT_GEOMETRY_SPREAD,
   starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
 };
+var GEOMETRY_STYLES = ["lattice", "mosaic", "flower", "golden"];
+function resolveGeometryStyle(seed, settings) {
+  if (settings?.geometry?.style !== "random") return settings;
+  const style = GEOMETRY_STYLES[Math.floor(makeRng(`${seed}-style`)() * GEOMETRY_STYLES.length)];
+  return { ...settings, geometry: { ...settings.geometry, style } };
+}
 function getGeometrySettings(settings) {
   const resolved = { ...DEFAULT_GEOMETRY_SETTINGS, chance: LEGACY_GEOMETRY_CHANCE };
   const stored = settings?.geometry;
@@ -1856,6 +1863,7 @@ function generateArtwork(seed = randomSeed(), width, height, colorValues = [], s
   nebulaPixels = null
 } = {}) {
   const rng = makeRng(seed);
+  settings = resolveGeometryStyle(seed, settings);
   const paletteColors = colorValues.length === 1 ? expandMonochromePalette(colorValues[0], makeRng(`${seed}-palette`)) : colorValues;
   const geometry = getGeometrySettings(settings);
   const config = {

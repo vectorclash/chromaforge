@@ -11,6 +11,7 @@
 //
 // This lives in its own module (not generateArtwork.js) because the Generate* classes need
 // it too, and generateArtwork imports those -- putting it there would be a circular import.
+import { makeRng } from './prng';
 
 // See scaleMin/scaleMax below; named so the tuning lives in one place.
 const SCALE_MIN_DEFAULT = 0.3;
@@ -132,7 +133,8 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // Lattice: 'lattice' (the ring lattice), 'mosaic' (an isometric triangle grid filled in
   // clusters), 'flower' (Flower of Life petals) or 'golden' (a golden spiral) -- see
   // GenerateGeometricShape's build* methods. Sides and Rings mean nothing to the last three.
-  // Flower and Golden draw curves (render/shapePath.js).
+  // Flower and Golden draw curves (render/shapePath.js). The studio's selector also offers
+  // 'random', which is never a style of its own: see resolveGeometryStyle.
   style: 'lattice'
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
@@ -231,6 +233,25 @@ export const STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   spread: STUDIO_DEFAULT_GEOMETRY_SPREAD,
   starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
 };
+
+// The geometry styles a design can have, in the studio selector's order.
+export const GEOMETRY_STYLES = ['lattice', 'mosaic', 'flower', 'golden'];
+
+// The selector's "Random" (2026-11-20): the style is picked per design, from the design's own
+// seed. It is a choice about making NEW work, like `chance`, never a style a design has --
+// generateArtwork (and the 3D flight) resolve it before anything is built, so a generated
+// design always STATES its concrete style, and that is what gets saved. Two things follow:
+//   - The pick comes from its own stream (`${seed}-style`), so it moves no shared rng() draw,
+//     and it is a pure function of the seed: a slider release on the same seed keeps the style,
+//     and a mockup and its print agree.
+//   - A stored design never says 'random', so adding a style to GEOMETRY_STYLES (which re-deals
+//     every seed's pick) cannot reach anything already made. Should a stray 'random' ever be
+//     stored, it still renders deterministically.
+export function resolveGeometryStyle(seed, settings) {
+  if (settings?.geometry?.style !== 'random') return settings;
+  const style = GEOMETRY_STYLES[Math.floor(makeRng(`${seed}-style`)() * GEOMETRY_STYLES.length)];
+  return { ...settings, geometry: { ...settings.geometry, style } };
+}
 
 // Resolve a design's stored `settings` (possibly missing/partial) to a full geometry
 // settings object.

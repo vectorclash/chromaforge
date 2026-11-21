@@ -3,7 +3,7 @@ import tinycolor from 'tinycolor2';
 import { nLerp, valueNoise } from '../render/valueNoise';
 import { makeRng, expandMonochromePalette } from '../render/prng';
 import { generateArtwork } from '../render/generateArtwork';
-import { getGeometrySettings } from '../render/designSettings';
+import { getGeometrySettings, resolveGeometryStyle } from '../render/designSettings';
 import { shapeOutline } from '../render/shapePath';
 import GenerateGeometricShape from '../components/Canvas/GenerateGeometricShape';
 import GenerateLargeRadialField from '../components/Canvas/GenerateLargeRadialField';
@@ -2102,6 +2102,9 @@ export function sceneBasePalette(seed, colors = [], settings = null) {
 
 // ─── Scene factory ────────────────────────────────────────────────────────────────────
 export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true, renderer: bakeRenderer = null }) {
+  // A flight's plates and cage read the style too, so "Random" resolves here as well, to the
+  // same style the 2D artwork of this seed gets.
+  settings = resolveGeometryStyle(seed, settings);
   const rng = makeRng(`${seed}-3d`);
   // The 2D artwork for this seed, on the studio canvas. Everything in the flight derives
   // from it or from the generators that built it.
