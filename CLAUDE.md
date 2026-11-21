@@ -319,6 +319,16 @@ the actual print, generated the same deterministic way.
   320 — but this is the second tab to do so, and panel HEIGHT is the scarce axis on this panel
   (see the `starsOnTop` row's note on why the sliders shrink rather than stack).
 
+- **The lattice model's styles build ONE figure on every product (2026-11-20, Aaron: "the new
+  geometry modes absolutely have to structure themselves in the same way across all sizes as we
+  have the lattice mode tuned to be").** Every decision -- which cells or centres exist, where
+  cluster seeds land, how many shapes, where Golden's eye sits -- is made in units of the frame's
+  short edge around the centre (`STYLE_DOMAIN` 2.5, `STYLE_CORE` 0.75 in GenerateGeometricShape),
+  never from the canvas's width and height, so each product only CROPS the same figure. Mosaic,
+  Flower and Golden shipped for an hour listing only the cells inside each canvas, so a design laid
+  out a different figure on every product (his Mosaic: 3% of the studio's central shapes on the tee
+  front, some products with none). `check-render-density.mjs` now asserts it on every real
+  printfile (verified to fail on that code). Any new style must pass it.
 - **The studio starts with **Stars in front** ON — `STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP`
   (2026-09-17, Aaron, immediately after the Spread default above: "any large geometry should
   have the stars in front setting on").** It is the direct consequence of that default rather

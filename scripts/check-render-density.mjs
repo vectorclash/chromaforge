@@ -23,6 +23,7 @@
 //   node scripts/check-render-density.mjs        # needs no secrets, no network
 import { generateArtwork } from '../render-service/generated/render-lib.js';
 import { capMockupRenderSize } from '../src/render/scale.js';
+import { shapeOutline } from '../src/render/shapePath.js';
 
 // Real printfile dimensions per product, as the catalogue reports them: every distinct non-label
 // print file across all variants, read from /mockup-generator/printfiles on 2026-11-20 (the table
@@ -79,3 +80,45 @@ if (failed) {
   process.exit(1);
 }
 console.log('PASS: every mockup composes the same piece as the print file it stands in for.');
+
+// ONE FIGURE ON EVERY PRODUCT (2026-11-20). The lattice model's styles must build the same
+// structure on every canvas SHAPE, as the Lattice style does: a figure in units of the short
+// edge around the centre, which each canvas only crops. The check above compares two sizes of
+// one canvas and could not see Mosaic, Flower and Golden laying out a different figure on each
+// product (shipped that way for an hour; on Aaron's design the shapes every canvas shows matched
+// the studio's 3% on the tee front). Here: for each lattice-model style, the shapes whose centres
+// lie in the area every canvas shows (0.45 short edges each way) must match the studio canvas's,
+// on every printfile, to within 1% of a short edge. Verified to fail on the code before the fix
+// (worst 0% Mosaic, 2% Flower, 0% Golden) and pass after (100% everywhere, Lattice included).
+const STUDIO = [3840, 2160];
+const centres = (w, h, cfg) => {
+  const s = Math.min(w, h);
+  const out = [];
+  for (const sh of cfg?.shapes || []) {
+    const p = shapeOutline(sh);
+    const x = p.reduce((a, q) => a + q[0], 0) / p.length / s;
+    const y = p.reduce((a, q) => a + q[1], 0) / p.length / s;
+    if (Math.abs(x) <= 0.45 && Math.abs(y) <= 0.45) out.push([x, y]);
+  }
+  return out;
+};
+const covered = (A, B) => A.every(([x, y]) => B.some(([u, v]) => Math.hypot(x - u, y - v) < 0.01));
+let shapeChecks = 0, shapeFailed = 0;
+for (const settings of LATTICE) for (const seed of SEEDS) {
+  const ref = centres(...STUDIO, generateArtwork(seed, ...STUDIO, [], settings).geometryConfig);
+  for (const [id, files] of Object.entries(PRINTFILES)) for (const [pw, ph] of files) {
+    shapeChecks++;
+    const got = centres(pw, ph, generateArtwork(seed, pw, ph, [], settings).geometryConfig);
+    if (!covered(ref, got) || !covered(got, ref)) {
+      shapeFailed++;
+      if (shapeFailed <= 12) console.log(`  FAIL ${settings.geometry.style} sym${settings.geometry.coherence}  seed ${seed}  product ${id} ${pw}x${ph}: a different figure from the studio's`);
+    }
+  }
+}
+console.log(`\n${shapeChecks} style x seed x product canvas comparisons against the studio canvas`);
+if (shapeFailed) {
+  console.log(`\nFAIL: ${shapeFailed} canvases build a different figure. A style must decide everything in`);
+  console.log('short-edge units around the centre, never from the canvas width and height.');
+  process.exit(1);
+}
+console.log('PASS: every geometry style builds the same figure on every product, cropped by its canvas.');
