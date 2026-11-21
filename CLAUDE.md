@@ -329,6 +329,14 @@ the actual print, generated the same deterministic way.
   out a different figure on every product (his Mosaic: 3% of the studio's central shapes on the tee
   front, some products with none). `check-render-density.mjs` now asserts it on every real
   printfile (verified to fail on that code). Any new style must pass it.
+  **At full Symmetry, Mosaic and Flower reach the edges (2026-11-21, Aaron: the figure "gets a lot
+  smaller and never covers the full artwork").** Every symmetric cluster used to start within
+  ~0.35 short edges of the centre, so at Symmetry 1 the figure reached 43% (Mosaic) and 60%
+  (Flower) of the 16:9 half-diagonal, against ~95-100% at Symmetry 0. Now only the FIRST symmetric
+  cluster is held to the centre; later ones start anywhere out to `STYLE_RING` (1 short edge) and
+  their six turns land as a ring there: 0.94 / 1.01. No draw count moved, Symmetry-0 output is
+  identical, and no stored design changed (the saved Mosaic/Flower rows are all at Symmetry 0).
+  Lattice and Golden already covered the frame at full Symmetry and were left alone.
   **The Style selector's "Random" is not a style** (`resolveGeometryStyle` in designSettings.js,
   2026-11-20): `generateArtwork` and `createTunnelScene` swap it for one of `GEOMETRY_STYLES`,
   drawn from the design's own `${seed}-style` stream, before anything reads the settings, so no

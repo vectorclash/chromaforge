@@ -57,6 +57,11 @@ const SCALE_SKEW = 0.3;
 //                   studio keeps the amount of geometry it was tuned with.
 const STYLE_DOMAIN = 2.5;
 const STYLE_CORE = 0.75;
+//   STYLE_RING   -- how far out a symmetric cluster after the first may start (Mosaic, Flower):
+//                   about the corners of the studio's 16:9 frame (1.02 short edges), so at full
+//                   Symmetry the figure's rings can reach the whole artwork. Its six turns land
+//                   on one ring, so it stays one figure about the centre on every product.
+const STYLE_RING = 1;
 
 export default class GenerateGeometricShape {
   constructor(
@@ -500,7 +505,8 @@ export default class GenerateGeometricShape {
       // gather into one figure on screen instead of landing off the sides of a wide canvas.
       const near = (short * 0.35) / layer.side;
       const core = (short * STYLE_CORE) / layer.side;
-      const chosen = this.growClusters(cells, layer.fill, 2 + Math.floor(r() * 3), g.coherence, near, core);
+      const ring = (short * STYLE_RING) / layer.side;
+      const chosen = this.growClusters(cells, layer.fill, 2 + Math.floor(r() * 3), g.coherence, near, core, ring);
       for (const cell of chosen) shapes.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
     }
     return shapes;
@@ -550,6 +556,7 @@ export default class GenerateGeometricShape {
         symmetry: g.coherence,
         near: (short * 0.3) / R,
         core: (short * STYLE_CORE) / R,
+        ring: (short * STYLE_RING) / R,
         neighbours: ({ a, b }) => SIX.map(([da, db]) => `${a + da},${b + db}`),
         turn: key => {
           const [a, b] = key.split(',').map(Number);
@@ -658,21 +665,25 @@ export default class GenerateGeometricShape {
   // are taken, each cluster copied into all `turns` turns (`turn` maps a key to the key one turn on) with
   // probability `symmetry`, those
   // clusters starting within `near` of the centre. Returns items in the order taken.
-  growGraph(items, { fill, seeds, symmetry, near, core, neighbours, turn, turns }) {
+  growGraph(items, { fill, seeds, symmetry, near, core, ring, neighbours, turn, turns }) {
     const r = this.rng;
     const keys = [...items.keys()];
     if (!keys.length) return [];
     const central = keys.filter(k => items.get(k).d <= Math.max(near, 1));
     // As growClusters: seeds and the budget from the fixed core, not the whole domain.
     const coreKeys = keys.filter(k => items.get(k).d <= Math.max(core, 1));
+    const ringKeys = keys.filter(k => items.get(k).d <= Math.max(ring, 1));
     const want = Math.max(1, Math.round(coreKeys.length * fill));
     const perSeed = Math.max(1, Math.round(want / seeds));
     const taken = new Set();
     const out = [];
+    let centred = false;
     for (let s = 0; s < seeds && taken.size < want; s++) {
       const mirror = r() < symmetry;
       const size = mirror ? Math.max(1, Math.round(perSeed / turns)) : perSeed;
-      const pool = mirror && central.length ? central : coreKeys.length ? coreKeys : keys;
+      // See growClusters: only the first symmetric cluster is held to the centre.
+      const pool = !mirror ? (coreKeys.length ? coreKeys : keys) : !centred && central.length ? central : ringKeys;
+      if (mirror) centred = true;
       const start = pool[Math.floor(r() * pool.length)];
       const cluster = [start];
       const inCluster = new Set(cluster);
@@ -751,7 +762,7 @@ export default class GenerateGeometricShape {
   // hold `fill` of the grid. Each cluster is, with probability `symmetry`, copied into its
   // six turns about the origin (cells turned off the canvas are dropped). Returned in the
   // order grown, which is the draw order.
-  growClusters(cells, fill, seeds, symmetry, near, core) {
+  growClusters(cells, fill, seeds, symmetry, near, core, ring) {
     const r = this.rng;
     const keys = [...cells.keys()];
     if (!keys.length) return [];
@@ -760,15 +771,25 @@ export default class GenerateGeometricShape {
     // the domain reaches far past a square canvas, and a budget counted against all of it, or a
     // seed dropped anywhere in it, would leave most canvases nearly empty.
     const coreKeys = keys.filter(k => cells.get(k).d <= Math.max(core, 1));
+    const ringKeys = keys.filter(k => cells.get(k).d <= Math.max(ring, 1));
     const want = Math.max(1, Math.round(coreKeys.length * fill));
     const taken = new Set();
     const out = [];
     const perSeed = Math.max(1, Math.round(want / seeds));
+    let centred = false;
     for (let s = 0; s < seeds && taken.size < want; s++) {
       const mirror = r() < symmetry;
       // A mirrored cluster is copied six times, so it grows a sixth as far.
       const size = mirror ? Math.max(1, Math.round(perSeed / 6)) : perSeed;
-      const pool = mirror && central.length ? central : coreKeys.length ? coreKeys : keys;
+      // Only the FIRST symmetric cluster starts near the centre, so the figure has a heart; the
+      // rest start anywhere out to STYLE_RING, and their six turns land as a ring at that
+      // distance (2026-11-21, Aaron: at full Symmetry the figure "gets a lot smaller
+      // and never covers the full artwork"). With every symmetric seed held to `near`, full
+      // Symmetry packed the whole budget inside ~0.4 short edges of the centre: measured over 24
+      // seeds at 3840x2160, Mosaic reached 43% of the half-diagonal and Flower 60%, against
+      // ~95-100% with no symmetry. Same draws as before; only which cell a seed lands on moves.
+      const pool = !mirror ? (coreKeys.length ? coreKeys : keys) : !centred && central.length ? central : ringKeys;
+      if (mirror) centred = true;
       const start = pool[Math.floor(r() * pool.length)];
       const cluster = [start];
       const inCluster = new Set(cluster);
