@@ -456,50 +456,19 @@ export default function AdBuilder() {
   }, [drawKey]);
 
   // ── Playback: the music's clock when there is music, the wall clock otherwise ──
-  // The audio context, made once, with an analyser between the music and the speakers. The
-  // analyser drives the audio readout under the preview (showAudio): Safari has gone silent on
-  // this page four times (2026-10-13, 10-27, 11-11, 11-21) with the code fine every time, a refresh
-  // not helping and a full quit of Safari fixing it -- and the context's own state while it was
-  // broken had never been seen. The readout says whether the page is making sound (state running,
-  // level moving) or not (suspended, or Safari's own 'interrupted'), which tells "the page" apart
-  // from "Safari's audio output" the next time it happens.
-  const audioRef = useRef(null);
+  // The audio context, made once per page (closed and forgotten on pagehide, below). Its state
+  // changes are logged: Safari has gone silent on this page four times (2026-10-13, 10-27, 11-11,
+  // 11-21), each time with the context running and a full quit of Safari the only fix.
   const ensureAudio = () => {
     const p = play.current;
     if (!p.audio) {
       p.audio = new AudioContext();
-      p.analyser = p.audio.createAnalyser();
-      p.analyser.fftSize = 2048;
-      p.analyser.connect(p.audio.destination);
       p.audio.addEventListener('statechange', () => {
-        console.info('[ad builder] audio context:', p.audio.state);
-        showAudio();
+        console.info('[ad builder] audio context:', p.audio?.state);
       });
     }
     return p.audio;
   };
-  const showAudio = () => {
-    const p = play.current;
-    const el = audioRef.current;
-    if (!el) return;
-    if (!p.audio) {
-      el.textContent = '';
-      return;
-    }
-    let level = '';
-    if (p.source && p.analyser) {
-      const buf = new Float32Array(p.analyser.fftSize);
-      p.analyser.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (const v of buf) sum += v * v;
-      const rms = Math.sqrt(sum / buf.length);
-      level = rms > 1e-5 ? ` · ${Math.round(20 * Math.log10(rms))} dB` : ' · silent';
-    } else if (!musicRef.current) {
-      level = ' · no music';
-    }
-    el.textContent = `audio ${p.audio.state} · ${Math.round(p.audio.sampleRate / 100) / 10}kHz${level}`;
-  };
-
   const stopSource = () => {
     const p = play.current;
     try {
@@ -518,7 +487,7 @@ export default function AdBuilder() {
       ensureAudio().resume();
       const src = p.audio.createBufferSource();
       src.buffer = buffer;
-      src.connect(p.analyser);
+      src.connect(p.audio.destination);
       src.start(0, Math.min(t0, buffer.duration));
       p.source = src;
       p.audioStart = p.audio.currentTime - t0;
@@ -536,7 +505,6 @@ export default function AdBuilder() {
     p.playing = false;
     cancelAnimationFrame(p.raf);
     stopSource();
-    showAudio();
     setPlaying(false);
   };
 
@@ -586,7 +554,6 @@ export default function AdBuilder() {
       if (now - (p.readoutAt || 0) > 100) {
         p.readoutAt = now;
         showTime(t);
-        showAudio();
       }
       p.raf = requestAnimationFrame(tick);
     };
@@ -617,7 +584,6 @@ export default function AdBuilder() {
       stopSource();
       const ctx = p.audio;
       p.audio = null;
-      p.analyser = null;
       if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
     };
     window.addEventListener('pagehide', shut);
@@ -997,7 +963,11 @@ export default function AdBuilder() {
       const canvas = document.createElement('canvas');
       canvas.width = sz.width;
       canvas.height = sz.height;
-      comp.draw(canvas.getContext('2d'), play.current.t, { timeline: activeTimeline, overlay, explain });
+      comp.draw(canvas.getContext('2d'), play.current.t, {
+        timeline: activeTimeline,
+        overlay,
+        explain
+      });
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
       if (!blob) throw new Error('The frame could not be encoded.');
       return blob;
@@ -1042,7 +1012,13 @@ export default function AdBuilder() {
     pause();
     setExportState({ label: 'Rendering slides', progress: 0 });
     try {
-      return await renderSlideFiles(feedSlides, flightDesign, feedImages, setExportState, clipQuality(flightQuality));
+      return await renderSlideFiles(
+        feedSlides,
+        flightDesign,
+        feedImages,
+        setExportState,
+        clipQuality(flightQuality)
+      );
     } finally {
       setExportState(null);
     }
@@ -1741,7 +1717,20 @@ export default function AdBuilder() {
             post={post}
             onChange={setPost}
             catalog={catalog}
-            adProductIds={[...new Set((isFeed ? feedSlides.filter(s => s.type === 'photo').map(s => photoByUrl.get(s.url)?.productId) : isFlight ? [] : isExplain ? [explain.garment === 'hoodie' ? 388 : 257] : photos.map(p => p.productId)).filter(Boolean))]}
+            adProductIds={[
+              ...new Set(
+                (isFeed
+                  ? feedSlides
+                      .filter(s => s.type === 'photo')
+                      .map(s => photoByUrl.get(s.url)?.productId)
+                  : isFlight
+                    ? []
+                    : isExplain
+                      ? [explain.garment === 'hoodie' ? 388 : 257]
+                      : photos.map(p => p.productId)
+                ).filter(Boolean)
+              )
+            ]}
           />
           <InstagramPost
             kind={isFeed ? feedKind : 'reel'}
@@ -1797,10 +1786,7 @@ export default function AdBuilder() {
             )}
             {showIg && isReelSize && <InstagramOverlay />}
           </div>
-          <div
-            className="flex flex-col gap-2"
-            style={previewRow(sz)}
-          >
+          <div className="flex flex-col gap-2" style={previewRow(sz)}>
             <input
               ref={scrubRef}
               type="range"
@@ -1825,13 +1811,8 @@ export default function AdBuilder() {
                 {playing ? 'Pause' : 'Play'}
               </Button>
               <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
-              <span
-                ref={audioRef}
-                className="text-xs tabular-nums text-neutral-500"
-                title="The preview's audio: its state, sample rate and level. If Safari goes silent, this says whether the page is still making sound."
-              />
               {isReelSize && (
-                <label className="ml-auto flex items-center gap-2 text-xs text-neutral-400">
+                <label className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-neutral-400">
                   <Toggle
                     on={showIg}
                     onClick={() => setShowIg(v => !v)}
@@ -1899,10 +1880,7 @@ export default function AdBuilder() {
 
           {/* As wide as the preview: the scrubber on its own row, so it is never squeezed by the
               readouts, and the segments numbered like the photos in the products list. */}
-          <div
-            className="flex flex-col gap-2"
-            style={previewRow(sz)}
-          >
+          <div className="flex flex-col gap-2" style={previewRow(sz)}>
             <div className="relative pt-4">
               <div className="pointer-events-none absolute inset-x-0 top-0 flex text-[10px] text-neutral-500">
                 {segments.map((s, i) => (
@@ -1941,17 +1919,12 @@ export default function AdBuilder() {
               </Button>
               <span ref={timeRef} className="text-xs tabular-nums text-neutral-400" />
               <span
-                ref={audioRef}
-                className="text-xs tabular-nums text-neutral-500"
-                title="The preview's audio: its state, sample rate and level. If Safari goes silent, this says whether the page is still making sound."
-              />
-              <span
                 ref={fpsRef}
                 className="ml-auto text-xs tabular-nums text-neutral-500"
                 title="Preview frame rate, and what drawing a frame costs"
               />
               {isReelSize && (
-                <label className="flex items-center gap-2 text-xs text-neutral-400">
+                <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-neutral-400">
                   <Toggle
                     on={showIg}
                     onClick={() => setShowIg(v => !v)}
