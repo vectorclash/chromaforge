@@ -2,8 +2,10 @@
 // integer lattice periods so it wraps exactly. Pure and DOM-free so the nebula's worker can build it
 // (render/nebulaWorker.js) -- ~30ms on a desktop, a noticeable hitch on a phone's main thread.
 export const DETAIL_SIZE = 64;
-export function detailNoiseData() {
-  const N = DETAIL_SIZE;
+// `size` and `octaves` default to the flight's tile; the ad builder's stock render asks for a finer
+// one (128, 5). The lattice periods double per octave from 4, so they must fit inside MAXP.
+export function detailNoiseData(size = DETAIL_SIZE, octaves = 4) {
+  const N = size;
   let h = 2166136261 >>> 0;
   const rand = () => {
     h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
@@ -11,7 +13,7 @@ export function detailNoiseData() {
     h ^= h >>> 16;
     return h / 4294967296;
   };
-  const MAXP = 32;
+  const MAXP = 4 << (octaves - 1);
   const grads = new Float32Array(MAXP * MAXP * MAXP * 3);
   for (let i = 0; i < MAXP * MAXP * MAXP; i++) {
     const z = rand() * 2 - 1, a = rand() * Math.PI * 2, r = Math.sqrt(1 - z * z);
@@ -36,8 +38,8 @@ export function detailNoiseData() {
     for (let y = 0; y < N; y++)
       for (let x = 0; x < N; x++) {
         let sum = 0, amp = 1, norm = 0;
-        for (let o = 0; o < 4; o++) {
-          const P = 4 << o; // lattice cells across the tile: 4, 8, 16, 32
+        for (let o = 0; o < octaves; o++) {
+          const P = 4 << o; // lattice cells across the tile: 4, 8, 16, 32 (, 64 ...)
           sum += amp * perlin((x / N) * P, (y / N) * P, (z / N) * P, P);
           norm += amp;
           amp *= 0.5;

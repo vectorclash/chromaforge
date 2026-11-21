@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { nebulaFieldGpu, NEBULA_LIB_GLSL, NEBULA_UNIFORMS_GLSL } from '../render/nebulaGpu';
 import { UNITS_PER_SHORT_EDGE } from '../render/nebula2dCpu';
-import { placement, placementAsync, askNebulaWorker, hisCurveKnots, ALPHAQ } from '../render/nebula';
+import { placement, placementAsync, askNebulaWorker, hisCurveKnots, ALPHAQ, nebulaColour } from '../render/nebula';
 import { detailNoiseData, DETAIL_SIZE } from '../render/nebulaDetail';
 import { makeRng } from '../render/prng';
 
@@ -128,6 +128,20 @@ function detailTexture() {
   DETAIL = tex;
   return tex;
 }
+// The stock render's finer tile (detailNoiseData at 128^3, five octaves): built on demand, once.
+let DETAIL_HI = null;
+function detailTextureHi() {
+  if (DETAIL_HI) return DETAIL_HI;
+  const N = 128;
+  const tex = new THREE.Data3DTexture(detailNoiseData(N, 5), N, N, N);
+  tex.format = THREE.RedFormat;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = tex.wrapR = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  DETAIL_HI = tex;
+  return tex;
+}
 let detailPending = null;
 function fillDetail(data) {
   if (detailFilled) return;
@@ -203,7 +217,8 @@ const MARCH_FRAG = /* glsl */ `
     // Per-pixel offset of the sample depths (interleaved gradient noise). With every pixel sampling
     // the same depths, sharp cloud edges showed the steps as evenly spaced ridges along each ray.
     float jit = uJitter < 0.0 ? fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) : uJitter;
-    for (int i = 0; i < 160; i++) {
+    JITTER_HERE
+    for (int i = 0; i < MAX_STEPS_HERE; i++) {
       if (i >= uSteps || T < 0.01) break;
       float t = 2.0 * pow(uFar / 2.0, (float(i) + jit) / float(uSteps));
       float dt = t - tPrev; tPrev = t;
@@ -267,13 +282,189 @@ const BAKE_FRAG = /* glsl */ `
   }
 `;
 
-function buildVolume({ seed, plan, L, frameH, space, quad }) {
+// ─── The Blender recipe (stock renders only) ─────────────────────────────────────────
+// The 3D Nebula Generator file's volume (Blender Market, Mark Kingsnorth, v3.0.4: the "Nebula
+// Material" node tree, read out of nebula_3d.current.v3.0.4.blend on 2026-11-21), the look Aaron
+// approved on 2026-10-18 and set aside then as too slow for the site. One fBm whose SCALE is driven
+// by a slow noise and whose DISTORTION by a fine one:
+//   q = world / 85.5445 (the file's Empty) + offset
+//   s = fbm(q * 0.11, rough 0.5379)              -- the scale field
+//   d = fbm(q * 20,   rough 0.573)               -- the distortion field
+//   n = fbm(distort(q * s, 0.5 * d), rough 0.5743)
+//   dust: n < 0.3944, density 45 (a hard step: black, opaque)
+//   gas:  1 at n = 0.3513 falling to 0 at 0.4932, density 0.015, coloured by a ramp over that
+//         value -- navy (0.593), orange (0.692), black (0.748) -- so the gas is a faint navy
+//         haze with an orange rim right at the edge of the dust.
+// The file's octaves (16) are more than any grid holds; the bake keeps what its voxels can (uOctN)
+// and the march's detail tile supplies the rest, which is where the dust edges get their wisps.
+// Colour stays the flight's: gas luminance becomes the layer's alpha, painted with the design's
+// gradient as every nebula is; the dust darkens what is behind it.
+const BLENDER_BAKE_FRAG = /* glsl */ `
+  precision highp float; precision highp int;
+  ${NEBULA_UNIFORMS_GLSL}
+  ${NEBULA_LIB_GLSL}
+  uniform float uRes;      // voxels across
+  uniform float uSpan;     // world units across
+  uniform float uDepthA;   // this slice's depth, world units
+  uniform float uDepthB;   // the same slice one loop earlier (the seam crossfade)
+  uniform float uSeamW;
+  uniform float uQ;        // recipe units per world unit
+  uniform vec3 uQOff;
+  uniform int uOctN, uOctS, uOctD;
+  float fbmR(vec3 p, int oct, float rough) {
+    float fs = 1.0, amp = 1.0, maxamp = 0.0, sum = 0.0;
+    for (int i = 0; i < 16; i++) {
+      if (i >= oct) break;
+      sum += snoise(fs * p) * amp; maxamp += amp; amp *= rough; fs *= 2.0;
+    }
+    return 0.5 * sum / maxamp + 0.5;
+  }
+  float recipe(vec3 q) {
+    float sc = fbmR(q * 0.11, uOctS, 0.5379);
+    float d = fbmR(q * 20.0, uOctD, 0.573);
+    return fbmR(warped(q, sc, 0.5 * d), uOctN, 0.5743);
+  }
+  void main() {
+    vec2 lat = (gl_FragCoord.xy - uRes * 0.5) * (uSpan / uRes);
+    float v = 0.0, earlier = 0.0;
+    for (int k = 0; k < (uSeamW > 0.0 ? 2 : 1); k++) {
+      float z = k == 0 ? uDepthA : uDepthB;
+      float l = recipe(vec3(lat.x, z, lat.y) * uQ + uQOff);
+      if (k == 0) v = l; else earlier = l;
+    }
+    if (uSeamW > 0.0) v = mix(v, earlier, uSeamW);
+    gl_FragColor = vec4(v, 0.0, 0.0, 1.0);
+  }
+`;
+// Marches the recipe's field: gas brightness (lit, shadowed by dust toward the light) into alpha,
+// dust coverage into red. The flight path itself is kept clear of dust (uAxisClear), or the camera
+// spends whole stretches inside a black wall -- most of the file's own camera placements did.
+const BLENDER_MARCH_FRAG = /* glsl */ `
+  precision highp sampler3D;
+  varying vec2 vUv;
+  uniform sampler3D uVol;
+  uniform vec2 uTan;
+  uniform float uCamZ;
+  uniform float uL;
+  uniform float uR;
+  uniform int uSteps;
+  uniform float uJitter;
+  uniform float uFrameJit;
+  uniform vec3 uLight;
+  uniform float uLightStep;
+  uniform float uFar;
+  uniform vec2 uNear;
+  uniform vec2 uFarFade;
+  uniform vec3 uEnvK; uniform vec3 uEnvP; uniform vec3 uEnvA; uniform float uEnvSwing;
+  uniform vec2 uDriftK; uniform vec2 uDriftP; uniform float uDriftA;
+  uniform sampler3D uDetail;
+  uniform float uDetailAmt;
+  uniform vec3 uDetailFreq;
+  uniform float uDustSigma, uGasSigma, uGasGain, uShadow, uAmbient, uDustEdge, uThreshold;
+  // How brightly the gas BODY glows, against the file's ramp, where only the orange rim at the dust
+  // edge is bright and the body is a navy at luminance 0.04 -- so the nebula read as outlines.
+  uniform float uGasBody;
+  // The site's colouring (2026-11-21, Aaron: "color it the way the site nebula are colored"): the
+  // gas brightness is rank-mapped onto the alpha distribution of Aaron's original nebula artwork
+  // (ALPHAQ, the site's "his curve"), with knots measured from this flight's own gas (sampleCurve).
+  // uCurveOn is 0 while those samples are taken.
+  uniform float uKnots[33];
+  uniform float uCurveOn;
+  ${ALPHAQ_GLSL}
+  float hisCurve(float v) {
+    int lo = 0, hi = 32;
+    for (int it = 0; it < 6; it++) { int m = (lo + hi) / 2; if (uKnots[m] <= v) lo = m; else hi = m; }
+    float span = uKnots[hi] - uKnots[lo];
+    float f = span > 0.0 ? clamp((v - uKnots[lo]) / span, 0.0, 1.0) : 0.0;
+    return ALPHAQ[lo] + (ALPHAQ[hi] - ALPHAQ[lo]) * f;
+  }
+  uniform vec2 uAxisClear;
+  // Where in the palette a bit of gas sits (the composite's paletteAt): offset, then how fast it
+  // moves with the gas value, with depth along the loop (whole cycles, so the loop closes) and with
+  // the angle around the flight path. Read back as an emission-weighted mean, through a triangle
+  // wave so the mean never averages across a wrap.
+  uniform vec4 uHue;
+  const float TAU = 6.2831853;
+  float envelope(float zw) {
+    float x = zw / uL * TAU;
+    float e = uEnvA.x * sin(uEnvK.x * x + uEnvP.x) + uEnvA.y * sin(uEnvK.y * x + uEnvP.y) + uEnvA.z * sin(uEnvK.z * x + uEnvP.z);
+    return clamp(0.5 + 0.5 * e, 0.0, 1.0);
+  }
+  // the recipe value at a point, and how far it is from the corridor's wall (1 inside, 0 beyond)
+  float field(vec2 lat, float zw, out float wall, out float axis) {
+    float x = zw / uL * TAU;
+    vec2 c = lat - uDriftA * vec2(sin(uDriftK.x * x + uDriftP.x), sin(uDriftK.y * x + uDriftP.y));
+    wall = 1.0 - smoothstep(0.7, 1.0, length(c) / uR);
+    axis = smoothstep(uAxisClear.x, uAxisClear.y, length(lat));
+    if (wall <= 0.0) return 1.0;
+    // the volume is baked around the corridor's own (drifting) centre, so it is read there too --
+    // read at the raw position, a drifted corridor ran off the grid's edge and smeared its edge
+    // texels into streaks
+    vec3 g = vec3(0.5 + 0.5 * c.x / uR, 0.5 + 0.5 * c.y / uR, mod(zw, uL) / uL);
+    float n = texture(uVol, g).r;
+    float det = texture(uDetail, vec3(c, mod(zw, uL)) * uDetailFreq).r;
+    n += uDetailAmt * (det - 0.5);
+    // the envelope moves the thresholds: denser stretches of the loop have more dust and gas
+    n += (envelope(zw) - 0.5) * uEnvSwing + uThreshold;
+    return n;
+  }
+  float dustOf(float n, float wall, float axis) { return smoothstep(0.3944 + uDustEdge, 0.3944 - uDustEdge, n) * wall * axis; }
+  float gasOf(float n, float wall) { return clamp((0.4932 - n) / 0.1419, 0.0, 1.0) * wall; }
+  // the file's gas ramp, as luminance: navy below 0.5934, orange at 0.692, black from 0.748
+  float gasLum(float v) {
+    vec3 navy = vec3(0.0067, 0.0309, 0.1998), orange = vec3(1.0, 0.486, 0.0036);
+    vec3 c = v < 0.5934 ? navy : v < 0.692 ? mix(navy, orange, (v - 0.5934) / 0.0986) : v < 0.748 ? mix(orange, vec3(0.0), (v - 0.692) / 0.056) : vec3(0.0);
+    return dot(c * 1.1, vec3(0.2126, 0.7152, 0.0722));
+  }
+  void main() {
+    vec2 ray = (vUv * 2.0 - 1.0) * uTan;
+    float T = 1.0, Td = 1.0, A = 0.0, tPrev = 2.0, C = 0.0, Cw = 0.0;
+    float jit = uJitter < 0.0 ? fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) : uJitter;
+    jit = fract(jit + uFrameJit);
+    for (int i = 0; i < MAX_STEPS_HERE; i++) {
+      if (i >= uSteps || T < 0.003) break;
+      float t = 2.0 * pow(uFar / 2.0, (float(i) + jit) / float(uSteps));
+      float dt = t - tPrev; tPrev = t;
+      vec2 lat = ray * t;
+      float zw = uCamZ + t;
+      float wall, axis;
+      float n = field(lat, zw, wall, axis);
+      if (wall <= 0.0) continue;
+      float fade = smoothstep(uNear.x, uNear.y, t) * (1.0 - smoothstep(uFarFade.x, uFarFade.y, t));
+      float dust = dustOf(n, wall, axis) * fade;
+      float gv = gasOf(n, wall);
+      float gas = gv * fade;
+      if (dust < 0.001 && gas < 0.001) continue;
+      float sd = dust * uDustSigma, sg = gas * uGasSigma;
+      // two looks toward the light: dust between here and it shadows the gas
+      float w1, a1, w2, a2;
+      vec3 l1 = vec3(lat, zw) + uLight * uLightStep, l2 = vec3(lat, zw) + uLight * uLightStep * 3.0;
+      float occ = dustOf(field(l1.xy, l1.z, w1, a1), w1, a1) + 2.0 * dustOf(field(l2.xy, l2.z, w2, a2), w2, a2);
+      float lit = mix(uAmbient, 1.0, exp(-uShadow * occ));
+      float ag = 1.0 - exp(-sg * dt);
+      float e = T * ag * max(gasLum(gv), uGasBody * smoothstep(0.0, 0.6, gv)) * lit * uGasGain;
+      A += e;
+      float hx = uHue.x + gv * uHue.y + floor(uHue.z) * mod(zw, uL) / uL + uHue.w * atan(lat.y, lat.x) / TAU;
+      C += e * (1.0 - abs(fract(hx) * 2.0 - 1.0));
+      Cw += e;
+      float ad = 1.0 - exp(-sd * dt);
+      T *= (1.0 - ag) * (1.0 - ad);
+      Td *= 1.0 - ad;
+    }
+    // where there is no gas there is no nebula: empty space, as in the artwork
+    float a = uCurveOn > 0.5 ? (A > 1e-4 ? hisCurve(A) : 0.0) : A;
+    gl_FragColor = vec4(1.0 - Td, Cw > 0.0 ? C / Cw : 0.5, 0.0, a);
+  }
+`;
+
+function buildVolume({ seed, plan, L, frameH, space, quad, O, float }) {
+  const blender = O.recipe === 'blender';
   const s = UNITS_PER_SHORT_EDGE / frameH;
-  const NX = NEB3D.volLateral, R = NEB3D.volRadius;
-  const NZ = Math.max(32, Math.round(L / NEB3D.volStep));
+  const NX = O.volLateral, R = O.volRadius;
+  const NZ = Math.max(32, Math.round(L / O.volStep));
   const seam = 0.2; // the last 20% of the loop crossfades into the slices before its start
   // depth can run slower through the field than across it (volStretch, 1 = isotropic)
-  const sz = s / NEB3D.volStretch;
+  const sz = s / O.volStretch;
   const span = 2 * R * s;
 
   // Placement (where in the field this design sits) and the tone curve's knots, set once before
@@ -287,7 +478,7 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     const sample = [];
     for (let k = 0; k < 12; k++) {
       const z = ((k + 0.5) / 12) * L;
-      const f = nebulaFieldGpu([loc[0], loc[1] + z * sz, loc[2]], 48, 48, NEB3D.volOct, span, [0, z * sz, 0]);
+      const f = nebulaFieldGpu([loc[0], loc[1] + z * sz, loc[2]], 48, 48, O.volOct, span, [0, z * sz, 0]);
       if (!f) throw new Error('nebula3d volume needs WebGL2');
       for (const v of f) sample.push(v);
     }
@@ -298,13 +489,15 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     located = true;
   }
 
-  const rt = new THREE.WebGL3DRenderTarget(NX, NX, NZ, { format: THREE.RedFormat, type: THREE.UnsignedByteType, depthBuffer: false });
+  // 8-bit density for the flight (memory, and phones); half float for a stock render, where the
+  // contrast remap below would otherwise stretch 256 levels into visible terraces.
+  const rt = new THREE.WebGL3DRenderTarget(NX, NX, NZ, { format: THREE.RedFormat, type: float ? THREE.HalfFloatType : THREE.UnsignedByteType, depthBuffer: false });
   rt.texture.minFilter = THREE.LinearFilter;
   rt.texture.magFilter = THREE.LinearFilter;
   rt.texture.wrapR = THREE.RepeatWrapping;
   const bakeU = {
     uLoc: { value: new THREE.Vector3() },
-    uOct: { value: NEB3D.volOct },
+    uOct: { value: O.volOct },
     uViewOff: { value: new THREE.Vector3(0, 0, 0) },
     uRes: { value: NX },
     uSpan: { value: span },
@@ -313,9 +506,22 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     uSeamW: { value: 0 },
     uKnots: { value: new Array(33).fill(0) }
   };
+  if (blender) {
+    // world -> recipe units, and where in the recipe's field this design sits (its own stream)
+    const pr = makeRng(`${seed}-nebula3d-blender`);
+    Object.assign(bakeU, {
+      uSpan: { value: 2 * R },
+      uQ: { value: (O.blenderScale ?? 1) / 85.5445 },
+      uQOff: { value: new THREE.Vector3(pr() * 40 - 20, 11.11 + pr() * 40 - 20, 12.51 + pr() * 40 - 20) },
+      uOctN: { value: O.blenderOctN ?? 8 },
+      uOctS: { value: 4 },
+      uOctD: { value: 2 }
+    });
+    located = true; // the recipe needs no placement search and no tone curve
+  }
   const bakeMat = new THREE.ShaderMaterial({
     vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
-    fragmentShader: BAKE_FRAG,
+    fragmentShader: blender ? BLENDER_BAKE_FRAG : BAKE_FRAG,
     uniforms: bakeU,
     depthTest: false,
     depthWrite: false
@@ -345,8 +551,8 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     while (next < NZ) {
       for (let c = 0; c < 16 && next < NZ; c++, next++) {
         const z = (next / NZ) * L;
-        bakeU.uDepthA.value = z * sz;
-        bakeU.uDepthB.value = (z - L) * sz;
+        bakeU.uDepthA.value = blender ? z : z * sz;
+        bakeU.uDepthB.value = blender ? z - L : (z - L) * sz;
         bakeU.uSeamW.value = smooth(L * (1 - seam), L, z);
         renderer.setRenderTarget(rt, next);
         renderer.render(bakeScene, space.orthoCam);
@@ -375,10 +581,10 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     uEnvK: { value: new THREE.Vector3(cyc(1100), cyc(520), cyc(260)) },
     uEnvP: { value: new THREE.Vector3(vr() * 6.283, vr() * 6.283, vr() * 6.283) },
     uEnvA: { value: new THREE.Vector3(0.7, 0.45, 0.25) },
-    uEnvSwing: { value: NEB3D.volEnvSwing },
+    uEnvSwing: { value: O.volEnvSwing },
     uDriftK: { value: new THREE.Vector2(cyc(900), cyc(700)) },
     uDriftP: { value: new THREE.Vector2(vr() * 6.283, vr() * 6.283) },
-    uDriftA: { value: NEB3D.volDrift }
+    uDriftA: { value: O.volDrift }
   };
   const uniforms = {
     uVol: { value: tex },
@@ -386,27 +592,81 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     uCamZ: { value: 0 },
     uL: { value: L },
     uR: { value: R },
-    uSteps: { value: NEB3D.volSteps },
-    uSigma: { value: NEB3D.volSigma },
+    uSteps: { value: O.volSteps },
+    uSigma: { value: O.volSigma },
     uStrength: { value: plan.strength },
-    uJitter: { value: NEB3D.volJitter ? -1 : 0.5 },
-    uContrast: { value: new THREE.Vector2(...NEB3D.volContrast) },
+    uJitter: { value: O.volJitter ? -1 : 0.5 },
+    uContrast: { value: new THREE.Vector2(...O.volContrast) },
     uLight: { value: variation.light },
-    uLightStep: { value: NEB3D.volLightStep },
-    uShadow: { value: NEB3D.volShadow },
-    uAmbient: { value: NEB3D.volAmbient },
-    uFar: { value: NEB3D.volFar },
-    uNear: { value: new THREE.Vector2(...NEB3D.volNear) },
-    uFarFade: { value: new THREE.Vector2(...NEB3D.volFarFade) },
+    uLightStep: { value: O.volLightStep },
+    uShadow: { value: O.volShadow },
+    uAmbient: { value: O.volAmbient },
+    uFar: { value: O.volFar },
+    uNear: { value: new THREE.Vector2(...O.volNear) },
+    uFarFade: { value: new THREE.Vector2(...O.volFarFade) },
     uEnvK: variation.uEnvK, uEnvP: variation.uEnvP, uEnvA: variation.uEnvA, uEnvSwing: variation.uEnvSwing,
     uDriftK: variation.uDriftK, uDriftP: variation.uDriftP, uDriftA: variation.uDriftA,
-    uDetail: { value: detailTexture() },
-    uDetailAmt: { value: NEB3D.volDetail },
-    uDetailFreq: { value: new THREE.Vector3(1 / NEB3D.volDetailSize, 1 / NEB3D.volDetailSize, Math.max(1, Math.round(L / NEB3D.volDetailSize)) / L) }
+    uDetail: { value: O.volDetailHi ? detailTextureHi() : detailTexture() },
+    uFrameJit: { value: 0 },
+    uDetailAmt: { value: O.volDetail },
+    uDetailFreq: { value: new THREE.Vector3(1 / O.volDetailSize, 1 / O.volDetailSize, Math.max(1, Math.round(L / O.volDetailSize)) / L) }
   };
-  const mat = space.passMaterial(MARCH_FRAG.replace('SPACE_GLSL_HERE', space.SPACE_GLSL), uniforms);
+  // The site's shader text is exactly what it was; only a stock render's differs.
+  const stock = float || O.volSteps > 160;
+  const marchFrag = MARCH_FRAG.replace('SPACE_GLSL_HERE', space.SPACE_GLSL)
+    .replace('MAX_STEPS_HERE', String(Math.max(160, Math.ceil(O.volSteps))))
+    .replace('JITTER_HERE', stock ? 'jit = fract(jit + uFrameJit);' : '')
+    .replace('uniform float uJitter;', stock ? 'uniform float uJitter;\n  uniform float uFrameJit;' : 'uniform float uJitter;');
+  if (blender) {
+    Object.assign(uniforms, {
+      uDustSigma: { value: O.dustSigma ?? 45 },
+      uGasSigma: { value: O.gasSigma ?? 0.015 },
+      uGasGain: { value: (O.gasGain ?? 6) * plan.strength },
+      uDustEdge: { value: O.dustEdge ?? 0.004 },
+      uThreshold: { value: O.threshold ?? 0 },
+      uAxisClear: { value: new THREE.Vector2(...(O.axisClear ?? [10, 35])) },
+      uGasBody: { value: O.gasBody ?? 0 },
+      uKnots: { value: new Array(33).fill(0) },
+      uCurveOn: { value: 0 },
+      uHue: { value: new THREE.Vector4(makeRng(`${seed}-nebula3d-hue`)(), O.hueDensity ?? 2.5, O.hueDepth ?? 3, O.hueAngle ?? 1) }
+    });
+  }
+  const mat = space.passMaterial(
+    blender
+      ? BLENDER_MARCH_FRAG.replace('MAX_STEPS_HERE', String(Math.max(160, Math.ceil(O.volSteps))))
+      : marchFrag,
+    uniforms
+  );
   const scene = new THREE.Scene();
   scene.add(quad(mat));
+  // The site's tone curve for the recipe (see hisCurve in BLENDER_MARCH_FRAG): the raw gas
+  // brightness, marched small at eight points around the loop, gives the knots -- once per flight, so
+  // the mapping is the same in every frame. Only gas counts: empty space stays empty.
+  let curveReady = false;
+  function sampleCurve(renderer) {
+    curveReady = true;
+    const W = 192, H = 108;
+    const rtS = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType });
+    const px = new Float32Array(W * H * 4);
+    const camZ = uniforms.uCamZ.value, jit = uniforms.uFrameJit.value;
+    const prev = renderer.getRenderTarget();
+    const vals = [];
+    for (let k = 0; k < 8; k++) {
+      uniforms.uCamZ.value = ((k + 0.37) / 8) * L;
+      uniforms.uFrameJit.value = k / 8;
+      renderer.setRenderTarget(rtS);
+      renderer.render(scene, space.orthoCam);
+      renderer.readRenderTargetPixels(rtS, 0, 0, W, H, px);
+      for (let i = 3; i < px.length; i += 4) if (px[i] > 1e-4) vals.push(px[i]);
+    }
+    renderer.setRenderTarget(prev);
+    rtS.dispose();
+    uniforms.uCamZ.value = camZ;
+    uniforms.uFrameJit.value = jit;
+    if (vals.length < 100) return; // next to no gas: leave the raw brightness
+    uniforms.uKnots.value = hisCurveKnots(vals);
+    uniforms.uCurveOn.value = 1;
+  }
   let low = null;
   const upU = { uSrc: { value: null }, uTexel: { value: new THREE.Vector2() } };
   const upScene = new THREE.Scene();
@@ -429,12 +689,23 @@ function buildVolume({ seed, plan, L, frameH, space, quad }) {
     update(camZ) {
       uniforms.uCamZ.value = camZ;
     },
+    setFrameJitter(j) {
+      uniforms.uFrameJit.value = j;
+    },
     draw(renderer, camera, target) {
       bake(renderer); // a caller that never prepared gets the whole bake here, once
       const tan = Math.tan((camera.fov * Math.PI) / 360);
       uniforms.uTan.value.set(tan * camera.aspect, tan);
+      if (blender && O.siteCurve && !curveReady) sampleCurve(renderer);
+      // At full resolution (a stock render) the march draws straight into the layer: the upscale's
+      // small blur exists only to hide a half-resolution march.
+      if (O.volRes >= 1) {
+        renderer.setRenderTarget(target);
+        renderer.render(scene, space.orthoCam);
+        return;
+      }
       // march at reduced resolution, then upscale into the layer target
-      const w = Math.max(1, Math.round(target.width * NEB3D.volRes)), h = Math.max(1, Math.round(target.height * NEB3D.volRes));
+      const w = Math.max(1, Math.round(target.width * O.volRes)), h = Math.max(1, Math.round(target.height * O.volRes));
       if (!low) low = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType });
       if (low.width !== w || low.height !== h) low.setSize(w, h);
       renderer.setRenderTarget(low);
@@ -476,19 +747,85 @@ const NEB_COMP_FRAG = /* glsl */ `
   uniform float uPools;
   uniform float uPoolGain;
   uniform float uDebug;
+  // The Blender recipe's dust (the layer's red; uDust = 1 for that recipe): how far it darkens what is behind it
+  uniform float uDust;
+  uniform float uDustDark;
+  // How the dust darkens (2026-11-21, Aaron: black dust "takes it out of the composition"):
+  // 0 toward black; 1 toward a deep shade of the nebula's own gradient; 2 through the gradient's
+  // colour (a coloured filter); 3 a rich shadow -- lower perceptual lightness, saturation kept and
+  // raised, so the dust is the backdrop's own hue, deeper.
+  uniform int uDustMode;
+  uniform float uDustTone;
+  uniform float uDustLight;  // mode 3: how much lightness the dust takes away
+  uniform float uDustChroma; // mode 3: its saturation, relative (1 = unchanged)
+  // The gas's colour (Blender recipe): 0 the screen-space gradient, as every nebula is painted; 1 the
+  // palette position the march carried (layer green) -- each filament its own colour. uGasChroma
+  // scales its saturation (OKLab chroma).
+  uniform float uPaletteMix;
+  uniform float uGasChroma;
+  vec3 srgbToLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
+  vec3 linToSrgb(vec3 c) { c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+  vec3 toOklab(vec3 c) {
+    vec3 l = srgbToLin(c);
+    vec3 lms = vec3(0.4122214708 * l.r + 0.5363325363 * l.g + 0.0514459929 * l.b,
+                    0.2119034982 * l.r + 0.6806995451 * l.g + 0.1073969566 * l.b,
+                    0.0883024619 * l.r + 0.2817188376 * l.g + 0.6299787005 * l.b);
+    lms = pow(max(lms, 0.0), vec3(1.0 / 3.0));
+    return vec3(0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+                1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+                0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
+  }
+  vec3 fromOklab(vec3 o) {
+    vec3 lms = vec3(o.x + 0.3963377774 * o.y + 0.2158037573 * o.z,
+                    o.x - 0.1055613458 * o.y - 0.0638541728 * o.z,
+                    o.x - 0.0894841775 * o.y - 1.2914855480 * o.z);
+    lms = lms * lms * lms;
+    return linToSrgb(vec3(4.0767416621 * lms.x - 3.3077115913 * lms.y + 0.2309699292 * lms.z,
+                         -1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z,
+                         -0.0041960771 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z));
+  }
+  vec3 dustOver(vec3 cb, float d, vec3 grad) {
+    if (uDustMode == 1) return mix(cb, grad * uDustTone, d);
+    if (uDustMode == 2) return mix(cb, cb * mix(vec3(1.0), grad, 0.85) * (1.0 - 0.35 * d), d);
+    if (uDustMode == 3) {
+      vec3 o = toOklab(cb);
+      o.x *= 1.0 - uDustLight * d;
+      o.yz *= mix(1.0, uDustChroma, d);
+      return clamp(fromOklab(o), 0.0, 1.0);
+    }
+    return cb * (1.0 - d);
+  }
   GRADIENT_FN_HERE
+  // the gradient's stops along x in 0..1, ignoring where it lies on screen
+  vec3 paletteAt(float x) {
+    float y = clamp(x, 0.0, 1.0) * max(uCount - 1.0, 0.0);
+    vec3 col = uStops[0];
+    for (int i = 1; i < 6; i++) {
+      if (float(i) >= uCount) break;
+      col = mix(col, uStops[i], clamp(y - float(i - 1), 0.0, 1.0));
+    }
+    return col;
+  }
   void main() {
     vec3 cb = texture2D(uBack, vUv).rgb;
     float a = texture2D(uLayer, vUv).a;
     if (uPools > 0.0) a = max(a, min(1.0, texture2D(uPool, vUv).a * uPoolGain) * uPools);
+    if (uDust > 0.5) cb = dustOver(cb, uDustDark * clamp(texture2D(uLayer, vUv).r, 0.0, 1.0), gradientAt(vUv));
     if (uDebug > 0.5) { gl_FragColor = vec4(vec3(clamp(a, 0.0, 1.0)), 1.0); return; }
-    gl_FragColor = vec4(mix(cb, gradientAt(vUv), clamp(a, 0.0, 1.0)), 1.0);
+    vec3 gas = gradientAt(vUv);
+    if (uPaletteMix > 0.0) gas = mix(gas, paletteAt(texture2D(uLayer, vUv).g), uPaletteMix);
+    if (uGasChroma != 1.0) { vec3 o = toOklab(gas); o.yz *= uGasChroma; gas = clamp(fromOklab(o), 0.0, 1.0); }
+    gl_FragColor = vec4(mix(cb, gas, clamp(a, 0.0, 1.0)), 1.0);
   }
 `;
 
-export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUniforms, gradientFn }) {
+export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUniforms, gradientFn, overrides = null, float = false }) {
   readOpts();
-  const plan = art.nebulaConfig;
+  const O = { ...NEB3D, ...(overrides || {}) };
+  let plan = art.nebulaConfig;
+  // A stock render can give a design that rolled no nebula one anyway (O.forceNebula, its strength),
+  // coloured the way the design would have been.
+  if ((!plan || !plan.strength) && O.forceNebula) plan = { ...(plan || {}), cover: 0.3, strength: O.forceNebula, colour: nebulaColour(art, false) };
   if (!plan || !plan.strength) return null;
   // Every material goes through quad(), so dispose() can retire them all (see RETIRED); the
   // scene's own screenQuad would dispose them with the flight.
@@ -508,11 +845,11 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
     settled = true;
     releaseRetired(renderer);
   };
-  const neb = buildVolume({ seed, plan, L, frameH, space, quad });
+  const neb = buildVolume({ seed, plan, L, frameH, space, quad, O, float });
   const own = plan.colour?.mode === 'own';
   const gu = gradientUniforms(plan.colour?.gradient || art.starFieldConfig.gradientConfig);
   gu.uView.value = space.view;
-  const layer = new THREE.WebGLRenderTarget(1, 1);
+  const layer = new THREE.WebGLRenderTarget(1, 1, float ? { type: THREE.HalfFloatType } : {});
   const poolA = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   const poolB = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   const poolU = { uSrc: { value: null }, uDir: { value: new THREE.Vector2() } };
@@ -523,17 +860,26 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
     uBack: { value: null },
     uLayer: { value: layer.texture },
     uPool: { value: poolB.texture },
-    uPools: { value: own ? NEB3D.pools : 0 },
-    uPoolGain: { value: NEB3D.poolGain },
-    uDebug: { value: NEB3D.debugView ? 1 : 0 }
+    uPools: { value: own ? O.pools : 0 },
+    uPoolGain: { value: O.poolGain },
+    uDebug: { value: O.debugView ? 1 : 0 },
+    uDust: { value: O.recipe === 'blender' ? 1 : 0 },
+    uDustDark: { value: O.dustDark ?? 0.6 },
+    uDustMode: { value: O.dustMode ?? 0 },
+    uDustTone: { value: O.dustTone ?? 0.35 },
+    uDustLight: { value: O.dustLight ?? 0.75 },
+    uDustChroma: { value: O.dustChroma ?? 1.6 },
+    uPaletteMix: { value: O.recipe === 'blender' ? O.paletteMix ?? 0 : 0 },
+    uGasChroma: { value: O.gasChroma ?? 1 }
   };
   let disposed = false;
   const compScene = new THREE.Scene();
   compScene.add(quad(space.passMaterial(NEB_COMP_FRAG.replace('GRADIENT_FN_HERE', gradientFn), compU)));
   return {
     mode,
-    debugOnly: NEB3D.debugView,
+    debugOnly: O.debugView,
     update: neb.update,
+    setFrameJitter: neb.setFrameJitter,
     // Bakes the volume a few ms at a time, yielding between chunks, so building a flight never
     // holds the main thread for long. Resolves when done (or when disposed first).
     // Every shader is compiled here, the pools' too (cheap, and kept for the next design that

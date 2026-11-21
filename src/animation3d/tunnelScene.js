@@ -1789,7 +1789,11 @@ function buildBlobs(rng, seed, designRadial, paletteColors, L) {
 // smaller than one pixel, so without this a far star stays a full-strength dot however far
 // away it is (and a 4K export's would read dimmer than the same star in a 1080p preview).
 // Scaling by the covered area keeps a star's total light what its real size gives it.
-function applyHazeShader(mat, uStreak = null, points = false) {
+// `deep` (a stock render's deep star shell only): no depth warp and no haze, just a fade before the
+// far plane -- a starfield standing well off the flight path, read as space beyond it. Warped like
+// everything else, those stars were pulled into the vanishing point and never reached the frame.
+const DEEP_STAR_FADE = [VIEW_FAR - 120, VIEW_FAR + 80];
+function applyHazeShader(mat, uStreak = null, points = false, deep = false) {
   mat.onBeforeCompile = shader => {
     let decls = 'varying float vHaze;\n' + SPACE_GLSL;
     if (uStreak) {
@@ -1814,7 +1818,9 @@ function applyHazeShader(mat, uStreak = null, points = false) {
       decls +
       shader.vertexShader.replace(
         '#include <project_vertex>',
-        '#include <project_vertex>\n      float starW = warpW(-mvPosition.z);\n      mvPosition.xy *= starW;\n      gl_Position = projectionMatrix * mvPosition;\n      vHaze = haze(-mvPosition.z);'
+        deep
+          ? `#include <project_vertex>\n      float starW = 1.0;\n      vHaze = 1.0 - smoothstep(${DEEP_STAR_FADE[0].toFixed(1)}, ${DEEP_STAR_FADE[1].toFixed(1)}, -mvPosition.z);`
+          : '#include <project_vertex>\n      float starW = warpW(-mvPosition.z);\n      mvPosition.xy *= starW;\n      gl_Position = projectionMatrix * mvPosition;\n      vHaze = haze(-mvPosition.z);'
       );
     if (points) {
       // three sizes an attenuated point by distance alone, leaving out the lens, so on a wide lens
@@ -1833,7 +1839,7 @@ function applyHazeShader(mat, uStreak = null, points = false) {
       shader.fragmentShader.replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vHaze;\n#include <premultiplied_alpha_fragment>');
   };
   // three keys compiled programs on onBeforeCompile's source, which both variants share
-  mat.customProgramCacheKey = () => `haze-${mat.type}-${points}-${!!uStreak}`;
+  mat.customProgramCacheKey = () => `haze-${mat.type}-${points}-${!!uStreak}${deep ? '-deep' : ''}`;
   return mat;
 }
 
@@ -2101,7 +2107,11 @@ export function sceneBasePalette(seed, colors = [], settings = null) {
 }
 
 // ─── Scene factory ────────────────────────────────────────────────────────────────────
-export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true, renderer: bakeRenderer = null }) {
+export function createTunnelScene({ seed, colors = [], settings = null, duration = 10, width, height, logoMark = null, exact = false, cage: cageOn = true, renderer: bakeRenderer = null, quality = null }) {
+  // `quality` (the ad builder's stock render, animation3d/stockRender.js; null everywhere else):
+  // { float: true } composites every layer in half-float targets instead of 8-bit ones, so slow
+  // gradients and faint fades do not band; { nebula: {...} } overrides the volume's NEB3D settings.
+  const rtOpts = quality?.float ? { type: THREE.HalfFloatType } : {};
   // A flight's plates and cage read the style too, so "Random" resolves here as well, to the
   // same style the 2D artwork of this seed gets.
   settings = resolveGeometryStyle(seed, settings);
@@ -2196,7 +2206,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
     mat.depthTest = false;
     return mat;
   };
-  const pointLayer = (field, size, opacity) => {
+  const pointLayer = (field, size, opacity, deep = false) => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(field.pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
@@ -2207,7 +2217,8 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
           new THREE.PointsMaterial({ size, vertexColors: true, opacity, sizeAttenuation: true, alphaTest: 0.01, fog: false })
         ),
         null,
-        true
+        true,
+        deep
       ),
       starColourUniforms
     );
@@ -2224,12 +2235,31 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   pointLayer(field, 0.7, 0.95);
   const farField = cachedStarField('far', Math.round(FAR_STAR_COUNT * lenScale), L, TUNNEL_RADIUS, FAR_STAR_RADIUS);
   pointLayer(farField, 1.0, 0.85);
+  // A stock render's extra stars (quality.stars): more of the near and far fields, on their own
+  // layouts so the site's two stay exactly as they are, and a DEEP shell well off the flight path
+  // -- out to quality.stars.deepRadius -- which reads as space beyond the tunnel rather than a tube
+  // of stars around it. Placed synchronously: a stock render is offline.
+  const extraFields = [];
+  if (quality?.stars) {
+    const { density = 1, deepRadius = 0, deepCount = 0, deepSize = 1.4 } = quality.stars;
+    if (density > 1) {
+      const n2 = cachedStarField('near-stock', Math.round(SMALL_STAR_COUNT * lenScale * (density - 1)), L, TUNNEL_CORE, TUNNEL_RADIUS);
+      pointLayer(n2, 0.7, 0.95);
+      const f2 = cachedStarField('far-stock', Math.round(FAR_STAR_COUNT * lenScale * (density - 1)), L, TUNNEL_RADIUS, FAR_STAR_RADIUS);
+      pointLayer(f2, 1.0, 0.85);
+      extraFields.push(n2, f2);
+    }
+    if (deepRadius > FAR_STAR_RADIUS && deepCount > 0) {
+      const d = cachedStarField('deep-stock', Math.round(deepCount * lenScale), L, FAR_STAR_RADIUS, deepRadius);
+      pointLayer(d, deepSize, 0.9, true); // unwarped, so it has no streaks either
+    }
+  }
   // Each design turns the shared layout about the flight axis and slides it along the loop,
   // so no two designs' fields line up. Applied to the objects, so it costs nothing per frame.
   const starTurn = rng() * TWO_PI;
   const starSlide = rng() * L;
 
-  const streakLayers = [makeStarStreaks(field, uStreak), makeStarStreaks(farField, uStreak)];
+  const streakLayers = [field, farField, ...extraFields].map(f => makeStarStreaks(f, uStreak));
   for (const layer of streakLayers) {
     starBlend(layer.mat);
     withStarColour(layer.mat, starColourUniforms);
@@ -2369,10 +2399,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // 2026-09-30). The sky blobs, stars and overlay are soft sprites and full-screen quads, which
   // multisampling barely touches (only the faint outer border of each star's quad, measured
   // across four designs), so they go through the plain target. Halves the frame on every design.
-  const layerTargetAA = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
-  const layerTarget = new THREE.WebGLRenderTarget(1, 1);
-  let accum = new THREE.WebGLRenderTarget(1, 1);
-  let spare = new THREE.WebGLRenderTarget(1, 1);
+  const layerTargetAA = new THREE.WebGLRenderTarget(1, 1, { samples: 4, ...rtOpts });
+  const layerTarget = new THREE.WebGLRenderTarget(1, 1, rtOpts);
+  let accum = new THREE.WebGLRenderTarget(1, 1, rtOpts);
+  let spare = new THREE.WebGLRenderTarget(1, 1, rtOpts);
   const compositeUniforms = {
     uBack: { value: null },
     uLayer: { value: null },
@@ -2404,7 +2434,9 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
         frameH: REF_H * PX,
         space: { SPACE_GLSL, warpW, haze, VIEW_FAR, BEHIND, passMaterial, screenQuad, orthoCam, view },
         gradientUniforms: cfg => gradientUniforms(cfg, 1),
-        gradientFn: GRADIENT_FN
+        gradientFn: GRADIENT_FN,
+        overrides: quality?.nebula ?? null,
+        float: !!quality?.float
       });
     } catch (err) {
       console.warn('[nebula3d]', err);
@@ -2624,7 +2656,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
       const depth = dz;
       let c = cacheOf.get(plate);
       if (!c) {
-        const rt = cachePool.pop() || new THREE.WebGLRenderTarget(cw, ch);
+        const rt = cachePool.pop() || new THREE.WebGLRenderTarget(cw, ch, rtOpts);
         c = { rt, dz: 0, tan: 0, fresh: false };
         cacheOf.set(plate, c);
       }
@@ -2707,7 +2739,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // a pause mid-flight on Firefox, which compiles on the page (2026-10-20).
   const warm = bakeRenderer ? [compileInto(bakeRenderer, layerTargetAA, [streakScene], camera)] : [];
   const allReady = Promise.all([ready, ...warm, ...(nebula3d && bakeRenderer ? [nebula3d.prepare(bakeRenderer)] : [])]);
-  return { scene: skyScene, camera, render, setSize, setTime, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
+  // A stock render's subframes each move the volume's march offsets, so its sampling noise averages
+  // away across the exposure (nebula3d's uFrameJit); a no-op without a nebula.
+  const setNebulaJitter = j => nebula3d?.setFrameJitter?.(j);
+  return { scene: skyScene, camera, render, setSize, setTime, setNebulaJitter, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
 }
 
 export default createTunnelScene;

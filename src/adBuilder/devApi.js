@@ -50,3 +50,19 @@ export function adSlug(s) {
       .slice(0, 64) || 'ad'
   );
 }
+
+// Stock-video masters (scripts/ad-builder-stock.mjs): 16-bit frames piped into ffmpeg, into .ads/stock.
+const stockPost = async (action, body, type, id) =>
+  json(
+    await fetch(`/__ads/stock/${action}${id ? `?id=${id}` : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': type },
+      body
+    })
+  );
+/** @param {{ name: string, width: number, height: number, fps: number, format: string }} o */
+export const stockStart = o => stockPost('start', JSON.stringify(o), 'application/json');
+/** @param {string} id @param {Uint16Array} rgb48 */
+export const stockFrame = (id, rgb48) => stockPost('frame', rgb48, 'application/octet-stream', id);
+export const stockFinish = id => stockPost('finish', '{}', 'application/json', id);
+export const stockCancel = id => stockPost('cancel', '{}', 'application/json', id);

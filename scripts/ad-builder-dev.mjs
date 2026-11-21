@@ -12,6 +12,7 @@
 //   GET  /__ads/media/*  those files
 //   GET  /__ads/ads      saved ads; GET/POST /__ads/ads/<name> load or save one
 //   /__ads/instagram/*   posting a Reel to @chromaforge.app (scripts/ad-builder-instagram.mjs)
+//   /__ads/stock/*       stock-video renders piped into ffmpeg, into .ads/stock (scripts/ad-builder-stock.mjs)
 //
 // Every POST must carry a non-simple Content-Type (JSON, image/*, audio/*), which makes a
 // cross-site request preflight -- and nothing here answers a preflight -- so another website
@@ -20,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { createInstagramPoster, MAX_POST_FILE_BYTES } from './ad-builder-instagram.mjs';
+import { createStockEncoder } from './ad-builder-stock.mjs';
 
 const MIME = {
   '.js': 'text/javascript',
@@ -91,6 +93,7 @@ export default function adBuilderDev({ root = process.cwd() } = {}) {
     apply: 'serve',
     configureServer(server) {
       const instagram = createInstagramPoster({ root, mode: server.config.mode });
+      const stock = createStockEncoder({ root });
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, 'http://localhost');
         const p = decodeURIComponent(url.pathname);
@@ -144,6 +147,22 @@ export default function adBuilderDev({ root = process.cwd() } = {}) {
           if (job && req.method === 'GET') {
             const j = instagram.job(job[1]);
             return j ? send(res, 200, j) : send(res, 404, { error: 'No such job (the dev server may have restarted)' });
+          }
+
+          if (p.startsWith('/__ads/stock/') && req.method === 'POST') {
+            const action = p.slice('/__ads/stock/'.length);
+            const type = (req.headers['content-type'] || '').split(';')[0].trim();
+            if (action === 'start') {
+              if (type !== 'application/json') return send(res, 415, { error: 'JSON only' });
+              return send(res, 200, await stock.start(JSON.parse((await readBody(req)).toString('utf8'))));
+            }
+            const id = url.searchParams.get('id') || '';
+            if (action === 'frame') {
+              if (type !== 'application/octet-stream') return send(res, 415, { error: 'Raw frames only' });
+              return send(res, 200, await stock.frame(id, await readBody(req, 16384 * 16384 * 6)));
+            }
+            if (action === 'finish') return send(res, 200, await stock.finish(id));
+            if (action === 'cancel') return send(res, 200, await stock.cancel(id));
           }
 
           if (p === '/__ads/ads' && req.method === 'GET') {

@@ -264,7 +264,7 @@ export function wallStyle(rng, style) {
 }
 
 /**
- * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, salt?: number, garment?: 'tee' | 'hoodie', blurSamples?: number, exact?: boolean }} o
+ * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, salt?: number, garment?: 'tee' | 'hoodie', blurSamples?: number, exact?: boolean, quality?: any }} o
  *   `blurSamples`: moments averaged per frame when motion blur is on -- fewer for the live preview,
  *   more for the file, where the fastest move (a tap's burst) shows steps at 10.
  *   `exact`: the flight's exact path, for the file (see adComposer); the preview runs its cache.
@@ -276,7 +276,8 @@ export async function createExplainComposer({
   salt = 0,
   garment = 'tee',
   blurSamples = 16,
-  exact = true
+  exact = true,
+  quality = null // the flight's (flightQuality.js's sceneQuality), for the file
 }) {
   const k = width / 1080;
   // The frame's layout (see adLayout): a 9:16 frame is laid out exactly as before sizes. On the
@@ -352,7 +353,8 @@ export async function createExplainComposer({
   const flight = await createFlightLoop(design, width, height, {
     exact,
     seconds: SCENE_DURATION,
-    ramp: false
+    ramp: false,
+    quality
   });
   // How far into its loop the flight is when Wear begins: past the opening, already under way.
   const FLIGHT_FROM = 2;

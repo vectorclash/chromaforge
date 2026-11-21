@@ -2793,6 +2793,31 @@ with a note at the others). Things worth not re-deriving:
   4:5, 1:1; as wide as it for 16:9); the layered preview's lockup layer is at the export's size
   (`exportWidth`/`exportHeight` on `createAdComposer`).
 
+(14) **Stock-quality flights, in every export (2026-11-21, Aaron: selling flights as stock video,
+then "i'd want my instagram ads to get the same new quality").** A **Flight quality** section
+(`flightQuality.js`, `FlightQualityPanel.jsx`; remembered in `cf-ads:flight-quality`; default
+New nebula, More + deep stars, 180° blur) sets how the flight renders in every EXPORT: the Reel,
+Flight mode and its Post, feed flight clips and covers, the Explainer, and the **Stock master**
+(Flight mode only, `StockRender.jsx`: HD/4K, 24-60fps, ProRes 422 HQ or HEVC 10-bit, 16-bit frames
+piped into ffmpeg by `scripts/ad-builder-stock.mjs`, files in `.ads/stock/`). Previews keep the
+site's flight so they play in real time. Things worth not re-deriving:
+- **tunnelScene's `quality`** (null on the site): half-float compositing, nebula overrides and extra
+  stars; named profiles in `animation3d/stockProfiles.js` (three-free). The site's output is unchanged.
+- **The shutter** (`stockRender.js`'s `createShutter`, shared by the stock renderer and the Reel's
+  flight): moments averaged in LINEAR light, the exposure capped at 1/90 scene-s so the ramp's peak
+  never smears, weighted toward the stamped moment (sharp head, trail). The October lab's blur was
+  an uncapped box in sRGB, which is what read as a muddy zoom. Aaron lifted the Reel's "just not the
+  flights" rule for this blur.
+- **"New" nebula** (`nebula3d`'s `recipe: 'blender'`): the Blender Market Nebula Generator's 3D recipe,
+  read out of its .blend (`n = fbm(distort(q*s, d/2))`, s and d slow/fine noises). It is coloured
+  EXACTLY like the site's nebula: gas brightness rank-mapped onto ALPHAQ (knots sampled per flight),
+  the design's one gradient plus pools, dust only blocking gas. Black, tinted or saturated dust and
+  per-filament hues were all tried and rejected: the nebula is one gradient, one colour per spot.
+- **Deep stars** are unwarped and unhazed (fade before the far plane): warped, stars far off the path
+  collapsed into the vanishing point.
+- Cost: ~0.7s per 1080p frame at 16 samples; a full-size Flight-mode Reel takes minutes.
+- The image Read tool shows ffmpeg's 16-bit PNG grabs as banded; extract with `-pix_fmt rgb24`.
+
 ### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)
 Aaron: "it just adds the light logo". Same decision and threshold as the printed label_outside
 (`labelBackdrop`'s `LABEL_BRIGHT_BACKDROP`), measured over the square the mark occupies at the loop

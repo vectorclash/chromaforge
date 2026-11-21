@@ -16,6 +16,9 @@ import PostCopy from './PostCopy';
 import InstagramPost from './InstagramPost';
 import FeedPreview, { FlightPlayer } from './FeedPreview';
 import FeedSlides, { FlightOptions } from './FeedSlides';
+import StockRender from './StockRender';
+import { readFlightQuality, writeFlightQuality, sceneQuality, clipQuality } from './flightQuality';
+import FlightQuality from './FlightQualityPanel';
 import {
   FEED_W,
   FEED_H,
@@ -149,6 +152,9 @@ export default function AdBuilder() {
   const isReelSize = sz.id === '9:16';
   const [explain, setExplain] = useState(DEFAULT_EXPLAIN);
   const [flight, setFlight] = useState({});
+  // The flight's quality in every export (flightQuality.js), remembered on this machine.
+  const [flightQuality, setFlightQuality] = useState(readFlightQuality);
+  useEffect(() => writeFlightQuality(flightQuality), [flightQuality]);
   const [feed, setFeed] = useState({ slides: [] });
 
   // ── Supporting data and UI state ────────────────────────────────────────────
@@ -823,13 +829,16 @@ export default function AdBuilder() {
         width: sz.width,
         height: sz.height,
         salt: explain.salt,
-        garment: explain.garment
+        garment: explain.garment,
+        quality: sceneQuality(flightQuality)
       });
     const comp = await createAdComposer({
       design: flightDesign,
       width: sz.width,
       height: sz.height,
-      exact: true
+      exact: true,
+      quality: sceneQuality(flightQuality),
+      flightBlur: flightQuality.blur
     });
     try {
       await comp.setPhotos(photos, photoLayout);
@@ -961,7 +970,7 @@ export default function AdBuilder() {
     pause();
     setExportState({ label: 'Rendering slides', progress: 0 });
     try {
-      return await renderSlideFiles(feedSlides, flightDesign, feedImages, setExportState);
+      return await renderSlideFiles(feedSlides, flightDesign, feedImages, setExportState, clipQuality(flightQuality));
     } finally {
       setExportState(null);
     }
@@ -1038,6 +1047,7 @@ export default function AdBuilder() {
         height: sz.height,
         audio: music.plan ? musicBuffer : null,
         audioMaxBitrate,
+        quality: clipQuality(flightQuality),
         onProgress: f => setExportState({ label: 'Rendering the flight clip', progress: f })
       });
     } finally {
@@ -1054,7 +1064,8 @@ export default function AdBuilder() {
         flightPlay,
         Math.min(play.current.t, flightSeconds),
         sz.width,
-        sz.height
+        sz.height,
+        clipQuality(flightQuality)
       );
     } finally {
       setExportState(null);
@@ -1545,6 +1556,24 @@ export default function AdBuilder() {
               </p>
             </Section>
           </>
+        )}
+
+        <Section title="Flight quality">
+          <FlightQuality value={flightQuality} onChange={setFlightQuality} />
+        </Section>
+
+        {isFlight && (
+          <Section title="Stock master">
+            <StockRender
+              design={flightDesign}
+              options={flightOptions(flightPlay, flightDesign)}
+              aspect={sz}
+              playhead={() => play.current.t}
+              baseName={fileBase}
+              quality={flightQuality}
+              disabled={!flightDesign || busy}
+            />
+          </Section>
         )}
 
         <Section title={format === 'reel' ? '6 · Export' : '4 · Export'}>

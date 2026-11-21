@@ -76,7 +76,7 @@ export function flightOptions(slide, design) {
 // The design the flight is built from, with the slide's object share as its odds. The design's
 // own geometry layer (the first plate) must not move with them, so a design that states nothing
 // about it is pinned to what its own odds give -- otherwise new odds would re-flip that coin too.
-function flightSceneDesign(design, objects) {
+export function flightSceneDesign(design, objects) {
   const geometry = design.settings?.geometry ?? {};
   if (objects === getGeometrySettings(design.settings).chance) return design;
   let present = getGeometryPresence(design.settings);
@@ -362,7 +362,7 @@ export async function createFlightLoop(
   design,
   width,
   height,
-  { exact = false, seconds = DEFAULT_CLIP_SECONDS, ramp = true, objects = undefined } = {}
+  { exact = false, seconds = DEFAULT_CLIP_SECONDS, ramp = true, objects = undefined, quality = null } = {}
 ) {
   const sceneDesign = objects === undefined ? design : flightSceneDesign(design, objects);
   const [{ WebGLRenderer }, { createTunnelScene, warmTunnelStars }] = await Promise.all([
@@ -391,7 +391,8 @@ export async function createFlightLoop(
       width,
       height,
       exact,
-      renderer
+      renderer,
+      quality
     });
     await world.ready;
   } catch (e) {
@@ -411,9 +412,36 @@ export async function createFlightLoop(
   };
 }
 
+// The flight through the stock renderer (animation3d/stockRender.js), with a flight quality's
+// nebula, stars and motion blur (flightQuality.js) and the slide's own options.
+async function stockFlight(design, slide, width, height, quality) {
+  const o = flightOptions(slide, design);
+  const { createStockRenderer } = await import('../animation3d/stockRender');
+  const blur = Math.max(0, Number(quality.blur) || 0);
+  return createStockRenderer(flightSceneDesign(design, o.objects), {
+    width,
+    height,
+    seconds: o.seconds,
+    ramp: o.ramp,
+    fps: CLIP_FPS,
+    nebula: quality.nebula,
+    stars: quality.stars,
+    shutter: blur,
+    samples: blur ? 16 : 1
+  });
+}
+
 // One frame of the flight at `t` seconds into its loop, exact, as a JPEG: the Flight mode's cover.
 // Copied out of WebGL in the same task it was drawn, before the browser can clear the buffer.
-export async function renderFlightFrame(design, slide, t, width, height) {
+export async function renderFlightFrame(design, slide, t, width, height, quality = null) {
+  if (quality) {
+    const r = await stockFlight(design, slide, width, height, quality);
+    try {
+      return await canvasToJpeg(r.frameCanvas(t));
+    } finally {
+      r.dispose();
+    }
+  }
   const loop = await createFlightLoop(design, width, height, {
     exact: true,
     ...flightOptions(slide, design)
@@ -436,7 +464,7 @@ export async function renderFlightFrame(design, slide, t, width, height) {
 /**
  * @param {{ seed: string, colors?: string[], settings?: any }} design
  * @param {{ onProgress?: (f: number) => void, slide?: any, width?: number, height?: number,
- *   audio?: AudioBuffer | null, audioMaxBitrate?: number }} [opts]
+ *   audio?: AudioBuffer | null, audioMaxBitrate?: number, quality?: any }} [opts]
  */
 export async function renderFlightClip(design, opts = {}) {
   const {
@@ -445,12 +473,22 @@ export async function renderFlightClip(design, opts = {}) {
     width = FEED_W,
     height = FEED_H,
     audio = null,
-    audioMaxBitrate = Infinity
+    audioMaxBitrate = Infinity,
+    quality = null
   } = opts;
   const options = flightOptions(slide, design);
   const releases = [];
   try {
-    const loop = await createFlightLoop(design, width, height, { exact: true, ...options });
+    // With a flight quality (flightQuality.js) the clip is the stock renderer's: the new nebula and
+    // stars, float compositing and its motion blur. Otherwise the site's own flight, exact.
+    let loop;
+    if (quality) {
+      const r = await stockFlight(design, slide, width, height, quality);
+      const out = canvas(width, height);
+      loop = { canvas: out, draw: t => r.frameCanvas(t, out), dispose: r.dispose };
+    } else {
+      loop = await createFlightLoop(design, width, height, { exact: true, ...options });
+    }
     releases.push(loop.dispose);
     const totalFrames = Math.round(options.seconds * CLIP_FPS);
     return await encodeMp4({
@@ -484,7 +522,7 @@ export async function renderFlightClip(design, opts = {}) {
  * @param {(p: { label: string, progress: number }) => void} [onProgress]
  * @returns {Promise<Array<{ type: string, blob: Blob }>>}
  */
-export async function renderSlideFiles(slides, design, images, onProgress = () => {}) {
+export async function renderSlideFiles(slides, design, images, onProgress = () => {}, quality = null) {
   const out = [];
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
@@ -497,7 +535,7 @@ export async function renderSlideFiles(slides, design, images, onProgress = () =
     if (s.type === 'flight') {
       out.push({
         type: 'video',
-        blob: await renderFlightClip(design, { onProgress: report, slide: s })
+        blob: await renderFlightClip(design, { onProgress: report, slide: s, quality })
       });
     } else {
       const c = await renderStillSlide(s, design, images.get(s.url) ?? null);

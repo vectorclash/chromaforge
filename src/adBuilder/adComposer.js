@@ -22,6 +22,9 @@ export { SAFE_TOP, SAFE_BOTTOM } from './adTimeline';
 // How fast the flight's own clock runs behind the products, against real time. It slows on into
 // the seam, nearly stopped there, and builds again after it -- this keeps it a drift, not a rush.
 const BG_DRIFT = 0.35;
+// The longest exposure the flight's blur takes, in scene seconds -- the stock renderer's cap
+// (stockRender's STOCK_DEFAULTS.maxBlur), so the ramp's peak never smears into a zoom blur.
+const MAX_FLIGHT_BLUR = 1 / 90;
 // The stretch of the loop the flight shows at full speed: SEAM_LEAD after the seam to SEAM_LEAD
 // before it (see drawFlight).
 const FLIGHT_WINDOW = SCENE_DURATION - 2 * SEAM_LEAD;
@@ -94,7 +97,7 @@ export function analyseAlpha(img) {
  * `exportWidth`/`exportHeight`: the size the ad exports at, for the layered preview's full-size
  * lockup layer (the preview itself draws at half that). `blurSamples`: moments averaged per
  * frame for motion blur, at most, fewer for the live preview; under 2 turns it off.
- * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean, exportWidth?: number, exportHeight?: number, blurSamples?: number }} o
+ * @param {{ design: { seed: string, colors?: string[], settings?: any }, width: number, height: number, exact: boolean, layered?: boolean, exportWidth?: number, exportHeight?: number, blurSamples?: number, quality?: any, flightBlur?: number }} o
  */
 export async function createAdComposer({
   design,
@@ -104,7 +107,14 @@ export async function createAdComposer({
   layered = false,
   exportWidth = AD_WIDTH,
   exportHeight = AD_HEIGHT,
-  blurSamples = exact ? 16 : 6
+  blurSamples = exact ? 16 : 6,
+  quality = null, // tunnelScene's quality for the flight (flightQuality.js's sceneQuality); the file's only
+  // The flight's motion blur in shutter degrees (flightQuality.js), the file's only: the stock
+  // renderer's shutter (animation3d/stockRender.js's createShutter) -- linear light, capped at the
+  // ramp's peak, sharp head with a trail. Aaron, 2026-11-21: "the new blur looks much better so it
+  // can go on the reel flight", lifting the 2026-11-06 "just not the flights", which was about the
+  // old blur.
+  flightBlur = 0
 }) {
   const [{ WebGLRenderer }, { createTunnelScene, warmTunnelStars }] = await Promise.all([
     import('three'),
@@ -154,6 +164,8 @@ export async function createAdComposer({
     released = true;
     glass?.dispose();
     glass = null;
+    shutter?.dispose();
+    shutter = null;
     world?.dispose();
     world = null;
     renderer.dispose();
@@ -173,12 +185,19 @@ export async function createAdComposer({
       width,
       height,
       exact,
-      renderer
+      renderer,
+      quality
     });
     await world.ready;
   } catch (e) {
     release();
     throw e;
+  }
+  let shutter = null;
+  const blurOpen = exact && flightBlur > 0 ? Math.min(360, flightBlur) / 360 / AD_FPS : 0;
+  if (blurOpen) {
+    const { createShutter } = await import('../animation3d/stockRender');
+    shutter = createShutter(renderer, { width, height, samples: 16 });
   }
 
   // A cut between products: the lattice's panes, spreading from this point.
@@ -366,12 +385,19 @@ export async function createAdComposer({
   function drawFlight(ctx, t, timeline) {
     const cut = SCENE_DURATION - SEAM_LEAD;
     const rate = Math.min(1, FLIGHT_WINDOW / timeline.flight);
-    const tau =
-      t < timeline.flight
-        ? cut - timeline.flight * rate + t * rate
-        : cut + (t - timeline.flight) * BG_DRIFT;
-    world.setTime(rampTime(tau, SCENE_DURATION, RAMP_FLOOR_3D), rampRush(tau, SCENE_DURATION), false);
-    world.render(renderer);
+    const tauAt = x =>
+      x < timeline.flight ? cut - timeline.flight * rate + x * rate : cut + (x - timeline.flight) * BG_DRIFT;
+    const tau = tauAt(t);
+    const head = rampTime(tau, SCENE_DURATION, RAMP_FLOOR_3D);
+    const rush = rampRush(tau, SCENE_DURATION);
+    if (shutter) {
+      // the exposure ends at this frame's moment, capped as the stock renderer caps it
+      const span = Math.min(head - rampTime(tauAt(t - blurOpen), SCENE_DURATION, RAMP_FLOOR_3D), MAX_FLIGHT_BLUR);
+      shutter.expose(world, head, span, rush, null);
+    } else {
+      world.setTime(head, rush, false);
+      world.render(renderer);
+    }
     // Same task as the render, so no preserveDrawingBuffer is needed.
     if (!layered) ctx.drawImage(renderer.domElement, 0, 0, width, height);
   }
