@@ -3442,13 +3442,19 @@ back to the page): at 4x CPU a Generate adds no long task. Shop/carousel photos 
 the screen; the shop still prepares its first screenful before showing the grid. Files are
 content-hashed (`public/` has a fixed-name one-hour cache, so a browser holding an old manifest must
 find its own files or none).
-(5b) **Every calibration fetch retries (`utils/fetchRetry.js`, 2026-11-21, Aaron: two shop cards stayed
-empty after landing on `/shop?id=`).** Hostinger answers a burst from one visitor with 429, and the shop
-asks for every product's manifest and maps at once: reproduced live in WebKit, 693's and 784's manifests
-came back 429, and since nothing retried, those cards were empty for the whole visit. 429, 5xx and network
-errors now retry up to 4 times (~0.8/1.6/3.2/6.4s, jittered, Retry-After honoured), on the page and in the
-worker. Verified with injected 429s in Chromium and WebKit: two refusals per file still fill every card;
-refusing every attempt reproduces the empty cards.
+(5b) **Every calibration fetch retries, on a FRESH URL (`utils/fetchRetry.js`, 2026-11-21, Aaron: two
+shop cards stayed empty after landing on `/shop?id=`).** Hostinger answers a burst from one visitor with
+429, and its CDN (hCDN) then CACHES the 429 -- per edge server and per Accept-Encoding, under the file's
+own one-hour Cache-Control -- and serves it to every visitor routed through that edge. Measured live:
+refused manifests carried `age` ~19 minutes, the bare URL stayed 429 for 100+ seconds of polling with
+`cache: 'no-store'`, and the same file with any query string was 200 every time; curl from the same
+machine got 200 or 429 depending on which edge and encoding it hit. The first fix retried the same URL
+and could never succeed. Now 429, 5xx and network errors retry up to 4 times (~0.8/1.6/3.2/6.4s,
+jittered), each retry with a unique `cb` query parameter so the CDN fetches from the origin, on the page
+and in the worker. Verified: a simulated permanently-cached 429 fills every card in Chromium and
+WebKit, and a local page fetching its maps from the live CDN hit 2 real cached 429s and recovered.
+**Any other file on the site can be poisoned the same way** (a JS chunk would break the site for an
+hour on that edge); purging hCDN in hPanel clears it, and the Cloudflare move (TODO.md) is the fix.
 (6) **A calibrated product's page has NO Printful step (Aaron's pick, 2026-11-15).** Every view is
 instant, in printfulViewPolicy's strip order, opening on the strip's first view, the first flat (it opened on the shop card's view, third or so in the strip, and Aaron: that "feels weird"). No
 scrim, no sign-in wall for previews, no `useMockup` sync; Buy Now skips the "not previewed" step and
