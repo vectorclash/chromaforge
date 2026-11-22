@@ -18,6 +18,7 @@ import InstagramPost from './InstagramPost';
 import FeedPreview, { FlightPlayer } from './FeedPreview';
 import FeedSlides, { FlightOptions } from './FeedSlides';
 import StockRender from './StockRender';
+import ExportProgress from './ExportProgress';
 import { readFlightQuality, writeFlightQuality, sceneQuality, clipQuality } from './flightQuality';
 import FlightQuality from './FlightQualityPanel';
 import {
@@ -177,6 +178,7 @@ export default function AdBuilder() {
   const [previewError, setPreviewError] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [exportState, setExportState] = useState(null); // null | { label, progress }
+  const [stockBusy, setStockBusy] = useState(false); // the stock master is rendering or previewing
   const [slideIndex, setSlideIndex] = useState(0);
   const [feedImages, setFeedImages] = useState(() => new Map()); // photo url -> decoded image
 
@@ -1671,6 +1673,7 @@ export default function AdBuilder() {
               baseName={fileBase}
               quality={flightQuality}
               disabled={!flightDesign || busy}
+              onBusyChange={setStockBusy}
             />
           </Section>
         )}
@@ -1725,6 +1728,12 @@ export default function AdBuilder() {
               {exportState.label}{' '}
               {exportState.progress > 0 && `${Math.round(exportState.progress * 100)}%`}
             </p>
+          )}
+          {exportState && (
+            <ExportProgress
+              label={exportState.label}
+              progress={exportState.progress > 0 && exportState.progress < 1 ? exportState.progress : null}
+            />
           )}
           {!isFeed && !music.plan && design && (
             <p className="mt-2 text-xs text-neutral-500">No music: the file will be silent.</p>
@@ -1785,6 +1794,7 @@ export default function AdBuilder() {
                 clock={() =>
                   play.current.playing ? Math.min(clockNow(), lengthRef.current) : play.current.t
                 }
+                frozen={busy || stockBusy}
               />
             ) : (
               <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-neutral-400">

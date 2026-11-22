@@ -27,3 +27,37 @@
     scrollbar-color: var(--color-interactive, #2cd8fe) rgba(250, 250, 250, 0.1);
   }
 }
+
+/* ExportProgress: centred on the preview column (the window less the 440px panel). The bar takes
+   the wordmark hairline's spectrum (.cf-spectrum-line), drawn at the width of the whole track so it
+   reveals left to right rather than squashing. The phase with no measure (building, finishing the
+   file) runs a segment across instead. */
+.export-progress {
+  --export-progress-w: min(28rem, calc(100vw - 440px - 2rem));
+  left: calc(440px + (100vw - 440px) / 2);
+  width: var(--export-progress-w);
+}
+.export-progress-fill {
+  background: linear-gradient(90deg, #4c00ff, #ff0059, #ffbb00, #eaff00, #00e5ff);
+  background-size: calc(var(--export-progress-w) - 2rem) 100%; /* the track: the box less its px-4 */
+  background-repeat: no-repeat;
+}
+.export-progress-indeterminate {
+  background: linear-gradient(90deg, transparent, #00e5ff, #ff0059, transparent);
+  animation: export-progress-sweep 1.2s ease-in-out infinite;
+}
+@keyframes export-progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .export-progress-indeterminate {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

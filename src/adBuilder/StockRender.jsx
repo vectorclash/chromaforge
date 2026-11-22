@@ -4,6 +4,7 @@ import saveAs from 'file-saver';
 import Button from '../components/ui/Button';
 import { flightSceneDesign, renderFlightFrame } from './feedPost';
 import { stockStart, stockFrame, stockFinish, stockCancel } from './devApi';
+import ExportProgress from './ExportProgress';
 
 // The Flight mode's stock-video master (animation3d/stockRender.js): the same flight, rendered
 // offline at stock quality and written by ffmpeg as ProRes or 10-bit HEVC into .ads/stock. Silent:
@@ -11,9 +12,12 @@ import { stockStart, stockFrame, stockFinish, stockCancel } from './devApi';
 // these settings beside the site's own render of it, so a setting can be judged before a long render.
 
 const PREFS_KEY = 'cf-ads:stock';
-const DEFAULTS = { res: '4k', fps: 30, trail: 'sharp', samples: 16, ss: 1, format: 'prores' };
+const DEFAULTS = { res: '4k', fps: 30, trail: 'sharp', samples: 16, ss: 1, format: 'prores', nebulaPasses: 4 };
 const TRAIL = { sharp: 3, even: 0 };
 const MAX_BLUR = 1 / 90; // scene seconds: the longest exposure any frame gets (see stockRender)
+// GPU resets survived in one render before giving up (see stockRender's StockContextLost). Each one
+// rebuilds the renderer -- the scene and the nebula bake, a second or two -- and redraws the frame.
+const MAX_RESETS = 5;
 
 function readPrefs() {
   try {
@@ -62,11 +66,14 @@ const fmtTime = s => {
 /**
  * @param {{ design: any, options: { seconds: number, ramp: boolean, objects: number },
  *   aspect: { width: number, height: number }, playhead: () => number, baseName: () => string,
- *   quality: { nebula: string, stars: string, blur: number }, disabled?: boolean }} props
+ *   quality: { nebula: string, stars: string, blur: number }, disabled?: boolean,
+ *   onBusyChange?: (busy: boolean) => void }} props
  *   `quality`: the ad builder's Flight quality (flightQuality.js) -- nebula, stars and blur are set
  *   there, for every export; this panel adds what only the stock master has.
+ *   `onBusyChange`: told when a render or preview starts and ends, so the page can freeze its live
+ *   preview -- otherwise a second flight redraws on the same GPU, every frame, for the whole render.
  */
-export default function StockRender({ design, options, aspect, playhead, baseName, quality, disabled = false }) {
+export default function StockRender({ design, options, aspect, playhead, baseName, quality, disabled = false, onBusyChange = null }) {
   const [prefs, setPrefs] = useState(readPrefs);
   const [job, setJob] = useState(null); // { phase, frame, total, started, file, bytes, error }
   const [preview, setPreview] = useState(null); // { stock, site, show, t }
@@ -97,7 +104,22 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
   const long = Math.round((short * ratio) / 2) * 2;
   const width = landscape ? long : short;
   const height = landscape ? short : long;
-  const busy = job && (job.phase === 'building' || job.phase === 'rendering' || job.phase === 'encoding' || job.phase === 'preview');
+  const busy = !!job && ['building', 'rendering', 'recovering', 'encoding', 'preview'].includes(job.phase);
+  const busyRef = useRef(onBusyChange);
+  busyRef.current = onBusyChange;
+  useEffect(() => busyRef.current?.(busy), [busy]);
+  useEffect(() => () => busyRef.current?.(false), []);
+  // Leaving the page mid-render loses it (the frames live in this tab until ffmpeg has them)
+  const rendering = !!job && ['building', 'rendering', 'recovering', 'encoding'].includes(job.phase);
+  useEffect(() => {
+    if (!rendering) return;
+    const warn = e => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [rendering]);
   const frames = Math.round(options.seconds * prefs.fps);
 
   const stockOpts = () => ({
@@ -112,7 +134,10 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
     shutter: Number(quality.blur) || 0,
     trail: TRAIL[prefs.trail],
     maxBlur: MAX_BLUR,
-    ss: prefs.ss
+    ss: prefs.ss,
+    // 'all': every moment marches (exact); a number: that many marches per frame, shared by the
+    // moments around each (stockRender's NEBULA_PASSES, ~3x faster at 4 and measured invisible)
+    nebulaPasses: prefs.nebulaPasses === 'all' ? Infinity : prefs.nebulaPasses
   });
   const sceneDesign = () => flightSceneDesign(design, options.objects);
 
@@ -142,31 +167,75 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
   const runRender = async () => {
     cancelRef.current = false;
     const name = `${baseName()}-stock-${width}x${height}-${prefs.fps}fps-${Number(options.seconds.toFixed(2))}s`;
-    setJob({ phase: 'building', frame: 0, total: frames });
+    setJob({ phase: 'building', frame: 0, total: frames, resets: 0 });
     let r = null;
     let id = null;
+    let resets = 0;
+    let pending = null; // the previous frame's upload, overlapped with drawing the next
     try {
-      const { createStockRenderer } = await import('../animation3d/stockRender');
-      r = await createStockRenderer(sceneDesign(), stockOpts());
+      const { createStockRenderer, StockContextLost } = await import('../animation3d/stockRender');
+      const opts = stockOpts();
+      // Builds a renderer, through any GPU resets during the build itself
+      const build = async () => {
+        for (;;) {
+          try {
+            return await createStockRenderer(sceneDesign(), opts);
+          } catch (e) {
+            if (!(e instanceof StockContextLost) || ++resets > MAX_RESETS) throw e;
+            await new Promise(res => setTimeout(res, 1500));
+          }
+        }
+      };
+      r = await build();
       ({ id } = await stockStart({ name, width, height, fps: prefs.fps, format: prefs.format }));
       const started = performance.now();
-      for (let f = 0; f < r.frames; f++) {
+      let drawn = 0; // frames drawn since `started`, for the ETA (a reset's rebuild is not a frame)
+      let drawTime = 0;
+      for (let f = 0; f < r.frames; ) {
         if (cancelRef.current) throw new Error('cancelled');
-        await stockFrame(id, r.frameRgb48(f));
-        setJob({ phase: 'rendering', frame: f + 1, total: r.frames, started });
+        const t0 = performance.now();
+        let buf;
+        try {
+          buf = r.frameRgb48(f);
+        } catch (e) {
+          if (!(e instanceof StockContextLost) || ++resets > MAX_RESETS) throw e;
+          // The GPU reset the context: nothing from it is trusted. Rebuild and draw frame f again
+          // (its nebula offsets are keyed to f, so it comes out as it would have).
+          console.warn(`[stock] GPU reset at frame ${f}; rebuilding (${resets}/${MAX_RESETS})`);
+          setJob(j => ({ ...j, phase: 'recovering', resets }));
+          r.dispose();
+          r = null;
+          await new Promise(res => setTimeout(res, 1500));
+          r = await build();
+          continue;
+        }
+        drawTime += performance.now() - t0;
+        drawn++;
+        if (pending) await pending;
+        pending = stockFrame(id, buf);
+        f++;
+        setJob({ phase: 'rendering', frame: f, total: r.frames, started, drawn, drawTime, resets });
+        // let the progress paint before the next frame's synchronous draw
+        await new Promise(res => setTimeout(res, 0));
       }
+      if (pending) await pending;
+      pending = null;
       r.dispose();
       r = null;
       setJob(j => ({ ...j, phase: 'encoding' }));
       const done = await stockFinish(id);
       id = null;
-      setJob({ phase: 'done', file: done.file, bytes: done.bytes, total: done.frames, took: (performance.now() - started) / 1000 });
+      setJob({ phase: 'done', file: done.file, bytes: done.bytes, total: done.frames, took: (performance.now() - started) / 1000, resets });
     } catch (e) {
+      await pending?.catch(() => {});
       if (id) await stockCancel(id).catch(() => {});
       if (e.message === 'cancelled') setJob(null);
       else {
         console.error('[stock] render failed', e);
-        setJob({ phase: 'failed', error: e.message });
+        setJob({
+          phase: 'failed',
+          error: e.name === 'StockContextLost' ? `the GPU reset ${resets} times, so the render stopped. Close other GPU-heavy tabs and try again.` : e.message
+        });
       }
     } finally {
       r?.dispose();
@@ -177,12 +246,52 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
     job?.phase === 'rendering' && job.frame > 0
       ? ((performance.now() - job.started) / job.frame) * (job.total - job.frame) / 1000
       : null;
+  const progressProps = () => {
+    if (!job) return null;
+    const resetNote = job.resets ? ` · recovered from ${job.resets} GPU reset${job.resets > 1 ? 's' : ''}` : '';
+    switch (job.phase) {
+      case 'building':
+        return { label: 'Stock master · building the scene', progress: null, onAction: () => (cancelRef.current = true) };
+      case 'rendering':
+        return {
+          label: `Stock master · ${width}×${height} ${prefs.fps}fps`,
+          progress: job.frame / job.total,
+          detail: `Frame ${job.frame} of ${job.total} · ${(job.drawTime / job.drawn / 1000).toFixed(2)}s a frame${
+            eta !== null ? ` · about ${fmtTime(eta)} left` : ''
+          }${resetNote}`,
+          onAction: () => (cancelRef.current = true)
+        };
+      case 'recovering':
+        return {
+          label: 'Stock master · the GPU reset, rebuilding',
+          tone: 'warn',
+          progress: job.total ? job.frame / job.total : null,
+          detail: `Redrawing frame ${job.frame + 1}; nothing from before the reset is kept (${job.resets} of ${MAX_RESETS})`,
+          onAction: () => (cancelRef.current = true)
+        };
+      case 'encoding':
+        return { label: 'Stock master · finishing the file', progress: null };
+      case 'done':
+        return {
+          label: `Saved ${job.file.split('/').pop()}`,
+          tone: 'done',
+          progress: 1,
+          detail: `${(job.bytes / 1e6).toFixed(0)} MB · ${job.total} frames in ${fmtTime(job.took)}${resetNote} · in .ads/stock`,
+          onAction: () => setJob(null),
+          actionLabel: 'Dismiss'
+        };
+      default:
+        return null;
+    }
+  };
+  const progress = progressProps();
 
   return (
     <div className="flex flex-col gap-2.5 text-sm">
       <p className="text-xs text-neutral-500">
         The flight with the Flight quality above, at stock size and frame rate, as a 10-bit master. Silent.
-        Written by ffmpeg into .ads/stock.
+        Written by ffmpeg into .ads/stock. Nebula passes: how many of a frame&rsquo;s moments march the
+        nebula, the slowest part; 4 is about three times faster than every moment and looks the same.
       </p>
       <Row label="Size">
         <Choice label="Size" value={prefs.res} disabled={busy} onChange={res => set({ res })} options={[['hd', 'HD'], ['4k', '4K']]} />
@@ -208,6 +317,15 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
           options={[8, 16, 32].map(n => [n, String(n)])}
         />
       </Row>
+      <Row label="Nebula passes">
+        <Choice
+          label="Nebula marches per frame"
+          value={prefs.nebulaPasses}
+          disabled={busy || !Number(quality.blur)}
+          onChange={nebulaPasses => set({ nebulaPasses })}
+          options={[[4, '4'], ['all', 'Every moment']]}
+        />
+      </Row>
       <Row label="Supersample">
         <Choice
           label="Supersampling"
@@ -230,7 +348,7 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
         <Button size="sm" variant="ghost" disabled={disabled || busy} onClick={runPreview}>
           Preview frame
         </Button>
-        {job?.phase === 'rendering' || job?.phase === 'building' ? (
+        {job?.phase === 'rendering' || job?.phase === 'building' || job?.phase === 'recovering' ? (
           <Button size="sm" variant="ghost" onClick={() => (cancelRef.current = true)}>
             Cancel
           </Button>
@@ -247,6 +365,7 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
         <p className="text-xs tabular-nums text-neutral-400">
           {job.phase === 'preview' && 'Rendering the frame under the playhead…'}
           {job.phase === 'building' && 'Building the scene…'}
+          {job.phase === 'recovering' && 'The GPU reset; rebuilding and redrawing…'}
           {job.phase === 'rendering' &&
             `Frame ${job.frame} of ${job.total}${eta !== null ? ` · about ${fmtTime(eta)} left` : ''}`}
           {job.phase === 'encoding' && 'Finishing the file…'}
@@ -255,6 +374,7 @@ export default function StockRender({ design, options, aspect, playhead, baseNam
           {job.phase === 'failed' && `Failed: ${job.error}`}
         </p>
       )}
+      {progress && <ExportProgress {...progress} />}
       {preview &&
         createPortal(
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/90 p-6" role="dialog" aria-label="Stock frame preview">

@@ -196,8 +196,8 @@ export async function createAdComposer({
   let shutter = null;
   const blurOpen = exact && flightBlur > 0 ? Math.min(360, flightBlur) / 360 / AD_FPS : 0;
   if (blurOpen) {
-    const { createShutter } = await import('../animation3d/stockRender');
-    shutter = createShutter(renderer, { width, height, samples: 16 });
+    const { createShutter, NEBULA_PASSES } = await import('../animation3d/stockRender');
+    shutter = createShutter(renderer, { width, height, samples: 16, nebulaPasses: NEBULA_PASSES });
   }
 
   // A cut between products: the lattice's panes, spreading from this point.

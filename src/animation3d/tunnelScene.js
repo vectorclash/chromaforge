@@ -2432,7 +2432,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
         art,
         L,
         frameH: REF_H * PX,
-        space: { SPACE_GLSL, warpW, haze, VIEW_FAR, BEHIND, passMaterial, screenQuad, orthoCam, view },
+        space: { SPACE_GLSL, warpW, haze, VIEW_FAR, BEHIND, passMaterial, screenQuad, orthoCam, view, lensFov: LENS_FOV },
         gradientUniforms: cfg => gradientUniforms(cfg, 1),
         gradientFn: GRADIENT_FN,
         overrides: quality?.nebula ?? null,
@@ -2612,7 +2612,7 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
 
     if (nebulaLab) {
       if (nebula3d) {
-        nebula3d.render(renderer, camera, accum, spare);
+        nebula3d.render(renderer, camera, accum, spare, nebulaReuse);
         swap();
         if (nebula3d.debugOnly) {
           renderer.setRenderTarget(target);
@@ -2742,7 +2742,10 @@ export function createTunnelScene({ seed, colors = [], settings = null, duration
   // A stock render's subframes each move the volume's march offsets, so its sampling noise averages
   // away across the exposure (nebula3d's uFrameJit); a no-op without a nebula.
   const setNebulaJitter = j => nebula3d?.setFrameJitter?.(j);
-  return { scene: skyScene, camera, render, setSize, setTime, setNebulaJitter, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
+  // Composite the last nebula march instead of marching again (the stock shutter's nebula passes).
+  let nebulaReuse = false;
+  const setNebulaReuse = v => (nebulaReuse = !!v);
+  return { scene: skyScene, camera, render, setSize, setTime, setNebulaJitter, setNebulaReuse, dispose, ready: allReady, plates, plateStats: { maxList: plateData.maxList, meanList: plateData.meanList } };
 }
 
 export default createTunnelScene;

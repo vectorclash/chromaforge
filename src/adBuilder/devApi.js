@@ -62,7 +62,9 @@ const stockPost = async (action, body, type, id) =>
   );
 /** @param {{ name: string, width: number, height: number, fps: number, format: string }} o */
 export const stockStart = o => stockPost('start', JSON.stringify(o), 'application/json');
-/** @param {string} id @param {Uint16Array} rgb48 */
-export const stockFrame = (id, rgb48) => stockPost('frame', rgb48, 'application/octet-stream', id);
+/** @param {string} id @param {Uint16Array<ArrayBuffer>} rgb48 */
+// Sent as a Blob, not the typed array itself: Chromium uploads a large ArrayBuffer body very slowly
+// (a 50 MB 4K frame took 1.85s; the same bytes as a Blob ~35ms -- WebKit is fast either way).
+export const stockFrame = (id, rgb48) => stockPost('frame', new Blob([rgb48]), 'application/octet-stream', id);
 export const stockFinish = id => stockPost('finish', '{}', 'application/json', id);
 export const stockCancel = id => stockPost('cancel', '{}', 'application/json', id);

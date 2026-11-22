@@ -2840,7 +2840,31 @@ site's flight so they play in real time. Things worth not re-deriving:
   does DXT1 ("Normal Quality", lossy, no alpha), so ProRes stays the master. Lengths go to 20s and
   30s; the flight builds new geometry for 20s at constant speed and laps it after. A 20s ramp-off DXV
   loop measured a seam step equal to its neighbouring frame steps.
-- Cost: ~0.7s per 1080p frame at 16 samples; a full-size Flight-mode Reel takes minutes.
+- **A GPU reset can never reach the file (2026-11-22, Aaron's first HD master: 3 frames held, then
+  no nebula for the rest, so the loop's end did not meet its start).** The browser dropped the WebGL
+  context mid-render; reads then return the old pixels (the held frames), and three rebuilds what it
+  can from CPU data, which leaves the GPU-baked nebula volume empty. Not reproduced in headless
+  Chromium or WebKit, so the trigger is unknown (a long GPU job, memory, a background tab).
+  `stockRender` now checks the context after every read and throws `StockContextLost`; StockRender
+  rebuilds the renderer and redraws that frame (up to 5 resets). Verified through the real UI with a
+  forced `loseContext()` at frame 35: every decoded frame identical to a clean render. Two things
+  that took making it exact: the nebula's march offsets are keyed to the FRAME (`expose`'s `seq`),
+  not a call counter; and the New nebula's tone curve (`sampleCurve`) is measured at the lens's
+  resting field of view -- it used to take the first drawn frame's, which the ramp widens by up to
+  14 degrees, so any render started mid-loop (Preview frame, a cover, a rebuild) got a different
+  curve (1.2/255 mean, 15 max). Renders from frame 0 start at the seam, where the boost is 0, so
+  they are byte-identical to before (checked by checksum).
+- **Speed, measured at 4K/16 samples: ~3.2s a frame -> ~0.69s.** (1) The New nebula's march was
+  83% of GPU time, run for every moment; `nebulaPasses` (NEBULA_PASSES = 4, panel: 4 / Every
+  moment) marches it for 4 moments and composites that march for the rest (the sky under it is
+  camera-locked, so only the volume's motion within part of a shutter is lost): 1.75s -> 0.6s, mean
+  0.04/255 against every moment, no pixel past 8. Applies to every flight export. (2) Chromium
+  uploads a large typed-array fetch body at ~40MB/s (1.85s per 4K frame); the same bytes as a Blob
+  take ~35ms (`stockFrame`). WebKit is fast either way. (3) The upload overlaps the next frame's
+  draw, and the live preview freezes (FlightPlayer `frozen`) instead of redrawing the flight every
+  frame beside the render. ffmpeg is not a bottleneck: prores_ks does 4K at ~35ms a frame here.
+- **Progress is `ExportProgress`**: pinned at the top of the preview column with Cancel / Dismiss,
+  and the percentage in the tab title; the normal exports use it too.
 - The image Read tool shows ffmpeg's 16-bit PNG grabs as banded; extract with `-pix_fmt rgb24`.
 
 ### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)

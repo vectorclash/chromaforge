@@ -642,13 +642,24 @@ function buildVolume({ seed, plan, L, frameH, space, quad, O, float }) {
   // The site's tone curve for the recipe (see hisCurve in BLENDER_MARCH_FRAG): the raw gas
   // brightness, marched small at eight points around the loop, gives the knots -- once per flight, so
   // the mapping is the same in every frame. Only gas counts: empty space stays empty.
+  // Everything the measurement reads is pinned -- depth, jitter, and the lens at its resting field of
+  // view (2026-11-22): it used to take whatever field of view the FIRST drawn frame had, and the ramp
+  // widens it by up to 14 degrees mid-cycle, so a render started mid-loop (a preview frame, a cover,
+  // a stock render rebuilt after a GPU reset) got a different curve from one started at the seam --
+  // measured 1.2/255 mean, 15 max across the whole frame. A render from frame 0 starts at the seam,
+  // where the boost is zero, so those are unchanged.
   let curveReady = false;
-  function sampleCurve(renderer) {
+  function sampleCurve(renderer, aspect) {
     curveReady = true;
     const W = 192, H = 108;
     const rtS = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType });
     const px = new Float32Array(W * H * 4);
     const camZ = uniforms.uCamZ.value, jit = uniforms.uFrameJit.value;
+    const tanPrev = uniforms.uTan.value.clone();
+    if (space.lensFov) {
+      const t = Math.tan((space.lensFov * Math.PI) / 360);
+      uniforms.uTan.value.set(t * aspect, t);
+    }
     const prev = renderer.getRenderTarget();
     const vals = [];
     for (let k = 0; k < 8; k++) {
@@ -663,6 +674,7 @@ function buildVolume({ seed, plan, L, frameH, space, quad, O, float }) {
     rtS.dispose();
     uniforms.uCamZ.value = camZ;
     uniforms.uFrameJit.value = jit;
+    uniforms.uTan.value.copy(tanPrev);
     if (vals.length < 100) return; // next to no gas: leave the raw brightness
     uniforms.uKnots.value = hisCurveKnots(vals);
     uniforms.uCurveOn.value = 1;
@@ -696,7 +708,7 @@ function buildVolume({ seed, plan, L, frameH, space, quad, O, float }) {
       bake(renderer); // a caller that never prepared gets the whole bake here, once
       const tan = Math.tan((camera.fov * Math.PI) / 360);
       uniforms.uTan.value.set(tan * camera.aspect, tan);
-      if (blender && O.siteCurve && !curveReady) sampleCurve(renderer);
+      if (blender && O.siteCurve && !curveReady) sampleCurve(renderer, camera.aspect);
       // At full resolution (a stock render) the march draws straight into the layer: the upscale's
       // small blur exists only to hide a half-resolution march.
       if (O.volRes >= 1) {
@@ -873,6 +885,7 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
     uGasChroma: { value: O.gasChroma ?? 1 }
   };
   let disposed = false;
+  let marched = false; // whether `layer` holds a march (render's `reuse`)
   const compScene = new THREE.Scene();
   compScene.add(quad(space.passMaterial(NEB_COMP_FRAG.replace('GRADIENT_FN_HERE', gradientFn), compU)));
   return {
@@ -894,24 +907,16 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
       while (!disposed && !neb.bake(renderer, Infinity, true)) await new Promise(r => setTimeout(r, 0));
     },
     // Draws the nebula onto `back` (the frame so far), writing the result into `out`.
-    render(renderer, camera, back, out) {
+    // `reuse` composites the layer the previous call marched instead of marching again (the stock
+    // shutter's nebula passes: the march is most of a stock frame's GPU time, and within one
+    // shutter the volume barely moves). Ignored until a layer of this size exists.
+    render(renderer, camera, back, out, reuse = false) {
       if (!settled) owner = renderer; // a caller that never prepared settles after this draw
-      if (layer.width !== back.width || layer.height !== back.height) layer.setSize(back.width, back.height);
-      neb.draw(renderer, camera, layer);
-      if (own) {
-        // pools: a blur of the layer at 1/8 resolution, ~1/24 of the long edge, as in 2D
-        const pw = Math.max(1, Math.round(back.width / 8)), ph = Math.max(1, Math.round(back.height / 8));
-        for (const t of [poolA, poolB]) if (t.width !== pw || t.height !== ph) t.setSize(pw, ph);
-        const r = Math.max(pw, ph) / 24 / 4; // taps reach 4 * step
-        poolU.uSrc.value = layer.texture;
-        poolU.uDir.value.set(r / pw, 0);
-        renderer.setRenderTarget(poolA);
-        renderer.render(poolScene, space.orthoCam);
-        poolU.uSrc.value = poolA.texture;
-        poolU.uDir.value.set(0, r / ph);
-        renderer.setRenderTarget(poolB);
-        renderer.render(poolScene, space.orthoCam);
+      if (layer.width !== back.width || layer.height !== back.height) {
+        layer.setSize(back.width, back.height);
+        marched = false;
       }
+      if (!(reuse && marched)) march(renderer, camera, back);
       compU.uBack.value = back.texture;
       renderer.setRenderTarget(out);
       renderer.render(compScene, space.orthoCam);
@@ -927,4 +932,23 @@ export function createNebula3d({ mode, seed, art, L, frameH, space, gradientUnif
       retire(owner, materials);
     }
   };
+  // The march (into `layer`) and the pools derived from it.
+  function march(renderer, camera, back) {
+    marched = true;
+    neb.draw(renderer, camera, layer);
+    if (own) {
+      // pools: a blur of the layer at 1/8 resolution, ~1/24 of the long edge, as in 2D
+      const pw = Math.max(1, Math.round(back.width / 8)), ph = Math.max(1, Math.round(back.height / 8));
+      for (const t of [poolA, poolB]) if (t.width !== pw || t.height !== ph) t.setSize(pw, ph);
+      const r = Math.max(pw, ph) / 24 / 4; // taps reach 4 * step
+      poolU.uSrc.value = layer.texture;
+      poolU.uDir.value.set(r / pw, 0);
+      renderer.setRenderTarget(poolA);
+      renderer.render(poolScene, space.orthoCam);
+      poolU.uSrc.value = poolA.texture;
+      poolU.uDir.value.set(0, r / ph);
+      renderer.setRenderTarget(poolB);
+      renderer.render(poolScene, space.orthoCam);
+    }
+  }
 }

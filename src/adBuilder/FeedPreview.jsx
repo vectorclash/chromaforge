@@ -16,11 +16,15 @@ import {
 // The flight, looping, at half of `width` x `height`, with the slide's own length, ramp and
 // objects. Also the Flight mode's preview. `clock`, when given, says which second to draw each
 // frame (the Flight mode's music); without one it plays on its own from the start.
-export function FlightPlayer({ design, options, width, height, clock = null }) {
+// `frozen`: hold the last frame and draw nothing (while an export renders on the same GPU: an
+// idle preview still redrew the whole flight every animation frame).
+export function FlightPlayer({ design, options, width, height, clock = null, frozen = false }) {
   const host = useRef(null);
   const [error, setError] = useState(null);
   const clockRef = useRef(clock);
   clockRef.current = clock;
+  const frozenRef = useRef(frozen);
+  frozenRef.current = frozen;
   const key = JSON.stringify([design, options, width, height]);
   useEffect(() => {
     let loop = null;
@@ -34,8 +38,10 @@ export function FlightPlayer({ design, options, width, height, clock = null }) {
         Object.assign(l.canvas.style, { width: '100%', height: '100%', display: 'block' });
         host.current?.appendChild(l.canvas);
         const t0 = performance.now();
+        let drawn = false;
         const tick = now => {
-          l.draw(clockRef.current ? clockRef.current() : (now - t0) / 1000);
+          if (!frozenRef.current || !drawn) l.draw(clockRef.current ? clockRef.current() : (now - t0) / 1000);
+          drawn = true;
           raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
