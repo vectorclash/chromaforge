@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!--
+  The stock-render queue's runner: the dev server (scripts/ad-builder-queue.mjs) opens this in its own
+  headless Chromium and it renders queued stock loops one after another. Nothing to look at, and
+  dev-server only, like ad-builder.html: a production build bundles index.html alone.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="robots" content="noindex" />
+    <title>Stock runner</title>
+  </head>
+  <body>
+    <script src="/createjs.min.js"></script>
+    <script type="module" src="/src/adBuilder/stockRunner.js"></script>
+  </body>
+</html>

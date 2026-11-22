@@ -1674,6 +1674,8 @@ export default function AdBuilder() {
               quality={flightQuality}
               disabled={!flightDesign || busy}
               onBusyChange={setStockBusy}
+              designTitle={design?.title}
+              exporting={!!exportState}
             />
           </Section>
         )}

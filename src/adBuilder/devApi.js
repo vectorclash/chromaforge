@@ -60,7 +60,7 @@ const stockPost = async (action, body, type, id) =>
       body
     })
   );
-/** @param {{ name: string, width: number, height: number, fps: number, format: string }} o */
+/** @param {{ name: string, dir?: string, width: number, height: number, fps: number, format: string }} o */
 export const stockStart = o => stockPost('start', JSON.stringify(o), 'application/json');
 /** @param {string} id @param {Uint16Array<ArrayBuffer>} rgb48 */
 // Sent as a Blob, not the typed array itself: Chromium uploads a large ArrayBuffer body very slowly
@@ -68,3 +68,9 @@ export const stockStart = o => stockPost('start', JSON.stringify(o), 'applicatio
 export const stockFrame = (id, rgb48) => stockPost('frame', new Blob([rgb48]), 'application/octet-stream', id);
 export const stockFinish = id => stockPost('finish', '{}', 'application/json', id);
 export const stockCancel = id => stockPost('cancel', '{}', 'application/json', id);
+
+// The stock-render queue (scripts/ad-builder-queue.mjs), from the panel and from the runner page.
+export const queueGet = async () => json(await fetch('/__ads/queue', { cache: 'no-store' }));
+/** @param {string} action @param {object} [body] */
+export const queuePost = async (action, body = {}) =>
+  json(await fetch(`/__ads/queue/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));

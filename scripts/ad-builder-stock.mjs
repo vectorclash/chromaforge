@@ -4,7 +4,8 @@
 // is judged on exactly those: an editor grades it, and an 8-bit H.264 bands the moment the sky
 // gradient is pushed.
 //
-//   POST /__ads/stock/start   { name, width, height, fps, format } -> { id, file }
+//   POST /__ads/stock/start   { name, dir?, width, height, fps, format } -> { id, file }
+//                             (`dir`: a pack's folder under .ads/stock, from the queue)
 //   POST /__ads/stock/frame?id=   raw rgb48le bytes (application/octet-stream), one frame
 //   POST /__ads/stock/finish?id=  -> { file, bytes }
 //   POST /__ads/stock/cancel?id=
@@ -43,14 +44,16 @@ export function createStockEncoder({ root }) {
   const dir = path.join(root, '.ads', 'stock');
   const jobs = new Map();
 
-  async function start({ name, width, height, fps, format = 'prores' }) {
+  async function start({ name, dir: sub = '', width, height, fps, format = 'prores' }) {
     const f = FORMATS[format];
     if (!f) throw new Error(`Unknown format ${format}`);
     if (!SAFE.test(String(name))) throw new Error('Bad name');
+    if (sub && !SAFE.test(String(sub))) throw new Error('Bad folder');
+    const outDir = sub ? path.join(dir, sub) : dir;
     const w = Math.round(width), h = Math.round(height), r = Number(fps);
     if (!(w >= 16 && w <= 16384 && h >= 16 && h <= 16384 && r > 0 && r <= 120)) throw new Error('Bad size or rate');
-    await fs.mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${name}${f.ext}`);
+    await fs.mkdir(outDir, { recursive: true });
+    const file = path.join(outDir, `${name}${f.ext}`);
     const proc = spawn(
       'ffmpeg',
       [
@@ -110,5 +113,5 @@ export function createStockEncoder({ root }) {
     return { ok: true };
   }
 
-  return { start, frame, finish, cancel };
+  return { start, frame, finish, cancel, dir, FORMATS };
 }

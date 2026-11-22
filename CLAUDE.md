@@ -2865,6 +2865,20 @@ site's flight so they play in real time. Things worth not re-deriving:
   frame beside the render. ffmpeg is not a bottleneck: prores_ks does 4K at ~35ms a frame here.
 - **Progress is `ExportProgress`**: pinned at the top of the preview column with Cancel / Dismiss,
   and the percentage in the tab title; the normal exports use it too.
+- **The Queue renders packs with no tab open (2026-11-22, Aaron: VJ packs of 5-100 loops, for
+  Envato VideoHive first, Adobe Stock too).** A Queue under Stock master; `scripts/ad-builder-queue.mjs`
+  keeps it in `.ads/stock-queue.json` and works through it in its OWN headless Chromium (Playwright,
+  ANGLE on Metal: the real GPU) loading `stock-runner.html` (dev-only, not built). A job is a snapshot
+  of the panel when added (design, length, ramp, objects, Flight quality, stock settings), so later
+  panel changes never touch it. "Add variations": N new seeds in this design's palette and settings,
+  optionally one per geometry style. Each loop is a ProRes master in `.ads/stock/<pack>/<pack>-NN.mov`,
+  and ffmpeg makes the ticked outputs FROM the master (H.264 MP4 -- what VideoHive's VJ packs ship --
+  and DXV), beside the next loop's render; "Preview reel" joins a pack's loops into one 1080p video.
+  The render loop is ONE module, `stockJob.js`, used by the panel's Render master and the runner,
+  GPU-reset recovery included. Verified through the real UI and the real runner: a batch finishes
+  with the ad builder closed; outputs within 0.7 (MP4) / 1.5 (DXV) levels of the master; removing a
+  loop mid-render cancels it and leaves no file; Pause finishes the current loop and stops; a
+  `kill -9` of the runner's browser requeues the loop (2 attempts, then failed) and relaunches.
 - The image Read tool shows ffmpeg's 16-bit PNG grabs as banded; extract with `-pix_fmt rgb24`.
 
 ### The animation logo mark picks light or dark ink (2026-09-30, `render/logoInk.js`)

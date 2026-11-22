@@ -13,6 +13,7 @@
 //   GET  /__ads/ads      saved ads; GET/POST /__ads/ads/<name> load or save one
 //   /__ads/instagram/*   posting a Reel to @chromaforge.app (scripts/ad-builder-instagram.mjs)
 //   /__ads/stock/*       stock-video renders piped into ffmpeg, into .ads/stock (scripts/ad-builder-stock.mjs)
+//   /__ads/queue/*       the stock-render queue and its headless runner (scripts/ad-builder-queue.mjs)
 //
 // Every POST must carry a non-simple Content-Type (JSON, image/*, audio/*), which makes a
 // cross-site request preflight -- and nothing here answers a preflight -- so another website
@@ -22,6 +23,7 @@ import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { createInstagramPoster, MAX_POST_FILE_BYTES } from './ad-builder-instagram.mjs';
 import { createStockEncoder } from './ad-builder-stock.mjs';
+import { createStockQueue } from './ad-builder-queue.mjs';
 
 const MIME = {
   '.js': 'text/javascript',
@@ -94,6 +96,13 @@ export default function adBuilderDev({ root = process.cwd() } = {}) {
     configureServer(server) {
       const instagram = createInstagramPoster({ root, mode: server.config.mode });
       const stock = createStockEncoder({ root });
+      const queue = createStockQueue({
+        root,
+        stockDir: stock.dir,
+        port: () => server.httpServer?.address()?.port ?? server.config.server.port ?? 5173
+      });
+      server.httpServer?.once('close', () => queue.shutdown());
+      const QUEUE_ACTIONS = ['add', 'remove', 'move', 'retry', 'clear', 'start', 'pause', 'preview', 'reveal', 'claim', 'progress', 'finished', 'failed', 'idle'];
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, 'http://localhost');
         const p = decodeURIComponent(url.pathname);
@@ -163,6 +172,17 @@ export default function adBuilderDev({ root = process.cwd() } = {}) {
             }
             if (action === 'finish') return send(res, 200, await stock.finish(id));
             if (action === 'cancel') return send(res, 200, await stock.cancel(id));
+          }
+
+          if (p === '/__ads/queue' && req.method === 'GET') return send(res, 200, queue.view());
+          if (p.startsWith('/__ads/queue/') && req.method === 'POST') {
+            const action = p.slice('/__ads/queue/'.length);
+            if (!QUEUE_ACTIONS.includes(action)) return send(res, 404, { error: 'Not found' });
+            if ((req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') {
+              return send(res, 415, { error: 'JSON only' });
+            }
+            const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+            return send(res, 200, await queue[action](body));
           }
 
           if (p === '/__ads/ads' && req.method === 'GET') {

@@ -12,11 +12,12 @@ import Button from '../components/ui/Button';
 
 /**
  * @param {{ label: string, progress?: number | null, detail?: string | null, onAction?: (() => void) | null,
- *   actionLabel?: string, tone?: 'busy' | 'warn' | 'done' }} props
+ *   actionLabel?: string, tone?: 'busy' | 'warn' | 'done', stack?: number }} props
  *   `progress` 0..1, or null for a phase with no measure (the bar then runs a segment across).
  *   `onAction`: a button beside the percentage -- Cancel while running, Dismiss once done.
+ *   `stack`: 1 sits under another bar (the queue's, under an export of this page's own).
  */
-export default function ExportProgress({ label, progress = null, detail = null, onAction = null, actionLabel = 'Cancel', tone = 'busy' }) {
+export default function ExportProgress({ label, progress = null, detail = null, onAction = null, actionLabel = 'Cancel', tone = 'busy', stack = 0 }) {
   const pct = progress == null ? null : Math.max(0, Math.min(100, Math.round(progress * 100)));
   useEffect(() => {
     const base = document.title.replace(/^\d+% · /, '');
@@ -29,6 +30,7 @@ export default function ExportProgress({ label, progress = null, detail = null, 
     <div
       role="status"
       aria-live="polite"
+      style={stack ? { top: `calc(1rem + ${stack} * 6.25rem)` } : undefined}
       className="export-progress fixed top-4 z-50 -translate-x-1/2 animate-resolve-in rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 text-sm shadow-2xl backdrop-blur-md"
     >
       <div className="flex items-baseline justify-between gap-3">
