@@ -268,9 +268,7 @@ export default function ProductPage() {
   const {
     currentDesign,
     previewUrl: studioPreviewUrl,
-    designChanging,
-    printQueueDesign,
-    setPrintQueueDesign
+    designChanging
   } = useStudio();
   const { user, authResolved } = useAuth();
   // Crossfades the "Current studio design" tile between successive MiniGenerator
@@ -619,18 +617,15 @@ export default function ProductPage() {
     }
   }, []);
 
-  // Step 1: which artwork to print. "current" is always the live studio design; a one-shot
-  // hand-off from the Gallery's "Print this" action can also queue a specific saved design
-  // (consumed once on mount, see below); everything else -- the user's own library AND other
-  // people's public designs -- comes through the "Browse gallery" modal, one picked design
-  // at a time. Replaces the old horizontal strip that fetched and preloaded the user's
+  // Step 1: which artwork to print. "current" is always the live studio design (the Gallery's
+  // "Print this" makes its design the current one before coming here); everything else -- the
+  // user's own library AND other people's public designs -- comes through the "Browse gallery"
+  // modal, one picked design at a time. Replaces the old horizontal strip that fetched and preloaded the user's
   // entire saved library, unbounded, on every visit.
-  const [queuedChoice, setQueuedChoice] = useState(null);
   const [pickedChoice, setPickedChoice] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState('current');
-  const consumedQueueRef = useRef(false);
 
   // Which artwork slot the gallery modal is currently filling. 'primary' is every product's
   // only slot; 'secondary' is the reversible bucket hat's inside face (see
@@ -639,8 +634,8 @@ export default function ProductPage() {
   const [pickerTarget, setPickerTarget] = useState('primary');
   const [secondaryChoice, setSecondaryChoice] = useState(null);
 
-  // A pick from the modal that's actually one of the pinned tiles (the live studio design
-  // again, or the queued hand-off) selects that tile instead of duplicating it as a third.
+  // A pick from the modal that IS the live studio design selects that tile instead of pinning
+  // a duplicate beside it.
   const onPickDesign = design => {
     setPickerOpen(false);
     if (pickerTarget === 'secondary') {
@@ -649,15 +644,6 @@ export default function ProductPage() {
     }
     if (isSameDesign(currentDesign, design.data)) {
       setSelectedKey('current');
-    } else if (
-      queuedChoice &&
-      // Identity as well as row id: two gallery rows can hold the same artwork (the same
-      // design saved by two people, or re-saved after a round trip through the studio), and
-      // pinning a third tile that is pixel-for-pixel one of the two already there is the same
-      // thing that reads as a bug in the queued hand-off above.
-      (design.id === queuedChoice.id || isSameDesign(queuedChoice.data, design.data))
-    ) {
-      setSelectedKey('queued');
     } else {
       setPickedChoice(design);
       setSelectedKey('picked');
@@ -699,37 +685,6 @@ export default function ProductPage() {
     };
   }, [productId]);
 
-  // Consume the Gallery's queued "Print this" design exactly once -- StudioContext clears
-  // it right after so it doesn't silently reapply on a later visit. Animations are rejected
-  // here too, not just left to Gallery hiding its own "Print this" button for them -- the
-  // mockup pipeline expects a flat { seed, colors } design, not a frames array, so a queued
-  // animation would otherwise reach renderDesignBlob with the wrong shape.
-  // Belt and suspenders: the Gallery UI is the only path that can set this today, but this
-  // hand-off shouldn't rely on staying in sync with every future caller of setPrintQueueDesign.
-  useEffect(() => {
-    if (consumedQueueRef.current || !printQueueDesign) return;
-    consumedQueueRef.current = true;
-    if (printQueueDesign.kind !== 'animation') {
-      // Same dedupe the gallery modal's onPickDesign already does: the studio design and the
-      // queued one are very often literally the same piece (generate -> save -> open it in
-      // the gallery -> Print this, without generating again in between), and pinning a second
-      // identical tile beside "Studio design / Current" reads as a bug -- two tiles, one
-      // thumbnail, and no way to tell what the difference between them is meant to be.
-      // isSameDesign compares seed/colors/settings, so this is design identity, not object
-      // identity, which is what makes it fire on that flow at all.
-      if (isSameDesign(currentDesign, printQueueDesign.data)) {
-        setSelectedKey('current');
-      } else {
-        setQueuedChoice(printQueueDesign);
-        setSelectedKey('queued');
-      }
-    }
-    setPrintQueueDesign(null);
-    // currentDesign is read above but deliberately not a dependency: the ref guard makes this
-    // a one-shot on mount, and listing it would only re-run an effect that returns immediately.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printQueueDesign, setPrintQueueDesign]);
-
   // A new mockup batch always starts on its first (front-facing) image.
   useEffect(() => {
     setActiveImageIndex(0);
@@ -739,15 +694,11 @@ export default function ProductPage() {
   // new object every call ({ ...design, generatorVersion }), and selectedDesign -- which is
   // whichever of these tiles is selected -- is a dependency of the mockup sync effect below.
   // Calling it inline in `choices` therefore handed that effect a brand-new object identity
-  // on every render whenever a queued or gallery-picked design was selected, so the effect
+  // on every render whenever a gallery-picked design was selected, so the effect
   // re-ran, set state, re-rendered, and looped until React bailed out with "Maximum update
   // depth exceeded". Only the 'current' tile escaped it, because that one passes
   // StudioContext's stable currentDesign straight through -- which is why the page looked
   // fine until an artwork was actually picked from the gallery.
-  const queuedDesignData = useMemo(
-    () => (queuedChoice ? withCurrentGeneratorVersion(queuedChoice.data) : null),
-    [queuedChoice]
-  );
   const pickedDesignData = useMemo(
     () => (pickedChoice ? withCurrentGeneratorVersion(pickedChoice.data) : null),
     [pickedChoice]
@@ -763,22 +714,6 @@ export default function ProductPage() {
       thumb: studioPreviewUrl,
       data: currentDesign
     },
-    ...(queuedChoice
-      ? [
-          {
-            key: 'queued',
-            label: queuedChoice.title || 'Untitled',
-            badge: 'Queued',
-            thumb: getThumbnailUrl(queuedChoice.user_id, queuedChoice.id),
-            // Stored rows carry the generatorVersion they were SAVED under, which the client
-            // renderer ignores (it always regenerates with the current bundle's code) but
-            // render-service hard-fails on -- see withCurrentGeneratorVersion. Stamped here,
-            // at the point of adoption, so the mockup, the print file, and order_items'
-            // design_data audit copy all agree on one version.
-            data: queuedDesignData
-          }
-        ]
-      : []),
     ...(pickedChoice
       ? [
           {
@@ -786,7 +721,11 @@ export default function ProductPage() {
             label: pickedChoice.title || 'Untitled',
             badge: 'Gallery',
             thumb: getThumbnailUrl(pickedChoice.user_id, pickedChoice.id),
-            // Same re-stamp as the queued tile above.
+            // Stored rows carry the generatorVersion they were SAVED under, which the client
+            // renderer ignores (it always regenerates with the current bundle's code) but
+            // render-service hard-fails on -- see withCurrentGeneratorVersion. Stamped here,
+            // at the point of adoption, so the mockup, the print file, and order_items'
+            // design_data audit copy all agree on one version.
             data: pickedDesignData
           }
         ]
@@ -2537,11 +2476,9 @@ export default function ProductPage() {
         inUseId={
           pickerTarget === 'secondary'
             ? secondaryChoice?.id ?? null
-            : selectedKey === 'queued'
-              ? queuedChoice?.id ?? null
-              : selectedKey === 'picked'
-                ? pickedChoice?.id ?? null
-                : null
+            : selectedKey === 'picked'
+              ? pickedChoice?.id ?? null
+              : null
         }
       />
 
