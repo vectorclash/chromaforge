@@ -199,12 +199,6 @@ export function StudioProvider({ children }) {
   // ...and its title, so the studio's exports of a design saved elsewhere (the mini-generator)
   // carry the name it has in the gallery.
   const [savedDesignTitle, setSavedDesignTitle] = useState(null);
-  // One-shot hand-off for "Print this" from the Gallery: set when a gallery card's print
-  // action fires, read (and cleared) by ProductPage on mount so the artwork-picker defaults
-  // to this design instead of the live studio design. Deliberately separate from
-  // currentDesign -- printing an old saved design shouldn't change what the ambient
-  // mini-generator/footer show elsewhere, since those represent the studio's live work.
-  const [printQueueDesign, setPrintQueueDesign] = useState(null);
   // The studio's recent generations (lib/recentDesigns.js), restored from this device. `currentId`
   // is the entry on screen in the studio; it is never stored, since a visit opens on new artwork.
   const [recent, setRecent] = useState(() => ({ entries: readRecentDesigns(), currentId: null }));
@@ -643,8 +637,6 @@ export function StudioProvider({ children }) {
     isCurrentDesignSaved: isSameDesign(savedDesign, currentDesign),
     savedDesignId,
     savedDesignTitle,
-    printQueueDesign,
-    setPrintQueueDesign,
     recentDesigns: recent.entries,
     recentDesignId: recent.currentId,
     recordRecentDesign
