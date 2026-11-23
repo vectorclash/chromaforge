@@ -70,7 +70,7 @@ export default function GalleryPage() {
     path: '/gallery'
   });
   const { user, isAdmin } = useAuth();
-  const { setPrintQueueDesign, previewUrl, designChanging, markDesignDeleted } = useStudio();
+  const { activateSavedDesign, previewUrl, designChanging, markDesignDeleted } = useStudio();
   // Two stacked layers through the shared hook rather than a bare <img src={previewUrl}>:
   // MiniGenerator sits on this route, so generating from it used to crossfade the widget
   // while this empty-state thumbnail popped to the new design on the same beat.
@@ -301,11 +301,13 @@ export default function GalleryPage() {
     }
   };
 
-  // "Print this" -- queue the design in StudioContext (a one-shot hand-off ProductPage
-  // reads on mount) and jump to the catalog so the user picks a product for it.
+  // "Print this" -- make the design the ACTIVE one, then go to the catalog, exactly as a
+  // homepage Featured card does (2026-11-23, Aaron: it landed on the shop wearing a different
+  // artwork). It used to queue the design for ProductPage's "Queued" tile, which only a product
+  // page reads -- so every shop card kept showing whatever design was already active.
   const onPrint = (design, e) => {
     e?.stopPropagation();
-    setPrintQueueDesign(design);
+    if (!activateSavedDesign(design)) return;
     navigate('/shop');
   };
 
