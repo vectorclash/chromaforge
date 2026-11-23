@@ -18,6 +18,8 @@ import {
 // frame (the Flight mode's music); without one it plays on its own from the start.
 // `frozen`: hold the last frame and draw nothing (while an export renders on the same GPU: an
 // idle preview still redrew the whole flight every animation frame).
+// Draws of one unchanged moment before a still preview stops redrawing (see the tick below).
+const SETTLE_FRAMES = 8;
 export function FlightPlayer({ design, options, width, height, clock = null, frozen = false }) {
   const host = useRef(null);
   const [error, setError] = useState(null);
@@ -39,8 +41,19 @@ export function FlightPlayer({ design, options, width, height, clock = null, fro
         host.current?.appendChild(l.canvas);
         const t0 = performance.now();
         let drawn = false;
+        let lastT = NaN;
+        let still = 0; // frames drawn in a row at the same time
         const tick = now => {
-          if (!frozenRef.current || !drawn) l.draw(clockRef.current ? clockRef.current() : (now - t0) / 1000);
+          const t = clockRef.current ? clockRef.current() : (now - t0) / 1000;
+          if (t !== lastT) still = 0;
+          lastT = t;
+          // A paused (or scrubbed-and-left) preview stops drawing once it has settled: the plate
+          // cache refines over a few frames after a jump, so the same moment is drawn SETTLE_FRAMES
+          // times, then left on screen. It used to redraw the same frame every refresh.
+          if ((!frozenRef.current || !drawn) && still < SETTLE_FRAMES) {
+            l.draw(t);
+            still++;
+          }
           drawn = true;
           raf = requestAnimationFrame(tick);
         };
