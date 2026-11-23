@@ -3644,6 +3644,16 @@ Measure any future change the same way: `node scripts/check-instant-accuracy.mjs
 are in `.calib/<id>/<cfg>/verify/`, on the machine that captured them). `node
 scripts/check-instant-coverage.mjs` checks every product x variant x stitch colour against Printful's
 live catalog and lists any option with no photo set.
+(8e) **The hoodie page crashed iOS Safari on every load, any design (2026-11-23, Aaron: "A problem
+repeatedly occurred on .../shop/388").** It made 7 full 2500x2500 renders where 3 do. Two causes,
+both fixed: ProductPage filled its geometry-placement Set in an EFFECT, so the first commit's
+instant renders ran with an empty Set (every panel without geometry) and were thrown away a moment
+later (now set during render, `geometryPlacementsFor`); and the pocket re-rendered the whole front
+just to crop it (`capRenderStrategy` now shares one render per identical request within a batch).
+Measured in production builds: hoodie 7 -> 3, zip hoodie 12 -> 5, sweatshirt 6 -> 3. The trigger was
+never the design: the hoodie's print file is one 6000x6000 sheet, so every panel renders at the
+full 2500px `need`. Not reproduced on a phone here (this environment has no WebKit); confirm on
+the device. If it recurs, the next lever is fewer decoded renders held at once on phones.
 (9) **Known gaps**: none -- since 2026-11-16 every product, variant and stitch colour Printful offers
 has a photo set, all 36 MagSafe options included (each Matte is shading-only off its Glossy; the
 mappings measured identical) (checked against the live catalog

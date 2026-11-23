@@ -314,12 +314,18 @@ export default function ProductPage() {
   const geometryOptions = detail?.product
     ? getGeometryPlacementOptions(getMockupConfigForProduct(detail.product.id))
     : [];
-  useEffect(() => {
-    if (detail?.product) {
-      setGeometryPlacements(new Set(getGeometryPlacementOptions(getMockupConfigForProduct(detail.product.id)).map(o => o.key)));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.product?.id]);
+  // Set DURING the render that first has the product, not in an effect after it (2026-11-23,
+  // Aaron: the hoodie page crashed iOS Safari on every load, any design). An effect ran one
+  // commit late, so that commit's renders started with an EMPTY set -- every placement without
+  // geometry -- and were thrown away a moment later when the real set landed: on the hoodie,
+  // three wasted 2500x2500 renders before the four real ones, all held in memory at once.
+  // Setting state while rendering makes React redo this render before anything commits, so no
+  // effect ever sees the empty set.
+  const [geometryPlacementsFor, setGeometryPlacementsFor] = useState(null);
+  if (detail?.product && geometryPlacementsFor !== detail.product.id) {
+    setGeometryPlacementsFor(detail.product.id);
+    setGeometryPlacements(new Set(getGeometryPlacementOptions(getMockupConfigForProduct(detail.product.id)).map(o => o.key)));
+  }
 
   const toggleGeometryPlacement = key => {
     setGeometryPlacements(prev => {
