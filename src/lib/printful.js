@@ -880,8 +880,24 @@ export function capRenderStrategy(
   renderDesignBlob,
   { sink = uploadMockupSourceImage, cap = RENDER_CAP, renderOptions = null } = {}
 ) {
-  const render = (design, width, height, opts) =>
-    renderDesignBlob(design, width, height, renderOptions ? { ...opts, ...renderOptions } : opts);
+  // One render per distinct request for the life of this strategy (one batch): the pocket's
+  // source IS the front's render -- same design, size and options -- and used to be drawn a
+  // second time just to be cropped. On the hoodie that was a whole extra 2500x2500 render, and
+  // the page was already at iOS Safari's memory limit (2026-11-23). generateArtwork is a pure
+  // function of these arguments, so sharing the blob changes no pixel.
+  const memo = new Map();
+  const render = (design, width, height, opts) => {
+    const key = `${width}x${height}:${JSON.stringify(opts)}`;
+    let byDesign = memo.get(design);
+    if (!byDesign) memo.set(design, (byDesign = new Map()));
+    if (!byDesign.has(key)) {
+      const p = renderDesignBlob(design, width, height, renderOptions ? { ...opts, ...renderOptions } : opts);
+      byDesign.set(key, p);
+      // A failed or cancelled render must not stay cached as the answer.
+      p.catch(() => byDesign.get(key) === p && byDesign.delete(key));
+    }
+    return byDesign.get(key);
+  };
   const sized = (width, height) => capMockupRenderSize(width, height, cap);
   return async (
     design,

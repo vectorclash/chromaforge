@@ -21,7 +21,7 @@ import AuthorBadge from '../ui/AuthorBadge';
 // StudioContext.saveCurrentDesign -> uploadDesignThumbnail), not a second render path.
 export default function GallerySection() {
   const { user } = useAuth();
-  const { setPrintQueueDesign } = useStudio();
+  const { activateSavedDesign } = useStudio();
   const navigate = useNavigate();
   const [designs, setDesigns] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -65,11 +65,13 @@ export default function GallerySection() {
     navigate(`/studio?id=${design.id}`, { state: { from: '/' } });
   };
 
-  // "Print this" -- same hand-off as GalleryPage.onPrint: queue the design in
-  // StudioContext (a one-shot hand-off ProductPage reads on mount) and jump to the catalog.
+  // "Print this" -- make the design the ACTIVE one, then go to the catalog, exactly as a
+  // homepage Featured card does (2026-11-23, Aaron: it landed on the shop wearing a different
+  // artwork). It used to queue the design for ProductPage's "Queued" tile, which only a product
+  // page reads -- so every shop card kept showing whatever design was already active.
   const onPrint = (design, e) => {
     e?.stopPropagation();
-    setPrintQueueDesign(design);
+    if (!activateSavedDesign(design)) return;
     navigate('/shop');
   };
 
