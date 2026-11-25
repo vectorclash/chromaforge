@@ -300,20 +300,24 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   // busy, kept the render loop running at 60fps indefinitely.
   let strikeQueued = false;
   let releaseQueued = false;
+  // A strike may ask for its orbit's direction and speed (the shirt's spin does, so the swarm
+  // turns with it); otherwise both are rolled.
+  let strikeDir = 0;
+  let strikeSpeed = 1;
   let posed = false;
   const alive = now =>
     strikeAt !== null &&
     now - strikeAt < MAX_LIFE &&
     (releaseAt === null || now - releaseAt < OUT_TOTAL);
 
-  const rollVortex = () => {
+  const rollVortex = (wantDir = 0, speed = 1) => {
     const tiltX = (Math.random() * 2 - 1) * MAX_TILT_X;
     const tiltZ = (Math.random() * 2 - 1) * MAX_TILT_Z;
-    const dir = Math.random() < 0.5 ? -1 : 1;
+    const dir = wantDir || (Math.random() < 0.5 ? -1 : 1);
     uniforms.uSwirl.value.set(
       tiltX,
       tiltZ,
-      dir * (0.8 + Math.random() * 0.9),
+      dir * (0.8 + Math.random() * 0.9) * speed,
       // A whirlpool facing the camera would sit inside the garment; bring it forward in
       // proportion to how far the axis is tipped toward the viewer.
       0.42 * Math.abs(Math.sin(tiltX))
@@ -335,9 +339,12 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
     busy: now => enabled && alive(now),
     // A fresh vortex, rolled on the next drawn frame so the eruption is never spent while the
     // main thread is busy (see setAberration). Supersedes a release not yet applied.
-    strike() {
+    // `dir` (+1/-1) and `speed` (a multiplier) are optional; see strikeDir.
+    strike(dir = 0, speed = 1) {
       strikeQueued = true;
       releaseQueued = false;
+      strikeDir = dir;
+      strikeSpeed = speed;
     },
     // Dissipate, on the next drawn frame.
     release() {
@@ -379,7 +386,7 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
       if (strikeQueued) {
         strikeAt = now;
         releaseAt = null;
-        rollVortex();
+        rollVortex(strikeDir, strikeSpeed);
         strikeQueued = false;
       }
       if (releaseQueued && strikeAt !== null) {

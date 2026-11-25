@@ -3093,24 +3093,32 @@ The hero's compact studio panel (DisplayCanvas's `compact` branch) lost its glas
 border/padding; Save gets its own dark translucent fill since its base style is
 transparent-with-border) and gained `src/components/TshirtPreview.jsx`: a three.js
 t-shirt (lazy `import('three')`, same treatment as Animation3DPreview) textured live with
-the current design. No idle spin (Aaron's call, replacing a first rotating version) — the
-shirt faces forward and eases toward the mouse's horizontal position — or, on touch
-devices (`pointer: coarse`), with the phone's side-to-side tilt (deviceorientation gamma,
-±25° tilt = full range; baseline is the first reading and drifts slowly toward the live
-angle so a changed grip re-centers) — capped at ±15° yaw either way, static under
-prefers-reduced-motion. Tilt runs ONLY where no permission prompt is needed (Android);
-iOS 13+'s `requestPermission()`-on-first-tap flow was tried and user-rejected live (the
-natural first tap is the shirt itself, so the prompt fired after navigating to the shop) —
-iOS deliberately gets a static shirt, don't reintroduce the prompt.
-**Touch devices can also drag the shirt to spin it freely** (2026-07-18, Aaron's ask):
-pointer-drag on the mount adds an unclamped `dragYaw` under the ±15° ambient target
-(tilt/mouse rides on top), with a decaying release flick (skipped under
-prefers-reduced-motion; the drag itself is allowed — direct manipulation, not ambient).
-The shop link survives via tap-vs-drag disambiguation: a press only becomes a drag past
-8px of horizontally-dominant movement (vertical swipes scroll the page — `touch-action:
-pan-y` on the button), and a real drag sets `dragSuppressClickRef` so the release click
-doesn't navigate; a clean tap still goes to /shop. Verified via headless touch-emulation
-(drag → ~90° spin, URL stays; tap → /shop). Below 480px the shirt+buttons row stacks
+the current design. No idle spin (Aaron's call, replacing a first rotating version) — on a
+desktop the shirt faces forward and eases toward the mouse's horizontal position (±25° yaw),
+static under prefers-reduced-motion. **Phones get no ambient motion**: an Android-only follow of
+the phone's tilt (deviceorientation) was removed 2026-11-24 (iOS needs a permission prompt for
+it, which was tried and rejected because the natural first tap is the shirt itself, so it never
+reached most visitors, and it was never tested on a device). Don't reintroduce either.
+**The shirt is a toy, on mouse and touch alike (2026-11-24, Aaron: "make it more fun to play
+with"; `PLAY` in TshirtPreview.jsx).** Drag spins it with no limit and tips it ±15° with vertical
+movement; a flick coasts (friction ~2 turns from a hard flick) and a slightly underdamped spring
+settles it onto the NEARER side, front or back. Spin speed raises the glitch pass (capped at
+0.55, under a generate's peak) and a fast spin launches a spark swarm orbiting the way the shirt
+turns (`swirl.strike(dir, speed)`). Press and hold still for 220ms charges it (squash, tremble,
+the artwork glowing via `emissiveMap` at intensity 0 at rest, so resting pixels are unchanged);
+release fires a shockwave from the finger (`uStrikeOrigin`; negative = derive from
+`uStrikeShape` as before, which keeps the explainer Reel identical) and flings the shirt away
+from the pressed side. Four things worth not re-deriving: (1) the pass's `uAmount` is written
+per frame as the MAX of the generate tween (`genFx`), spin, charge and burst, so play never
+fights a generate for it; (2) a press with under `CHARGE_COMMIT` of charge is still a click, or a
+slow mouse click would stop reaching the shop; (3) on touch a press becomes a drag only past 8px
+of mostly horizontal movement, so vertical swipes still scroll (`touch-action: pan-y`), and once
+a drag or charge owns the gesture its touchmoves are cancelled; (4) physics steps by real time,
+clamped at 50ms, and the loop still sleeps when everything settles (idle rAF unchanged at
+64/s). Under reduced motion drag and tilt work, but nothing coasts, charges or glitches.
+Verified in Chromium (desktop mouse and a 390px touch viewport): flick, hold, slow click, tap ->
+/shop, vertical swipe scrolls, no console errors, `check-leaks.mjs` 12/12. NOT yet felt on a
+real phone. Below 480px the shirt+buttons row stacks
 vertically (`.hero-compact-row` media query — side-by-side overflows a phone viewport). The model (Sketchfab "Tshirt" by khalilchahi99, CC-BY-4.0 —
 attribution in its license.txt, which is a licence obligation and must ship) lives in
 `public/models/tshirt/` (fetched by URL; Vite can't resolve it from src/assets — the

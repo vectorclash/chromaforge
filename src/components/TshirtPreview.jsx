@@ -285,6 +285,10 @@ export const AberrationShader = {
     // The struck pulse's random draws, made in JS per strike: origin/lobe phases (x, y),
     // reach (z) and strength (w). Same roles as an ambient pulse's h1/h2/h3.
     uStrikeShape: { value: [0.5, 0.5, 0.5, 0.5] },
+    // Where the struck pulse starts, in the shirt's box (0..1, y up). Negative means "derive it
+    // from uStrikeShape like an ambient pulse", which is what a generate strike and the explainer
+    // Reel use; the press-and-hold release sets it to the finger.
+    uStrikeOrigin: { value: [-1, -1] },
     // Canvas size over the shirt's own box (SWIRL_ROOM); see main().
     uScale: { value: 1 },
     // The swirl's spark layer, composited unsplit; see main().
@@ -303,6 +307,7 @@ export const AberrationShader = {
     uniform float uTime;
     uniform float uStrike;
     uniform vec4 uStrikeShape;
+    uniform vec2 uStrikeOrigin;
     uniform float uScale;
     uniform sampler2D tSparks;
     varying vec2 vUv;
@@ -313,8 +318,7 @@ export const AberrationShader = {
 
     // One expanding wavefront at phase (0..1 through its life). h1..h3 are its random
     // draws: origin and lobe phases, width, reach.
-    vec2 pulse(vec2 uv, float phase, float h1, float h2, float h3, float amp) {
-      vec2 origin = vec2(0.5) + (vec2(h1, h2) - 0.5) * 0.34;
+    vec2 pulseAt(vec2 uv, vec2 origin, float phase, float h1, float h2, float h3, float amp) {
       vec2 oc = uv - origin;
       float od = length(oc);
       float ang = atan(oc.y, oc.x);
@@ -329,6 +333,9 @@ export const AberrationShader = {
       // 1.6487 = e^0.5, normalizing the derivative-of-gaussian to a peak of 1.
       float profile = -x * exp(-x * x) * 1.6487;
       return (oc / max(od, 1e-4)) * profile * amp * (1.0 - phase);
+    }
+    vec2 pulse(vec2 uv, float phase, float h1, float h2, float h3, float amp) {
+      return pulseAt(uv, vec2(0.5) + (vec2(h1, h2) - 0.5) * 0.34, phase, h1, h2, h3, amp);
     }
 
     void main() {
@@ -362,8 +369,11 @@ export const AberrationShader = {
       // strength 1.0 to 1.65 (the top of the ambient range). See the header comment.
       float sp = (uTime - uStrike) * PULSE_RATE;
       if (sp >= 0.0 && sp < 1.0) {
-        push += pulse(uv, sp, uStrikeShape.x, uStrikeShape.y, uStrikeShape.z,
-                      1.0 + uStrikeShape.w * 0.65);
+        vec2 so = uStrikeOrigin.x < 0.0
+          ? vec2(0.5) + (uStrikeShape.xy - 0.5) * 0.34
+          : uStrikeOrigin;
+        push += pulseAt(uv, so, sp, uStrikeShape.x, uStrikeShape.y, uStrikeShape.z,
+                        1.0 + uStrikeShape.w * 0.65);
       }
 
       // A little tearing on top, mostly where a wavefront is passing -- the shock is
@@ -550,8 +560,8 @@ export default function TshirtPreview({
     revealDelay,
     revealedAt: revealed ? performance.now() : null
   });
-  // Set by the touch-drag rotation the moment a press turns into a drag, so the click
-  // that fires on release doesn't ALSO navigate to the shop (see the button's onClick).
+  // Set the moment a press turns into a drag or a real charge (see PLAY), so the click that
+  // fires on release doesn't ALSO navigate to the shop (see the button's onClick).
   const dragSuppressClickRef = useRef(false);
   const [failed, setFailed] = useState(false);
   const { currentDesign, renderDesignBlob } = useStudio();
@@ -779,6 +789,12 @@ export default function TshirtPreview({
         printed.forEach(mat => {
           const old = mat.map;
           mat.map = texture;
+          // The press-and-hold charge makes the shirt glow with its own artwork. Set up here,
+          // at zero, so the program is compiled with the emissive map from the start (a first
+          // charge would otherwise recompile mid-gesture) -- white x 0 adds exactly nothing.
+          mat.emissive.set(0xffffff);
+          mat.emissiveMap = texture;
+          mat.emissiveIntensity = 0;
           mat.needsUpdate = true;
           if (old) old.dispose();
         });
@@ -823,9 +839,12 @@ export default function TshirtPreview({
 
         mount.appendChild(renderer.domElement);
 
-        // No idle spin -- the shirt faces forward and turns slowly toward the mouse
-        // (desktop) or with the phone's left/right tilt (touch devices, deviceorientation
-        // gamma), capped at ±25° of yaw either way. Static under prefers-reduced-motion.
+        // No idle spin -- the shirt faces forward and turns slowly toward the mouse on a
+        // desktop, capped at ±25° of yaw either way. Static under prefers-reduced-motion.
+        // Phones have no hover and no ambient motion: they play with it directly (see PLAY).
+        // (An Android-only follow of the phone's left/right tilt was removed 2026-11-24 --
+        // iOS needs a permission prompt for it, so it never reached most visitors, and it
+        // was never tested on a real device.)
         const MAX_YAW = (25 * Math.PI) / 180;
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const isTouch = window.matchMedia('(pointer: coarse)').matches;
@@ -833,6 +852,8 @@ export default function TshirtPreview({
         const inputCleanups = [];
 
         const onMouseMove = e => {
+          // A held mouse button is a drag or a charge; the hover follow sits it out.
+          if (pressed) return;
           const rect = renderer.domElement.getBoundingClientRect();
           const centerX = rect.left + rect.width / 2;
           // Normalize by half the viewport so the cap is only reached at the screen edges.
@@ -841,104 +862,190 @@ export default function TshirtPreview({
           stateRef.current.wake?.();
         };
 
-        // Phones have no hover, so gamma (side-to-side tilt, degrees) stands in for the
-        // mouse: ±25° of tilt from the holding angle covers the full yaw range. There's no
-        // universal "neutral" grip, so the baseline is the first reading, then drifts
-        // slowly toward the live angle -- shift how you're holding the phone and the shirt
-        // eases back to center instead of sticking at the cap forever.
-        let baseGamma = null;
-        const onOrientation = e => {
-          if (e.gamma == null) return;
-          if (baseGamma === null) baseGamma = e.gamma;
-          baseGamma += (e.gamma - baseGamma) * 0.01;
-          const t = (e.gamma - baseGamma) / 25;
-          targetYaw = Math.max(-1, Math.min(1, t)) * MAX_YAW;
+        // PLAY (2026-11-24, Aaron: "make it more fun to play with"). Mouse and touch share one
+        // model, all of it stepped per frame in stepPlay() below:
+        //  - DRAG spins the shirt freely, with no limit, and vertical movement during a drag
+        //    tips it forward or back (up to MAX_PITCH), springing level on release.
+        //  - A FLICK keeps it spinning. Friction slows it, and a spring settles it onto the
+        //    nearer side -- front or back -- with a little overshoot.
+        //  - SPEED shows: the glitch pass rises with it, and a fast spin throws off a spark
+        //    swarm orbiting the way the shirt turns.
+        //  - PRESS AND HOLD still for HOLD_DELAY charges it: it squashes, trembles and glows
+        //    with its own artwork. Letting go sends a shockwave out from the finger and flings
+        //    the shirt into a spin away from the side that was pressed.
+        // The shirt is still a shop link, so a press that becomes neither a drag nor a real
+        // charge is a click. On touch a press becomes a drag only past DRAG_THRESHOLD of mostly
+        // HORIZONTAL movement, so a vertical swipe still scrolls the page (touch-action: pan-y
+        // on the button); once a drag or a charge owns the gesture its touchmoves are cancelled,
+        // so the page cannot start scrolling under it. Under prefers-reduced-motion, dragging
+        // and tilting still work (direct manipulation) but nothing coasts, bounces, charges or
+        // glitches: a release snaps to the nearer side.
+        const DRAG_THRESHOLD = 8;
+        const SPIN_PER_PX = 0.012; // ~0.7deg of spin per pixel
+        const PITCH_PER_PX = 0.006;
+        const MAX_PITCH = (15 * Math.PI) / 180;
+        const MAX_FLICK = 40; // rad/s, ~6 turns a second
+        // A flick is the speed of the last moves; a finger that stopped before lifting has none.
+        const FLICK_STALE_MS = 90;
+        const FRICTION = 1.1; // per second: a hard flick coasts about two turns
+        // The settle spring takes over below ~6 rad/s, slightly underdamped so it overshoots
+        // the face once and comes back.
+        const SETTLE_K = 40;
+        const SETTLE_C = 7.5;
+        const PITCH_K = 140;
+        const PITCH_C = 13;
+        const HOLD_DELAY = 220; // ms still before a press starts charging
+        const CHARGE_TIME = 1.1; // s to full charge
+        const CHARGE_DECAY = 0.35; // s to empty after release
+        // A press shorter than this much charge is still a click (a slow mouse click charges a
+        // touch before the button comes up; it must still reach the shop).
+        const CHARGE_COMMIT = 0.12;
+        const SQUASH_K = 220;
+        const SQUASH_C = 9;
+        const GLOW_MAX = 0.4;
+        // Spin speed (rad/s) to glitch strength, and its ceiling: well under a generate's peak.
+        const SPIN_FX_LOW = 5;
+        const SPIN_FX_HIGH = 22;
+        const SPIN_FX_MAX = 0.55;
+        const SPARK_SPIN_SPEED = 1.6; // a spin's swarm orbits faster than a generate's
+
+        const button = /** @type {HTMLElement} */ (mount.parentElement);
+        const smoothstep = (a, b, x) => {
+          const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+          return t * t * (3 - 2 * t);
+        };
+        const nearestFace = a => Math.round(a / Math.PI) * Math.PI;
+
+        let pressed = false;
+        let dragging = false;
+        let charging = false;
+        let pointerKind = '';
+        let startX = 0;
+        let startY = 0;
+        let lastX = 0;
+        let lastY = 0;
+        let pressAt = 0;
+        let pressU = 0.5;
+        let pressV = 0.5;
+        let lastMoveAt = 0;
+        let moveVel = 0; // rad/s, measured from the finger while dragging
+        let spin = 0;
+        let spinTarget = 0;
+        let spinVel = 0;
+        let pitch = 0;
+        let pitchVel = 0;
+        let pitchTarget = 0;
+        let charge = 0;
+        let squash = 0;
+        let squashVel = 0;
+        let ambientYaw = 0;
+        // Spark swarms launched by play rather than by a generate (see stepPlay).
+        let spinSwarm = false;
+        let spinArmed = true;
+
+        const onPointerDown = e => {
+          if (e.button !== 0) return; // primary only; a right-click keeps its menu
+          pressed = true;
+          dragging = false;
+          charging = false;
+          // A new press: whatever the last one suppressed is over, even if its click never came.
+          dragSuppressClickRef.current = false;
+          pointerKind = e.pointerType;
+          startX = lastX = e.clientX;
+          startY = lastY = e.clientY;
+          pressAt = lastMoveAt = performance.now();
+          moveVel = 0;
+          const r = mount.getBoundingClientRect();
+          pressU = (e.clientX - r.left) / r.width;
+          pressV = 1 - (e.clientY - r.top) / r.height;
           stateRef.current.wake?.();
         };
-        const startOrientation = () => {
-          window.addEventListener('deviceorientation', onOrientation);
-          inputCleanups.push(() => window.removeEventListener('deviceorientation', onOrientation));
-        };
-
-        // Touch devices can also DRAG the shirt to rotate it -- clamped to ±40°
-        // (wider than the ±25° ambient yaw, but not a free spin), returning to
-        // forward-facing once the finger lifts. The shirt is still a shop link: a
-        // press only becomes a drag past a horizontal 8px threshold (and only when
-        // horizontal movement dominates -- vertical swipes stay with the page scroll
-        // via touch-action: pan-y on the button, which fires pointercancel once the
-        // browser takes the gesture), and a real drag suppresses the click that
-        // fires on release. Allowed under prefers-reduced-motion (direct
-        // manipulation, not ambient animation); the eased return is skipped there
-        // in favor of an immediate reset.
-        let dragYaw = 0;
-        let dragging = false;
-        if (isTouch) {
-          const DRAG_THRESHOLD = 8;
-          const DRAG_MAX_YAW = (40 * Math.PI) / 180;
-          let pressed = false;
-          let startX = 0;
-          let startY = 0;
-          let lastX = 0;
-          const onPointerDown = e => {
-            pressed = true;
-            dragging = false;
-            startX = lastX = e.clientX;
-            startY = e.clientY;
-          };
-          const onPointerMove = e => {
-            if (!pressed) return;
-            if (!dragging) {
-              const dxTotal = e.clientX - startX;
-              if (
-                Math.abs(dxTotal) < DRAG_THRESHOLD ||
-                Math.abs(dxTotal) < Math.abs(e.clientY - startY)
-              )
-                return;
-              dragging = true;
-              dragSuppressClickRef.current = true;
-              mount.setPointerCapture?.(e.pointerId);
-              lastX = e.clientX;
-              return;
-            }
-            const dx = e.clientX - lastX;
-            const dYaw = dx * 0.012; // ~0.7° of spin per pixel
-            dragYaw = Math.max(-DRAG_MAX_YAW, Math.min(DRAG_MAX_YAW, dragYaw + dYaw));
-            stateRef.current.wake?.();
+        const onPointerMove = e => {
+          if (!pressed) return;
+          if (!dragging) {
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            const far =
+              pointerKind === 'mouse'
+                ? Math.hypot(dx, dy) >= DRAG_THRESHOLD
+                : Math.abs(dx) >= DRAG_THRESHOLD && Math.abs(dx) >= Math.abs(dy);
+            if (!far) return;
+            dragging = true;
+            charging = false; // a charge that starts moving becomes a drag; it just drains
+            dragSuppressClickRef.current = true;
+            mount.setPointerCapture?.(e.pointerId);
+            spinTarget = spin;
+            spinVel = 0;
             lastX = e.clientX;
-          };
-          const onPointerEnd = () => {
-            pressed = false;
-            dragging = false;
-            if (reducedMotion) dragYaw = 0;
-          };
-          mount.addEventListener('pointerdown', onPointerDown);
-          mount.addEventListener('pointermove', onPointerMove);
-          mount.addEventListener('pointerup', onPointerEnd);
-          mount.addEventListener('pointercancel', onPointerEnd);
-          inputCleanups.push(() => {
-            mount.removeEventListener('pointerdown', onPointerDown);
-            mount.removeEventListener('pointermove', onPointerMove);
-            mount.removeEventListener('pointerup', onPointerEnd);
-            mount.removeEventListener('pointercancel', onPointerEnd);
-          });
-        }
-
-        if (!reducedMotion) {
-          if (isTouch && typeof DeviceOrientationEvent !== 'undefined') {
-            // Only where orientation works WITHOUT a permission prompt (Android). iOS 13+
-            // gates it behind DeviceOrientationEvent.requestPermission(), which must be
-            // called from a tap -- tried and user-rejected: the natural first tap is the
-            // shirt itself, so the prompt appeared after navigating away to the shop.
-            // A permission dialog isn't worth a decorative tilt; iOS gets a static shirt.
-            if (
-              typeof (/** @type {any} */ (DeviceOrientationEvent).requestPermission) !== 'function'
-            ) {
-              startOrientation();
-            }
-          } else {
-            window.addEventListener('mousemove', onMouseMove);
-            inputCleanups.push(() => window.removeEventListener('mousemove', onMouseMove));
+            lastY = e.clientY;
+            lastMoveAt = performance.now();
+            if (pointerKind === 'mouse') button.style.cursor = 'grabbing';
+            return;
           }
+          const now = performance.now();
+          const dYaw = (e.clientX - lastX) * SPIN_PER_PX;
+          spinTarget += dYaw;
+          pitchTarget = Math.max(
+            -MAX_PITCH,
+            Math.min(MAX_PITCH, pitchTarget + (e.clientY - lastY) * PITCH_PER_PX)
+          );
+          const dt = Math.max(now - lastMoveAt, 1) / 1000;
+          moveVel = Math.max(-MAX_FLICK, Math.min(MAX_FLICK, moveVel * 0.6 + (dYaw / dt) * 0.4));
+          lastMoveAt = now;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          stateRef.current.wake?.();
+        };
+        const endPress = released => {
+          if (!pressed) return;
+          pressed = false;
+          if (dragging) {
+            dragging = false;
+            const stale = performance.now() - lastMoveAt > FLICK_STALE_MS;
+            spinVel = stale ? 0 : moveVel;
+            pitchTarget = 0;
+            if (reducedMotion) {
+              spin = spinTarget = nearestFace(spinTarget);
+              spinVel = 0;
+              pitch = pitchVel = 0;
+            }
+          } else if (charging) {
+            charging = false;
+            if (released && charge >= CHARGE_COMMIT) burst();
+          }
+          button.style.cursor = '';
+          stateRef.current.wake?.();
+        };
+        const onPointerUp = () => endPress(true);
+        const onPointerCancel = () => endPress(false);
+        // Keeps the page from scrolling under a gesture the shirt already owns (non-passive).
+        const onTouchMove = e => {
+          if (dragging || charging) e.preventDefault();
+        };
+        // Android raises the context menu on a long press -- which is a charge here.
+        const onContextMenu = e => {
+          if (pressed) e.preventDefault();
+        };
+        mount.addEventListener('pointerdown', onPointerDown);
+        mount.addEventListener('pointermove', onPointerMove);
+        mount.addEventListener('pointerup', onPointerUp);
+        mount.addEventListener('pointercancel', onPointerCancel);
+        mount.addEventListener('touchmove', onTouchMove, { passive: false });
+        mount.addEventListener('contextmenu', onContextMenu);
+        inputCleanups.push(() => {
+          mount.removeEventListener('pointerdown', onPointerDown);
+          mount.removeEventListener('pointermove', onPointerMove);
+          mount.removeEventListener('pointerup', onPointerUp);
+          mount.removeEventListener('pointercancel', onPointerCancel);
+          mount.removeEventListener('touchmove', onTouchMove);
+          mount.removeEventListener('contextmenu', onContextMenu);
+        });
+
+        // Not on touch screens: a tap there sends emulated mouse events, which would jerk the
+        // follow toward wherever the finger landed.
+        if (!reducedMotion && !isTouch) {
+          window.addEventListener('mousemove', onMouseMove);
+          inputCleanups.push(() => window.removeEventListener('mousemove', onMouseMove));
         }
 
         // Postprocessing chain for the generate-transition chromatic aberration. The
@@ -975,6 +1082,13 @@ export default function TshirtPreview({
         composer.addPass(aberrationPass);
         let aberrationTween = null;
         let strikePending = false;
+        // The pass's strength is the largest of what wants it: a generate (genFx, tweened here),
+        // the shirt's own spin speed, a press-and-hold charge, and the burst its release fires.
+        // Each frame writes the max into uAmount, so play never fights a generate for it.
+        const genFx = { value: 0 };
+        const burstFx = { value: 0 };
+        let burstTween = null;
+        let genActive = false;
         // `from` re-strikes the uniform before the tween starts, for a caller that wants a
         // ramp DOWN from a known peak rather than from wherever the effect happens to be
         // sitting (the entrance does -- see revealShirt). It is a direct assignment rather
@@ -994,7 +1108,9 @@ export default function TshirtPreview({
         const setAberration = (value, duration, from) => {
           aberrationTween?.kill();
           stateRef.current.wake?.();
+          genActive = value > 0;
           if (value > 0 || from !== undefined) {
+            aberrationPass.uniforms.uStrikeOrigin.value = [-1, -1];
             aberrationPass.uniforms.uStrikeShape.value = [
               Math.random(),
               Math.random(),
@@ -1003,15 +1119,132 @@ export default function TshirtPreview({
             ];
             strikePending = true;
             swirl.strike();
+            // The generate owns the swarm now; play's release must not end it.
+            spinSwarm = false;
           }
-          if (from !== undefined) aberrationPass.uniforms.uAmount.value = from;
+          if (from !== undefined) genFx.value = from;
           // Easing down flings the sparks outward as they fade, over the same span.
           if (value === 0) swirl.release();
-          aberrationTween = gsap.to(aberrationPass.uniforms.uAmount, {
+          aberrationTween = gsap.to(genFx, {
             value,
             duration,
             ease: value > 0 ? 'power2.out' : 'power2.inOut'
           });
+        };
+
+        // The release of a charged press: a shockwave from the finger, a spin away from the side
+        // that was pressed (pushing the shirt's right edge turns it the way a push would), and a
+        // spark swarm unless a generate already has one going.
+        const burst = () => {
+          const c = charge;
+          const side = pressU - 0.5;
+          const dir = Math.abs(side) < 0.08 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(side);
+          spinVel = dir * (6 + 18 * c);
+          const u = aberrationPass.uniforms;
+          u.uStrikeOrigin.value = [Math.min(1, Math.max(0, pressU)), Math.min(1, Math.max(0, pressV))];
+          u.uStrikeShape.value = [Math.random(), Math.random(), 0.5 + 0.5 * c, Math.random()];
+          strikePending = true;
+          burstTween?.kill();
+          burstFx.value = 0.25 + 0.55 * c;
+          burstTween = gsap.to(burstFx, { value: 0, duration: 1.4, ease: 'power2.out' });
+          if (!genActive) {
+            swirl.strike(-dir, SPARK_SPIN_SPEED);
+            spinSwarm = true;
+            spinArmed = false;
+          }
+        };
+
+        // One frame of play (see PLAY above). Returns true while anything is still moving.
+        let spinFx = 0;
+        let swarmReleasing = false;
+        const stepPlay = (now, dt) => {
+          const t = now * 0.001;
+          // Press and hold.
+          if (pressed && !dragging && !charging && !reducedMotion && now - pressAt >= HOLD_DELAY) {
+            charging = true;
+          }
+          if (charging) {
+            charge = Math.min(1, charge + dt / CHARGE_TIME);
+            if (charge >= CHARGE_COMMIT) dragSuppressClickRef.current = true;
+          } else if (charge > 0) charge = Math.max(0, charge - dt / CHARGE_DECAY);
+          const squashTarget = charging ? charge : 0;
+          squashVel += (SQUASH_K * (squashTarget - squash) - SQUASH_C * squashVel) * dt;
+          squash += squashVel * dt;
+          if (!charging && Math.abs(squash) < 1e-4 && Math.abs(squashVel) < 1e-3) squash = squashVel = 0;
+
+          // Spin: the finger while dragging; afterwards coast, then settle onto a face.
+          if (dragging) {
+            spin += (spinTarget - spin) * (1 - Math.exp(-26 * dt));
+          } else if (spinVel !== 0 || spin !== nearestFace(spin)) {
+            spinVel *= Math.exp(-FRICTION * dt);
+            const settle = 1 - smoothstep(2.5, 6, Math.abs(spinVel));
+            if (settle > 0) {
+              spinVel += settle * (-SETTLE_K * (spin - nearestFace(spin)) - SETTLE_C * spinVel) * dt;
+            }
+            spin += spinVel * dt;
+            if (Math.abs(spinVel) < 0.002 && Math.abs(spin - nearestFace(spin)) < 5e-4) {
+              // Back to 0 or PI: whole turns are invisible, and the numbers stay small.
+              spin = (Math.abs(Math.round(spin / Math.PI)) % 2) * Math.PI;
+              spinVel = 0;
+            }
+          }
+
+          // Tilt.
+          pitchVel += (PITCH_K * (pitchTarget - pitch) - PITCH_C * pitchVel) * dt;
+          pitch += pitchVel * dt;
+          if (!dragging && Math.abs(pitch) < 1e-4 && Math.abs(pitchVel) < 1e-3) pitch = pitchVel = 0;
+
+          // The ambient follow (mouse or phone tilt) stays lazy.
+          ambientYaw += (targetYaw - ambientYaw) * (1 - Math.exp(-2.45 * dt));
+          if (Math.abs(targetYaw - ambientYaw) < 1e-4) ambientYaw = targetYaw;
+
+          pivot.rotation.y = spin + ambientYaw;
+          pivot.rotation.x = pitch;
+          // A charge trembles, harder as it fills.
+          pivot.rotation.z = charge > 0 ? Math.sin(t * 47) * 0.014 * charge * charge : 0;
+          pivot.scale.set(1 + 0.04 * squash, 1 - 0.08 * squash, 1 + 0.04 * squash);
+          const glow = GLOW_MAX * charge * charge;
+          printed.forEach(mat => {
+            mat.emissiveIntensity = glow;
+          });
+
+          // Speed -> glitch and sparks.
+          const speed = dragging
+            ? now - lastMoveAt > FLICK_STALE_MS
+              ? 0
+              : Math.abs(moveVel)
+            : Math.abs(spinVel);
+          const dir = (dragging ? moveVel : spinVel) > 0 ? -1 : 1;
+          spinFx = reducedMotion ? 0 : SPIN_FX_MAX * smoothstep(SPIN_FX_LOW, SPIN_FX_HIGH, speed);
+          swarmReleasing = false;
+          if (!reducedMotion) {
+            if (spinSwarm && speed < SPIN_FX_LOW) {
+              swirl.release();
+              spinSwarm = false;
+              swarmReleasing = true;
+            } else if (!spinSwarm && !genActive && spinArmed && spinFx > SPIN_FX_MAX * 0.5) {
+              swirl.strike(dir, SPARK_SPIN_SPEED);
+              spinSwarm = true;
+              spinArmed = false;
+            }
+            // Re-arms only once the spin has properly slowed, so a swarm a generate just let go
+            // of is not replaced on the spot by a new one.
+            if (!spinSwarm && spinFx < SPIN_FX_MAX * 0.15) spinArmed = true;
+          }
+
+          return (
+            pressed ||
+            dragging ||
+            charge > 0 ||
+            squash !== 0 ||
+            spinVel !== 0 ||
+            spin !== nearestFace(spin) ||
+            pitch !== 0 ||
+            pitchVel !== 0 ||
+            ambientYaw !== targetYaw ||
+            spinFx > 0 ||
+            swarmReleasing
+          );
         };
 
         // Two gates on the render loop, because neither is enough alone and this scene is the
@@ -1040,36 +1273,40 @@ export default function TshirtPreview({
         };
         stateRef.current.wake = wake;
 
+        // The physics steps by real time (so a 120Hz phone plays like a 60Hz one), clamped so a
+        // frame after a stall or a sleep cannot fling anything.
+        let lastFrame = 0;
         function animate(now) {
           raf = 0;
-          // After release, ease the drag rotation back to forward-facing.
-          if (!dragging && dragYaw !== 0) {
-            dragYaw *= 0.92;
-            if (Math.abs(dragYaw) < 0.001) dragYaw = 0;
-          }
-          // Direct manipulation tracks the finger tightly; ambient follow stays lazy.
-          const followRate = dragging ? 0.35 : 0.04;
-          const before = pivot.rotation.y;
-          pivot.rotation.y += (dragYaw + targetYaw - pivot.rotation.y) * followRate;
+          const dt = lastFrame ? Math.min(0.05, Math.max(0, (now - lastFrame) / 1000)) : 1 / 60;
+          lastFrame = now;
+          const playing = stepPlay(now, dt);
+          const amount = Math.max(
+            genFx.value,
+            spinFx,
+            burstFx.value,
+            reducedMotion ? 0 : 0.3 * charge * charge
+          );
+          aberrationPass.uniforms.uAmount.value = amount;
           aberrationPass.uniforms.uTime.value = now * 0.001;
           if (strikePending) {
             aberrationPass.uniforms.uStrike.value = now * 0.001;
             strikePending = false;
           }
-          swirl.update(now * 0.001, aberrationPass.uniforms.uAmount.value);
+          // A play swarm's release is never "an effect that ended off screen" (see update()).
+          swirl.update(now * 0.001, swarmReleasing ? 1 : amount);
           composer.render();
           // Idle only once the shirt has stopped moving AND the aberration pass is back at
           // identity -- its uTime drives a live distortion, so a non-zero uAmount means the
           // picture is still changing even with the shirt still.
           const still =
             !crossfadeTween &&
-            !dragging &&
-            dragYaw === 0 &&
-            Math.abs(pivot.rotation.y - before) < 1e-4 &&
-            aberrationPass.uniforms.uAmount.value < 1e-3 &&
+            !playing &&
+            amount < 1e-3 &&
             // The sparks' exit outlasts the pass's own ease-down.
             !swirl.busy(now * 0.001);
           settled = still;
+          if (settled) lastFrame = 0;
           if (!settled && onScreen) raf = requestAnimationFrame(animate);
         }
         wake();
@@ -1083,6 +1320,7 @@ export default function TshirtPreview({
             else if (raf) {
               cancelAnimationFrame(raf);
               raf = 0;
+              lastFrame = 0;
             }
           },
           { rootMargin: '80px' }
@@ -1108,6 +1346,7 @@ export default function TshirtPreview({
           inputCleanups.forEach(fn => fn());
           crossfadeTween?.kill();
           aberrationTween?.kill();
+          burstTween?.kill();
           stateRef.current.api = null;
           texture.dispose();
           disposeLighting();
@@ -1187,7 +1426,7 @@ export default function TshirtPreview({
     <button
       type="button"
       onClick={() => {
-        // A touch-drag spin ends in a click on release -- that's rotation, not a
+        // A drag or a charged press ends in a click on release -- that's play, not a
         // navigation intent; only a clean tap/click goes to the shop.
         if (dragSuppressClickRef.current) {
           dragSuppressClickRef.current = false;
@@ -1197,7 +1436,15 @@ export default function TshirtPreview({
       }}
       aria-label="Shop this design on merch"
       className="tshirt-preview-btn group relative shrink-0 cursor-pointer border-0 bg-transparent p-0 transition-transform duration-300 hover:scale-[1.04]"
-      style={{ width: size, height: size, touchAction: 'pan-y' }}
+      style={{
+        width: size,
+        height: size,
+        touchAction: 'pan-y',
+        // A long press is a charge (see PLAY), not a text selection or a callout.
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none'
+      }}
     >
       <div
         ref={mountRef}
