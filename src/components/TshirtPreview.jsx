@@ -888,13 +888,17 @@ export default function TshirtPreview({
         const MAX_FLICK = 40; // rad/s, ~6 turns a second
         // A flick is the speed of the last moves; a finger that stopped before lifting has none.
         const FLICK_STALE_MS = 90;
-        const FRICTION = 1.1; // per second: a hard flick coasts about two turns
-        // The settle spring takes over below LOCK_SPEED, slightly underdamped so it overshoots
-        // the front by a few degrees and comes back. Tuned in a simulation of every flick speed
-        // up to MAX_FLICK from every angle: always lands on the front, a real flick reverses at
-        // most ~11deg (that bounce), and a gentle release returns within ~1.5s.
-        const SETTLE_K = 40;
-        const SETTLE_C = 10.5;
+        // Slowing is FRICTION plus a DRAG that grows with speed, so a hard flick loses most of its
+        // speed at once while a gentle one still drifts (2026-11-24, Aaron: a hard flick "spins
+        // for way too long" under friction alone -- it coasted ~6 turns). A max flick now goes
+        // ~1.4 turns and is at rest in ~2.3s.
+        const FRICTION = 2.4; // per second
+        const DRAG = 0.2; // per radian
+        // The settle spring takes over below LOCK_SPEED. Tuned with the drag in a simulation of
+        // every flick speed up to MAX_FLICK from every angle: always lands on the front and never
+        // moves backwards.
+        const SETTLE_K = 60;
+        const SETTLE_C = 13;
         const LOCK_SPEED = 6; // rad/s: below this the front it settles on is chosen, once
         // A release slower than this (rad/s) has no meaningful direction: it takes the shorter
         // way to the front, like letting go of a drag.
@@ -922,17 +926,24 @@ export default function TshirtPreview({
           return t * t * (3 - 2 * t);
         };
         const TAU = Math.PI * 2;
+        // How far a spin at speed v coasts under FRICTION + DRAG alone (the solution of
+        // v' = -(FRICTION + DRAG|v|) v), signed.
+        const coast = v => (Math.sign(v) * Math.log(1 + (DRAG * Math.abs(v)) / FRICTION)) / DRAG;
+        // The front a flick must land at least this fraction of its coast ahead. Nearer than
+        // that, the shirt has to brake harder than the spring can without overshooting, and the
+        // overshoot swung back by up to ~37deg -- the "turns the other way" this exists to stop.
+        const MIN_AHEAD = 0.6;
         // The front this spin settles on. A gentle release takes the shorter way. A flick takes
-        // the front nearest where friction alone would stop it, but never one BEHIND the shirt:
-        // if that is behind, it carries on to the next one ahead instead. So a flick never turns
-        // back, at the cost of sometimes going further than it would have coasted (up to ~250deg,
-        // on a slow flick just past the front). Chosen once, at LOCK_SPEED, and held: a target
-        // recomputed every frame could change its mind mid-settle.
+        // the front nearest where it would coast to, but never one behind MIN_AHEAD: if that one
+        // is too close, it carries on to the next instead. So a flick never turns back, at the
+        // cost of sometimes going a little further than it would have coasted. Chosen once, at
+        // LOCK_SPEED, and held: a target recomputed every frame could change its mind mid-settle.
         const pickFront = (a, v, still) => {
           if (still) return Math.round(a / TAU) * TAU;
           const dir = Math.sign(v);
-          let target = Math.round((a + v / FRICTION) / TAU) * TAU;
-          while ((target - a) * dir < 0) target += dir * TAU;
+          const c = coast(v);
+          let target = Math.round((a + c) / TAU) * TAU;
+          while ((target - a - MIN_AHEAD * c) * dir < 0) target += dir * TAU;
           return target;
         };
 
@@ -1204,7 +1215,7 @@ export default function TshirtPreview({
           if (dragging) {
             spin += (spinTarget - spin) * (1 - Math.exp(-26 * dt));
           } else if (spinVel !== 0 || spin !== 0) {
-            spinVel *= Math.exp(-FRICTION * dt);
+            spinVel *= Math.exp(-(FRICTION + DRAG * Math.abs(spinVel)) * dt);
             if (Math.abs(spinVel) > LOCK_SPEED) settleTarget = null;
             else if (settleTarget === null) settleTarget = pickFront(spin, spinVel, releaseStill);
             const settle = 1 - smoothstep(2.5, LOCK_SPEED, Math.abs(spinVel));
