@@ -3102,7 +3102,13 @@ reached most visitors, and it was never tested on a device). Don't reintroduce e
 **The shirt is a toy, on mouse and touch alike (2026-11-24, Aaron: "make it more fun to play
 with"; `PLAY` in TshirtPreview.jsx).** Drag spins it with no limit and tips it ±15° with vertical
 movement; a flick coasts (friction ~2 turns from a hard flick) and a slightly underdamped spring
-settles it onto the NEARER side, front or back. Spin speed raises the glitch pass (capped at
+settles it onto the FRONT, always (same day, Aaron: landing on the nearer side "feels like it
+stops and spins the other way"). `pickFront` chooses the front once, when the spin drops below
+6 rad/s: the one nearest where friction would stop it, but never one behind the shirt (it carries
+on to the next instead, up to ~250deg further on a slow flick); a release under 2 rad/s takes the
+shorter way. Simulated over every flick speed and angle: always the front, reversal at most ~11deg
+(the settle bounce). The first version re-picked the nearest side every frame, which is what read
+as changing its mind. Spin speed raises the glitch pass (capped at
 0.55, under a generate's peak) and a fast spin launches a spark swarm orbiting the way the shirt
 turns (`swirl.strike(dir, speed)`). Press and hold still for 220ms charges it (squash, tremble,
 the artwork glowing via `emissiveMap` at intensity 0 at rest, so resting pixels are unchanged);

@@ -867,7 +867,8 @@ export default function TshirtPreview({
         //  - DRAG spins the shirt freely, with no limit, and vertical movement during a drag
         //    tips it forward or back (up to MAX_PITCH), springing level on release.
         //  - A FLICK keeps it spinning. Friction slows it, and a spring settles it onto the
-        //    nearer side -- front or back -- with a little overshoot.
+        //    FRONT, always (2026-11-24, Aaron: settling on whichever side was nearer "feels like it
+        //    stops and spins the other way"). See pickFront for how it avoids reversing.
         //  - SPEED shows: the glitch pass rises with it, and a fast spin throws off a spark
         //    swarm orbiting the way the shirt turns.
         //  - PRESS AND HOLD still for HOLD_DELAY charges it: it squashes, trembles and glows
@@ -888,10 +889,16 @@ export default function TshirtPreview({
         // A flick is the speed of the last moves; a finger that stopped before lifting has none.
         const FLICK_STALE_MS = 90;
         const FRICTION = 1.1; // per second: a hard flick coasts about two turns
-        // The settle spring takes over below ~6 rad/s, slightly underdamped so it overshoots
-        // the face once and comes back.
+        // The settle spring takes over below LOCK_SPEED, slightly underdamped so it overshoots
+        // the front by a few degrees and comes back. Tuned in a simulation of every flick speed
+        // up to MAX_FLICK from every angle: always lands on the front, a real flick reverses at
+        // most ~11deg (that bounce), and a gentle release returns within ~1.5s.
         const SETTLE_K = 40;
-        const SETTLE_C = 7.5;
+        const SETTLE_C = 10.5;
+        const LOCK_SPEED = 6; // rad/s: below this the front it settles on is chosen, once
+        // A release slower than this (rad/s) has no meaningful direction: it takes the shorter
+        // way to the front, like letting go of a drag.
+        const STILL_RELEASE = 2;
         const PITCH_K = 140;
         const PITCH_C = 13;
         const HOLD_DELAY = 220; // ms still before a press starts charging
@@ -914,7 +921,20 @@ export default function TshirtPreview({
           const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
           return t * t * (3 - 2 * t);
         };
-        const nearestFace = a => Math.round(a / Math.PI) * Math.PI;
+        const TAU = Math.PI * 2;
+        // The front this spin settles on. A gentle release takes the shorter way. A flick takes
+        // the front nearest where friction alone would stop it, but never one BEHIND the shirt:
+        // if that is behind, it carries on to the next one ahead instead. So a flick never turns
+        // back, at the cost of sometimes going further than it would have coasted (up to ~250deg,
+        // on a slow flick just past the front). Chosen once, at LOCK_SPEED, and held: a target
+        // recomputed every frame could change its mind mid-settle.
+        const pickFront = (a, v, still) => {
+          if (still) return Math.round(a / TAU) * TAU;
+          const dir = Math.sign(v);
+          let target = Math.round((a + v / FRICTION) / TAU) * TAU;
+          while ((target - a) * dir < 0) target += dir * TAU;
+          return target;
+        };
 
         let pressed = false;
         let dragging = false;
@@ -932,6 +952,8 @@ export default function TshirtPreview({
         let spin = 0;
         let spinTarget = 0;
         let spinVel = 0;
+        let settleTarget = null;
+        let releaseStill = false;
         let pitch = 0;
         let pitchVel = 0;
         let pitchTarget = 0;
@@ -976,6 +998,7 @@ export default function TshirtPreview({
             mount.setPointerCapture?.(e.pointerId);
             spinTarget = spin;
             spinVel = 0;
+            settleTarget = null;
             lastX = e.clientX;
             lastY = e.clientY;
             lastMoveAt = performance.now();
@@ -1003,9 +1026,12 @@ export default function TshirtPreview({
             dragging = false;
             const stale = performance.now() - lastMoveAt > FLICK_STALE_MS;
             spinVel = stale ? 0 : moveVel;
+            releaseStill = Math.abs(spinVel) < STILL_RELEASE;
+            settleTarget = null;
             pitchTarget = 0;
             if (reducedMotion) {
-              spin = spinTarget = nearestFace(spinTarget);
+              // Straight to the front (a whole number of turns from 0 looks the same as 0).
+              spin = spinTarget = 0;
               spinVel = 0;
               pitch = pitchVel = 0;
             }
@@ -1140,6 +1166,8 @@ export default function TshirtPreview({
           const side = pressU - 0.5;
           const dir = Math.abs(side) < 0.08 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(side);
           spinVel = dir * (6 + 18 * c);
+          releaseStill = false;
+          settleTarget = null;
           const u = aberrationPass.uniforms;
           u.uStrikeOrigin.value = [Math.min(1, Math.max(0, pressU)), Math.min(1, Math.max(0, pressV))];
           u.uStrikeShape.value = [Math.random(), Math.random(), 0.5 + 0.5 * c, Math.random()];
@@ -1172,20 +1200,27 @@ export default function TshirtPreview({
           squash += squashVel * dt;
           if (!charging && Math.abs(squash) < 1e-4 && Math.abs(squashVel) < 1e-3) squash = squashVel = 0;
 
-          // Spin: the finger while dragging; afterwards coast, then settle onto a face.
+          // Spin: the finger while dragging; afterwards coast, then settle onto the front.
           if (dragging) {
             spin += (spinTarget - spin) * (1 - Math.exp(-26 * dt));
-          } else if (spinVel !== 0 || spin !== nearestFace(spin)) {
+          } else if (spinVel !== 0 || spin !== 0) {
             spinVel *= Math.exp(-FRICTION * dt);
-            const settle = 1 - smoothstep(2.5, 6, Math.abs(spinVel));
-            if (settle > 0) {
-              spinVel += settle * (-SETTLE_K * (spin - nearestFace(spin)) - SETTLE_C * spinVel) * dt;
+            if (Math.abs(spinVel) > LOCK_SPEED) settleTarget = null;
+            else if (settleTarget === null) settleTarget = pickFront(spin, spinVel, releaseStill);
+            const settle = 1 - smoothstep(2.5, LOCK_SPEED, Math.abs(spinVel));
+            if (settleTarget !== null && settle > 0) {
+              spinVel += settle * (-SETTLE_K * (spin - settleTarget) - SETTLE_C * spinVel) * dt;
             }
             spin += spinVel * dt;
-            if (Math.abs(spinVel) < 0.002 && Math.abs(spin - nearestFace(spin)) < 5e-4) {
-              // Back to 0 or PI: whole turns are invisible, and the numbers stay small.
-              spin = (Math.abs(Math.round(spin / Math.PI)) % 2) * Math.PI;
+            if (
+              settleTarget !== null &&
+              Math.abs(spinVel) < 0.002 &&
+              Math.abs(spin - settleTarget) < 5e-4
+            ) {
+              // A whole number of turns: indistinguishable from 0, and the numbers stay small.
+              spin = 0;
               spinVel = 0;
+              settleTarget = null;
             }
           }
 
@@ -1238,7 +1273,7 @@ export default function TshirtPreview({
             charge > 0 ||
             squash !== 0 ||
             spinVel !== 0 ||
-            spin !== nearestFace(spin) ||
+            spin !== 0 ||
             pitch !== 0 ||
             pitchVel !== 0 ||
             ambientYaw !== targetYaw ||
