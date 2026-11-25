@@ -2307,10 +2307,9 @@ export default class DisplayCanvas extends React.Component {
   // StudioContext on the next Generate click -- meaning navigating away from the Studio and
   // back silently dropped an unsaved palette edit while a geometry-slider edit survived.
   queueColorRegen() {
-    if (this.state.animationMode || this.state.isExporting) {
-      this.markColorsDirtyForAnimation();
-      return;
-    }
+    // In Animation the flight takes the edit live (syncThreeDColors); the still is regenerated
+    // on return to Image (onModeToggle's restyle check).
+    if (this.state.animationMode || this.state.isExporting) return;
     const wasSaved = this.state.isSaved;
     this.setState(s => ({
       isSaved: false,
