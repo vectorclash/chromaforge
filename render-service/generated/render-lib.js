@@ -550,12 +550,6 @@ var SCALE_SKEW = 0.3;
 var STYLE_DOMAIN = 2.5;
 var STYLE_CORE = 0.75;
 var STYLE_RING = 1;
-var STYLE_GROW_KNEE = 0.5;
-var STYLE_GROW_MAX = 3;
-function styleGrow(scale) {
-  const t = Math.max(0, (scale - STYLE_GROW_KNEE) / (1 - STYLE_GROW_KNEE));
-  return 1 + (STYLE_GROW_MAX - 1) * t * t * (3 - 2 * t);
-}
 var GenerateGeometricShape = class {
   constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null, sizeFrame = null, geometryScale = 1, latticeRng = null) {
     const geometry = getGeometrySettings(settings);
@@ -696,10 +690,9 @@ var GenerateGeometricShape = class {
     if (g.style === "mosaic" || g.style === "flower" || g.style === "golden") {
       this.rng = side;
       const short = half * 2 * geometryScale;
-      const grow = styleGrow(scale);
-      if (g.style === "mosaic") config.shapes = this.buildMosaic(width, height, scale, short, g, grow);
-      else if (g.style === "flower") config.shapes = this.buildFlower(width, height, scale, short, g, grow);
-      else config.shapes = this.buildGolden(width, height, scale, short, g, grow);
+      if (g.style === "mosaic") config.shapes = this.buildMosaic(width, height, scale, short, g);
+      else if (g.style === "flower") config.shapes = this.buildFlower(width, height, scale, short, g);
+      else config.shapes = this.buildGolden(width, height, scale, short, g);
       return config;
     }
     this.shapeSize = half * reach / this.shapeDepth;
@@ -741,21 +734,20 @@ var GenerateGeometricShape = class {
   //               so the top of the slider is a six-fold snowflake.
   // Every decision is made on integer grid coordinates, never pixels, so a mockup and its print
   // grow the identical clusters. All draws here come from the lattice stream.
-  buildMosaic(width, height, scale, short, g, grow = 1) {
+  buildMosaic(width, height, scale, short, g) {
     const r = this.rng;
-    const coarse = short * 0.08 * Math.pow(6, scale) * Math.sqrt(grow);
-    const boost = 1 + (grow - 1) * 0.6;
+    const coarse = short * 0.08 * Math.pow(6, scale);
     const turned = r() < 0.5;
     const shapes = [];
     const layers = [
-      { side: coarse, fill: (0.2 + r() * 0.2) * g.density * boost },
+      { side: coarse, fill: (0.2 + r() * 0.2) * g.density },
       { side: Math.max(coarse / 3, short * 0.04), fill: (0.1 + r() * 0.1) * g.density }
     ];
     for (const layer of layers) {
-      const cells = this.isoCells(STYLE_DOMAIN * grow * short / layer.side + 1);
-      const near = short * 0.35 * grow / layer.side;
-      const core = short * STYLE_CORE * grow / layer.side;
-      const ring = short * STYLE_RING * grow / layer.side;
+      const cells = this.isoCells(STYLE_DOMAIN * short / layer.side + 1);
+      const near = short * 0.35 / layer.side;
+      const core = short * STYLE_CORE / layer.side;
+      const ring = short * STYLE_RING / layer.side;
       const chosen = this.growClusters(cells, layer.fill, 2 + Math.floor(r() * 3), g.coherence, near, core, ring);
       for (const cell of chosen) shapes.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
     }
@@ -771,13 +763,12 @@ var GenerateGeometricShape = class {
   //   Symmetry -> the chance a cluster is copied into all six turns about the centre.
   // Petals are true arcs (render/shapePath.js); decisions are made on integer lattice
   // coordinates, so a mockup and its print grow the same flower.
-  buildFlower(width, height, scale, short, g, grow = 1) {
+  buildFlower(width, height, scale, short, g) {
     const r = this.rng;
     const turned = r() < 0.5;
-    const big = short * (0.08 + 0.25 * scale) * Math.sqrt(grow);
-    const boost = 1 + (grow - 1) * 0.6;
+    const big = short * (0.08 + 0.25 * scale);
     const layers = [
-      { R: big, fill: (0.22 + r() * 0.12) * g.density * boost },
+      { R: big, fill: (0.22 + r() * 0.12) * g.density },
       { R: big / 3, fill: (0.08 + r() * 0.08) * g.density }
     ];
     const shapes = [];
@@ -788,7 +779,7 @@ var GenerateGeometricShape = class {
         const y = b * Math.sqrt(3) / 2 * R;
         return turned ? [-y, x] : [x, y];
       };
-      const domain = STYLE_DOMAIN * grow * short / R + 1;
+      const domain = STYLE_DOMAIN * short / R + 1;
       const n = Math.ceil(domain / (Math.sqrt(3) / 2)) + Math.ceil(domain) + 2;
       const centres = /* @__PURE__ */ new Map();
       for (let b = -n; b <= n; b++) {
@@ -802,9 +793,9 @@ var GenerateGeometricShape = class {
         fill,
         seeds: 2 + Math.floor(r() * 3),
         symmetry: g.coherence,
-        near: short * 0.3 * grow / R,
-        core: short * STYLE_CORE * grow / R,
-        ring: short * STYLE_RING * grow / R,
+        near: short * 0.3 / R,
+        core: short * STYLE_CORE / R,
+        ring: short * STYLE_RING / R,
         neighbours: ({ a, b }) => SIX.map(([da, db]) => `${a + da},${b + db}`),
         turn: (key) => {
           const [a, b] = key.split(",").map(Number);
@@ -842,7 +833,7 @@ var GenerateGeometricShape = class {
   //   Shapes   -> how many wedges carry a band (and, low down, how many wedges are kept).
   //   Symmetry -> arms: one spiral below 0.15, up to four turned about the eye at the top, the
   //               eye moving to the centre as it rises.
-  buildGolden(width, height, scale, short, g, grow = 1) {
+  buildGolden(width, height, scale, short, g) {
     const r = this.rng;
     const PHI = (1 + Math.sqrt(5)) / 2;
     const STEPS = 11;
@@ -851,7 +842,7 @@ var GenerateGeometricShape = class {
     const a0 = r() * Math.PI * 2;
     const off = 1 - g.coherence;
     const eye = [(r() - 0.5) * short * 0.4 * off, (r() - 0.5) * short * 0.4 * off];
-    const size0 = short * (0.5 + 0.9 * scale) * Math.sqrt(grow);
+    const size0 = short * (0.5 + 0.9 * scale);
     const arcs = [];
     let C = [0, 0];
     let th = 0;
