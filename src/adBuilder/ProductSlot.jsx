@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getCatalogProduct, getPrintfileSpecs } from '../lib/printful';
+import {
+  getCatalogProduct,
+  getPrintfileSpecs,
+  getMockupConfigForProduct,
+  getGeometryPlacementOptions,
+  hasTwoLegCanvas
+} from '../lib/printful';
 import { useMockup, BUSY_STATUSES } from '../hooks/useMockup';
 import { defaultMockupOptions } from '../lib/mockupDefaults';
 import { keepPrintfulImage, keepFile } from './devApi';
@@ -14,6 +20,23 @@ const STATUS_TEXT = {
 
 // The same thumbnail sizing the product page's filmstrip uses.
 const THUMB_SIZE = { max: 80, min: 64 };
+
+// Whether a product offers the choice of panels at all -- exactly when its product page shows
+// Geometry placement (more than one panel, and not a two-leg product, where the shop always
+// prints geometry on every panel), so an ad can only show what a customer could order.
+function offersGeometryChoice(productId) {
+  const cfg = getMockupConfigForProduct(productId);
+  return getGeometryPlacementOptions(cfg).length > 1 && !hasTwoLegCanvas(cfg);
+}
+
+// Which panels of a slot's product get the geometry layer. A slot with no `geometry` (every ad
+// saved before this existed, and every new slot) is the product page's default: all of them.
+// The pocket follows the front, as on the product page (includesGeometry in lib/printful).
+export function slotGeometry(slot) {
+  const keys = getGeometryPlacementOptions(getMockupConfigForProduct(slot.productId)).map(o => o.key);
+  if (!offersGeometryChoice(slot.productId) || !Array.isArray(slot.geometry)) return keys;
+  return keys.filter(k => slot.geometry.includes(k));
+}
 
 // A slot's chosen photos. Ads saved before a slot could hold several have a single `photo`.
 export function slotPhotos(slot) {
@@ -50,6 +73,17 @@ export default function ProductSlot({ index, slot, design, catalog, signedIn, on
     };
   }, [slot.productId]);
 
+  const geometryOptions = getGeometryPlacementOptions(getMockupConfigForProduct(slot.productId));
+  const geometryOn = slotGeometry(slot);
+  const geometryKey = geometryOn.join(',');
+  const toggleGeometry = key =>
+    onChange(s => {
+      const on = slotGeometry(s);
+      const next = on.includes(key) ? on.filter(k => k !== key) : [...on, key];
+      // Back to "all" is stored as no choice at all, so the slot reads as the product page's default.
+      return { ...s, geometry: next.length === geometryOptions.length ? undefined : next };
+    });
+
   // Transparent 2000px PNGs: Printful cuts the product (and the model) out itself, which is what
   // the Cutout framing places. Cached separately from the shop's JPGs.
   const mockupArgs = () => ({
@@ -58,16 +92,18 @@ export default function ProductSlot({ index, slot, design, catalog, signedIn, on
     variant: detail.variants[0],
     design,
     ...defaultMockupOptions(slot.productId),
+    geometryPlacements: new Set(geometryOn),
     format: 'png',
     width: 2000
   });
 
-  // Shows a mockup already made for this product and design, without spending a task.
+  // Shows a mockup already made for this product, design and geometry choice, without spending a
+  // task (or clears the strip when none exists, so a changed choice needs a Generate click).
   const designKey = design ? JSON.stringify(design) : '';
   useEffect(() => {
     if (detail && design) sync(mockupArgs());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail, designKey]);
+  }, [detail, designKey, geometryKey]);
 
   const photos = slotPhotos(slot);
 
@@ -118,7 +154,9 @@ export default function ProductSlot({ index, slot, design, catalog, signedIn, on
         <select
           className="min-w-0 flex-1 rounded-md border border-white/15 bg-neutral-900 px-2 py-1.5 text-sm"
           value={slot.productId}
-          onChange={e => onChange(s => ({ ...s, productId: Number(e.target.value), photo: undefined, photos: [] }))}
+          onChange={e =>
+            onChange(s => ({ ...s, productId: Number(e.target.value), photo: undefined, photos: [], geometry: undefined }))
+          }
         >
           {catalog.map(p => (
             <option key={p.id} value={p.id}>
@@ -156,6 +194,31 @@ export default function ProductSlot({ index, slot, design, catalog, signedIn, on
           }}
         />
       </div>
+
+      {offersGeometryChoice(slot.productId) && (
+        <div className="mt-3 text-xs">
+          <div className="flex items-start justify-between gap-3">
+            <span className="shrink-0 pt-0.5 text-neutral-500">Geometry on</span>
+            <div className="flex flex-wrap justify-end gap-1" role="group" aria-label="Geometry on">
+              {geometryOptions.map(({ key, label }) => {
+                const on = geometryOn.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={busy}
+                    onClick={() => toggleGeometry(key)}
+                    className={`rounded px-2 py-0.5 ${on ? 'bg-white/15 text-white' : 'text-neutral-400 hover:text-white'} disabled:opacity-50`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {reel && (
         <div className="mt-3 flex items-center justify-between gap-3 text-xs">
