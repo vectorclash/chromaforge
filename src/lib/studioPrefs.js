@@ -19,6 +19,7 @@ import {
   DEFAULT_GEOMETRY_SETTINGS,
   STUDIO_DEFAULT_GEOMETRY_CHANCE,
   STUDIO_DEFAULT_GEOMETRY_MODEL,
+  STUDIO_DEFAULT_GEOMETRY_OUTER_RING,
   STUDIO_DEFAULT_GEOMETRY_SPREAD,
   STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
   getGeometrySettings
@@ -107,6 +108,8 @@ function sanitizeGeometry(geometry) {
         ? geometry.starsOnTop
         : STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
     nebulaLinked: geometry.nebulaLinked === true,
+    // Same rule as starsOnTop: only an absent key takes the studio default.
+    outerRing: typeof geometry.outerRing === 'boolean' ? geometry.outerRing : STUDIO_DEFAULT_GEOMETRY_OUTER_RING,
     model: geometry.model === 'classic' || geometry.model === 'lattice' ? geometry.model : STUDIO_DEFAULT_GEOMETRY_MODEL,
     ringsMin: Math.min(clampInt(geometry.ringsMin, 1, 6, d.ringsMin), clampInt(geometry.ringsMax, 1, 6, d.ringsMax)),
     ringsMax: Math.max(clampInt(geometry.ringsMin, 1, 6, d.ringsMin), clampInt(geometry.ringsMax, 1, 6, d.ringsMax)),

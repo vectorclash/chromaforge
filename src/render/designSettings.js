@@ -135,7 +135,11 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // GenerateGeometricShape's build* methods. Sides and Rings mean nothing to the last three.
   // Flower and Golden draw curves (render/shapePath.js). The studio's selector also offers
   // 'random', which is never a style of its own: see resolveGeometryStyle.
-  style: 'lattice'
+  style: 'lattice',
+  // Mosaic and Flower: extra six-fold clusters out past the figure from Symmetry 0.5 up (see
+  // GenerateGeometricShape's OUTER RING). Part of a design's identity. Off here so every stored
+  // design keeps its figure; new studio work gets it on (STUDIO_DEFAULT_GEOMETRY_OUTER_RING).
+  outerRing: false
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.
@@ -225,13 +229,17 @@ export const STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP = true;
 // getGeometrySettings instead.
 // New work is made with the lattice model; see DEFAULT_GEOMETRY_SETTINGS.model.
 export const STUDIO_DEFAULT_GEOMETRY_MODEL = 'lattice';
+// New work gets Mosaic's outer ring; stored designs, which never state it, keep the DNA default.
+// Like starsOnTop, test it for `undefined`, never for falsiness.
+export const STUDIO_DEFAULT_GEOMETRY_OUTER_RING = true;
 
 export const STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
   model: STUDIO_DEFAULT_GEOMETRY_MODEL,
   chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
   spread: STUDIO_DEFAULT_GEOMETRY_SPREAD,
-  starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
+  starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
+  outerRing: STUDIO_DEFAULT_GEOMETRY_OUTER_RING
 };
 
 // The geometry styles a design can have, in the studio selector's order.
@@ -298,6 +306,7 @@ export function getStudioGeometrySettings(settings) {
   // A visitor whose remembered settings predate the lattice model starts making new work with
   // it; only a stored 'classic' (someone who chose it) stays classic.
   if (settings?.geometry?.model === undefined) resolved.model = STUDIO_DEFAULT_GEOMETRY_MODEL;
+  if (settings?.geometry?.outerRing === undefined) resolved.outerRing = STUDIO_DEFAULT_GEOMETRY_OUTER_RING;
   return resolved;
 }
 

@@ -42,7 +42,10 @@ const SEEDS = ['bffvnasl','1vsx8atp','qos0t1c0','aa11bb22','s8x2k9df'];
 // checked at no symmetry and at full symmetry (the densest figure).
 const LATTICE = ['lattice', 'mosaic', 'flower', 'golden'].flatMap(style => [0, 1].map(coherence => (
   { geometry:{ present:true, model:'lattice', style, coherence } }
-)));
+))).concat(['mosaic', 'flower'].flatMap(style => [0.75, 1].map(coherence => (
+  // Mosaic's and Flower's outer ring, which new studio work has on.
+  { geometry:{ present:true, model:'lattice', style, coherence, outerRing:true } }
+))));
 const SETTINGS = [null, { geometry:{ present:true, coherence:0, spread:0.7 } }, { geometry:{ present:false } }, ...LATTICE];
 
 function counts(seed, settings, w, h) {
