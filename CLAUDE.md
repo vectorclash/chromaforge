@@ -337,6 +337,19 @@ the actual print, generated the same deterministic way.
   their six turns land as a ring there: 0.94 / 1.01. No draw count moved, Symmetry-0 output is
   identical, and no stored design changed (the saved Mosaic/Flower rows are all at Symmetry 0).
   Lattice and Golden already covered the frame at full Symmetry and were left alone.
+  **Mosaic grows an OUTER RING from Symmetry 0.5 up (2026-11-26, Aaron, after a bigger-figure
+  change was reverted for wrecking his saved Mosaics: "I like the way the geometry looks... could
+  we just add more shapes around the outside at full symmetry").** Extra six-fold clusters of
+  3 cells in the annulus from the figure's body (the radius holding 75% of its cells, capped at
+  0.45 short edges, so wide products still see it) out to 1.3 short edges, drawn BEHIND the
+  figure, filling up to the figure's own fill rate at Symmetry 1. Its draws come after every
+  existing lattice-stream draw, so the figure itself never moves. Gated on the NEW key
+  `settings.geometry.outerRing`: DNA default false, so every stored design is byte-identical by
+  construction (verified: 528 configs vs master, 0 differ); studio default true
+  (`STUDIO_DEFAULT_GEOMETRY_OUTER_RING`, tested for `undefined` like starsOnTop), so new work has
+  it. No UI. `check-render-density.mjs` checks it builds one figure on every product.
+  **Deploy render-service BEFORE the frontend** (it ignores an unknown key and would print
+  without the ring). No version bump, no thumbnail backfill.
   **The Style selector's "Random" is not a style** (`resolveGeometryStyle` in designSettings.js,
   2026-11-20): `generateArtwork` and `createTunnelScene` swap it for one of `GEOMETRY_STYLES`,
   drawn from the design's own `${seed}-style` stream, before anything reads the settings, so no

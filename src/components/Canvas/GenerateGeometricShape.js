@@ -62,6 +62,20 @@ const STYLE_CORE = 0.75;
 //                   Symmetry the figure's rings can reach the whole artwork. Its six turns land
 //                   on one ring, so it stays one figure about the centre on every product.
 const STYLE_RING = 1;
+// MOSAIC'S OUTER RING (2026-11-26, Aaron: keep the figure, "add more shapes around the outside
+// at full symmetry"). Gated on `settings.geometry.outerRing`, which no stored design carries, so
+// every saved design is byte-identical by construction. Distances are in short edges.
+//   OUTER_FROM  Symmetry it starts at; it grows to full strength at Symmetry 1.
+//   OUTER_BODY  the share of the figure's cells counted as its body (the rest are strays).
+//   OUTER_CAP   the ring never starts further out than this, or on wide products it is all
+//               off the canvas.
+//   OUTER_OUT   how far out it reaches (past every product's corners).
+//   OUTER_CLUSTER  cells per cluster, before the six turns.
+const OUTER_FROM = 0.5;
+const OUTER_BODY = 0.75;
+const OUTER_CAP = 0.45;
+const OUTER_OUT = 1.3;
+const OUTER_CLUSTER = 3;
 
 export default class GenerateGeometricShape {
   constructor(
@@ -508,8 +522,72 @@ export default class GenerateGeometricShape {
       const ring = (short * STYLE_RING) / layer.side;
       const chosen = this.growClusters(cells, layer.fill, 2 + Math.floor(r() * 3), g.coherence, near, core, ring);
       for (const cell of chosen) shapes.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
+      layer.cells = cells;
+      layer.taken = new Set(chosen.map(c => cellKey(c.v)));
+      // The figure's body, not its strays: the radius holding OUTER_BODY of its cells.
+      const ds = chosen.map(c => c.d).sort((a, b) => a - b);
+      layer.reach = (ds.length ? ds[Math.min(ds.length - 1, Math.floor(ds.length * OUTER_BODY))] : 0) * (layer.side / short);
     }
-    return shapes;
+    if (!g.outerRing || g.coherence <= OUTER_FROM) return shapes;
+    // OUTER RING. Everything above is untouched: these draws come after every one of its draws.
+    const t = Math.min(1, (g.coherence - OUTER_FROM) / (1 - OUTER_FROM));
+    const outer = [];
+    const reach = Math.max(layers[0].reach, layers[1].reach); // where the figure ends, short edges
+    for (const layer of layers) {
+      const unit = short / layer.side;
+      const from = Math.min(reach, OUTER_CAP);
+      const chosen = this.growRing(layer.cells, layer.fill * t, from * unit, Math.max(from + 0.3, OUTER_OUT) * unit, layer.taken);
+      for (const cell of chosen) outer.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
+    }
+    return outer.concat(shapes); // behind the figure
+  }
+
+  // Six-fold clusters seeded in the annulus [from, to] (in cell sides) until `fill` of its cells
+  // are taken: the figure's rings, carried out past the edges of the frame.
+  growRing(cells, fill, from, to, skip = new Set()) {
+    const r = this.rng;
+    const keys = [...cells.keys()].filter(k => {
+      const d = cells.get(k).d;
+      return d >= from && d <= to && !skip.has(k);
+    });
+    if (!keys.length || fill <= 0) return [];
+    const want = Math.round(keys.length * fill);
+    const size = OUTER_CLUSTER;
+    const taken = new Set();
+    const out = [];
+    const add = k => {
+      if (cells.has(k) && !taken.has(k) && !skip.has(k)) {
+        taken.add(k);
+        out.push(cells.get(k));
+      }
+    };
+    for (let guard = 0; taken.size < want && guard < 200; guard++) {
+      const start = keys[Math.floor(r() * keys.length)];
+      const cluster = [start];
+      const inCluster = new Set(cluster);
+      const front = [start];
+      while (cluster.length < size && front.length) {
+        const fi = Math.floor(r() * front.length);
+        const next = cellNeighbours(cells.get(front[fi]).v).filter(k => cells.has(k) && !inCluster.has(k));
+        if (!next.length) {
+          front.splice(fi, 1);
+          continue;
+        }
+        const k = next[Math.floor(r() * next.length)];
+        inCluster.add(k);
+        cluster.push(k);
+        front.push(k);
+      }
+      for (const k of cluster) {
+        let v = cells.get(k).v;
+        add(k);
+        for (let i = 1; i < 6; i++) {
+          v = v.map(([a, b]) => [-b, a + b]);
+          add(cellKey(v));
+        }
+      }
+    }
+    return out;
   }
 
   // FLOWER STYLE (2026-11-20, Aaron; from the mode mockups). The Flower of Life: circles of

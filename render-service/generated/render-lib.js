@@ -469,7 +469,11 @@ var DEFAULT_GEOMETRY_SETTINGS = {
   // GenerateGeometricShape's build* methods. Sides and Rings mean nothing to the last three.
   // Flower and Golden draw curves (render/shapePath.js). The studio's selector also offers
   // 'random', which is never a style of its own: see resolveGeometryStyle.
-  style: "lattice"
+  style: "lattice",
+  // Mosaic: extra six-fold clusters out past the figure from Symmetry 0.5 up (see
+  // GenerateGeometricShape's OUTER RING). Part of a design's identity. Off here so every stored
+  // design keeps its figure; new studio work gets it on (STUDIO_DEFAULT_GEOMETRY_OUTER_RING).
+  outerRing: false
   // A `frontOnly` field used to live here (whether the geometry layer was suppressed on
   // non-front merch placements) but was removed 2026-07 -- baking that choice into the
   // saved design meant it was permanent for every product the design was ever printed on.
@@ -483,12 +487,14 @@ var STUDIO_DEFAULT_GEOMETRY_CHANCE = 0.9;
 var STUDIO_DEFAULT_GEOMETRY_SPREAD = 0.7;
 var STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP = true;
 var STUDIO_DEFAULT_GEOMETRY_MODEL = "lattice";
+var STUDIO_DEFAULT_GEOMETRY_OUTER_RING = true;
 var STUDIO_DEFAULT_GEOMETRY_SETTINGS = {
   ...DEFAULT_GEOMETRY_SETTINGS,
   model: STUDIO_DEFAULT_GEOMETRY_MODEL,
   chance: STUDIO_DEFAULT_GEOMETRY_CHANCE,
   spread: STUDIO_DEFAULT_GEOMETRY_SPREAD,
-  starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP
+  starsOnTop: STUDIO_DEFAULT_GEOMETRY_STARS_ON_TOP,
+  outerRing: STUDIO_DEFAULT_GEOMETRY_OUTER_RING
 };
 var GEOMETRY_STYLES = ["lattice", "mosaic", "flower", "golden"];
 function resolveGeometryStyle(seed, settings) {
@@ -550,6 +556,11 @@ var SCALE_SKEW = 0.3;
 var STYLE_DOMAIN = 2.5;
 var STYLE_CORE = 0.75;
 var STYLE_RING = 1;
+var OUTER_FROM = 0.5;
+var OUTER_BODY = 0.75;
+var OUTER_CAP = 0.45;
+var OUTER_OUT = 1.3;
+var OUTER_CLUSTER = 3;
 var GenerateGeometricShape = class {
   constructor(width, height, shapeNum, colors = [], rng = Math.random, settings = null, geometryLayout = null, sizeFrame = null, geometryScale = 1, latticeRng = null) {
     const geometry = getGeometrySettings(settings);
@@ -750,8 +761,69 @@ var GenerateGeometricShape = class {
       const ring = short * STYLE_RING / layer.side;
       const chosen = this.growClusters(cells, layer.fill, 2 + Math.floor(r() * 3), g.coherence, near, core, ring);
       for (const cell of chosen) shapes.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
+      layer.cells = cells;
+      layer.taken = new Set(chosen.map((c) => cellKey(c.v)));
+      const ds = chosen.map((c) => c.d).sort((a, b) => a - b);
+      layer.reach = (ds.length ? ds[Math.min(ds.length - 1, Math.floor(ds.length * OUTER_BODY))] : 0) * (layer.side / short);
     }
-    return shapes;
+    if (!g.outerRing || g.coherence <= OUTER_FROM) return shapes;
+    const t = Math.min(1, (g.coherence - OUTER_FROM) / (1 - OUTER_FROM));
+    const outer = [];
+    const reach = Math.max(layers[0].reach, layers[1].reach);
+    for (const layer of layers) {
+      const unit = short / layer.side;
+      const from = Math.min(reach, OUTER_CAP);
+      const chosen = this.growRing(layer.cells, layer.fill * t, from * unit, Math.max(from + 0.3, OUTER_OUT) * unit, layer.taken);
+      for (const cell of chosen) outer.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
+    }
+    return outer.concat(shapes);
+  }
+  // Six-fold clusters seeded in the annulus [from, to] (in cell sides) until `fill` of its cells
+  // are taken: the figure's rings, carried out past the edges of the frame.
+  growRing(cells, fill, from, to, skip = /* @__PURE__ */ new Set()) {
+    const r = this.rng;
+    const keys = [...cells.keys()].filter((k) => {
+      const d = cells.get(k).d;
+      return d >= from && d <= to && !skip.has(k);
+    });
+    if (!keys.length || fill <= 0) return [];
+    const want = Math.round(keys.length * fill);
+    const size = OUTER_CLUSTER;
+    const taken = /* @__PURE__ */ new Set();
+    const out = [];
+    const add = (k) => {
+      if (cells.has(k) && !taken.has(k) && !skip.has(k)) {
+        taken.add(k);
+        out.push(cells.get(k));
+      }
+    };
+    for (let guard = 0; taken.size < want && guard < 200; guard++) {
+      const start = keys[Math.floor(r() * keys.length)];
+      const cluster = [start];
+      const inCluster = new Set(cluster);
+      const front = [start];
+      while (cluster.length < size && front.length) {
+        const fi = Math.floor(r() * front.length);
+        const next = cellNeighbours(cells.get(front[fi]).v).filter((k2) => cells.has(k2) && !inCluster.has(k2));
+        if (!next.length) {
+          front.splice(fi, 1);
+          continue;
+        }
+        const k = next[Math.floor(r() * next.length)];
+        inCluster.add(k);
+        cluster.push(k);
+        front.push(k);
+      }
+      for (const k of cluster) {
+        let v = cells.get(k).v;
+        add(k);
+        for (let i = 1; i < 6; i++) {
+          v = v.map(([a, b]) => [-b, a + b]);
+          add(cellKey(v));
+        }
+      }
+    }
+    return out;
   }
   // FLOWER STYLE (2026-11-20, Aaron; from the mode mockups). The Flower of Life: circles of
   // radius R centred on a triangular lattice of spacing R, filled only where two neighbours
