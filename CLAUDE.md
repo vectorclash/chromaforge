@@ -337,6 +337,20 @@ the actual print, generated the same deterministic way.
   their six turns land as a ring there: 0.94 / 1.01. No draw count moved, Symmetry-0 output is
   identical, and no stored design changed (the saved Mosaic/Flower rows are all at Symmetry 0).
   Lattice and Golden already covered the frame at full Symmetry and were left alone.
+  **At max Scale, Mosaic, Flower and Golden grow past every edge (2026-11-26, Aaron: Mosaic at max
+  Symmetry and Scale "should be larger it goes beyond all edges top bottom and sides on all
+  products").** They spent a fixed budget inside the fixed STYLE_CORE disc, so Scale only coarsened
+  the cells: at Scale 1 they touched all four edges on 0-8 of 16 seeds per product. `styleGrow`
+  (1 up to Scale 0.5, easing to 3 at 1) now scales the region the clusters grow in, the cells by
+  its square root, and the coarse layer's fill by 1 + 0.6(grow-1); Golden's wedges take its square
+  root. Measured at Scale 1, full Symmetry, 16 seeds: Mosaic touches all four edges on 15-16/16 on
+  every product but the shorts sheet (14) and bomber details strip (8); Flower 16/16 (13-14 on
+  those two). Two variants were rendered and rejected: region only (a uniform tiling of small
+  triangles, the figure lost) and cells scaled fully (six giant wedges). Lower half of the slider
+  byte-identical; no shared rng() moved. **Stored Mosaic/Flower/Golden rows whose drawn scale is
+  above 0.5 render larger now** (most of them, since the default range skews high) -- the regression
+  check could not be run from the session that made this (no `.env.local`). Needs render-service
+  deployed BEFORE the frontend, plus a thumbnail backfill with no filter.
   **The Style selector's "Random" is not a style** (`resolveGeometryStyle` in designSettings.js,
   2026-11-20): `generateArtwork` and `createTunnelScene` swap it for one of `GEOMETRY_STYLES`,
   drawn from the design's own `${seed}-style` stream, before anything reads the settings, so no
