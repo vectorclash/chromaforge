@@ -337,7 +337,7 @@ the actual print, generated the same deterministic way.
   their six turns land as a ring there: 0.94 / 1.01. No draw count moved, Symmetry-0 output is
   identical, and no stored design changed (the saved Mosaic/Flower rows are all at Symmetry 0).
   Lattice and Golden already covered the frame at full Symmetry and were left alone.
-  **Mosaic grows an OUTER RING from Symmetry 0.5 up (2026-11-26, Aaron, after a bigger-figure
+  **Mosaic and Flower grow an OUTER RING from Symmetry 0.5 up (2026-11-26, Aaron, after a bigger-figure
   change was reverted for wrecking his saved Mosaics: "I like the way the geometry looks... could
   we just add more shapes around the outside at full symmetry").** Extra six-fold clusters of
   3 cells in the annulus from the figure's body (the radius holding 75% of its cells, capped at
@@ -348,6 +348,10 @@ the actual print, generated the same deterministic way.
   construction (verified: 528 configs vs master, 0 differ); studio default true
   (`STUDIO_DEFAULT_GEOMETRY_OUTER_RING`, tested for `undefined` like starsOnTop), so new work has
   it. No UI. `check-render-density.mjs` checks it builds one figure on every product.
+  Flower got it the same day (Aaron): the same annulus over its lattice CENTRES, each chosen
+  centre drawing its six petals, skipping any petal the figure already drew. One `growRing`
+  serves both styles (it takes the lattice's `neighbours` and `turn`); Mosaic's ring is
+  byte-identical through that refactor.
   **Deploy render-service BEFORE the frontend** (it ignores an unknown key and would print
   without the ring). No version bump, no thumbnail backfill.
   **The Style selector's "Random" is not a style** (`resolveGeometryStyle` in designSettings.js,

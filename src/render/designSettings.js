@@ -136,7 +136,7 @@ export const DEFAULT_GEOMETRY_SETTINGS = {
   // Flower and Golden draw curves (render/shapePath.js). The studio's selector also offers
   // 'random', which is never a style of its own: see resolveGeometryStyle.
   style: 'lattice',
-  // Mosaic: extra six-fold clusters out past the figure from Symmetry 0.5 up (see
+  // Mosaic and Flower: extra six-fold clusters out past the figure from Symmetry 0.5 up (see
   // GenerateGeometricShape's OUTER RING). Part of a design's identity. Off here so every stored
   // design keeps its figure; new studio work gets it on (STUDIO_DEFAULT_GEOMETRY_OUTER_RING).
   outerRing: false

@@ -773,14 +773,24 @@ var GenerateGeometricShape = class {
     for (const layer of layers) {
       const unit = short / layer.side;
       const from = Math.min(reach, OUTER_CAP);
-      const chosen = this.growRing(layer.cells, layer.fill * t, from * unit, Math.max(from + 0.3, OUTER_OUT) * unit, layer.taken);
+      const chosen = this.growRing(
+        layer.cells,
+        layer.fill * t,
+        from * unit,
+        Math.max(from + 0.3, OUTER_OUT) * unit,
+        layer.taken,
+        (k) => cellNeighbours(layer.cells.get(k).v),
+        (k) => cellKey(k.split("|").map((p) => p.split(",").map(Number)).map(([a, b]) => [-b, a + b]))
+      );
       for (const cell of chosen) outer.push(this.buildShape(this.isoPoints(cell.v, layer.side, turned)));
     }
     return outer.concat(shapes);
   }
-  // Six-fold clusters seeded in the annulus [from, to] (in cell sides) until `fill` of its cells
-  // are taken: the figure's rings, carried out past the edges of the frame.
-  growRing(cells, fill, from, to, skip = /* @__PURE__ */ new Set()) {
+  // OUTER RING (Mosaic and Flower): six-fold clusters seeded in the annulus [from, to] (lattice
+  // units) until `fill` of its nodes are taken -- the figure's rings, carried out past the edges
+  // of the frame. `cells` maps key -> { d }; `neighbours(key)` and `turn(key)` (a sixth of a
+  // turn about the centre; may name a key outside `cells`) describe the lattice.
+  growRing(cells, fill, from, to, skip, neighbours, turn) {
     const r = this.rng;
     const keys = [...cells.keys()].filter((k) => {
       const d = cells.get(k).d;
@@ -804,7 +814,7 @@ var GenerateGeometricShape = class {
       const front = [start];
       while (cluster.length < size && front.length) {
         const fi = Math.floor(r() * front.length);
-        const next = cellNeighbours(cells.get(front[fi]).v).filter((k2) => cells.has(k2) && !inCluster.has(k2));
+        const next = neighbours(front[fi]).filter((k2) => cells.has(k2) && !inCluster.has(k2));
         if (!next.length) {
           front.splice(fi, 1);
           continue;
@@ -815,11 +825,11 @@ var GenerateGeometricShape = class {
         front.push(k);
       }
       for (const k of cluster) {
-        let v = cells.get(k).v;
-        add(k);
+        let key = k;
+        add(key);
         for (let i = 1; i < 6; i++) {
-          v = v.map(([a, b]) => [-b, a + b]);
-          add(cellKey(v));
+          key = turn(key);
+          add(key);
         }
       }
     }
@@ -845,7 +855,8 @@ var GenerateGeometricShape = class {
     ];
     const shapes = [];
     const SIX = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
-    for (const { R, fill } of layers) {
+    for (const layer of layers) {
+      const { R, fill } = layer;
       const at = (a, b) => {
         const x = (a + b / 2) * R;
         const y = b * Math.sqrt(3) / 2 * R;
@@ -877,26 +888,56 @@ var GenerateGeometricShape = class {
       });
       const done = /* @__PURE__ */ new Set();
       const h = R * Math.sqrt(3) / 2;
-      for (const { a, b } of chosen) {
-        const A = at(a, b);
-        for (const [da, db] of SIX) {
-          const pair = [`${a},${b}`, `${a + da},${b + db}`].sort().join("|");
-          if (done.has(pair)) continue;
-          done.add(pair);
-          const B = at(a + da, b + db);
-          const M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
-          const px = -(B[1] - A[1]) / R;
-          const py = (B[0] - A[0]) / R;
-          const P1 = [M[0] + px * h, M[1] + py * h];
-          const P2 = [M[0] - px * h, M[1] - py * h];
-          const shape = this.buildShape([P1, M, P2]);
-          shape.path = [["M", P1[0], P1[1]], shortArc(A, R, P1, P2), shortArc(B, R, P2, P1)];
-          shape.curve = { discs: [[A, R], [B, R]] };
-          shapes.push(shape);
+      const petals = (list, out) => {
+        for (const { a, b } of list) {
+          const A = at(a, b);
+          for (const [da, db] of SIX) {
+            const pair = [`${a},${b}`, `${a + da},${b + db}`].sort().join("|");
+            if (done.has(pair)) continue;
+            done.add(pair);
+            const B = at(a + da, b + db);
+            const M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+            const px = -(B[1] - A[1]) / R;
+            const py = (B[0] - A[0]) / R;
+            const P1 = [M[0] + px * h, M[1] + py * h];
+            const P2 = [M[0] - px * h, M[1] - py * h];
+            const shape = this.buildShape([P1, M, P2]);
+            shape.path = [["M", P1[0], P1[1]], shortArc(A, R, P1, P2), shortArc(B, R, P2, P1)];
+            shape.curve = { discs: [[A, R], [B, R]] };
+            out.push(shape);
+          }
         }
-      }
+      };
+      petals(chosen, shapes);
+      Object.assign(layer, { centres, petals, taken: new Set(chosen.map((c) => `${c.a},${c.b}`)) });
+      const ds = chosen.map((c) => c.d).sort((x, y) => x - y);
+      layer.reach = (ds.length ? ds[Math.min(ds.length - 1, Math.floor(ds.length * OUTER_BODY))] : 0) * (R / short);
     }
-    return shapes;
+    if (!g.outerRing || g.coherence <= OUTER_FROM) return shapes;
+    const t = Math.min(1, (g.coherence - OUTER_FROM) / (1 - OUTER_FROM));
+    const outer = [];
+    const reach = Math.max(layers[0].reach, layers[1].reach);
+    for (const layer of layers) {
+      const unit = short / layer.R;
+      const from = Math.min(reach, OUTER_CAP);
+      const chosen = this.growRing(
+        layer.centres,
+        layer.fill * t,
+        from * unit,
+        Math.max(from + 0.3, OUTER_OUT) * unit,
+        layer.taken,
+        (key) => {
+          const [a, b] = key.split(",").map(Number);
+          return SIX.map(([da, db]) => `${a + da},${b + db}`);
+        },
+        (key) => {
+          const [a, b] = key.split(",").map(Number);
+          return `${-b},${a + b}`;
+        }
+      );
+      layer.petals(chosen, outer);
+    }
+    return outer.concat(shapes);
   }
   // GOLDEN STYLE (2026-11-20, Aaron; "Nautilus" in the mockups, renamed for the golden ratio).
   // A golden spiral: quarter-circle wedges, each smaller than the last by the golden ratio and
