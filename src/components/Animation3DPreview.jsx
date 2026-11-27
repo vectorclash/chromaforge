@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { DURATION_FAST, DURATION_SLOW } from '../utils/motionTokens';
 import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
+import { importRetry, tagError } from '../utils/importRetry';
 
 // The animation preview: mounts a WebGL canvas and drives the deterministic tunnel scene
 // (src/animation3d/tunnelScene.js) with a single looping GSAP timeline (paused/onClick, atomic
@@ -137,14 +138,31 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
 
     (async () => {
       try {
-        const THREE = await import('three');
+        const THREE = await importRetry(() => import('three'));
         const { WebGLRenderer } = THREE;
         const container = containerRef.current;
         if (cancelled || !container) return;
         // No canvas MSAA: the frame is assembled in render targets and the canvas only ever
         // receives a full-screen copy and the logo plane (whose texture has transparent padding),
         // so multisampling it bought nothing but GPU memory and a resolve per frame.
-        const renderer = new WebGLRenderer({ antialias: false });
+        //
+        // A phone can refuse a context it would grant a moment later: iOS caps how many a page
+        // holds and how much GPU memory they use, and a context the page just let go of (the
+        // previous preview's, force-lost on unmount) is not always handed back at once. So a
+        // refusal is tried once more after a short wait before it is reported as no WebGL.
+        let renderer;
+        try {
+          renderer = new WebGLRenderer({ antialias: false });
+        } catch (first) {
+          console.warn('[Chromaforge 3D] WebGL context refused, trying again:', first);
+          await new Promise(r => setTimeout(r, 400));
+          if (cancelled || !containerRef.current) return;
+          try {
+            renderer = new WebGLRenderer({ antialias: false });
+          } catch (second) {
+            throw tagError(second, 'webgl');
+          }
+        }
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(container.clientWidth, container.clientHeight);
         renderer.domElement.classList.add('absolute', 'top-0', 'left-0', 'h-full', 'w-full');
@@ -174,7 +192,7 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
         // sessions, exhausted contexts) -- without this, the user gets a black screen and
         // an unhandled rejection. Let the parent fall back to 2D mode instead.
         console.error('[Chromaforge 3D] preview init failed:', e);
-        if (!cancelled) onInitErrorRef.current?.(e);
+        if (!cancelled) onInitErrorRef.current?.(tagError(e, 'webgl'));
       }
     })();
 
@@ -251,7 +269,7 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
       : null;
     const timer = setTimeout(async () => {
       try {
-        const { createTunnelScene, warmTunnelStars } = await import('../animation3d/tunnelScene');
+        const { createTunnelScene, warmTunnelStars } = await importRetry(() => import('../animation3d/tunnelScene'));
         if (fadeOut) {
           // Build only once the old scene is hidden, so the build's main-thread time can't hitch
           // the fade, and stop drawing a scene nobody can see
@@ -337,7 +355,7 @@ export default function Animation3DPreview({ design, cycleDuration, paused = fal
           if (!pausedRef.current) s.tl?.play();
           gsap.to(container, { opacity: 1, duration: DURATION_SLOW, ease: 'power2.inOut' });
         }
-        if (!cancelled && first) onInitErrorRef.current?.(e);
+        if (!cancelled && first) onInitErrorRef.current?.(tagError(e, 'scene'));
       }
     }, first || newDesign ? 0 : REBUILD_DEBOUNCE_MS);
 

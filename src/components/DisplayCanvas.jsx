@@ -29,6 +29,7 @@ import { rampTime, rampRush, RAMP_FLOOR_3D } from '../utils/speedRamp';
 import { generateLogoMark } from '../render/generateLogoMark';
 import { logoBackdrop3D, darkInkFor } from '../render/logoInk';
 import { yieldToPaint } from '../utils/yieldToPaint';
+import { threeDFailureMessage } from '../utils/importRetry';
 import { build3DAnimationData, is3DAnimation, storedVideo } from '../lib/savedAnimation';
 import { isMobileDevice } from '../utils/device';
 import {
@@ -3678,10 +3679,11 @@ export default class DisplayCanvas extends React.Component {
               if (this.state.threeDBuilding) this.setState({ threeDBuilding: false, animationPaused: false });
             }}
             onSceneRevealed={() => this.releaseLoader('3d')}
-            onInitError={() => {
-              // No WebGL (a GPU blocklist, a locked-down browser): there is no animation to show,
-              // so the studio goes back to the still.
-              alert('Animations need WebGL, which is unavailable in this browser.');
+            onInitError={e => {
+              // No animation to show, so the studio goes back to the still. The message names the
+              // stage that failed (utils/importRetry.js): every failure used to say "needs WebGL",
+              // including a 3D chunk that never downloaded, which a refresh fixes.
+              alert(threeDFailureMessage(e));
               this.setState({ threeDBuilding: false, loaderHeld: null }, () => this.onModeToggle(false));
             }}
           />
