@@ -21,6 +21,21 @@
 // milliseconds in the past), which is what makes the motion legible as a swirl in a 190px shirt
 // rather than as a cloud of jittering dots.
 //
+// A SWARM IS STIRRED, NOT REPLACED (2026-11-27, Aaron: spinning the shirt again while the sparks
+// were swirling made them "just disappear and are replaced with a new set"). Three driven terms
+// sit on top of the analytic motion, integrated in JS and handed over as uniforms, each with its
+// rate so a tail sample can extrapolate where the term stood a few milliseconds earlier:
+//   phase -- extra orbit angle. The shirt's own spin drags the swarm with it (setDrive), and
+//            the swarm's HEADING follows the shirt: spin the other way and the whole swarm turns
+//            round and keeps going that way (same day, Aaron: on a reversal the sparks "slow down
+//            and then keep going the wrong way"). The vortex's rolled direction is only where a
+//            swarm starts; phase cancels it and replaces it with the heading's.
+//   flare -- radius scale. A charge squeezes the swarm in; a release blasts it out.
+//   exit  -- seconds since the release, normally t - releaseAt. stir() REWINDS it, so sparks that
+//            were drifting out and fading pull back into orbit and brighten instead of vanishing.
+// All three rest at zero, so a swarm nobody stirs (a generate, the explainer's pose) moves exactly
+// as it did before.
+//
 // Takes THREE and Pass as parameters instead of importing them, so three.js stays in its own lazy
 // chunk (TshirtPreview dynamic-imports it; a static import here would drag it into the main
 // bundle).
@@ -58,6 +73,19 @@ const MAX_LIFE = 20;
 // (see swirl()), so the swarm keeps its volume even at zero tilt.
 const MAX_TILT_X = 0.5; // ~29deg: the ellipse stays under half as tall as it is wide
 const MAX_TILT_Z = 0.25; // ~14deg
+// How fast stir() pulls a dying swarm back (seconds of exit undone per second).
+const REWIND = 2.5;
+// Vertical drift stops growing here, so a swarm kept alive by stirring cannot wander off upward.
+const DRIFT_FOR = 6;
+// The driven phase chases its target at this rate (1/s): the swarm has some inertia of its own.
+const PHASE_FOLLOW = 6;
+const PHASE_MAX = 9; // rad/s
+// A shirt push faster than this (rad/s of extra orbit) sets which way the swarm heads.
+const HEADING_SWITCH = 1.2;
+// The flare's spring (radius scale) and the damping of a free blast (explode()).
+const FLARE_K = 40;
+const FLARE_C = 11;
+const BLAST_C = 2.4;
 // Fallback while no design palette has been handed over yet (the scene comes up wearing the
 // model's own white sheet).
 const DEFAULT_COLORS = [
@@ -71,7 +99,13 @@ const VERTEX = /* glsl */ `
   attribute float aTail;
   attribute float aScale;
   uniform float uAge;
-  uniform float uRelStart;
+  uniform float uExit;
+  uniform float uExitRate;
+  uniform float uPhase;
+  uniform float uPhaseRate;
+  uniform float uFlare;
+  uniform float uFlareRate;
+  uniform float uGather;
   uniform float uR;
   uniform float uSize;
   uniform float uCamDist;
@@ -85,27 +119,33 @@ const VERTEX = /* glsl */ `
   mat3 rotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
   mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); }
 
-  // Seconds since the release at time t, or 0 before it / if there hasn't been one.
-  float sinceRelease(float t) { return uRelStart < 0.0 ? 0.0 : max(t - uRelStart, 0.0); }
+  // Seconds since the release, as it stood LAG seconds ago; 0 before it / if there hasn't been
+  // one. Normally exactly t - releaseAt (uExitRate 1); while stir() rewinds it, earlier samples
+  // stood further out, which is where the tail then lies.
+  float sinceRelease(float lag) { return uExit < 0.0 ? 0.0 : max(uExit - lag * uExitRate, 0.0); }
 
-  // Where this particle is t seconds after the strike. Every term is a function of t alone, so a
-  // tail sample (an earlier t) lies on the head's real path -- including through the exit.
-  vec3 swirl(float t) {
+  // Where this particle is t seconds after the strike, LAG seconds behind the head. Every term
+  // is a function of time, so a tail sample lies on the head's real path -- through the exit too.
+  vec3 swirl(float t, float lag) {
     t = max(t, 0.0);
-    // Erupts from inside the garment and is flung out to its orbit over ~half a second.
+    // Erupts from inside the garment and is flung out to its orbit over ~half a second -- or,
+    // gathered by a charge, streams in from well outside it.
     float erupt = 1.0 - exp(-t * 5.0);
+    float inward = 1.0 + 1.8 * exp(-t * 3.0);
     float r0 = mix(0.40, 1.0, sqrt(aSeed.x)) * uR * uSwirl2.x;
-    float r = r0 * (0.12 + 0.88 * erupt)
+    float r = r0 * mix(0.12 + 0.88 * erupt, inward, uGather)
             * (1.0 + 0.12 * sin(t * (1.3 + aSeed2.x * 1.5) + aSeed.y * 6.2831));
     // The exit drifts each spark outward from a standstill -- quadratic, so its outward speed
     // starts at zero and the swirl never jerks at the release.
-    float s = sinceRelease(t);
+    float s = sinceRelease(lag);
     r *= 1.0 + (0.45 + 0.6 * aSeed2.y) * s * s;
+    r *= max(0.15, 1.0 + uFlare - lag * uFlareRate);
     // A vortex: the inner orbits turn fastest.
-    float omega = uSwirl.z * (1.3 + 1.3 * aSeed.w) * pow(0.6 * uR / r0, 0.8);
-    float theta = aSeed.y * 6.2831 + omega * t;
+    float spinK = (1.3 + 1.3 * aSeed.w) * pow(0.6 * uR / r0, 0.8);
+    float omega = uSwirl.z * spinK;
+    float theta = aSeed.y * 6.2831 + omega * t + 0.5 * spinK * (uPhase - lag * uPhaseRate);
     float h = (aSeed.z - 0.5) * uSwirl2.z * uR
-            + uSwirl2.y * uR * t * (aSeed2.z - 0.35);
+            + uSwirl2.y * uR * min(t, ${DRIFT_FOR.toFixed(1)}) * (aSeed2.z - 0.35);
     vec3 p = vec3(r * cos(theta), h, r * sin(theta));
     // Each particle's own orbital plane wobbles a little, so the swarm is a volume rather than
     // one flat disk...
@@ -119,17 +159,18 @@ const VERTEX = /* glsl */ `
   }
 
   void main() {
-    float t = uAge - aTail * ${TAIL_STEP.toFixed(4)};
-    vec4 mv = modelViewMatrix * vec4(swirl(t), 1.0);
+    float lag = aTail * ${TAIL_STEP.toFixed(4)};
+    float t = uAge - lag;
+    vec4 mv = modelViewMatrix * vec4(swirl(t, lag), 1.0);
     gl_Position = projectionMatrix * mv;
 
     // This spark's own exit, taken from the HEAD's clock so a streak fades as one piece.
     float fadeOut = smoothstep(0.0, 1.0, clamp(
-      (sinceRelease(uAge) - ${OUT_DELAY.toFixed(3)} - aSeed2.y * ${OUT_STAGGER.toFixed(3)})
+      (sinceRelease(0.0) - ${OUT_DELAY.toFixed(3)} - aSeed2.y * ${OUT_STAGGER.toFixed(3)})
         / ${OUT_FADE.toFixed(3)}, 0.0, 1.0));
 
     float tailFade = pow(1.0 - aTail / ${TAIL.toFixed(1)}, 1.3);
-    float born = smoothstep(0.0, 0.15, t);
+    float born = smoothstep(0.0, mix(0.15, 0.6, uGather), t);
     float twinkle = 0.75 + 0.25 * sin(uAge * (5.0 + 9.0 * aSeed2.y) + aSeed.x * 40.0);
     // Fade before the canvas edge, so nothing is ever cut off by the square.
     vec2 ndc = gl_Position.xy / gl_Position.w;
@@ -215,7 +256,13 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   const colors = Array.from({ length: MAX_COLORS }, () => new THREE.Vector3(1, 1, 1));
   const uniforms = {
     uAge: { value: 0 },
-    uRelStart: { value: -1 },
+    uExit: { value: -1 },
+    uExitRate: { value: 1 },
+    uPhase: { value: 0 },
+    uPhaseRate: { value: 0 },
+    uFlare: { value: 0 },
+    uFlareRate: { value: 0 },
+    uGather: { value: 0 },
     uR: { value: radius },
     uSize: { value: pixelSize },
     uCamDist: { value: camera.position.length() },
@@ -241,6 +288,7 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   points.visible = false;
   const sparkScene = new THREE.Scene();
   sparkScene.add(points);
+
 
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
   const clearColor = new THREE.Color();
@@ -293,7 +341,6 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   writeColors(1);
 
   let strikeAt = null;
-  let releaseAt = null;
   // Both are QUEUED and applied in order on the next drawn frame, never on the call. The entrance
   // asks for a strike and a release in one breath; an earlier version applied the strike a frame
   // later and let it wipe the release, so the sparks never left -- and, since they count as
@@ -304,11 +351,45 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
   // turns with it); otherwise both are rolled.
   let strikeDir = 0;
   let strikeSpeed = 1;
+  let strikeGather = 0;
   let posed = false;
+  // The driven terms (see the header). `exit` is seconds since the release, -1 for none.
+  let exit = -1;
+  let exitRate = 1;
+  let rewinding = false;
+  let phase = 0;
+  let phaseVel = 0;
+  let phaseTarget = 0;
+  let heading = 1; // +1/-1, in the vortex's own sign convention (uSwirl.z)
+  let shirtPush = 0;
+  let chargeBoost = 0;
+  let flare = 0;
+  let flareVel = 0;
+  let flareTarget = 0;
+  let blasting = false; // explode(): the flare coasts outward with no spring pulling it back
+  let pendingFlareKick = 0;
+  let lastNow = null;
+  // Stirring keeps a swarm alive; MAX_LIFE counts from the last time anything did.
+  let activeAt = null;
   const alive = now =>
-    strikeAt !== null &&
-    now - strikeAt < MAX_LIFE &&
-    (releaseAt === null || now - releaseAt < OUT_TOTAL);
+    strikeAt !== null && now - activeAt < MAX_LIFE && exit < OUT_TOTAL;
+  const resetDrive = () => {
+    exit = -1;
+    exitRate = 1;
+    rewinding = false;
+    phase = phaseVel = 0;
+    flare = flareVel = 0;
+    blasting = false;
+  };
+
+  const writeDrive = () => {
+    uniforms.uExit.value = exit;
+    uniforms.uExitRate.value = exitRate;
+    uniforms.uPhase.value = phase;
+    uniforms.uPhaseRate.value = phaseVel;
+    uniforms.uFlare.value = flare;
+    uniforms.uFlareRate.value = flareVel;
+  };
 
   const rollVortex = (wantDir = 0, speed = 1) => {
     const tiltX = (Math.random() * 2 - 1) * MAX_TILT_X;
@@ -339,16 +420,49 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
     busy: now => enabled && alive(now),
     // A fresh vortex, rolled on the next drawn frame so the eruption is never spent while the
     // main thread is busy (see setAberration). Supersedes a release not yet applied.
-    // `dir` (+1/-1) and `speed` (a multiplier) are optional; see strikeDir.
-    strike(dir = 0, speed = 1) {
+    // `dir` (+1/-1) and `speed` (a multiplier) are optional; see strikeDir. `gather` makes the
+    // sparks stream in from outside instead of erupting from the garment (a charge does).
+    strike(dir = 0, speed = 1, { gather = false } = {}) {
       strikeQueued = true;
       releaseQueued = false;
       strikeDir = dir;
       strikeSpeed = speed;
+      strikeGather = gather ? 1 : 0;
+    },
+    // Keep a live swarm going instead of replacing it: a pending release is dropped, and one
+    // already under way is rewound, so the dying sparks pull back into orbit. With nothing alive
+    // (or a strike already queued) this is just a strike. `kick` throws the swarm outward a
+    // little, on the flare's spring.
+    stir(now, dir = 0, speed = 1, { gather = false, kick = 0 } = {}) {
+      if (strikeQueued || !alive(now)) {
+        // A fresh eruption is exactly a strike: the kick is for a swarm that was already out.
+        this.strike(dir, speed, { gather });
+        return;
+      }
+      releaseQueued = false;
+      if (exit >= 0) rewinding = true;
+      blasting = false;
+      activeAt = now;
+      pendingFlareKick += kick;
     },
     // Dissipate, on the next drawn frame.
     release() {
       releaseQueued = true;
+    },
+    // Dissipate by blasting outward: the flare is kicked and left to coast (no spring back).
+    explode(power = 1) {
+      releaseQueued = true;
+      blasting = true;
+      flareVel = Math.max(flareVel, 0) + 4 * power;
+    },
+    // What the driven terms chase, per frame. `push`: the shirt's drag on the swarm (rad/s of
+    // extra orbit, signed in the vortex's convention); a strong enough push also turns the
+    // swarm's heading its way. `boost`: extra speed along whatever the heading is (a charge).
+    // `radius`: a scale on the orbit (0 = rest; -0.5 squeezes it to half).
+    setDrive(push, boost = 0, radius = 0) {
+      shirtPush = Math.max(-PHASE_MAX, Math.min(PHASE_MAX, push));
+      chargeBoost = boost;
+      flareTarget = radius;
     },
     setPalette(hexes, duration) {
       const next = (hexes || []).slice(0, MAX_COLORS).map(h => sparkColor(THREE, h));
@@ -381,17 +495,57 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
         strikeQueued = false;
         releaseQueued = false;
         strikeAt = null;
-        releaseAt = null;
+        resetDrive();
       }
+      const rawDt = lastNow === null ? 0 : Math.max(0, now - lastNow);
+      const dt = Math.min(rawDt, 0.05);
+      lastNow = now;
       if (strikeQueued) {
-        strikeAt = now;
-        releaseAt = null;
+        strikeAt = activeAt = now;
+        resetDrive();
+        uniforms.uGather.value = strikeGather;
         rollVortex(strikeDir, strikeSpeed);
+        heading = Math.sign(uniforms.uSwirl.value.z) || 1;
         strikeQueued = false;
       }
+      if (pendingFlareKick) {
+        flareVel += pendingFlareKick;
+        pendingFlareKick = 0;
+      }
       if (releaseQueued && strikeAt !== null) {
-        releaseAt = now;
+        // Already dying, or being pulled back: carry on dying from where it stands.
+        if (exit < 0) exit = 0;
+        rewinding = false;
         releaseQueued = false;
+      }
+      if (strikeAt !== null) {
+        // Exit: real time while it dies (a sleep off screen still counts), undone while stirred.
+        if (rewinding) {
+          exit -= REWIND * dt;
+          exitRate = -REWIND;
+          if (exit <= 0) {
+            exit = -1;
+            exitRate = 1;
+            rewinding = false;
+          }
+        } else if (exit >= 0) {
+          exit += rawDt;
+          exitRate = 1;
+        }
+        // Being driven (a spin or a charge under way) counts as being kept alive.
+        if (exit < 0 && (Math.abs(shirtPush) > 0.5 || chargeBoost > 0.5 || flareTarget < -0.05)) {
+          activeAt = now;
+        }
+        if (Math.abs(shirtPush) > HEADING_SWITCH) heading = Math.sign(shirtPush);
+        // Cancels the vortex's own orbit and runs it the heading's way instead (phase enters the
+        // shader at half weight, hence the 2).
+        const z = uniforms.uSwirl.value.z;
+        phaseTarget = 2 * (heading * Math.abs(z) - z) + shirtPush + heading * chargeBoost;
+        phaseVel += (phaseTarget - phaseVel) * (1 - Math.exp(-PHASE_FOLLOW * dt));
+        phase += phaseVel * dt;
+        if (blasting) flareVel *= Math.exp(-BLAST_C * dt);
+        else flareVel += (FLARE_K * (flareTarget - flare) - FLARE_C * flareVel) * dt;
+        flare += flareVel * dt;
       }
       if (paletteStart === null) paletteStart = now;
       if (paletteStart >= 0) {
@@ -401,7 +555,7 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
       }
       points.visible = enabled && alive(now);
       uniforms.uAge.value = strikeAt === null ? 0 : now - strikeAt;
-      uniforms.uRelStart.value = releaseAt === null ? -1 : releaseAt - strikeAt;
+      writeDrive();
     },
     // For a caller that draws frames from a timeline, in any order (the ad builder's explainer):
     // the event's times are given outright instead of being queued against the frame clock. The
@@ -413,10 +567,13 @@ export function createTshirtSwirl(THREE, Pass, { camera, radius, pixelSize, enab
       }
       const released = releasedAt !== null && now >= releasedAt;
       strikeAt = now >= at ? at : null;
-      releaseAt = released ? releasedAt : null;
+      activeAt = strikeAt;
+      resetDrive();
+      if (released) exit = now - releasedAt;
+      uniforms.uGather.value = 0;
       points.visible = enabled && alive(now);
       uniforms.uAge.value = strikeAt === null ? 0 : now - strikeAt;
-      uniforms.uRelStart.value = releaseAt === null ? -1 : releaseAt - strikeAt;
+      writeDrive();
     },
     dispose() {
       geometry.dispose();

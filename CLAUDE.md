@@ -3132,7 +3132,36 @@ turns (`swirl.strike(dir, speed)`). Press and hold still for 220ms charges it (s
 the artwork glowing via `emissiveMap` at intensity 0 at rest, so resting pixels are unchanged);
 release fires a shockwave from the finger (`uStrikeOrigin`; negative = derive from
 `uStrikeShape` as before, which keeps the explainer Reel identical) and flings the shirt away
-from the pressed side. Four things worth not re-deriving: (1) the pass's `uAmount` is written
+from the pressed side.
+**The sparks are ONE swarm that play stirs, and a full charge explodes (2026-11-27, Aaron:
+re-spinning made the sparks "disappear and are replaced with a new set"; the charge should do
+"something more fun than just spinning").** `swirl.stir()` replaces `strike()` for play and for a
+generate: a live swarm keeps going, and one already dying is REWOUND so its sparks pull back into
+orbit. Three JS-integrated terms ride on the analytic motion (extra orbit `phase`, radius `flare`,
+and `exit` = time since release), each passed with its rate so tail samples extrapolate; all rest
+at 0, so a strike with nothing alive and the explainer's `pose()` move exactly as before. The
+shirt's spin drags the swarm (`setDrive`) AND sets its HEADING: `phase` cancels the vortex's rolled
+direction and runs it the heading's way. Merely adding drag on top was shipped first and was
+wrong (Aaron: on a reversal the sparks "slow down and then keep going the wrong way"): the drag
+cancelled the built-in orbit, then faded and let it win again. A charge past `CHARGE_COMMIT`
+gathers sparks in from outside (`gather`) into a tightening, quickening ring; reaching full flashes
+and pulses; releasing at full runs `nova()`: the ring blasts out (`explode`) and the shirt takes the
+hit IN PLACE. The look is **overload**, Aaron's pick of three tried in the app: the artwork blazes
+(a big emissive spike) while the glitch tears hard, the shirt swells (`pop`), is knocked back from
+the pressed side and jolts, then settles ELASTICALLY ("it just needs some elasticity in the
+movement at the end"): a jelly squash-and-stretch on a loose spring (`WOBBLE_K`/`WOBBLE_C`, ~3.4Hz,
+gone in ~1.2s, opening with a stretch as the charge's squash lets go) while the tilt spring is
+loosened for `LOOSE_FOR` so the knock-back rocks past level. Then made chaotic and glitchy ("a bit more
+chaotic and more glitchy"): two more loose springs (`SWAY_K` sideways, `ROLL_K` roll) at
+incommensurate rates, random kicks to all three every 70-230ms fading with the settle, and two
+faults -- the pose FREEZES for 1-3 frames then jumps to catch up, and SNAPS (a sideways jump and
+size step held 2-4 frames, with a tear spike via `glitchFlick`, a glow flash or dropout, and
+sometimes a small fresh ripple). The other two looks (a firework
+`burst` of fresh sparks, a `quiet` ripple) were removed. Rejected on sight, don't re-propose: a
+leap-and-backflip ("way too silly ... definitely not the vibe") and a ring of coloured light
+rolling out past the shirt ("looks pretty bad"). Verified: swarm through a re-spin with no dip, the heading flipping within ~0.2s
+of a reversal and holding after the shirt stops (real module in Node), idle back to 64 rAF/s,
+`check-leaks.mjs` 12/12. Not yet felt on a phone. Four things worth not re-deriving: (1) the pass's `uAmount` is written
 per frame as the MAX of the generate tween (`genFx`), spin, charge and burst, so play never
 fights a generate for it; (2) a press with under `CHARGE_COMMIT` of charge is still a click, or a
 slow mouse click would stop reaching the shop; (3) on touch a press becomes a drag only past 8px

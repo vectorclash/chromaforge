@@ -872,8 +872,20 @@ export default function TshirtPreview({
         //  - SPEED shows: the glitch pass rises with it, and a fast spin throws off a spark
         //    swarm orbiting the way the shirt turns.
         //  - PRESS AND HOLD still for HOLD_DELAY charges it: it squashes, trembles and glows
-        //    with its own artwork. Letting go sends a shockwave out from the finger and flings
-        //    the shirt into a spin away from the side that was pressed.
+        //    with its own artwork, and sparks stream in from outside and wind into a tightening,
+        //    quickening ring. Letting go part way sends a shockwave out from the finger and
+        //    flings the shirt into a spin away from the side that was pressed, whipping the ring
+        //    round with it. Held to FULL charge it flashes and pulses; letting go then OVERLOADS:
+        //    the artwork blazes on the shirt, the glitch tears hard, the ring blasts outward, and
+        //    the shirt takes the hit in place -- it swells, is knocked back from the pressed side,
+        //    jolts, and wobbles back to rest like jelly (2026-11-27, Aaron: the charge should "do
+        //    something more fun than just spinning"; picked from three looks, then "it just needs
+        //    some elasticity in the movement at the end". Rejected on the way: a leap-and-backflip,
+        //    "way too silly", and a ring of coloured light rolling out, "looks pretty bad").
+        //  - SPARKS ARE ONE SWARM: spinning again while they swirl stirs the swarm that is there
+        //    (it is dragged round with the shirt, and dying sparks pull back into orbit) rather
+        //    than replacing it with a fresh eruption (same day, Aaron: they "just disappear and
+        //    are replaced with a new set"). See tshirtSwirl.js's header.
         // The shirt is still a shop link, so a press that becomes neither a drag nor a real
         // charge is a click. On touch a press becomes a drag only past DRAG_THRESHOLD of mostly
         // HORIZONTAL movement, so a vertical swipe still scrolls the page (touch-action: pan-y
@@ -919,6 +931,37 @@ export default function TshirtPreview({
         const SPIN_FX_HIGH = 22;
         const SPIN_FX_MAX = 0.55;
         const SPARK_SPIN_SPEED = 1.6; // a spin's swarm orbits faster than a generate's
+        // The swarm is dragged by the shirt's spin: extra orbit (rad/s) per rad/s of spin.
+        const SWARM_DRAG = 0.35;
+        // A charge winds the swarm in to this fraction of its radius, this much faster.
+        const CHARGE_SQUEEZE = 0.5;
+        const CHARGE_SWIRL = 8;
+        // The explosion's hit on the shirt: a uniform swell on a bouncy spring, and a shake.
+        const POP_K = 170;
+        const POP_C = 9;
+        const POP_SCALE = 0.25;
+        const SHAKE_DECAY = 4; // per second: a jolt, which the wobble below then takes over from
+        // The elastic settle after it: a jelly squash-and-stretch on a loose spring (~3.4Hz, gone
+        // in ~1.2s), opening with a stretch as the charge's squash lets go, and the knock-back's tilt spring loosened for the same span so it rocks past
+        // level a couple of times instead of easing straight back.
+        const WOBBLE_K = 450;
+        const WOBBLE_C = 5;
+        const WOBBLE_KICK = 4.5;
+        const LOOSE_FOR = 1.4; // s
+        const PITCH_C_LOOSE = 4;
+        // ...made CHAOTIC and GLITCHY (same day, Aaron: "a bit more chaotic and more glitchy").
+        // Two more loose springs at incommensurate rates (a sideways sway and a roll), and small
+        // random kicks to all three every KICK_MIN..KICK_MAX seconds, scaled down as it settles,
+        // so the wobble never repeats evenly. On top, two digital faults: the pose sometimes
+        // FREEZES for a frame or two and then jumps to catch up (dropped frames), and sometimes
+        // SNAPS -- a sideways jump and a size step held for a couple of frames, with a spike of
+        // the tear, a flicker of the glow, and now and then a fresh little ripple.
+        const SWAY_K = 620;
+        const SWAY_C = 5;
+        const ROLL_K = 300;
+        const ROLL_C = 4;
+        const KICK_MIN = 0.07;
+        const KICK_MAX = 0.23;
 
         const button = /** @type {HTMLElement} */ (mount.parentElement);
         const smoothstep = (a, b, x) => {
@@ -972,6 +1015,27 @@ export default function TshirtPreview({
         let squash = 0;
         let squashVel = 0;
         let ambientYaw = 0;
+        // The explosion's hit (see nova) and the flash that marks reaching full charge.
+        let pop = 0;
+        let popVel = 0;
+        let shake = 0;
+        let overload = 0;
+        let wobble = 0;
+        let wobbleVel = 0;
+        let loose = 0;
+        let sway = 0;
+        let swayVel = 0;
+        let roll = 0;
+        let rollVel = 0;
+        let kickTimer = 0;
+        let holdFor = 0; // s the pose stays frozen
+        let snapFor = 0; // s a snap is held
+        let snapX = 0;
+        let snapS = 0;
+        let snapGlow = 0;
+        let glitchFlick = 0;
+        let fullFlash = 0;
+        let wasFull = false;
         // Spark swarms launched by play rather than by a generate (see stepPlay).
         let spinSwarm = false;
         let spinArmed = true;
@@ -1048,7 +1112,8 @@ export default function TshirtPreview({
             }
           } else if (charging) {
             charging = false;
-            if (released && charge >= CHARGE_COMMIT) burst();
+            if (released && charge >= 1) nova();
+            else if (released && charge >= CHARGE_COMMIT) burst();
           }
           button.style.cursor = '';
           stateRef.current.wake?.();
@@ -1155,7 +1220,9 @@ export default function TshirtPreview({
               Math.random()
             ];
             strikePending = true;
-            swirl.strike();
+            // A swarm already swirling (play's, or the last generate's exit) carries on and is
+            // thrown out a little, rather than vanishing for a fresh eruption.
+            swirl.stir(performance.now() * 0.001, 0, 1, { kick: 3 });
             // The generate owns the swarm now; play's release must not end it.
             spinSwarm = false;
           }
@@ -1186,11 +1253,43 @@ export default function TshirtPreview({
           burstTween?.kill();
           burstFx.value = 0.25 + 0.55 * c;
           burstTween = gsap.to(burstFx, { value: 0, duration: 1.4, ease: 'power2.out' });
+          // The gathered ring is whipped round with the shirt (the drag in stepPlay) and thrown
+          // out a little; with no swarm (a quick charge) this starts one.
           if (!genActive) {
-            swirl.strike(-dir, SPARK_SPIN_SPEED);
+            swirl.stir(performance.now() * 0.001, -dir, SPARK_SPIN_SPEED, { kick: 2 + 3 * c });
             spinSwarm = true;
             spinArmed = false;
           }
+        };
+
+        // The release of a FULL charge: the artwork blazes and the glitch tears, the ring blasts
+        // outward, and the shirt takes the hit where it stands -- it swells, is knocked back from
+        // the pressed side, jolts, then wobbles back to rest (see WOBBLE_K).
+        const nova = () => {
+          const u = aberrationPass.uniforms;
+          u.uStrikeOrigin.value = [-1, -1];
+          u.uStrikeShape.value = [Math.random(), Math.random(), 1, 1];
+          strikePending = true;
+          burstTween?.kill();
+          burstFx.value = 1;
+          burstTween = gsap.to(burstFx, { value: 0, duration: 0.9, ease: 'power2.out' });
+          overload = 1;
+          if (spinSwarm) {
+            swirl.explode(1.6);
+            spinSwarm = false;
+            spinArmed = false;
+          }
+          popVel += 4;
+          wobbleVel -= WOBBLE_KICK; // springs up tall first
+          const side = pressU < 0.5 ? 1 : -1; // knocked away from the pressed side
+          swayVel += side * 1.6 * sphere.radius;
+          rollVel += -side * 1.0;
+          kickTimer = KICK_MIN;
+          loose = 1;
+          shake = 1;
+          fullFlash = 1;
+          // Knocked back from where it was hit: pressed high, the top tips away.
+          pitchVel -= 3.2 * (pressV - 0.5) * 2;
         };
 
         // One frame of play (see PLAY above). Returns true while anything is still moving.
@@ -1204,8 +1303,28 @@ export default function TshirtPreview({
           }
           if (charging) {
             charge = Math.min(1, charge + dt / CHARGE_TIME);
-            if (charge >= CHARGE_COMMIT) dragSuppressClickRef.current = true;
+            if (charge >= CHARGE_COMMIT) {
+              dragSuppressClickRef.current = true;
+              // Sparks start gathering once this is surely a charge, not a slow click. A swarm
+              // already swirling is stirred and wound in; a generate's is left to the generate.
+              if (!spinSwarm && !genActive) {
+                swirl.stir(now * 0.001, 0, SPARK_SPIN_SPEED, { gather: true });
+                spinSwarm = true;
+                spinArmed = false;
+              }
+            }
           } else if (charge > 0) charge = Math.max(0, charge - dt / CHARGE_DECAY);
+          // Reaching full charge flashes once; held there, the glow pulses.
+          const full = charging && charge >= 1;
+          if (full && !wasFull) {
+            fullFlash = 1;
+            const u = aberrationPass.uniforms;
+            u.uStrikeOrigin.value = [-1, -1];
+            u.uStrikeShape.value = [Math.random(), Math.random(), 0.25, Math.random()];
+            strikePending = true;
+          }
+          wasFull = full;
+          fullFlash = Math.max(0, fullFlash - dt * 3);
           const squashTarget = charging ? charge : 0;
           squashVel += (SQUASH_K * (squashTarget - squash) - SQUASH_C * squashVel) * dt;
           squash += squashVel * dt;
@@ -1235,24 +1354,90 @@ export default function TshirtPreview({
             }
           }
 
-          // Tilt.
-          pitchVel += (PITCH_K * (pitchTarget - pitch) - PITCH_C * pitchVel) * dt;
+          // Tilt. Loosened for a while after an overload, so the knock-back rocks.
+          loose = Math.max(0, loose - dt / LOOSE_FOR);
+          const pitchC = PITCH_C + (PITCH_C_LOOSE - PITCH_C) * loose;
+          pitchVel += (PITCH_K * (pitchTarget - pitch) - pitchC * pitchVel) * dt;
           pitch += pitchVel * dt;
           if (!dragging && Math.abs(pitch) < 1e-4 && Math.abs(pitchVel) < 1e-3) pitch = pitchVel = 0;
+
+          // The explosion's hit.
+          popVel += (-POP_K * pop - POP_C * popVel) * dt;
+          pop += popVel * dt;
+          if (Math.abs(pop) < 1e-4 && Math.abs(popVel) < 1e-3) pop = popVel = 0;
+          shake = Math.max(0, shake - dt * SHAKE_DECAY);
+          overload = Math.max(0, overload - dt * 1.6);
+          // The chaotic, glitchy settle (see SWAY_K).
+          holdFor = Math.max(0, holdFor - dt);
+          snapFor = Math.max(0, snapFor - dt);
+          if (snapFor === 0) glitchFlick = 0;
+          if (loose > 0) {
+            kickTimer -= dt;
+            if (kickTimer <= 0) {
+              kickTimer = KICK_MIN + Math.random() * (KICK_MAX - KICK_MIN);
+              const k = loose * loose;
+              const r = () => Math.random() * 2 - 1;
+              wobbleVel += r() * 3.2 * k;
+              swayVel += r() * 1.3 * k * sphere.radius;
+              rollVel += r() * 1.0 * k;
+              if (Math.random() < 0.35 * loose) holdFor = (1 + Math.floor(Math.random() * 3)) / 60;
+              if (Math.random() < 0.5 * loose) {
+                snapFor = (2 + Math.floor(Math.random() * 3)) / 60;
+                snapX = r() * 0.07 * sphere.radius * (0.4 + 0.6 * k);
+                snapS = r() * 0.07 * (0.4 + 0.6 * k);
+                snapGlow = Math.random() < 0.5 ? -1 : 1;
+                glitchFlick = 0.45 + 0.45 * Math.random() * loose;
+                if (Math.random() < 0.35) {
+                  const u = aberrationPass.uniforms;
+                  u.uStrikeOrigin.value = [-1, -1];
+                  u.uStrikeShape.value = [Math.random(), Math.random(), 0.25 + 0.35 * Math.random(), 0.5];
+                  strikePending = true;
+                }
+              }
+            }
+          }
+          wobbleVel += (-WOBBLE_K * wobble - WOBBLE_C * wobbleVel) * dt;
+          wobble += wobbleVel * dt;
+          if (Math.abs(wobble) < 1e-4 && Math.abs(wobbleVel) < 1e-3) wobble = wobbleVel = 0;
+          swayVel += (-SWAY_K * sway - SWAY_C * swayVel) * dt;
+          sway += swayVel * dt;
+          if (Math.abs(sway) < 1e-5 && Math.abs(swayVel) < 1e-4) sway = swayVel = 0;
+          rollVel += (-ROLL_K * roll - ROLL_C * rollVel) * dt;
+          roll += rollVel * dt;
+          if (Math.abs(roll) < 1e-4 && Math.abs(rollVel) < 1e-3) roll = rollVel = 0;
 
           // The ambient follow (mouse or phone tilt) stays lazy.
           ambientYaw += (targetYaw - ambientYaw) * (1 - Math.exp(-2.45 * dt));
           if (Math.abs(targetYaw - ambientYaw) < 1e-4) ambientYaw = targetYaw;
 
-          pivot.rotation.y = spin + ambientYaw;
-          pivot.rotation.x = pitch;
-          // A charge trembles, harder as it fills.
-          pivot.rotation.z = charge > 0 ? Math.sin(t * 47) * 0.014 * charge * charge : 0;
-          pivot.scale.set(1 + 0.04 * squash, 1 - 0.08 * squash, 1 + 0.04 * squash);
-          const glow = GLOW_MAX * charge * charge;
-          printed.forEach(mat => {
-            mat.emissiveIntensity = glow;
-          });
+          // A frozen pose (a dropped-frame fault) keeps whatever was drawn last; the physics runs
+          // on underneath, so it jumps to catch up when the hold ends.
+          if (holdFor === 0) {
+            const snapping = snapFor > 0;
+            pivot.rotation.y = spin + ambientYaw;
+            pivot.rotation.x = pitch;
+            // A charge trembles, harder as it fills, and hardest held at full; the explosion
+            // leaves it shaking, then rolling.
+            pivot.rotation.z =
+              (charge > 0
+                ? Math.sin(t * 47) * (0.014 + (wasFull ? 0.008 : 0)) * charge * charge
+                : 0) +
+              Math.sin(t * 61) * 0.045 * shake * shake +
+              roll;
+            pivot.position.x = sway + (snapping ? snapX : 0);
+            // Squash (a charge) and wobble (the jelly settle) both trade height for width.
+            const ps = (1 + POP_SCALE * pop) * (1 + (snapping ? snapS : 0));
+            const wide = 1 + 0.04 * squash + 0.25 * wobble;
+            pivot.scale.set(ps * wide, ps * (1 - 0.08 * squash - 0.45 * wobble), ps * wide);
+            const glow =
+              GLOW_MAX * charge * charge * (wasFull ? 0.85 + 0.15 * Math.sin(t * 20) : 1) +
+              0.5 * fullFlash +
+              1.5 * overload * overload;
+            const flicker = snapping ? (snapGlow > 0 ? 0.9 * loose : -glow) : 0;
+            printed.forEach(mat => {
+              mat.emissiveIntensity = Math.max(0, glow + flicker);
+            });
+          }
 
           // Speed -> glitch and sparks.
           const speed = dragging
@@ -1260,16 +1445,27 @@ export default function TshirtPreview({
               ? 0
               : Math.abs(moveVel)
             : Math.abs(spinVel);
-          const dir = (dragging ? moveVel : spinVel) > 0 ? -1 : 1;
+          const angVel = dragging ? (now - lastMoveAt > FLICK_STALE_MS ? 0 : moveVel) : spinVel;
+          const dir = angVel > 0 ? -1 : 1;
+          // The swarm is dragged round with the shirt (and turns to follow it), and wound in by
+          // a charge.
+          if (!reducedMotion) {
+            swirl.setDrive(
+              -SWARM_DRAG * angVel,
+              CHARGE_SWIRL * charge * charge,
+              -CHARGE_SQUEEZE * charge
+            );
+          }
           spinFx = reducedMotion ? 0 : SPIN_FX_MAX * smoothstep(SPIN_FX_LOW, SPIN_FX_HIGH, speed);
           swarmReleasing = false;
           if (!reducedMotion) {
-            if (spinSwarm && speed < SPIN_FX_LOW) {
+            if (spinSwarm && speed < SPIN_FX_LOW && !charging) {
               swirl.release();
               spinSwarm = false;
               swarmReleasing = true;
             } else if (!spinSwarm && !genActive && spinArmed && spinFx > SPIN_FX_MAX * 0.5) {
-              swirl.strike(dir, SPARK_SPIN_SPEED);
+              // Stir, not strike: sparks still dying from the last spin come back into orbit.
+              swirl.stir(now * 0.001, dir, SPARK_SPIN_SPEED);
               spinSwarm = true;
               spinArmed = false;
             }
@@ -1282,6 +1478,16 @@ export default function TshirtPreview({
             pressed ||
             dragging ||
             charge > 0 ||
+            pop !== 0 ||
+            shake > 0 ||
+            overload > 0 ||
+            wobble !== 0 ||
+            sway !== 0 ||
+            roll !== 0 ||
+            holdFor > 0 ||
+            snapFor > 0 ||
+            loose > 0 ||
+            fullFlash > 0 ||
             squash !== 0 ||
             spinVel !== 0 ||
             spin !== 0 ||
@@ -1331,6 +1537,7 @@ export default function TshirtPreview({
             genFx.value,
             spinFx,
             burstFx.value,
+            glitchFlick,
             reducedMotion ? 0 : 0.3 * charge * charge
           );
           aberrationPass.uniforms.uAmount.value = amount;
