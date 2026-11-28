@@ -3525,6 +3525,12 @@ and in the worker. Verified: a simulated permanently-cached 429 fills every card
 WebKit, and a local page fetching its maps from the live CDN hit 2 real cached 429s and recovered.
 **Any other file on the site can be poisoned the same way** (a JS chunk would break the site for an
 hour on that edge); purging hCDN in hPanel clears it, and the Cloudflare move (TODO.md) is the fix.
+**hCDN is now OFF, for chromaforge.app and vectorclash.com (2026-11-27, Aaron).** Measured first:
+it bought nothing -- same timings cached and forced-from-origin (83-219ms either way, five real files
+x 5 runs), most repeat requests MISSed, and the origin sits ~3ms from its edge. Responses now come
+from LiteSpeed directly; cache rules, security headers and Brotli verified intact. **Never
+burst-test the live server**: 200 parallel connections from one machine got BOTH sites (one shared
+server, 45.137.159.160) reset at the TLS handshake, for everyone, for ~10 minutes. 60 was fine.
 (6) **A calibrated product's page has NO Printful step (Aaron's pick, 2026-11-15).** Every view is
 instant, in printfulViewPolicy's strip order, opening on the strip's first view, the first flat (it opened on the shop card's view, third or so in the strip, and Aaron: that "feels weird"). No
 scrim, no sign-in wall for previews, no `useMockup` sync; Buy Now skips the "not previewed" step and
