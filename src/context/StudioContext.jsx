@@ -13,6 +13,7 @@ import { saveDesign, uploadDesignThumbnail } from '../lib/designs';
 import { loadLinkedDesign, linkedDesignPending, waitForLinkedDesign, designFromRow } from '../lib/linkedDesign';
 import { compactAnimationData, is3DAnimation, storedVideo } from '../lib/savedAnimation';
 import { readDesignPrefs, writeDesignPrefs } from '../lib/studioPrefs';
+import { readActiveDesign, writeActiveDesign } from '../lib/activeDesignSession';
 import { colorsForNewWork } from '../render/autoPalette';
 import {
   readRecentDesigns,
@@ -148,7 +149,13 @@ export function StudioProvider({ children }) {
   //
   // The SEED is deliberately not restored: a visit still opens on artwork nobody has seen,
   // it just arrives in the style they chose. Only the settings persist, not the design.
+  //
+  // The exception is a RELOAD of this tab away from the homepage and the studio (an iOS memory
+  // reload, Stripe's cancel link, a refresh on a product page): it comes back on the design it had
+  // -- lib/activeDesignSession.js, written by the effect beside the chosen-settings one below.
+  const [restored] = useState(readActiveDesign);
   const [currentDesign, setCurrentDesign] = useState(() => {
+    if (restored) return restored.design;
     const seed = randomSeed();
     const picked = colorsForNewWork(seed, chosenSettings.colors);
     const first = generateArtwork(seed, 1080, 1080, picked.colors, { geometry: chosenSettings.geometry });
@@ -190,15 +197,15 @@ export function StudioProvider({ children }) {
   // the fix for a real bug: saving from the studio's own panel didn't used to update the
   // mini-generator widget's (locally-tracked) saved state, so visiting /shop right after a
   // studio save still showed an enabled "Save" button and produced a duplicate row.
-  const [savedDesign, setSavedDesign] = useState(null);
+  const [savedDesign, setSavedDesign] = useState(() => (restored?.savedId ? restored.design : null));
   // The saved row's id alongside the design object above -- DisplayCanvas needs this to
   // rebuild a working share link when a design that was already saved (e.g. via the
   // mini-generator widget) is handed off into the Studio via initialDesign, rather than
   // loaded via a share/gallery URL (the only other path that used to set a share link).
-  const [savedDesignId, setSavedDesignId] = useState(null);
+  const [savedDesignId, setSavedDesignId] = useState(() => restored?.savedId ?? null);
   // ...and its title, so the studio's exports of a design saved elsewhere (the mini-generator)
   // carry the name it has in the gallery.
-  const [savedDesignTitle, setSavedDesignTitle] = useState(null);
+  const [savedDesignTitle, setSavedDesignTitle] = useState(() => restored?.savedTitle ?? null);
   // The studio's recent generations (lib/recentDesigns.js), restored from this device. `currentId`
   // is the entry on screen in the studio; it is never stored, since a visit opens on new artwork.
   const [recent, setRecent] = useState(() => ({ entries: readRecentDesigns(), currentId: null }));
@@ -405,6 +412,13 @@ export function StudioProvider({ children }) {
       return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
     });
   }, []);
+
+  // The tab's active design, for a reload to come back to (lib/activeDesignSession.js). With the
+  // row it is, when it is one, so it comes back "Saved".
+  useEffect(() => {
+    const saved = isSameDesign(savedDesign, currentDesign) ? { id: savedDesignId, title: savedDesignTitle } : {};
+    writeActiveDesign(currentDesign, saved);
+  }, [currentDesign, savedDesign, savedDesignId, savedDesignTitle]);
 
   // Persist the chosen settings -- the single write point for `cf-studio:design`. Nothing about
   // the design on screen reaches it, which is the whole point (see chosenSettings above).

@@ -23,11 +23,22 @@ async function pixelsOf(blob) {
 }
 
 const MAPS = ['base', 'gain', 'gamma', 'place', 'uv', 'uvplace', 'underplace', 'underuv', 'edge'];
+// Decoded calibration views, least recently used first -- bounded by BYTES, like the renders below
+// (2026-11-27). A view's maps decode to ~11-16MB, and this used to keep the last 30 views however
+// big: shop -> zip hoodie -> shop -> track jacket -> shop -> windbreaker holds ~360MB of maps here
+// alone, beside 160MB of renders, which is the moment Aaron's iPhone dropped the page and reloaded
+// it. VIEW_BUDGET still holds the biggest product page's whole strip (the track jacket's 8 views,
+// ~127MB) or a desktop shop's screenful of cards; anything older is decoded again if it is needed
+// again, from the browser's cache, in the worker.
+const VIEW_BUDGET = 150e6;
+const MAX_VIEWS = 30;
 const views = new Map();
+let viewBytes = 0;
 function loadView(base, meta) {
   const key = `${base}|${meta.files.base}`;
   if (!views.has(key)) {
-    const promise = Promise.all(
+    const entry = { bytes: 0 };
+    entry.promise = Promise.all(
       MAPS.map(name =>
         // The underlay maps exist only on views with a transparent label, the edge map only on
         // views with a seam.
@@ -37,12 +48,33 @@ function loadView(base, meta) {
         })
       )
     ).then(maps => ({ ...meta, ...Object.fromEntries(MAPS.map((n, i) => [n, maps[i]])) }));
-    views.set(key, promise);
-    promise.catch(() => views.delete(key));
-    // A shop page's worth of views; the oldest goes past it.
-    while (views.size > 30) views.delete(views.keys().next().value);
+    entry.promise.then(
+      view => {
+        if (views.get(key) !== entry) return;
+        entry.bytes = MAPS.reduce((sum, n) => sum + (view[n] ? view[n].data.byteLength : 0), 0);
+        viewBytes += entry.bytes;
+        trimViews(entry);
+      },
+      () => {
+        if (views.get(key) === entry) views.delete(key);
+      }
+    );
+    views.set(key, entry);
+    trimViews(entry);
   }
-  return views.get(key);
+  const entry = views.get(key);
+  // Most recently used goes to the back of the eviction order.
+  views.delete(key);
+  views.set(key, entry);
+  return entry.promise;
+}
+// The newest stays even if it alone is over budget. A view still decoding counts 0 until it lands.
+function trimViews(keep) {
+  for (const [key, old] of views) {
+    if ((viewBytes <= VIEW_BUDGET && views.size <= MAX_VIEWS) || old === keep) break;
+    views.delete(key);
+    viewBytes -= old.bytes;
+  }
 }
 
 // Decoded renders by key, kept for a few designs' worth of views -- bounded by BYTES, not count:

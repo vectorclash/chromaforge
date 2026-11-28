@@ -3686,6 +3686,20 @@ Measured in production builds: hoodie 7 -> 3, zip hoodie 12 -> 5, sweatshirt 6 -
 never the design: the hoodie's print file is one 6000x6000 sheet, so every panel renders at the
 full 2500px `need`. Not reproduced on a phone here (this environment has no WebKit); confirm on
 the device. If it recurs, the next lever is fewer decoded renders held at once on phones.
+(8f) **It did recur, as a silent reload, and the cause was the WORKER's view cache (2026-11-27,
+Aaron: a gallery design taken to the shop became a different artwork on the windbreaker, phone
+only, never on refresh).** The visit events showed it: a second page load on /shop/615 1.3s after
+it opened, in a tab that had just shown the zip hoodie and track jacket (a `leave` is sent once per
+page load, so a repeated `leave` or page_view marks a reload). `instantMockupWorker`'s decoded
+calibration views (~11-16MB each) were capped at 30 by COUNT only; along that route the worker's
+buffers measured 101 -> 262 -> 419 -> 521MB (CDP `Runtime.getHeapUsage` on the worker, phone
+viewport). Now bounded by bytes (`VIEW_BUDGET` 150MB, LRU on hit): 101 -> 262 -> 293 -> 301MB, same
+photos finished. **And the active design now survives any reload of the tab**
+(`lib/activeDesignSession.js`, sessionStorage): an iOS memory reload, lazyWithReload's chunk reload,
+a refresh on a product page, and Stripe's cancel link (a full page load, which used to lose the
+design on EVERY backed-out checkout). Not on `/` or `/studio` (a refresh there asks for new art),
+not across tabs, and a `?id=` link still wins. A saved design comes back with its row id, so it
+reads "Saved".
 (9) **Known gaps**: none -- since 2026-11-16 every product, variant and stitch colour Printful offers
 has a photo set, all 36 MagSafe options included (each Matte is shading-only off its Glossy; the
 mappings measured identical) (checked against the live catalog
